@@ -1,6 +1,7 @@
-#include <fmt/format.h>
+#include "application.hpp"
 
 int main()
 {
-    fmt::println("Hello World!");
+    tido::Application app = tido::Application();
+    return app.run();
 }

@@ -4,9 +4,9 @@
 
 #include "fastgltf/parser.hpp"
 
-#include "../sandbox.hpp"
-#include "../../shader_shared/asset.inl"
-#include "../../shader_shared/scene.inl"
+#include "../timberdoodle.hpp"
+#include "../shader_shared/asset.inl"
+#include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 
 /**

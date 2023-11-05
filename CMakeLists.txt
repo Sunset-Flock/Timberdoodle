@@ -4,6 +4,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
 add_executable(${PROJECT_NAME} 
     "src/main.cpp"
+    "src/window.cpp"
+    "src/application.cpp"
 )
 find_package(fmt CONFIG REQUIRED)
 find_package(daxa CONFIG REQUIRED)
