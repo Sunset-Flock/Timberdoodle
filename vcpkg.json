@@ -1,0 +1,29 @@
+{
+  "name": "sandbox",
+  "version": "0.1.0",
+  "dependencies": [
+    "daxa",
+    "glfw3",
+    {
+      "name": "imgui",
+      "features": [
+        "glfw-binding",
+        "docking-experimental"
+      ]
+    },
+    "glm",
+    "cgltf",
+    "assimp",
+    "meshoptimizer",
+    "fastgltf",
+    "fmt",
+    "ktx",
+    "freeimage"
+  ],
+  "builtin-baseline": "db0473513e5dc73ec6b6f431ff05d2f398eea042",
+  "vcpkg-configuration": {
+    "overlay-ports": [
+      "D:/repos/Daxa/cmake/vcpkg-port"
+    ]
+  }
+}
