@@ -1,0 +1,4 @@
+.vs*
+build
+assets
+preproc/*
