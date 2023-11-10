@@ -2,6 +2,6 @@
 
 int main()
 {
-    tido::Application app = tido::Application();
+    Application app = Application();
     return app.run();
 }

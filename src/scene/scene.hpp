@@ -1,31 +1,33 @@
 #pragma once
 
 #include <optional>
+#include <variant>
 
-#include "fastgltf/parser.hpp"
-
+#include <fastgltf/parser.hpp>
+#include <fastgltf/types.hpp>
 #include "../timberdoodle.hpp"
+
 #include "../shader_shared/asset.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 
+using namespace tido::types;
 /**
- * DESCRIPTION:
- * Scenes are described by entities and their resources.
- * These resources can have complex dependencies between each other.
- * We want to be able to load AND UNLOAD the resources asynchronously.
- * BUT we want to remember unloaded resources. We never delete metadata.
- * The metadata tracks all the complex dependencies. Never deleting them makes the lifetimes for dependencies trivial.
- * It also allows us to have a better tracking of when a resource was unloaded how it was used etc. .
- * We store the metadata in manifest arrays.
- * The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
+* DESCRIPTION:
+* Scenes are described by entities and their resources.
+* These resources can have complex dependencies between each other.
+* We want to be able to load AND UNLOAD the resources asynchronously.
+* BUT we want to remember unloaded resources. We never delete metadata.
+* The metadata tracks all the complex dependencies. Never deleting them makes the lifetimes for dependencies trivial.
+* It also allows us to have a better tracking of when a resource was unloaded how it was used etc. .
+* We store the metadata in manifest arrays.
+* The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
 */
 
 struct SceneFileManifestEntry
 {
     std::filesystem::path path = {};
-    std::unique_ptr<fastgltf::glTF> gltf_info = {};
-    std::unique_ptr<fastgltf::Asset> gltf_asset = {};
+    fastgltf::Asset gltf_asset{};
     /// @brief  Offsets of the gltf indices to the loaded manifest indices.
     ///         Subtracting the scene offset from the manifest index gives you the gltf index.
     u32 texture_manifest_offset = {};
@@ -74,7 +76,7 @@ struct MeshGroupManifestEntry
 };
 
 struct RenderEntity;
-using RenderEntityId = SlotMap<RenderEntity>::Id;
+using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
 struct RenderEntity
 {
@@ -86,22 +88,20 @@ struct RenderEntity
     std::string name = {};
 };
 
-using RenderEntitySlotMap = SlotMap<RenderEntity>;
-
-
+using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;
 
 struct Scene
 {
     /**
-     * NOTES:
-     * - On the cpu, the entities are stored in a slotmap
-     * - On the gpu, render entities are stored in an 'soa' slotmap
-     * - the slotmaps capacity (and its underlying arrays) will only grow with time, it never shrinks
-     * - all entity buffer updates are recorded within the scenes record commands function
-     * - WARNING: FOR NOW THE RENDERER ASSUMES TIGHTLY PACKED ENTITIES!
-     * - TODO: Upload sparse set to gpu so gpu can tightly iterate!
-     * - TODO: Make the task buffers real buffers grow with time, unfix their size!
-     * - TODO: Combine all into one task buffer when task graph gets array uses.
+    * NOTES:
+    * - On the cpu, the entities are stored in a slotmap
+    * - On the gpu, render entities are stored in an 'soa' slotmap
+    * - the slotmaps capacity (and its underlying arrays) will only grow with time, it never shrinks
+    * - all entity buffer updates are recorded within the scenes record commands function
+    * - WARNING: FOR NOW THE RENDERER ASSUMES TIGHTLY PACKED ENTITIES!
+    * - TODO: Upload sparse set to gpu so gpu can tightly iterate!
+    * - TODO: Make the task buffers real buffers grow with time, unfix their size!
+    * - TODO: Combine all into one task buffer when task graph gets array uses.
     */
     daxa::TaskBuffer _gpu_entity_meta = daxa::TaskBufferInfo{.name = "_gpu_entity_meta"};
     daxa::TaskBuffer _gpu_entity_transforms = daxa::TaskBufferInfo{.name = "_gpu_entity_transforms"};
@@ -114,16 +114,16 @@ struct Scene
     std::vector<RenderEntityId> _dirty_render_entities = {}; 
 
     /**
-     * NOTES:
-     * -    growing and initializing the manifest on the gpu is recorded in the scene,
-     *      following UPDATES to the manifests are recorded from the asset processor
-     * - growing and initializing the manifest on the cpu is done when recording scene commands
-     * - the manifests only grow and are largely immutable on the cpu
-     * - specific cpu manifests will have 'runtime' data that is not immutable
-     * - the asset processor may update the immutable runtime data within the manifests
-     * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
-     * - TODO: Make the task buffers real buffers grow with time, unfix their size!
-     * */
+    * NOTES:
+    * -    growing and initializing the manifest on the gpu is recorded in the scene,
+    *      following UPDATES to the manifests are recorded from the asset processor
+    * - growing and initializing the manifest on the cpu is done when recording scene commands
+    * - the manifests only grow and are largely immutable on the cpu
+    * - specific cpu manifests will have 'runtime' data that is not immutable
+    * - the asset processor may update the immutable runtime data within the manifests
+    * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
+    * - TODO: Make the task buffers real buffers grow with time, unfix their size!
+    * */
     daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};  
     daxa::TaskBuffer _gpu_mesh_group_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_group_manifest"};
     daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};       

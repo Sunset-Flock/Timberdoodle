@@ -1,7 +1,7 @@
 #include "gpu_context.hpp"
 
-#include "../../shader_shared/asset.inl"
-#include "../../shader_shared/scene.inl"
+#include "shader_shared/asset.inl"
+#include "shader_shared/scene.inl"
 
 // Not needed, this is set by cmake.
 // Intellisense doesnt get it, so this prevents it from complaining.
@@ -38,13 +38,14 @@ GPUContext::GPUContext(Window const &window)
           .device = this->device,
           .shader_compile_options = daxa::ShaderCompileOptions{
               .root_paths = {
-                  "./shader_shared",
+                  "./src",
                   DAXA_SHADER_INCLUDE_DIR,
               },
               .write_out_preprocessed_code = "./preproc",
               .language = daxa::ShaderLanguage::GLSL,
               .enable_debug_info = true,
           },
+          .register_null_pipelines_when_first_compile_fails = true,
           .name = "Sandbox PipelineCompiler",
       }}},
       transient_mem{{

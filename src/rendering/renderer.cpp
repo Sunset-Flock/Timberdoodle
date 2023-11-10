@@ -1,6 +1,6 @@
 #include "renderer.hpp"
 
-#include "../../shader_shared/scene.inl"
+#include "../shader_shared/scene.inl"
 
 #include "rasterize_visbuffer/draw_visbuffer.inl"
 #include "rasterize_visbuffer/cull_meshes.inl"
@@ -11,6 +11,10 @@
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
+#include <daxa/types.hpp>
+#include <daxa/utils/pipeline_manager.hpp>
+#include <thread>
+#include <variant>
 
 inline auto create_task_buffer(GPUContext *context, auto size, auto task_buf_name, auto buf_name)
 {
@@ -141,7 +145,12 @@ void Renderer::compile_pipelines()
     for (auto [name, info] : rasters)
     {
         auto compilation_result = this->context->pipeline_manager.add_raster_pipeline(info);
-        std::cout << compilation_result.to_string() << std::endl;
+        if(compilation_result.value()->is_valid())
+        {
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
+        }else{
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
+        }
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
@@ -162,8 +171,24 @@ void Renderer::compile_pipelines()
     for (auto [name, info] : computes)
     {
         auto compilation_result = this->context->pipeline_manager.add_compute_pipeline(info);
-        std::cout << compilation_result.to_string() << std::endl;
+        if(compilation_result.value()->is_valid())
+        {
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
+        }else{
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
+        }
         this->context->compute_pipelines[name] = compilation_result.value();
+    }
+
+    while(!context->pipeline_manager.all_pipelines_valid())
+    {
+        const auto result = context->pipeline_manager.reload_all();
+        if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
+        {
+            std::cout << daxa::get<daxa::PipelineReloadError>(result).message << std::endl;
+        }
+        using namespace std::literals;
+        std::this_thread::sleep_for(30ms);
     }
 }
 

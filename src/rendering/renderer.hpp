@@ -4,11 +4,11 @@
 #include <daxa/utils/imgui.hpp>
 
 #include "../window.hpp"
-#include "../../shader_shared/asset.inl"
+#include "../shader_shared/asset.inl"
 #include "../scene/scene.hpp"
 #include "../scene/asset_processor.hpp"
 
-#include "gpu_context.hpp"
+#include "../gpu_context.hpp"
 
 struct CameraInfo
 {

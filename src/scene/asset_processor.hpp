@@ -9,10 +9,12 @@
 
 #include <meshoptimizer.h>
 
-#include "../sandbox.hpp"
-#include "../rendering/gpu_context.hpp"
-#include "../../shader_shared/asset.inl"
+#include "../timberdoodle.hpp"
+#include "../gpu_context.hpp"
+#include "../shader_shared/asset.inl"
 #include "scene.hpp"
+
+using namespace tido::types;
 
 using MeshIndex = size_t;
 using ImageIndex = size_t;

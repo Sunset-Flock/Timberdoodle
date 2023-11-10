@@ -3,10 +3,10 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../../shader_shared/shared.inl"
-#include "../../../shader_shared/asset.inl"
-#include "../../../shader_shared/visbuffer.inl"
-#include "../../../shader_shared/scene.inl"
+#include "../../shader_shared/shared.inl"
+#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/visbuffer.inl"
+#include "../../shader_shared/scene.inl"
 
 DAXA_DECL_TASK_USES_BEGIN(WriteSwapchain, 1)
 DAXA_TASK_USE_IMAGE(swapchain, REGULAR_2D, COMPUTE_SHADER_STORAGE_WRITE_ONLY)
@@ -26,7 +26,7 @@ struct WriteSwapchainPush
 
 #if __cplusplus
 
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 
 struct WriteSwapchainTask
 {

@@ -3,8 +3,8 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../../shader_shared/shared.inl"
-#include "../../../shader_shared/asset.inl"
+#include "../../shader_shared/shared.inl"
+#include "../../shader_shared/asset.inl"
 
 #define GEN_HIZ_X 16
 #define GEN_HIZ_Y 16
@@ -24,7 +24,7 @@ struct GenHizPush
 #if __cplusplus
 
 #include <format>
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 
 inline static const daxa::ComputePipelineCompileInfo GEN_HIZ_PIPELINE_COMPILE_INFO{
     .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},

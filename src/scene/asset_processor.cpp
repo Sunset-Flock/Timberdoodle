@@ -313,7 +313,7 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
         (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGB) ||
         (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGBALPHA);
     const bool contains_all_color_channels = has_red_channel && has_green_channel && has_blue_channel;
-    ASSERT_M(should_contain_all_color_channels == contains_all_color_channels,
+    DBG_ASSERT_TRUE_M(should_contain_all_color_channels == contains_all_color_channels,
              std::string("[ERROR][free_image_parse_raw_image_data()] Image color type indicates color channels present") +
                  std::string(" but not all channels were present accoring to color masks"));
 
@@ -382,7 +382,7 @@ auto AssetProcessor::load_texture(Scene &scene, u32 texture_manifest_index) -> A
 {
     TextureManifestEntry const &texture_entry = scene._material_texture_manifest.at(texture_manifest_index);
     SceneFileManifestEntry const &scene_entry = scene._scene_file_manifest.at(texture_entry.scene_file_manifest_index);
-    fastgltf::Asset const &gltf_asset = *scene_entry.gltf_asset;
+    fastgltf::Asset const &gltf_asset = scene_entry.gltf_asset;
     fastgltf::Image const &image = gltf_asset.images.at(texture_entry.in_scene_file_index);
     std::vector<std::byte> raw_data = {};
 
@@ -513,8 +513,8 @@ auto load_accessor_data_from_file(
 auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::AssetLoadResultCode
 {
     MeshManifestEntry &mesh_data = scene._mesh_manifest.at(mesh_index);
-    SceneFileManifestEntry const &gltf_scene = scene._scene_file_manifest.at(mesh_data.scene_file_manifest_index);
-    fastgltf::Asset &gltf_asset = *gltf_scene.gltf_asset;
+    SceneFileManifestEntry &gltf_scene = scene._scene_file_manifest.at(mesh_data.scene_file_manifest_index);
+    fastgltf::Asset &gltf_asset = gltf_scene.gltf_asset;
     fastgltf::Mesh &gltf_mesh = gltf_asset.meshes[mesh_data.scene_file_mesh_index];
     fastgltf::Primitive &gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
 
@@ -541,11 +541,12 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     std::vector<u32> index_buffer = std::get<std::vector<u32>>(std::move(index_buffer_data));
 
     /// NOTE: Load vertex positions
-    if (!gltf_prim.attributes.contains(VERT_ATTRIB_POSITION_NAME))
+    auto vert_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
+    if (vert_attrib_iter == gltf_prim.attributes.end())
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS;
     }
-    fastgltf::Accessor &gltf_vertex_pos_accessor = gltf_asset.accessors.at(gltf_prim.attributes[VERT_ATTRIB_POSITION_NAME]);
+    fastgltf::Accessor &gltf_vertex_pos_accessor = gltf_asset.accessors.at(vert_attrib_iter->second);
     bool const gltf_vertex_pos_accessor_valid =
         gltf_vertex_pos_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_pos_accessor.type == fastgltf::AccessorType::Vec3;
@@ -621,7 +622,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     mesh_descriptor.offset_meshlet_bounds = accumulated_offset;
     accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
     // ---
-    ASSERT_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
+    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
     mesh_descriptor.offset_micro_indices = accumulated_offset;
     accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
     // ---
@@ -637,7 +638,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     u32 const total_gpu_mesh_size = accumulated_offset;
     mesh_descriptor.mesh_buffer = _device.create_buffer({
         .size = s_cast<daxa::usize>(total_gpu_mesh_size),
-        .name = gltf_mesh.name,
+        .name = gltf_mesh.name.c_str(),
     });
     daxa::BufferDeviceAddress bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh_descriptor.mesh_buffer)).value();
     mesh_data.runtime = mesh_descriptor;
@@ -646,7 +647,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     daxa::BufferId staging_buffer = _device.create_buffer({
         .size = s_cast<daxa::usize>(total_gpu_mesh_size),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = gltf_mesh.name + " staging",
+        .name = std::string(gltf_mesh.name.c_str()) + " staging",
     });
     auto staging_ptr = _device.get_host_address(staging_buffer).value();
     std::memcpy(

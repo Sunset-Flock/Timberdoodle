@@ -3,8 +3,8 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../../shader_shared/shared.inl"
-#include "../../../shader_shared/asset.inl"
+#include "../../shader_shared/shared.inl"
+#include "../../shader_shared/asset.inl"
 
 #define PREFIX_SUM_BLOCK_SIZE 1024
 #define PREFIX_SUM_WORKGROUP_SIZE PREFIX_SUM_BLOCK_SIZE
@@ -55,7 +55,7 @@ struct PrefixSumPush
 
 #if __cplusplus
 
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 #include "misc.hpp"
 
 static constexpr inline char const PREFIX_SUM_SHADER_PATH[] = "./src/rendering/tasks/prefix_sum.glsl";

@@ -6,50 +6,48 @@
 #include <imgui.h>
 
 #include "window.hpp"
-#include "sandbox.hpp"
+#include "timberdoodle.hpp"
+using namespace tido::types;
 
-namespace tido
+struct UIEngine
 {
-    struct UIEngine
+    bool widget_settings = false;
+    bool widget_renderer_statistics = false;
+    UIEngine(Window &window)
     {
-        bool widget_settings = false;
-        bool widget_renderer_statistics = false;
-        UIEngine(Window &window)
+        ImGui::CreateContext();
+        ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
+    }
+    void main_update(Settings &settings)
+    {
+        ImGui_ImplGlfw_NewFrame();
+        ImGui::NewFrame();
+        if (ImGui::BeginMainMenuBar())
         {
-            ImGui::CreateContext();
-            ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
+            if (ImGui::BeginMenu("Widgets"))
+            {
+                ImGui::MenuItem("Settings", NULL, &widget_settings);
+                ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
+                ImGui::EndMenu();
+            }
+            ImGui::EndMainMenuBar();
         }
-        void main_update(Settings &settings)
+        if (widget_settings)
         {
-            ImGui_ImplGlfw_NewFrame();
-            ImGui::NewFrame();
-            if (ImGui::BeginMainMenuBar())
+            if (ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoCollapse))
             {
-                if (ImGui::BeginMenu("Widgets"))
-                {
-                    ImGui::MenuItem("Settings", NULL, &widget_settings);
-                    ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
-                    ImGui::EndMenu();
-                }
-                ImGui::EndMainMenuBar();
+                ImGui::InputScalarN("resolution", ImGuiDataType_U32, &settings.render_target_size, 2);
+                ImGui::End();
             }
-            if (widget_settings)
-            {
-                if (ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoCollapse))
-                {
-                    ImGui::InputScalarN("resolution", ImGuiDataType_U32, &settings.render_target_size, 2);
-                    ImGui::End();
-                }
-            }
-            if (widget_renderer_statistics)
-            {
-                if (ImGui::Begin("Renderer Statistics", nullptr, ImGuiWindowFlags_NoCollapse))
-                {
-                    ImGui::Text("fps: 100");
-                    ImGui::End();
-                }
-            }
-            ImGui::Render();
         }
-    };
-}
+        if (widget_renderer_statistics)
+        {
+            if (ImGui::Begin("Renderer Statistics", nullptr, ImGuiWindowFlags_NoCollapse))
+            {
+                ImGui::Text("fps: 100");
+                ImGui::End();
+            }
+        }
+        ImGui::Render();
+    }
+};

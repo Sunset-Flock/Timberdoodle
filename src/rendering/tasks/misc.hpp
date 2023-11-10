@@ -2,7 +2,7 @@
 
 #include <daxa/daxa.hpp>
 #include <daxa/utils/task_graph.hpp>
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 
 template <typename T_USES_BASE, char const *T_FILE_PATH>
 struct WriteIndirectDispatchArgsBaseTask

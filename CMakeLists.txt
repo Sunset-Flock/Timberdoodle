@@ -6,6 +6,10 @@ add_executable(${PROJECT_NAME}
     "src/main.cpp"
     "src/window.cpp"
     "src/application.cpp"
+    "src/gpu_context.cpp"
+    "src/rendering/renderer.cpp"
+    "src/scene/scene.cpp"
+    "src/scene/asset_processor.cpp"
 )
 find_package(fmt CONFIG REQUIRED)
 find_package(daxa CONFIG REQUIRED)
@@ -49,3 +53,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     KTX::ktx
     freeimage::FreeImage
 )
+
+if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
+    target_link_libraries(${PROJECT_NAME} PRIVATE Dwmapi)
+endif()

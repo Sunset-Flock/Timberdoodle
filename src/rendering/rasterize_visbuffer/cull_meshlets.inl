@@ -3,10 +3,10 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../../shader_shared/shared.inl"
-#include "../../../shader_shared/scene.inl"
-#include "../../../shader_shared/asset.inl"
-#include "../../../shader_shared/cull_util.inl"
+#include "../../shader_shared/shared.inl"
+#include "../../shader_shared/scene.inl"
+#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/cull_util.inl"
 
 #if __cplusplus || defined(CullMeshlets_)
 DAXA_DECL_TASK_USES_BEGIN(CullMeshlets, 1)
@@ -33,7 +33,7 @@ struct CullMeshletsPush
 
 #if __cplusplus
 
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
 
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";

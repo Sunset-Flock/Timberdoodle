@@ -3,9 +3,9 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
-#include "../../../shader_shared/shared.inl"
-#include "../../../shader_shared/asset.inl"
-#include "../../../shader_shared/scene.inl"
+#include "../../shader_shared/shared.inl"
+#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/scene.inl"
 
 /// 
 /// CullMeshesTask goes through all entities and their meshlists.
@@ -40,7 +40,7 @@ DAXA_DECL_TASK_USES_END()
 #endif
 
 #if __cplusplus
-#include "../gpu_context.hpp"
+#include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
 
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] =

@@ -1,7 +1,8 @@
 #pragma once
 
-#include "../sandbox.hpp"
-#include "../window.hpp"
+#include "timberdoodle.hpp"
+#include "window.hpp"
+#include "shader_shared/shared.inl"
 
 struct GPUContext
 {

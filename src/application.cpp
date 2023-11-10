@@ -1,6 +1,6 @@
 #include "application.hpp"
 #include "ui.hpp"
-#include "fmt/format.h"
+#include <fmt/format.h>
 
 void CameraController::process_input(Window &window, f32 dt)
 {
@@ -134,7 +134,7 @@ Application::Application()
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "medieval_battle\\medieval_battle.glb";
     auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
     if (Scene::LoadManifestErrorCode const *err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {
@@ -180,7 +180,7 @@ auto Application::run() -> i32
         this->last_time_point = new_time_point;
         _window->update(delta_time);
         keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
-        daxa_i32vec2 new_window_size;
+        i32vec2 new_window_size;
         glfwGetWindowSize(this->_window->glfw_handle, &new_window_size.x, &new_window_size.y);
         if (this->_window->size.x != new_window_size.x || _window->size.y != new_window_size.y)
         {
