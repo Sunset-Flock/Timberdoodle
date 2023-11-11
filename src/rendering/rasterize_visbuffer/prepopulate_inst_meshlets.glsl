@@ -8,7 +8,7 @@
 
 #define WORKGROUP_SIZE PREPOPULATE_INST_MESHLETS_X
 
-#if defined(PrepopulateInstantiatedMeshletsCommandWrite_COMMAND)
+#if defined(PrepopInstMeshletCommW_COMMAND)
 layout(local_size_x = 1) in;
 void main()
 {

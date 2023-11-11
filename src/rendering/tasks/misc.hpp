@@ -4,6 +4,7 @@
 #include <daxa/utils/task_graph.hpp>
 #include "../../gpu_context.hpp"
 
+/// TODO: CHANGE THE DEFINE TO BE USER GIVEN!!! DO NOOT TAKE THE CLASS NAME THIS IS TOO ERROR PRONE!!!
 template <typename T_USES_BASE, char const *T_FILE_PATH>
 struct WriteIndirectDispatchArgsBaseTask
 {

@@ -7,14 +7,13 @@
 #include "../../shader_shared/asset.inl"
 #define PREPOPULATE_INST_MESHLETS_X 256
 
-#if __cplusplus || defined(PrepopulateInstantiatedMeshletsCommandWrite_COMMAND)
-//PrepopulateInstancedMeshletCommandWrite (shortened because Smallstring has only capacity 40)
+#if __cplusplus || defined(PrepopInstMeshletCommW_COMMAND)
 DAXA_DECL_TASK_USES_BEGIN(PrepopInstMeshletCommW, 1)
 DAXA_TASK_USE_BUFFER(u_visible_meshlets_prev, daxa_BufferPtr(VisibleMeshletList), COMPUTE_SHADER_READ)
 DAXA_TASK_USE_BUFFER(u_command, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_WRITE)
 DAXA_DECL_TASK_USES_END()
 #endif
-#if __cplusplus || !defined(PrepopulateInstantiatedMeshletsCommandWrite_COMMAND) && !defined(SetEntityMeshletVisibilityBitMasks_SHADER)
+#if __cplusplus || !defined(PrepopInstMeshletCommW_COMMAND) && !defined(SetEntityMeshletVisibilityBitMasks_SHADER)
 // In the future we should check if the entity slot is actually valid here.
 // To do that we need a version in the entity id and a version table we can compare to
 DAXA_DECL_TASK_USES_BEGIN(PrepopulateInstMeshlets, 1)

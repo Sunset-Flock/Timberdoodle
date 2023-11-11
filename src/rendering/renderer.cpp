@@ -292,17 +292,17 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer({sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
     auto entity_meshlet_visibility_bitfield_arena = task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
-    task_prepopulate_instantiated_meshlets(
-        context,
-        task_list,
-        PrepopInfo{
-            .meshes = scene->_gpu_mesh_manifest,
-            .visible_meshlets_prev = visible_meshlet_instances,
-            .meshlet_instances_last_frame = meshlet_instances_last_frame,
-            .meshlet_instances = meshlet_instances,
-            .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
-            .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
-        });
+    // task_prepopulate_instantiated_meshlets(
+    //     context,
+    //     task_list,
+    //     PrepopInfo{
+    //         .meshes = scene->_gpu_mesh_manifest,
+    //         .visible_meshlets_prev = visible_meshlet_instances,
+    //         .meshlet_instances_last_frame = meshlet_instances_last_frame,
+    //         .meshlet_instances = meshlet_instances,
+    //         .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
+    //         .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
+    //     });
     task_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -473,7 +473,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
         .slot = SHADER_GLOBALS_SLOT,
         .buffer = context->shader_globals_buffer,
         .size = sizeof(ShaderGlobalsBlock),
-        .offset = sizeof(ShaderGlobalsBlock) * flight_frame_index,
+        .offset = round_up_to_multiple(sizeof(ShaderGlobalsBlock) * flight_frame_index, context->device.properties().limits.min_uniform_buffer_offset_alignment),
     };
 
     auto swapchain_image = context->swapchain.acquire_next_image();
