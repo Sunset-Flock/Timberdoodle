@@ -59,9 +59,9 @@ private:
         * WARNING: THIS CAN ONLY BE APPLIED LIKE THIS FOR LOW FREQUENCY TYPES, AS IT MIGHT INCUR PERFORMANCE PROBLEMS OTHERWISE!
         */
     std::unique_ptr<Window> _window = {};
+    std::unique_ptr<GPUContext> _gpu_context = {};
     std::unique_ptr<Scene> _scene = {};
     std::unique_ptr<AssetProcessor> _asset_manager = {};
-    std::unique_ptr<GPUContext> _gpu_context = {};
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
     CameraController camera_controller = {};
