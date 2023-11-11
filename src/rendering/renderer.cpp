@@ -292,17 +292,17 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer({sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
     auto entity_meshlet_visibility_bitfield_arena = task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
-    // task_prepopulate_instantiated_meshlets(
-    //     context,
-    //     task_list,
-    //     PrepopInfo{
-    //         .meshes = scene->_gpu_mesh_manifest,
-    //         .visible_meshlets_prev = visible_meshlet_instances,
-    //         .meshlet_instances_last_frame = meshlet_instances_last_frame,
-    //         .meshlet_instances = meshlet_instances,
-    //         .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
-    //         .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
-    //     });
+    task_prepopulate_instantiated_meshlets(
+        context,
+        task_list,
+        PrepopInfo{
+            .meshes = scene->_gpu_mesh_manifest,
+            .visible_meshlets_prev = visible_meshlet_instances,
+            .meshlet_instances_last_frame = meshlet_instances_last_frame,
+            .meshlet_instances = meshlet_instances,
+            .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
+            .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
+        });
     task_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -399,7 +399,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .uses = {
             ImageColorAttachment<>{swapchain_image},
         },
-        .task = [=](daxa::TaskInterface ti)
+        .task = [=, this](daxa::TaskInterface ti)
         {
             auto & cmd_list = ti.get_recorder();
             auto size = ti.get_device().info_image(ti.uses[swapchain_image].image()).value().size;
@@ -467,13 +467,14 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     this->context->shader_globals.globals.camera_top_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
     this->context->shader_globals.globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
-    context->device.get_host_address_as<ShaderGlobalsBlock>(context->shader_globals_buffer).value()[flight_frame_index] = context->shader_globals;
-    context->shader_globals_ptr = context->device.get_device_address(context->shader_globals_buffer).value() + sizeof(ShaderGlobalsBlock) * flight_frame_index;
+    const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobalsBlock), context->device.properties().limits.min_uniform_buffer_offset_alignment);
+    *r_cast<ShaderGlobalsBlock*>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
+    context->shader_globals_ptr = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
     context->shader_globals_set_info = {
         .slot = SHADER_GLOBALS_SLOT,
         .buffer = context->shader_globals_buffer,
         .size = sizeof(ShaderGlobalsBlock),
-        .offset = round_up_to_multiple(sizeof(ShaderGlobalsBlock), context->device.properties().limits.min_uniform_buffer_offset_alignment) * flight_frame_index,
+        .offset = aligned_globals_block_size * flight_frame_index,
     };
 
     auto swapchain_image = context->swapchain.acquire_next_image();
