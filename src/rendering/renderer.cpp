@@ -473,7 +473,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
         .slot = SHADER_GLOBALS_SLOT,
         .buffer = context->shader_globals_buffer,
         .size = sizeof(ShaderGlobalsBlock),
-        .offset = round_up_to_multiple(sizeof(ShaderGlobalsBlock) * flight_frame_index, context->device.properties().limits.min_uniform_buffer_offset_alignment),
+        .offset = round_up_to_multiple(sizeof(ShaderGlobalsBlock), context->device.properties().limits.min_uniform_buffer_offset_alignment) * flight_frame_index,
     };
 
     auto swapchain_image = context->swapchain.acquire_next_image();
