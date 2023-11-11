@@ -61,6 +61,7 @@ GPUContext::GPUContext(Window const &window)
 {
     shader_globals.globals.samplers = {
         .linear_clamp = this->device.create_sampler({
+            .enable_compare = true,
             .name = "linear clamp sampler",
         }), 
         .nearest_clamp = this->device.create_sampler({
