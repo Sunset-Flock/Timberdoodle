@@ -46,7 +46,6 @@ void UIEngine::main_update(Settings &settings, Scene const & scene)
 
 void UIEngine::draw_scenegraph(Scene const & scene)
 {
-    ImGui::Begin("Scene Hierarchy", nullptr, ImGuiWindowFlags_NoCollapse);
     scene_graph.begin();
 
     struct StackEntry
@@ -126,7 +125,6 @@ void UIEngine::draw_scenegraph(Scene const & scene)
     }
 
     scene_graph.end();
-    ImGui::End(); // Scene graph widget window
 
     ImGui::ShowDemoWindow();
 }

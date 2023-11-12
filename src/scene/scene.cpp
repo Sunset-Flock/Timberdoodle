@@ -292,12 +292,14 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
 
     /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
     //        Child root entites under scene root node
-    RenderEntityId root_r_ent_id = _render_entities.create_slot({.transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
-                                                                .first_child = std::nullopt,
-                                                                .next_sibling = std::nullopt,
-                                                                .parent = std::nullopt,
-                                                                .mesh_group_manifest_index = std::nullopt,
-                                                                .name = glb_name.string() + " scene root node"});
+    RenderEntityId root_r_ent_id = _render_entities.create_slot({
+        .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
+        .first_child = std::nullopt,
+        .next_sibling = std::nullopt,
+        .parent = std::nullopt,
+        .mesh_group_manifest_index = std::nullopt,
+        .name = glb_name.filename().replace_extension("").string() + "_" + std::to_string(scene_file_manifest_index)
+    });
     _dirty_render_entities.push_back(root_r_ent_id);
     RenderEntity &root_r_ent = *_render_entities.slot(root_r_ent_id);
     std::optional<RenderEntityId> root_r_ent_prev_child = {};

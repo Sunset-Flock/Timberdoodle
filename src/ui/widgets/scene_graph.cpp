@@ -5,10 +5,21 @@ namespace tido
 {
     namespace ui
     {
+        static constexpr u32 stylevar_change_count = 4;
+
         void SceneGraph::begin()
         {
+            /// NOTE: For now we count the number of stylevars changed with a constexpr value
+            //        this MUST match the number of pushes we do here otherwise we get style leaking
+            //        into other windows which might be undesireable
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {0, 0});
+            ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {4, 5});
+            ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
+            ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
+            ImGui::Begin("Scene Hierarchy", nullptr, ImGuiWindowFlags_NoCollapse);
+
             static ImGuiTableFlags flags = 
-                ImGuiTableFlags_BordersV |
+                ImGuiTableFlags_BordersOuterV |
                 ImGuiTableFlags_BordersOuterH |
                 ImGuiTableFlags_Resizable |
                 ImGuiTableFlags_RowBg | 
@@ -17,9 +28,8 @@ namespace tido
             context = ImGui::GetCurrentContext();
             table = context->CurrentTable;
             window = context->CurrentWindow;
+            per_level_indent = 20.0;
             ImGui::TableSetupColumn("Name");
-            ImGui::TableHeadersRow();
-
         }
 
         auto SceneGraph::get_cell_bounds() -> ImRect
@@ -43,18 +53,21 @@ namespace tido
 
         void SceneGraph::end()
         {
+            /// NOTE: Make sure this value matches the number of stylevars we pushed in begin()
             ImGui::EndTable();
+            ImGui::End(); // Scene graph widget window
+            ImGui::PopStyleVar(stylevar_change_count);
         }
 
         void SceneGraph::add_level()
         {
-            ImGui::Indent();
+            ImGui::Indent(per_level_indent);
             window->DC.TreeDepth++;
         }
 
         void SceneGraph::remove_level()
         {
-            ImGui::Unindent();
+            ImGui::Unindent(per_level_indent);
             window->DC.TreeDepth--;
         }
 
@@ -74,7 +87,7 @@ namespace tido
                 DEBUG_MSG(fmt::format("Leaf with uuid {} pressed", uuid).c_str());
             }
             window->DC.CursorPos.x += context->FontSize * 2;
-            ImGui::TextUnformatted(fmt::format("Leaf {}", uuid).c_str());
+            ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return RetNodeState::CLOSED;
         }
 
@@ -105,7 +118,7 @@ namespace tido
             ImGuiDir arrow_dir = elem_state ? ImGuiDir_Down : ImGuiDir_Right;
             ImGui::RenderArrow(window->DrawList, arrow_pos, ImGui::GetColorU32(ImGuiCol(ImGuiCol_Text)), arrow_dir, ARROW_SCALE);
             window->DC.CursorPos.x += context->FontSize * 2;
-            ImGui::TextUnformatted(fmt::format("Inner {}", uuid).c_str());
+            ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return elem_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
         }
 

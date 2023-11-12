@@ -39,6 +39,8 @@ namespace tido
                 ImGuiTable *table = {};
                 ImGuiWindow *window = {};
 
+                f32 per_level_indent = {};
+
                 auto get_cell_bounds() -> ImRect;
                 auto add_leaf_node(std::string uuid) -> RetNodeState;
                 auto add_inner_node(std::string uuid) -> RetNodeState;

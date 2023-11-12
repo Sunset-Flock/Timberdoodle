@@ -3,4 +3,4 @@ build
 assets
 preproc/*
 .cache*
-.imgui.ini
+imgui.ini

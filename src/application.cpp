@@ -135,7 +135,8 @@ Application::Application()
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "medieval_battle\\medieval_battle_gltf\\medieval_battle.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medieval_battle\\medieval_battle_gltf\\medieval_battle.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
     auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
     if (Scene::LoadManifestErrorCode const *err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {
@@ -152,7 +153,7 @@ Application::Application()
             glm::vec3(0.0f, 0.0f, 1.0f),
             glm::vec3(0.0f, 1.0f, 0.0f),
             glm::vec3(0.0f, 0.0f, 0.0f)
-        ) * 100'000'000.0f;
+        ) * 10.0f;
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
                      (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
@@ -162,13 +163,13 @@ Application::Application()
     auto const load_result = _asset_manager->load_all(*_scene);
     if(load_result != AssetProcessor::AssetLoadResultCode::SUCCESS)
     {
-        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene \"{}\" Assets Error: {}",
+        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Error: {}",
             (DEFAULT_HARDCODED_PATH/DEFAULT_HARDCODED_FILE).string(),
             AssetProcessor::to_string(load_result)));
     } 
     else 
     {
-        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene \"{}\" Assets Success",
+        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Success",
             (DEFAULT_HARDCODED_PATH/DEFAULT_HARDCODED_FILE).string()));
     }
     auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
