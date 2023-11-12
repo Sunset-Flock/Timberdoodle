@@ -34,7 +34,7 @@ void main()
     }
     else
     {
-        output_value = vec4(vec3(1,1,1) * checker,1);
+        output_value = vec4(vec3(0.05) * checker,1);
     }
     // vec4 debug_value = imageLoad(daxa_image2D(u_debug_image), index);
     vec4 debug_value = vec4(0,0,0,0);
