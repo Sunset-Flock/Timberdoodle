@@ -1,5 +1,4 @@
 #include "application.hpp"
-#include "ui.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
 
@@ -135,6 +134,7 @@ Application::Application()
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     std::filesystem::path const DEFAULT_HARDCODED_FILE = "medieval_battle\\medieval_battle_gltf\\medieval_battle.gltf";
     auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
     if (Scene::LoadManifestErrorCode const *err = std::get_if<Scene::LoadManifestErrorCode>(&result))
@@ -152,7 +152,7 @@ Application::Application()
             glm::vec3(0.0f, 0.0f, 1.0f),
             glm::vec3(0.0f, 1.0f, 0.0f),
             glm::vec3(0.0f, 0.0f, 0.0f)
-        ) * 10'000'000.0f;
+        ) * 100'000'000.0f;
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
                      (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
@@ -211,7 +211,7 @@ void Application::update()
     {
         return;
     }
-    // _ui_engine.main_update(_gpu_context->settings);
+    _ui_engine->main_update(_gpu_context->settings, *_scene);
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);

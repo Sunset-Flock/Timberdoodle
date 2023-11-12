@@ -37,7 +37,7 @@ void downsample_64x64(
         vec4 fetch;
         if (src_mip == -1)
         {
-            fetch = textureGather(daxa_sampler2DShadow(push.src, globals.samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
+            fetch = textureGather(daxa_sampler2D(push.src, globals.samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
         }
         else
         {

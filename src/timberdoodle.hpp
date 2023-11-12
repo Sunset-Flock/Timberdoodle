@@ -12,7 +12,7 @@
 
 namespace tido
 {
-    namespace types
+    inline namespace types
     {
         using u8 = std::uint8_t;
         using u16 = std::uint16_t;

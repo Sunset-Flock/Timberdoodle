@@ -24,18 +24,6 @@ using namespace tido::types;
 * The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
 */
 
-struct SceneFileManifestEntry
-{
-    std::filesystem::path path = {};
-    fastgltf::Asset gltf_asset{};
-    /// @brief  Offsets of the gltf indices to the loaded manifest indices.
-    ///         Subtracting the scene offset from the manifest index gives you the gltf index.
-    u32 texture_manifest_offset = {};
-    u32 material_manifest_offset = {};
-    u32 mesh_group_manifest_offset = {};
-    u32 mesh_manifest_offset = {};
-};
-
 struct TextureManifestEntry
 {
     u32 scene_file_manifest_index = {};
@@ -86,6 +74,19 @@ struct RenderEntity
     std::optional<RenderEntityId> parent = {};
     std::optional<u32> mesh_group_manifest_index = {};
     std::string name = {};
+};
+
+struct SceneFileManifestEntry
+{
+    std::filesystem::path path = {};
+    fastgltf::Asset gltf_asset{};
+    /// @brief  Offsets of the gltf indices to the loaded manifest indices.
+    ///         Subtracting the scene offset from the manifest index gives you the gltf index.
+    u32 texture_manifest_offset = {};
+    u32 material_manifest_offset = {};
+    u32 mesh_group_manifest_offset = {};
+    u32 mesh_manifest_offset = {};
+    RenderEntityId root_render_entity = {};
 };
 
 using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;

@@ -3,6 +3,16 @@
 #include "shader_shared/asset.inl"
 #include "shader_shared/scene.inl"
 
+#if defined(_WIN32)
+#define GLFW_EXPOSE_NATIVE_WIN32
+#define GLFW_NATIVE_INCLUDE_NONE
+using HWND = void *;
+#elif defined(__linux__)
+#define GLFW_EXPOSE_NATIVE_X11
+#define GLFW_EXPOSE_NATIVE_WAYLAND
+#endif
+#include <GLFW/glfw3native.h>
+
 // Not needed, this is set by cmake.
 // Intellisense doesnt get it, so this prevents it from complaining.
 #if !defined(DAXA_SHADER_INCLUDE_DIR)
@@ -61,7 +71,6 @@ GPUContext::GPUContext(Window const &window)
 {
     shader_globals.globals.samplers = {
         .linear_clamp = this->device.create_sampler({
-            .enable_compare = true,
             .name = "linear clamp sampler",
         }), 
         .nearest_clamp = this->device.create_sampler({

@@ -12,9 +12,9 @@ using namespace tido::types;
 
 #include "scene/scene.hpp"
 #include "scene/asset_processor.hpp"
+#include "ui/ui.hpp"
 #include "rendering/renderer.hpp"
 #include "gpu_context.hpp"
-#include "ui.hpp"
 
 struct CameraController
 {

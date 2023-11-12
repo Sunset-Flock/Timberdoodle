@@ -6,23 +6,6 @@
 using namespace tido::types;
 
 #include <GLFW/glfw3.h>
-#if defined(_WIN32)
-#define GLFW_EXPOSE_NATIVE_WIN32
-#define GLFW_NATIVE_INCLUDE_NONE
-#define WIN32_LEAN_AND_MEAN
-#define NOMINMAX
-#include <dwmapi.h>
-#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
-#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
-#endif // DWMWA_USE_IMMERSIVE_DARK_MODE
-// Windows libraries...
-#undef near
-#undef far
-#elif defined(__linux__) // defined(_WIN32)
-#define GLFW_EXPOSE_NATIVE_X11
-#define GLFW_EXPOSE_NATIVE_WAYLAND
-#endif // __linux__
-#include <GLFW/glfw3native.h>
 
 struct WindowState
 {

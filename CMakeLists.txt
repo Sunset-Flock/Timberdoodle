@@ -7,6 +7,7 @@ add_executable(${PROJECT_NAME}
     "src/window.cpp"
     "src/application.cpp"
     "src/gpu_context.cpp"
+    "src/ui/scene_graph.cpp"
     "src/rendering/renderer.cpp"
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"

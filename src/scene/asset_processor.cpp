@@ -632,6 +632,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     mesh_descriptor.offset_vertex_positions = accumulated_offset;
     accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
     // ---
+    /// TODO: If there is no material index add default debug material?
     mesh_descriptor.material_index = gltf_scene.material_manifest_offset + gltf_prim.materialIndex.value();
     mesh_descriptor.meshlet_count = meshlet_count;
     mesh_descriptor.vertex_count = vertex_count;

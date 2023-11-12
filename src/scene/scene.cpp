@@ -270,6 +270,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
         RenderEntity &r_ent = *_render_entities.slot(parent_r_ent_id);
         r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()) + mesh_group_manifest_offset) : std::optional<u32>(std::nullopt);
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
+        r_ent.name = node.name.c_str();
         if (!node.children.empty())
         {
             r_ent.first_child = node_index_to_entity_id[node.children[0]];
@@ -328,6 +329,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
         .material_manifest_offset = material_manifest_offset,
         .mesh_group_manifest_offset = mesh_group_manifest_offset,
         .mesh_manifest_offset = mesh_manifest_offset,
+        .root_render_entity = root_r_ent_id
     });
     return root_r_ent_id;
 }

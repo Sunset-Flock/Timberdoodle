@@ -1,4 +1,13 @@
 #include "window.hpp"
+
+
+#if defined(_WIN32)
+#include <dwmapi.h>
+#ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
+#define DWMWA_USE_IMMERSIVE_DARK_MODE 20
+#endif // DWMWA_USE_IMMERSIVE_DARK_MODE
+#endif // defined(_WIN32)
+
 #include <GLFW/glfw3native.h>
 
 using namespace tido::types;
