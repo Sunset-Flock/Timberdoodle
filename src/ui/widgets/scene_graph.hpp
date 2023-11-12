@@ -2,7 +2,7 @@
 #include <imgui_impl_glfw.h>
 #include <imgui_internal.h>
 #include <imgui.h>
-#include "../timberdoodle.hpp"
+#include "../../timberdoodle.hpp"
 
 namespace tido
 {
