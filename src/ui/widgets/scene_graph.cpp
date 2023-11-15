@@ -9,12 +9,15 @@ namespace tido
         static constexpr u32 stylevar_change_count = 4;
 
         SceneGraph::SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler) : 
+            icon_size{16.0f},
+            icon_text_spacing{3.0f},
+            indent{16.0f},
             renderer{renderer},
             icons{icons},
-            linear_sampler(linear_sampler),
-            per_level_indent{10.0f}
+            linear_sampler(linear_sampler)
         {
         }
+
 
         void SceneGraph::begin()
         {
@@ -46,7 +49,7 @@ namespace tido
             ImRect cell_row_bb = ImGui::TableGetCellBgRect(table, 0);
             f32 label_height = std::max(
                 ImGui::CalcTextSize("x").y,
-                table->RowMinHeight - table->RowCellPaddingY * 2.0f
+                table->RowMinHeight
             );
             return ImRect(
                 cell_row_bb.Min.x,
@@ -69,24 +72,29 @@ namespace tido
 
         void SceneGraph::add_level()
         {
-            ImGui::Indent(per_level_indent);
+            ImGui::Indent(indent);
             window->DC.TreeDepth++;
         }
 
         void SceneGraph::remove_level()
         {
-            ImGui::Unindent(per_level_indent);
+            ImGui::Unindent(indent);
             window->DC.TreeDepth--;
         }
 
-        auto SceneGraph::add_leaf_node(std::string uuid, NodeType type) -> RetNodeState
+        auto SceneGraph::add_leaf_node(std::string uuid, ICONS icon) -> RetNodeState
         {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+
             ImRect cell_bounds = get_cell_bounds();
+            f32 const real_cell_max_y = std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size + context->Style.CellPadding.y * 2.0f);
+            ImRect real_cell_bounds = ImRect(cell_bounds.Min, ImVec2(cell_bounds.Max.x,real_cell_max_y));
 
             ImVec2 font_size = ImGui::CalcTextSize("x");
             ImGuiID const elem_id = window->GetID(fmt::format("bounds_elem_{}", uuid).c_str());
 
-            State const elem_state = button_like_behavior(cell_bounds, elem_id);
+            State const elem_state = button_like_behavior(real_cell_bounds, elem_id);
             if(elem_state.pressed)
             {
                 DEBUG_MSG(fmt::format("elem pressed {}", uuid));
@@ -99,28 +107,35 @@ namespace tido
                 ImGuiCol_ new_color = selected ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered;
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(ImGuiCol(new_color)), table->CurrentColumn);
             }
-            ICONS icon = ICONS::MESH;
+            ImGui::SetCursorPosX(ImGui::GetCursorPosX() + icon_size);
             ImGui::Image(renderer->create_texture_id({
                     .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
                     .sampler_id = linear_sampler
                 }), 
-                ImVec2(font_size.x * 2.0f, font_size.y),
-                ImVec2(0.0, 1.1), ImVec2(1.0, -0.1),
-                ImGui::GetStyleColorVec4(ImGuiCol_Text)
+                ImVec2(icon_size, icon_size),
+                ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
+                icon_to_color(icon)
             );
-            ImGui::SameLine();
+            const f32 prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
+            ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
             ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return RetNodeState::CLOSED;
         }
 
-        auto SceneGraph::add_inner_node(std::string uuid) -> RetNodeState
+        auto SceneGraph::add_inner_node(std::string uuid, ICONS icon) -> RetNodeState
         {
+            ImGui::TableNextRow();
+            ImGui::TableNextColumn();
+
             ImRect cell_bounds = get_cell_bounds();
 
             ImVec2 font_size = ImGui::CalcTextSize("x");
             ImRect icon_bounds = ImRect(
                 ImVec2( window->DC.CursorPos.x, cell_bounds.Min.y),
-                ImVec2( window->DC.CursorPos.x + font_size.x * 2.0f, cell_bounds.Max.y)
+                ImVec2( 
+                    window->DC.CursorPos.x + icon_size, 
+                    std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size)
+                )
             );
             ImRect elem_bounds = ImRect(
                 ImVec2(icon_bounds.Max.x, cell_bounds.Min.y),
@@ -155,26 +170,73 @@ namespace tido
                     .image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
                     .sampler_id = linear_sampler
                 }), 
-                ImVec2(font_size.x * 2.0f, font_size.y),
-                ImVec2(0.2, 0.8), ImVec2(0.8, 0.2),
-                ImGui::GetStyleColorVec4(ImGuiCol_Text)
+                ImVec2(icon_size, icon_size),
+                ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
+                icon_to_color(arrow_icon)
             );
-            ImGui::SameLine();
+            if(icon != ICONS::SIZE)
+            {
+                ImGui::SameLine();
+                ImGui::Image(renderer->create_texture_id({
+                        .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
+                        .sampler_id = linear_sampler
+                    }), 
+                    ImVec2(icon_size, icon_size),
+                    ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
+                    icon_to_color(icon)
+                );
+            }
+            const f32 prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
+            ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
             ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return component_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
         }
 
-        auto SceneGraph::add_node(NodeType type, std::string uuid) -> RetNodeState
+        auto SceneGraph::add_meshgroup_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState
         {
-            ImGui::TableNextRow();
-            ImGui::TableNextColumn();
+            std::string const meshgroup_uuid = fmt::format("{}", entity.name);
+            RetNodeState state = add_inner_node(meshgroup_uuid, ICONS::MESHGROUP);
+            if(state != RetNodeState::OPEN) { return RetNodeState::CLOSED; }
+            MeshGroupManifestEntry const & meshgroup_manifest_entry = scene._mesh_group_manifest.at(entity.mesh_group_manifest_index.value());
 
-            switch(type)
+            add_level();
+            for(u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
             {
-                case NodeType::INNER: 
-                    return add_inner_node(uuid);
-                case NodeType::MESH:
-                    return add_leaf_node(uuid, type);
+                std::string const mesh_uuid = fmt::format("{} - mesh {}", entity.name, mesh_idx);
+                RetNodeState inner_node_state = add_inner_node(mesh_uuid, ICONS::MESH);
+                MeshManifestEntry const & mesh_manifest_entry = 
+                    scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
+                ImGui::SameLine();
+                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlets )", mesh_manifest_entry.runtime->meshlet_count);
+                if(inner_node_state == RetNodeState::OPEN)
+                {
+                    MaterialManifestEntry const & material_manifest_entry = 
+                        scene._material_manifest.at(mesh_manifest_entry.material_manifest_index.value());
+                    std::string const material_uuid = fmt::format("{}", material_manifest_entry.name);
+                    add_level();
+                    add_leaf_node(material_uuid, ICONS::MATERIAL);
+                    remove_level();
+                }
+            }
+            remove_level();
+            return RetNodeState::CLOSED;
+        }
+
+        auto SceneGraph::add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState
+        {
+
+            std::string const uuid = fmt::format("{}", entity.name);
+            switch(entity.type)
+            {
+                case EntityType::ROOT: [[fallthrough]];
+                case EntityType::TRANSFORM:
+                    return add_inner_node(uuid, ICONS::COLLECTION);
+                case EntityType::MESHGROUP: 
+                    return add_meshgroup_node(entity, scene);
+                case EntityType::CAMERA:
+                    return add_leaf_node(uuid, ICONS::CAMERA);
+                case EntityType::LIGHT:
+                    return add_leaf_node(uuid, ICONS::LIGHT);
                 default:
                     return RetNodeState::ERROR;
             }

@@ -66,6 +66,16 @@ struct MeshGroupManifestEntry
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
+enum struct EntityType
+{
+    ROOT,
+    TRANSFORM,
+    LIGHT,
+    CAMERA,
+    MESHGROUP,
+    UNKNOWN
+};
+
 struct RenderEntity
 {
     glm::mat4x3 transform = {};
@@ -73,6 +83,7 @@ struct RenderEntity
     std::optional<RenderEntityId> next_sibling = {};
     std::optional<RenderEntityId> parent = {};
     std::optional<u32> mesh_group_manifest_index = {};
+    EntityType type = EntityType::UNKNOWN;
     std::string name = {};
 };
 

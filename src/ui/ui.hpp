@@ -26,7 +26,8 @@ struct UIEngine
         tido::ui::SceneGraph scene_graph{};
         daxa::ImGuiRenderer imgui_renderer = {};
 
-        UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext & context);
+        UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
+        ~UIEngine();
         void main_update(Settings &settings, Scene const & scene);
 
     private:
@@ -35,9 +36,17 @@ struct UIEngine
             "builtin_assets\\ui\\icons\\chevron_up.png",
             "builtin_assets\\ui\\icons\\chevron_down.png",
             "builtin_assets\\ui\\icons\\chevron_right.png",
-            "builtin_assets\\ui\\icons\\mesh.png"
+            "builtin_assets\\ui\\icons\\mesh.png",
+            "builtin_assets\\ui\\icons\\meshgroup.png",
+            "builtin_assets\\ui\\icons\\plus.png",
+            "builtin_assets\\ui\\icons\\minus.png",
+            "builtin_assets\\ui\\icons\\camera.png",
+            "builtin_assets\\ui\\icons\\light.png",
+            "builtin_assets\\ui\\icons\\material.png",
+            "builtin_assets\\ui\\icons\\collection.png",
         };
-        f32 text_font_size = 14.0f;
+        GPUContext * context;
+        f32 text_font_size = 15.0f;
 
         std::vector<daxa::ImageId> icons = {};
         void draw_scenegraph(Scene const & scene);

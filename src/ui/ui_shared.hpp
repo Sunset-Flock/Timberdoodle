@@ -6,5 +6,12 @@ enum struct ICONS
     CHEVRON_DOWN,
     CHEVRON_RIGHT,
     MESH,
+    MESHGROUP,
+    PLUS,
+    MINUS,
+    CAMERA,
+    LIGHT,
+    MATERIAL,
+    COLLECTION,
     SIZE, 
 };

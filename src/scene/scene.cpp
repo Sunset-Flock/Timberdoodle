@@ -271,6 +271,10 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
         r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()) + mesh_group_manifest_offset) : std::optional<u32>(std::nullopt);
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
+        if      (node.meshIndex.has_value())   { r_ent.type = EntityType::MESHGROUP; }
+        else if (node.cameraIndex.has_value()) { r_ent.type = EntityType::CAMERA;    }
+        else if (node.lightIndex.has_value())  { r_ent.type = EntityType::LIGHT;     }
+        else if (!node.children.empty())       { r_ent.type = EntityType::TRANSFORM; }
         if (!node.children.empty())
         {
             r_ent.first_child = node_index_to_entity_id[node.children[0]];
@@ -302,6 +306,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
     });
     _dirty_render_entities.push_back(root_r_ent_id);
     RenderEntity &root_r_ent = *_render_entities.slot(root_r_ent_id);
+    root_r_ent.type = EntityType::ROOT;
     std::optional<RenderEntityId> root_r_ent_prev_child = {};
     for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
     {

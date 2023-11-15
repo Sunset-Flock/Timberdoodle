@@ -176,7 +176,7 @@ Application::Application()
     _gpu_context->device.submit_commands({.command_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)}});
     _gpu_context->device.wait_idle();
 
-    _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, *_gpu_context);
+    _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
 

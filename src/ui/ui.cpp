@@ -2,8 +2,9 @@
 #include <filesystem>
 #include <imgui.h>
 
-UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext & context) :
-    scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context.shader_globals.globals.samplers.linear_clamp))
+UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context) :
+    scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.globals.samplers.linear_clamp)),
+    context{context}
 {
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
@@ -21,14 +22,13 @@ UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext 
         icons.push_back(std::get<daxa::ImageId>(ret));
     }
     constexpr static std::string_view text_font_path = "builtin_assets\\ui\\fonts\\sarasa-term-k-regular.ttf";
-    constexpr static std::string_view icon_font_path = "builtin_assets\\ui\\fonts\\material-icons-regular.ttf";
     if(std::filesystem::exists(text_font_path))
     {
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({context.device, context.swapchain.get_format()});
+    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format()});
 }
 
 void UIEngine::main_update(Settings &settings, Scene const & scene)
@@ -50,6 +50,11 @@ void UIEngine::main_update(Settings &settings, Scene const & scene)
     {
         if (ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            ImGui::SeparatorText("Scene graph widget settings");
+            ImGui::SliderFloat("icon size", &scene_graph.icon_size, 1.0f, 50.0f);
+            ImGui::SliderFloat("spacing", &scene_graph.icon_text_spacing, 1.0f, 50.0f);
+            ImGui::SliderFloat("indent", &scene_graph.indent, 1.0f, 50.0f);
+            ImGui::Separator();
             ImGui::InputScalarN("resolution", ImGuiDataType_U32, &settings.render_target_size, 2);
             ImGui::End();
         }
@@ -78,7 +83,7 @@ void UIEngine::draw_scenegraph(Scene const & scene)
         RenderEntityId id;
         bool is_first_child;
         bool is_last_child;
-        u32 accumulated_indent;
+        i32 accumulated_indent;
     };
     // ROOT - first/last - indent and accumulate
     //  INNER - first - indent
@@ -88,7 +93,7 @@ void UIEngine::draw_scenegraph(Scene const & scene)
     //  INNER - middle - indent and unindent
     //  INNER - last - indent and unindent twice (one accumulated from ROOT)
     std::vector<StackEntry> entity_graph_stack;
-    entity_graph_stack.push_back({scene._scene_file_manifest.at(0).root_render_entity, true, true});
+    entity_graph_stack.push_back({scene._scene_file_manifest.at(0).root_render_entity, true, true, -1});
 
     while(!entity_graph_stack.empty())
     {
@@ -96,13 +101,12 @@ void UIEngine::draw_scenegraph(Scene const & scene)
         entity_graph_stack.pop_back();
 
         auto const &entity = *scene._render_entities.slot(top_stack_entry.id);
-        if(top_stack_entry.is_first_child) 
+        // Indent if this is a first child and is not root - we don't want to indent root
+        if(top_stack_entry.is_first_child && entity.type != EntityType::ROOT) 
         {
             scene_graph.add_level();
         }
-        NodeType type = entity.first_child.has_value() ? NodeType::INNER : NodeType::MESH;
-        std::string const uuid = fmt::format("{}_{}_{}", entity.name, top_stack_entry.id.index, top_stack_entry.id.version);
-        RetNodeState const result = scene_graph.add_node(type, uuid);
+        RetNodeState const result = scene_graph.add_node(entity, scene);
 
         // Check if we are both the last child and we will add no more of our own children to the stack
         bool const should_remove_indentation = top_stack_entry.is_last_child && result == RetNodeState::CLOSED;
@@ -117,7 +121,7 @@ void UIEngine::draw_scenegraph(Scene const & scene)
         } 
         // If this node was not opened on previous frame or it is a leaf (aka has no more children)
         // it is CLOSED (maybe COLLAPSED is a better name) and we don't want to continue to the next entry on stack
-        if(result == RetNodeState::CLOSED) { continue; }
+        if(result != RetNodeState::OPEN) { continue; }
 
         // Otherwise we find collect all of our children into a vector
         /// NOTE: We collect into a vector because we want our children to be processed in the order
@@ -127,14 +131,14 @@ void UIEngine::draw_scenegraph(Scene const & scene)
         std::vector<StackEntry> child_entries = {};
         while(true)
         {
-            auto const * curr_child = scene._render_entities.slot(curr_child_index);
+            RenderEntity const * curr_child = scene._render_entities.slot(curr_child_index);
             bool const is_first_child = child_entries.empty();
             bool const is_last_child = !curr_child->next_sibling.has_value();
             // If the curenntly processed (pop from stack) node was a last child and we are adding
             // it's own last child we should accumulate the indentation so that the leaf then knows
             // how many levels of indentation it should remove
             bool const should_accumulate_remove_indent = top_stack_entry.is_last_child && is_last_child;
-            u32 const accumulated_indent = should_accumulate_remove_indent ? top_stack_entry.accumulated_indent + 1 : 0;
+            i32 const accumulated_indent = should_accumulate_remove_indent ? top_stack_entry.accumulated_indent + 1 : 0;
             child_entries.push_back({
                 .id = curr_child_index,
                 .is_first_child = is_first_child,
@@ -152,4 +156,12 @@ void UIEngine::draw_scenegraph(Scene const & scene)
     scene_graph.end();
 
     ImGui::ShowDemoWindow();
+}
+
+UIEngine::~UIEngine()
+{
+    for(u32 icon_idx = 0; icon_idx < s_cast<u32>(ICONS::SIZE); icon_idx++)
+    {
+        context->device.destroy_image(icons.at(icon_idx));
+    }
 }
