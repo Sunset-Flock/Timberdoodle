@@ -31,12 +31,12 @@ inline auto create_task_buffer(GPUContext *context, auto size, auto task_buf_nam
     }};
 }
 
-Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager)
+Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer)
     : window{window},
       context{context},
       scene{scene},
       asset_manager{asset_manager},
-      imgui_renderer{{context->device, context->swapchain.get_format()}}
+      imgui_renderer{imgui_renderer}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
@@ -403,7 +403,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         {
             auto & cmd_list = ti.get_recorder();
             auto size = ti.get_device().info_image(ti.uses[swapchain_image].image()).value().size;
-            imgui_renderer.record_commands(ImGui::GetDrawData(), cmd_list, ti.uses[swapchain_image].image(), size.x, size.y);
+            imgui_renderer->record_commands(ImGui::GetDrawData(), cmd_list, ti.uses[swapchain_image].image(), size.x, size.y);
         },
         .name = "ImGui Draw",
     });

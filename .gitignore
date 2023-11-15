@@ -1,6 +1,7 @@
 .vs*
 build
 assets
+builtin_assets
 preproc/*
 .cache*
 imgui.ini

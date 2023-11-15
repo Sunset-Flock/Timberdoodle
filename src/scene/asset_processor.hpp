@@ -7,6 +7,7 @@
 // #include <assimp/IOStream.hpp>
 // #include <assimp/IOSystem.hpp>
 
+#include <filesystem>
 #include <meshoptimizer.h>
 
 #include "../timberdoodle.hpp"
@@ -79,6 +80,9 @@ struct AssetProcessor
     AssetProcessor(daxa::Device device);
     AssetProcessor(AssetProcessor &&) = default;
     ~AssetProcessor();
+
+    using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
+    auto load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet;
 
     /**
      * THREADSAFETY:

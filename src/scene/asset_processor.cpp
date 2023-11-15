@@ -1,8 +1,10 @@
 #include "asset_processor.hpp"
+#include <daxa/types.hpp>
 #include <fastgltf/tools.hpp>
 #include <fstream>
 #include <cstring>
 #include <FreeImage.h>
+#include <variant>
 
 #pragma region IMAGE_RAW_DATA_LOADING_HELPERS
 struct RawImageData
@@ -22,27 +24,12 @@ struct RawImageDataFromURIInfo
     std::filesystem::path const scene_dir_path;
 };
 
-static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawDataRet
+static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDataRet
 {
-    /// NOTE: Having global paths in your gltf is just wrong. I guess we could later support them by trying to
-    //        load the file anyways but cmon what are the chances of that being successful - for now let's just return error
-    if (!info.uri.uri.isLocalPath())
-    {
-        return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH;
-    }
-    std::filesystem::path const full_image_path = info.scene_dir_path / info.uri.uri.fspath();
-
-    std::ifstream ifs{full_image_path, std::ios::binary};
+    std::ifstream ifs{image_path, std::ios::binary};
     if (!ifs)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE;
-    }
-    /// NOTE: I don't really see how fileoffsets could be valid in a URI context. Since we have no information about the size
-    //        of the data we always just load everything in the file. Having just a single offset thus does not allow to pack
-    //        multiple images into a single file so we just error on this for now.
-    if (info.uri.fileByteOffset != 0)
-    {
-        return AssetProcessor::AssetLoadResultCode::ERROR_URI_FILE_OFFSET_NOT_SUPPORTED;
     }
     ifs.seekg(0, ifs.end);
     const i32 filesize = ifs.tellg();
@@ -54,9 +41,37 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawD
     }
     return RawImageData{
         .raw_data = std::move(raw),
-        .image_path = full_image_path,
-        .mime_type = info.uri.mimeType};
+        .image_path = image_path,
+        .mime_type = {}
+    };
 }
+
+static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawDataRet
+{
+    /// NOTE: Having global paths in your gltf is just wrong. I guess we could later support them by trying to
+    //        load the file anyways but cmon what are the chances of that being successful - for now let's just return error
+    if (!info.uri.uri.isLocalPath())
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH;
+    }
+    /// NOTE: I don't really see how fileoffsets could be valid in a URI context. Since we have no information about the size
+    //        of the data we always just load everything in the file. Having just a single offset thus does not allow to pack
+    //        multiple images into a single file so we just error on this for now.
+    if (info.uri.fileByteOffset != 0)
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_URI_FILE_OFFSET_NOT_SUPPORTED;
+    }
+    std::filesystem::path const full_image_path = info.scene_dir_path / info.uri.uri.fspath();
+    RawDataRet raw_image_data_ret = raw_image_data_from_path(full_image_path);
+    if(std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_image_data_ret))
+    {
+        return raw_image_data_ret;
+    }
+    RawImageData & raw_data = std::get<RawImageData>(raw_image_data_ret);
+    raw_data.mime_type = info.uri.mimeType;
+    return raw_data;
+}
+
 
 struct RawImageDataFromBufferViewInfo
 {
@@ -376,6 +391,50 @@ AssetProcessor::~AssetProcessor()
     // {
     //     device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer));
     // }
+}
+
+auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet
+{
+    RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
+    if(std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
+    {
+        return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
+    }
+    RawImageData & raw_data = std::get<RawImageData>(raw_data_ret);
+    ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device);
+    if (auto const *error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
+    {
+        return *error;
+    }
+    ParsedImageData const &parsed_data = std::get<ParsedImageData>(parsed_data_ret);
+
+    auto recorder = _device.create_command_recorder({});
+    recorder.destroy_buffer_deferred(parsed_data.src_buffer);
+    recorder.pipeline_barrier_image_transition({
+        .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+        .image_id = parsed_data.dst_image,
+    });
+
+    recorder.copy_buffer_to_image({
+        .buffer = parsed_data.src_buffer,
+        .image = parsed_data.dst_image,
+        .image_extent = _device.info_image(parsed_data.dst_image).value().size
+    });
+
+    recorder.pipeline_barrier_image_transition({
+        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
+        .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+        /// TODO: Take the usage from the user for now images only used as attachments
+        .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+        .image_id = parsed_data.dst_image
+    });
+
+    daxa::ExecutableCommandList command_list = recorder.complete_current_commands();
+    _device.submit_commands({.command_lists = {&command_list, 1}});
+    _device.wait_idle();
+    return parsed_data.dst_image;
 }
 
 auto AssetProcessor::load_texture(Scene &scene, u32 texture_manifest_index) -> AssetLoadResultCode

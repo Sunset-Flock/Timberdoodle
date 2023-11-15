@@ -1,9 +1,34 @@
 #include "ui.hpp"
+#include <filesystem>
+#include <imgui.h>
 
-UIEngine::UIEngine(Window &window)
+UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext & context) :
+    scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context.shader_globals.globals.samplers.linear_clamp))
 {
     ImGui::CreateContext();
+    ImGuiIO& io = ImGui::GetIO();
+
+    icons.reserve(s_cast<u32>(ICONS::SIZE));
+    for(u32 icon_idx = 0; icon_idx < s_cast<u32>(ICONS::SIZE); icon_idx++)
+    {
+        AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture(ICON_TO_PATH.at(icon_idx));
+        if(auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+        {
+            DEBUG_MSG(fmt::format("[UIEngine::UIEngine] ERROR failed to load icon from path {}", ICON_TO_PATH.at(icon_idx)));
+            icons.push_back({});
+            continue;
+        }
+        icons.push_back(std::get<daxa::ImageId>(ret));
+    }
+    constexpr static std::string_view text_font_path = "builtin_assets\\ui\\fonts\\sarasa-term-k-regular.ttf";
+    constexpr static std::string_view icon_font_path = "builtin_assets\\ui\\fonts\\material-icons-regular.ttf";
+    if(std::filesystem::exists(text_font_path))
+    {
+        io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
+    }
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
+    /// NOTE: Needs to after all the init functions
+    imgui_renderer = daxa::ImGuiRenderer({context.device, context.swapchain.get_format()});
 }
 
 void UIEngine::main_update(Settings &settings, Scene const & scene)
@@ -75,7 +100,7 @@ void UIEngine::draw_scenegraph(Scene const & scene)
         {
             scene_graph.add_level();
         }
-        NodeType type = entity.first_child.has_value() ? NodeType::INNER : NodeType::LEAF;
+        NodeType type = entity.first_child.has_value() ? NodeType::INNER : NodeType::MESH;
         std::string const uuid = fmt::format("{}_{}_{}", entity.name, top_stack_entry.id.index, top_stack_entry.id.version);
         RetNodeState const result = scene_graph.add_node(type, uuid);
 

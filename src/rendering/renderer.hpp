@@ -28,7 +28,7 @@ struct CameraInfo
 // This should idealy handle all rendering related information and functionality.
 struct Renderer
 {
-    Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager);
+    Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer);
     ~Renderer();
 
     void compile_pipelines();
@@ -62,5 +62,5 @@ struct Renderer
     AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;
     daxa::CommandSubmitInfo submit_info = {};
-    daxa::ImGuiRenderer imgui_renderer;
+    daxa::ImGuiRenderer* imgui_renderer;
 };
