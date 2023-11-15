@@ -207,7 +207,9 @@ namespace tido
                 MeshManifestEntry const & mesh_manifest_entry = 
                     scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
                 ImGui::SameLine();
-                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlets )", mesh_manifest_entry.runtime->meshlet_count);
+                const u32 meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
+                const char plural_ending = meshlet_count > 1 ? 's' : ' ';
+                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
                 if(inner_node_state == RetNodeState::OPEN)
                 {
                     MaterialManifestEntry const & material_manifest_entry = 

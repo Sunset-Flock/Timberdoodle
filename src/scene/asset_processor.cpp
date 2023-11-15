@@ -1,6 +1,7 @@
 #include "asset_processor.hpp"
 #include <daxa/types.hpp>
 #include <fastgltf/tools.hpp>
+#include <fastgltf/types.hpp>
 #include <fstream>
 #include <cstring>
 #include <FreeImage.h>
@@ -502,6 +503,11 @@ struct fastgltf::ElementTraits<glm::vec3> : fastgltf::ElementTraitsBase<float, f
 {
 };
 
+template <>
+struct fastgltf::ElementTraits<glm::vec2> : fastgltf::ElementTraitsBase<float, fastgltf::AccessorType::Vec2>
+{
+};
+
 template <typename ElemT, bool IS_INDEX_BUFFER>
 auto load_accessor_data_from_file(
     std::filesystem::path const &root_path,
@@ -578,6 +584,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     fastgltf::Primitive &gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
 
     /// NOTE: Process indices (they are required)
+    #pragma region INDICES
     if (!gltf_prim.indicesAccessor.has_value())
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER;
@@ -598,8 +605,10 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         return *err;
     }
     std::vector<u32> index_buffer = std::get<std::vector<u32>>(std::move(index_buffer_data));
+    #pragma endregion
 
     /// NOTE: Load vertex positions
+    #pragma region VERTICES
     auto vert_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
     if (vert_attrib_iter == gltf_prim.attributes.end())
     {
@@ -621,6 +630,31 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     }
     std::vector<glm::vec3> vert_positions = std::get<std::vector<glm::vec3>>(std::move(vertex_pos_result));
     u32 const vertex_count = s_cast<u32>(vert_positions.size());
+    #pragma endregion
+    
+    /// NOTE: Load vertex UVs
+    #pragma region UVS
+    auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
+    if(texcoord0_attrib_iter == gltf_prim.attributes.end())
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
+    }
+    fastgltf::Accessor &gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
+    bool const gltf_vertex_texcoord0_accessor_valid = 
+        gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
+        gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;
+    if(!gltf_vertex_texcoord0_accessor_valid)
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
+    }
+    auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
+    if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
+    {
+        return *err;
+    }
+    std::vector<glm::vec2> vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
+    DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
+    #pragma endregion
 
     /// NOTE: Generate meshlets:
     constexpr usize MAX_VERTICES = MAX_VERTICES_PER_MESHLET;
@@ -691,6 +725,9 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     mesh_descriptor.offset_vertex_positions = accumulated_offset;
     accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
     // ---
+    mesh_descriptor.offset_vertex_texcoodrs0 = accumulated_offset;
+    accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
+    // ---
     /// TODO: If there is no material index add default debug material?
     mesh_descriptor.material_index = gltf_scene.material_manifest_offset + gltf_prim.materialIndex.value();
     mesh_descriptor.meshlet_count = meshlet_count;
@@ -730,6 +767,10 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         staging_ptr + mesh_descriptor.offset_vertex_positions,
         vert_positions.data(),
         vert_positions.size() * sizeof(daxa_f32vec3));
+    std::memcpy(
+        staging_ptr + mesh_descriptor.offset_vertex_texcoodrs0,
+        vert_texcoord0.data(),
+        vert_positions.size() * sizeof(daxa_f32vec2));
 
     /// NOTE: Append the processed mesh to the upload queue.
     {
@@ -768,6 +809,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "gpumeshes update",
         });
+
         recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
         auto const &mesh_descriptor = mesh_entry.runtime.value();
         auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
@@ -781,6 +823,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .micro_indices = mesh_buffer_bda + mesh_descriptor.offset_micro_indices,
             .indirect_vertices = mesh_buffer_bda + mesh_descriptor.offset_indirect_vertices,
             .vertex_positions = mesh_buffer_bda + mesh_descriptor.offset_vertex_positions,
+            .vertex_uvs = mesh_buffer_bda + mesh_descriptor.offset_vertex_texcoodrs0,
         };
         daxa::BufferId gpu_mesh_manifest = mesh_upload.scene->_gpu_mesh_manifest.get_state().buffers[0];
         /// NOTE: Write the mesh manifest on the gpu.

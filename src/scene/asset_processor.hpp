@@ -53,6 +53,8 @@ struct AssetProcessor
         ERROR_UNSUPPORTED_ABSOLUTE_PATH,
         ERROR_MISSING_VERTEX_POSITIONS,
         ERROR_FAULTY_GLTF_VERTEX_POSITIONS,
+        ERROR_MISSING_VERTEX_TEXCOORD_0,
+        ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0,
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
@@ -74,6 +76,8 @@ struct AssetProcessor
             case AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH:                  return "ERROR_UNSUPPORTED_ABSOLUTE_PATH";
             case AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS:                   return "ERROR_MISSING_VERTEX_POSITIONS";
             case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_POSITIONS:               return "ERROR_FAULTY_GLTF_VERTEX_POSITIONS";
+            case AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0:                  return "ERROR_MISSING_VERTEX_TEXCOORD_0";
+            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0:              return "ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0";
             default: return "UNKNOWN";
         }
     }

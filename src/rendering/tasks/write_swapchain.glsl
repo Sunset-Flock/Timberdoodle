@@ -15,7 +15,7 @@ void main()
     const float checker2 = ((((index.x / (4*8)) & 1) == 0) ^^ (((index.y / (4*4)) & 1) == 0)) ? 1.0f : 0.9f;
     checker *= checker2;
     const uint triangle_id = imageLoad(daxa_uimage2D(vis_image), index).x;
-    vec4 output_value = vec4(0,0,0,0);
+    vec4 output_value = vec4(0,0,0,1);
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
         uint instantiated_meshlet_index;
@@ -36,8 +36,8 @@ void main()
     {
         output_value = vec4(vec3(0.05) * checker,1);
     }
-    // vec4 debug_value = imageLoad(daxa_image2D(u_debug_image), index);
-    vec4 debug_value = vec4(0,0,0,0);
+    vec4 debug_value = imageLoad(daxa_image2D(u_debug_image), index);
     output_value = vec4(mix(output_value.xyz, debug_value.xyz, debug_value.a), output_value.a);
+
     imageStore(daxa_image2D(swapchain), index, output_value);
 }

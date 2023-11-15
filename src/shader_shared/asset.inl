@@ -157,6 +157,7 @@ struct GPUMeshDescriptor
     daxa_u32 offset_micro_indices;     // daxa_BufferPtr(daxa_u32)
     daxa_u32 offset_indirect_vertices; // daxa_BufferPtr(daxa_u32)
     daxa_u32 offset_vertex_positions;  // daxa_BufferPtr(daxa_f32vec3)
+    daxa_u32 offset_vertex_texcoodrs0; // daxa_BufferPtr(daxa_f32vec2)
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshDescriptor, 8)
 
