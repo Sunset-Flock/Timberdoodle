@@ -10,7 +10,6 @@
 #include "../shader_shared/asset.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
-
 using namespace tido::types;
 /**
 * DESCRIPTION:
@@ -26,12 +25,20 @@ using namespace tido::types;
 
 struct TextureManifestEntry
 {
+    struct MaterialManifestIndex
+    {
+        bool diffuse = {}; 
+        bool normal = {};
+        bool metalic = {};
+        bool roughness = {};
+        u32 material_manifest_index = {};
+    };
     u32 scene_file_manifest_index = {};
     u32 in_scene_file_index = {};
-    // List of materials that use this texture.
-    // The GPUMaterialDescriptor contrains ImageIds directly,
-    // So the GPUMaterialDescriptors Need to be updated when the texture changes.
-    std::vector<u32> material_manifest_indices = {};
+    // List of materials that use this texture and how they use it 
+    // The GPUMaterial contrains ImageIds directly,
+    // So the GPUMaterial Need to be updated when the texture changes.
+    std::vector<MaterialManifestIndex> material_manifest_indices = {};
     std::optional<daxa::ImageId> runtime = {};
     std::string name = {};
 };
@@ -148,6 +155,7 @@ struct Scene
     // Used to do the initialization of these on the gpu when recording manifest update.
     u32 _new_mesh_manifest_entries = {};
     u32 _new_mesh_group_manifest_entries = {};
+    u32 _new_material_manifest_entries = {};
 
     Scene(daxa::Device device);
     ~Scene();

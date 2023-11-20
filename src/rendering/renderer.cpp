@@ -391,6 +391,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .swapchain = swapchain_image,
             .vis_image = visbuffer,
             .u_debug_image = debug_image,
+            .u_material_manifest = scene->_gpu_material_manifest,
             .u_instantiated_meshlets = meshlet_instances,
         },
         .context = context,

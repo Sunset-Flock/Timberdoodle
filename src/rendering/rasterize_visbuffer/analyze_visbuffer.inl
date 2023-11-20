@@ -49,7 +49,7 @@ struct AnalyzeVisBufferTask2
         });
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
         auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);
-        cmd.dispatch(dispatch_x, dispatch_y, 1);
+        cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z =  1});
     }
 };
 #endif

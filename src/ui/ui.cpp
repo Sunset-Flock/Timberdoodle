@@ -6,7 +6,8 @@ UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext 
     scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.globals.samplers.linear_clamp)),
     context{context}
 {
-    ImGui::CreateContext();
+    auto * imgui_context = ImGui::CreateContext();
+    ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO& io = ImGui::GetIO();
 
     icons.reserve(s_cast<u32>(ICONS::SIZE));
@@ -26,9 +27,8 @@ UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext 
     {
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
-    ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format()});
+    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context});
 }
 
 void UIEngine::main_update(Settings &settings, Scene const & scene)

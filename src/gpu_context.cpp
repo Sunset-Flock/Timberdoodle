@@ -73,11 +73,17 @@ GPUContext::GPUContext(Window const &window)
         .linear_clamp = this->device.create_sampler({
             .name = "linear clamp sampler",
         }), 
+        .linear_repeat = this->device.create_sampler({
+            .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+            .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+            .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+            .name = "linear repeat sampler",
+        }), 
         .nearest_clamp = this->device.create_sampler({
             .magnification_filter = daxa::Filter::NEAREST,
             .minification_filter = daxa::Filter::NEAREST,
             .mipmap_filter = daxa::Filter::NEAREST,
-            .name = "linear clamp sampler",
+            .name = "nearest clamp sampler",
         })
     };
 }
@@ -91,5 +97,6 @@ GPUContext::~GPUContext()
 {
     device.destroy_buffer(shader_globals_buffer);
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.linear_clamp));
+    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.linear_repeat));
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.nearest_clamp));
 }

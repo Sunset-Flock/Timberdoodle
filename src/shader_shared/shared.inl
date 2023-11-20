@@ -15,6 +15,7 @@
 #define TRIANGLE_SIZE 12
 #define WARP_SIZE 32
 #define MAX_ENTITY_COUNT (1u << 20u)
+#define MAX_MATERIAL_COUNT (1u << 8u)
 #define MESH_SHADER_WORKGROUP_X 32
 #define ENABLE_MESHLET_CULLING 1
 #define ENABLE_TRIANGLE_CULLING 1
@@ -57,6 +58,7 @@ struct Settings
 struct GlobalSamplers
 {
     daxa_SamplerId linear_clamp;
+    daxa_SamplerId linear_repeat;
     daxa_SamplerId nearest_clamp;
 };
 

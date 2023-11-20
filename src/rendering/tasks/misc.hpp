@@ -25,7 +25,7 @@ struct WriteIndirectDispatchArgsBaseTask
         cmd.set_uniform_buffer(context->shader_globals_set_info);
         cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         cmd.set_pipeline(*context->compute_pipelines.at(T_USES_BASE::NAME));
-        cmd.dispatch(1, 1, 1);
+        cmd.dispatch({.x = 1, .y = 1, .z = 1});
     }
 };
 
@@ -52,7 +52,7 @@ struct WriteIndirectDispatchArgsPushBaseTask
         cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         cmd.set_pipeline(*context->compute_pipelines.at(T_USES_BASE::NAME));
         cmd.push_constant(push);
-        cmd.dispatch(1, 1, 1);
+        cmd.dispatch({.x = 1, .y = 1, .z = 1});
     }
 };
 

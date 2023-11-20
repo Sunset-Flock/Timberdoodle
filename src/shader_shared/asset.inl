@@ -161,6 +161,14 @@ struct GPUMeshDescriptor
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshDescriptor, 8)
 
+struct GPUMaterial
+{
+    daxa_ImageViewId diffuse_texture_id;
+    daxa_ImageViewId normal_texture_id;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
+
+
 #if DAXA_SHADER
 uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offset)
 {

@@ -57,6 +57,7 @@ void main()
     }
     const uint mesh_index = mesh_group.mesh_manifest_indices[in_meshgroup_index];
     const uint meshlet_count = deref(u_meshes[mesh_index]).meshlet_count;
+    const uint material_index = deref(u_meshes[mesh_index]).material_index;
     if (meshlet_count == 0)
     {
         return;
@@ -142,11 +143,10 @@ void main()
         MeshletCullIndirectArg arg;
         arg.entity_index = entity_index;
         arg.mesh_index = mesh_index;
-        arg.material_index = 0; // TODO: hook up materials.
+        arg.material_index = material_index;
         arg.in_meshgroup_index = in_meshgroup_index;
         arg.meshlet_indices_offset = meshlet_offset;
         deref(deref(u_meshlet_cull_indirect_args).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
-        // debugPrintfEXT("test\n");
         meshlet_offset += indirect_arg_meshlet_count;
     }
 #if DEBUG_MESH_CULL1

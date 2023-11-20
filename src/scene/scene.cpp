@@ -46,6 +46,12 @@ Scene::Scene(daxa::Device device)
                                                                     .name = "_gpu_mesh_group_manifest",
                                                                 }),
                                                             }});
+    _gpu_material_manifest.set_buffers(daxa::TrackedBuffers{ .buffers = std::array{
+                                                                _device.create_buffer({
+                                                                    .size = sizeof(GPUMaterial) * MAX_MATERIAL_COUNT,
+                                                                    .name = "_gpu_material_manifest"
+                                                                }),
+                                                            }});
 }
 
 Scene::~Scene()
@@ -56,6 +62,7 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_entity_mesh_groups.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
+    _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
 
     for (auto &mesh : _mesh_manifest)
     {
@@ -173,13 +180,19 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
         {
             const u32 texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
             diffuse_texture_index = gltf_texture_to_manifest_texture_index(texture_index);
-            _material_texture_manifest.at(diffuse_texture_index.value()).material_manifest_indices.push_back(material_manifest_index);
+            _material_texture_manifest.at(diffuse_texture_index.value()).material_manifest_indices.push_back({
+                .diffuse = true,
+                .material_manifest_index = material_manifest_index
+            });
         }
         if (has_normal_texture)
         {
             const u32 texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
             normal_texture_index = gltf_texture_to_manifest_texture_index(texture_index);
-            _material_texture_manifest.at(normal_texture_index.value()).material_manifest_indices.push_back(material_manifest_index);
+            _material_texture_manifest.at(normal_texture_index.value()).material_manifest_indices.push_back({
+                .normal = true,
+                .material_manifest_index = material_manifest_index
+            });
         }
         _material_manifest.push_back(MaterialManifestEntry{
             .diffuse_tex_index = diffuse_texture_index,
@@ -188,6 +201,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const& root_path, std:
             .in_scene_file_index = material_index,
             .name = material.name.c_str()
         });
+        _new_material_manifest_entries += 1;
     }
 #pragma endregion
 
@@ -476,12 +490,36 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
             .size = sizeof(GPUMesh) * _new_mesh_manifest_entries,
         });
     }
+    if (_new_material_manifest_entries > 0)
+    {
+        u32 const material_update_staging_buffer_size = sizeof(GPUMaterial) * _new_material_manifest_entries;
+        u32 const material_manifest_offset = _material_manifest.size() - _new_material_manifest_entries;
+        daxa::BufferId material_staging_buffer = _device.create_buffer({
+            .size = material_update_staging_buffer_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = "material update staging buffer"
+        });
+        recorder.destroy_buffer_deferred(material_staging_buffer);
+        GPUMaterial *staging_ptr = _device.get_host_address_as<GPUMaterial>(material_staging_buffer).value();
+        std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
+        std::memcpy(staging_ptr, tmp_materials.data(), _new_material_manifest_entries);
+
+        recorder.copy_buffer_to_buffer({
+            .src_buffer = material_staging_buffer,
+            .dst_buffer = _gpu_material_manifest.get_state().buffers[0],
+            .src_offset = 0,
+            .dst_offset = material_manifest_offset * sizeof(GPUMaterial),
+            .size = sizeof(GPUMaterial) * _new_material_manifest_entries,
+        });
+    }
+
     /// TODO: Taskgraph this shit.
     recorder.pipeline_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
 
+    _new_material_manifest_entries = 0;
     _new_mesh_manifest_entries = 0;
     _new_mesh_group_manifest_entries = 0;
     return recorder.complete_current_commands();

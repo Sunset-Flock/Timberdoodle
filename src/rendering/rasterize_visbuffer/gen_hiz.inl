@@ -79,7 +79,7 @@ daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGra
                 push.mips[i] = ti.uses[dst_views[i]].view();
             }
             cmd.push_constant(push);
-            cmd.dispatch(dispatch_x, dispatch_y, 1);
+            cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
         },
         .name = "gen hiz level single pass",
     });

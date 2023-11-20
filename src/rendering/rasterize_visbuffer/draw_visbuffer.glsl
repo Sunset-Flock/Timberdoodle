@@ -158,7 +158,7 @@ layout(location = 1) out vec4 debug_image;
 void main()
 {
     visibility_id = vout_triange_id;
-    debug_image = vec4(vout_uv,0,1);
+    debug_image = vec4(vout_uv.rg,0,1);
 }
 #endif
 
