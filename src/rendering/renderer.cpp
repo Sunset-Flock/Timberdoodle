@@ -363,10 +363,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, entity_meshlet_visibility_bitfield_arena, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .uses = {
-            .u_visbuffer = visbuffer,
-            .u_instantiated_meshlets = meshlet_instances,
-            .u_meshlet_visibility_bitfield = visible_meshlets_bitfield,
-            .u_visible_meshlets = visible_meshlet_instances,
+            .visbuffer = visbuffer,
+            .instantiated_meshlets = meshlet_instances,
+            .meshlet_visibility_bitfield = visible_meshlets_bitfield,
+            .visible_meshlets = visible_meshlet_instances,
         },
         .context = context,
     });
@@ -437,7 +437,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     {
         std::cout << "Successfully reloaded!\n";
     }
-    u32 const flight_frame_index = context->swapchain.get_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
+    u32 const flight_frame_index = context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
     this->update_settings();
     this->context->shader_globals.settings = context->settings;
@@ -450,7 +450,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
 
     // Set Shader Globals.
     this->context->shader_globals.settings = this->context->settings;
-    this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.get_cpu_timeline_value());
+    this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
     this->context->shader_globals.delta_time = delta_time;
     this->context->shader_globals.observer_camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
     this->context->shader_globals.observer_camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);

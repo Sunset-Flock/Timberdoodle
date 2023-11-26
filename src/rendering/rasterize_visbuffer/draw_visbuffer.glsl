@@ -2,6 +2,23 @@
 
 #include <daxa/daxa.inl>
 
+#if defined(DrawVisbuffer_WriteCommand_COMMAND) || !defined(DAXA_SHADER)
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
+#endif
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX || !defined(DAXA_SHADER)
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
+#endif
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_TASK || !defined(DAXA_SHADER)
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
+#endif
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_MESH || !defined(DAXA_SHADER)
+#if MESH_SHADER_CULL_AND_DRAW
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
+#else
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
+#endif
+#endif
+
 #include "draw_visbuffer.inl"
 #include "shader_shared/cull_util.inl"
 
@@ -11,7 +28,6 @@
 #include "shader_lib/observer.glsl"
 
 #if defined(DrawVisbuffer_WriteCommand_COMMAND) || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
 layout(local_size_x = 1) in;
 void main()
 {
@@ -85,7 +101,6 @@ layout(location = 1) VERTEX_OUT vec2 vout_uv;
 #endif
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
 void main()
 {
     const uint triangle_corner_index = gl_VertexIndex % 3;
@@ -177,7 +192,6 @@ taskPayloadSharedEXT NewTaskPayload tps;
 #endif
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_TASK || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
 layout(local_size_x = TASK_SHADER_WORKGROUP_X) in;
 void main()
 {
@@ -225,11 +239,6 @@ void main()
 
 // Big problems with culling here:
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_MESH || !defined(DAXA_SHADER)
-#if MESH_SHADER_CULL_AND_DRAW
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
-#else
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
-#endif
 layout(local_size_x = MESH_SHADER_WORKGROUP_X) in;
 layout(triangles) out;
 layout(max_vertices = MAX_VERTICES_PER_MESHLET, max_primitives = MAX_TRIANGLES_PER_MESHLET) out;

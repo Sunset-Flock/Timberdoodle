@@ -43,8 +43,7 @@ static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDat
     return RawImageData{
         .raw_data = std::move(raw),
         .image_path = image_path,
-        .mime_type = {}
-    };
+        .mime_type = {}};
 }
 
 static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawDataRet
@@ -65,15 +64,14 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawD
     std::filesystem::path const full_image_path = info.scene_dir_path / info.uri.uri.fspath();
     DEBUG_MSG(fmt::format("[AssetProcessor::raw_image_data_from_URI] Loading image {} ...", full_image_path.string()));
     RawDataRet raw_image_data_ret = raw_image_data_from_path(full_image_path);
-    if(std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_image_data_ret))
+    if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_image_data_ret))
     {
         return raw_image_data_ret;
     }
-    RawImageData & raw_data = std::get<RawImageData>(raw_image_data_ret);
+    RawImageData &raw_data = std::get<RawImageData>(raw_image_data_ret);
     raw_data.mime_type = info.uri.mimeType;
     return raw_data;
 }
-
 
 struct RawImageDataFromBufferViewInfo
 {
@@ -332,8 +330,8 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
         (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGBALPHA);
     const bool contains_all_color_channels = has_red_channel && has_green_channel && has_blue_channel;
     DBG_ASSERT_TRUE_M(should_contain_all_color_channels == contains_all_color_channels,
-             std::string("[ERROR][free_image_parse_raw_image_data()] Image color type indicates color channels present") +
-                 std::string(" but not all channels were present accoring to color masks"));
+                      std::string("[ERROR][free_image_parse_raw_image_data()] Image color type indicates color channels present") +
+                          std::string(" but not all channels were present accoring to color masks"));
 
     ParsedChannel parsed_channel = parse_channel_info(image_type);
     if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_channel))
@@ -344,30 +342,33 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
     ChannelInfo const &channel_info = std::get<ChannelInfo>(parsed_channel);
     u32 const channel_count = bits_per_pixel / (channel_info.byte_size * 8u);
 
-    daxa::Format daxa_image_format = daxa_image_format_from_pixel_info({
-        .channel_count = s_cast<u8>(channel_count),
-        .channel_byte_size = channel_info.byte_size,
-        .channel_data_type = channel_info.data_type
-    });
+    daxa::Format daxa_image_format = daxa_image_format_from_pixel_info({.channel_count = s_cast<u8>(channel_count),
+                                                                        .channel_byte_size = channel_info.byte_size,
+                                                                        .channel_data_type = channel_info.data_type});
 
-    ///TODO: Breaks for 32bit 3 channel images (or overallocates idk)
+    /// TODO: Breaks for 32bit 3 channel images (or overallocates idk)
     u32 const rounded_channel_count = channel_count == 3 ? 4 : channel_count;
-    FIBITMAP * modified_bitmap;
-    if(channel_count == 3)
+    FIBITMAP *modified_bitmap;
+    if (channel_count == 3)
     {
         modified_bitmap = FreeImage_ConvertTo32Bits(image_bitmap);
-    } else {
+    }
+    else
+    {
         modified_bitmap = image_bitmap;
     }
-    defer{ if(channel_count == 3) FreeImage_Unload(modified_bitmap); };
+    defer
+    {
+        if (channel_count == 3)
+            FreeImage_Unload(modified_bitmap);
+    };
     ParsedImageData ret = {};
     u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
     ret.src_buffer = device.create_buffer({
         .size = total_image_byte_size,
-        .allocate_info = 
-            daxa::MemoryFlagBits::DEDICATED_MEMORY |
+        .allocate_info =
             daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = raw_data.image_path.filename().string() + " staging"
+        .name = raw_data.image_path.filename().string() + " staging",
     });
     std::byte *staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
     memcpy(staging_dst_ptr, r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
@@ -381,11 +382,9 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
         .array_layer_count = 1,
         .sample_count = 1,
         /// TODO: Potentially take more flags from the user here
-        .usage = 
+        .usage =
             daxa::ImageUsageFlagBits::TRANSFER_DST |
-            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-            daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .allocate_info = daxa::MemoryFlagBits::DEDICATED_MEMORY,
+            daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = raw_data.image_path.filename().string(),
     });
     return ret;
@@ -410,14 +409,14 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
-auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet
+auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const &filepath) -> NonmanifestLoadRet
 {
     RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
-    if(std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
+    if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
     {
         return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
     }
-    RawImageData & raw_data = std::get<RawImageData>(raw_data_ret);
+    RawImageData &raw_data = std::get<RawImageData>(raw_data_ret);
     ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device);
     if (auto const *error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
@@ -433,20 +432,16 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
         .image_id = parsed_data.dst_image,
     });
 
-    recorder.copy_buffer_to_image({
-        .buffer = parsed_data.src_buffer,
-        .image = parsed_data.dst_image,
-        .image_extent = _device.info_image(parsed_data.dst_image).value().size
-    });
+    recorder.copy_buffer_to_image({.buffer = parsed_data.src_buffer,
+                                   .image = parsed_data.dst_image,
+                                   .image_extent = _device.info_image(parsed_data.dst_image).value().size});
 
-    recorder.pipeline_barrier_image_transition({
-        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
-        .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-        /// TODO: Take the usage from the user for now images only used as attachments
-        .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-        .image_id = parsed_data.dst_image
-    });
+    recorder.pipeline_barrier_image_transition({.src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                                                .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
+                                                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                                                /// TODO: Take the usage from the user for now images only used as attachments
+                                                .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                                                .image_id = parsed_data.dst_image});
 
     daxa::ExecutableCommandList command_list = recorder.complete_current_commands();
     _device.submit_commands({.command_lists = {&command_list, 1}});
@@ -600,8 +595,8 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     fastgltf::Mesh &gltf_mesh = gltf_asset.meshes[mesh_data.scene_file_mesh_index];
     fastgltf::Primitive &gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
 
-    /// NOTE: Process indices (they are required)
-    #pragma region INDICES
+/// NOTE: Process indices (they are required)
+#pragma region INDICES
     if (!gltf_prim.indicesAccessor.has_value())
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER;
@@ -622,10 +617,10 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         return *err;
     }
     std::vector<u32> index_buffer = std::get<std::vector<u32>>(std::move(index_buffer_data));
-    #pragma endregion
+#pragma endregion
 
-    /// NOTE: Load vertex positions
-    #pragma region VERTICES
+/// NOTE: Load vertex positions
+#pragma region VERTICES
     auto vert_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_POSITION_NAME);
     if (vert_attrib_iter == gltf_prim.attributes.end())
     {
@@ -647,20 +642,20 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     }
     std::vector<glm::vec3> vert_positions = std::get<std::vector<glm::vec3>>(std::move(vertex_pos_result));
     u32 const vertex_count = s_cast<u32>(vert_positions.size());
-    #pragma endregion
-    
-    /// NOTE: Load vertex UVs
-    #pragma region UVS
+#pragma endregion
+
+/// NOTE: Load vertex UVs
+#pragma region UVS
     auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
-    if(texcoord0_attrib_iter == gltf_prim.attributes.end())
+    if (texcoord0_attrib_iter == gltf_prim.attributes.end())
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
     }
     fastgltf::Accessor &gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
-    bool const gltf_vertex_texcoord0_accessor_valid = 
+    bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;
-    if(!gltf_vertex_texcoord0_accessor_valid)
+    if (!gltf_vertex_texcoord0_accessor_valid)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
@@ -671,7 +666,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     }
     std::vector<glm::vec2> vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
     DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
-    #pragma endregion
+#pragma endregion
 
     /// NOTE: Generate meshlets:
     constexpr usize MAX_VERTICES = MAX_VERTICES_PER_MESHLET;
@@ -871,31 +866,25 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     {
         texture_upload.scene->_material_texture_manifest.at(texture_upload.texture_manifest_index).runtime = texture_upload.dst_image;
         /// TODO: If we are generating mips this will need to change
-        recorder.pipeline_barrier_image_transition({
-            .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .image_id = texture_upload.dst_image
-        });
+        recorder.pipeline_barrier_image_transition({.dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+                                                    .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                                                    .image_id = texture_upload.dst_image});
     }
     for (TextureUpload const &texture_upload : _upload_texture_queue)
     {
-        recorder.copy_buffer_to_image({
-            .buffer = texture_upload.staging_buffer,
-            .image = texture_upload.dst_image,
-            .image_offset = {0, 0, 0},
-            .image_extent = _device.info_image(texture_upload.dst_image).value().size
-        });
+        recorder.copy_buffer_to_image({.buffer = texture_upload.staging_buffer,
+                                       .image = texture_upload.dst_image,
+                                       .image_offset = {0, 0, 0},
+                                       .image_extent = _device.info_image(texture_upload.dst_image).value().size});
         recorder.destroy_buffer_deferred(texture_upload.staging_buffer);
     }
     for (TextureUpload const &texture_upload : _upload_texture_queue)
     {
-        recorder.pipeline_barrier_image_transition({
-            .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .dst_access = daxa::AccessConsts::TOP_OF_PIPE_READ_WRITE,
-            .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-            .image_id = texture_upload.dst_image
-        });
+        recorder.pipeline_barrier_image_transition({.src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                                                    .dst_access = daxa::AccessConsts::TOP_OF_PIPE_READ_WRITE,
+                                                    .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                                                    .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                                                    .image_id = texture_upload.dst_image});
     }
 #pragma endregion
 #pragma region RECORD_MATERIAL_UPLOAD_COMMANDS
@@ -904,19 +893,19 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
     std::vector<u32> dirty_material_entry_indices = {};
     // 1) Update CPU Manifest
-    for(TextureUpload const & texture_upload : _upload_texture_queue)
+    for (TextureUpload const &texture_upload : _upload_texture_queue)
     {
-        auto const & texture_manifest = texture_upload.scene->_material_texture_manifest;
-        auto & material_manifest = texture_upload.scene->_material_manifest;
-        TextureManifestEntry const & texture_manifest_entry = texture_manifest.at(texture_upload.texture_manifest_index);
-        for(auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
+        auto const &texture_manifest = texture_upload.scene->_material_texture_manifest;
+        auto &material_manifest = texture_upload.scene->_material_manifest;
+        TextureManifestEntry const &texture_manifest_entry = texture_manifest.at(texture_upload.texture_manifest_index);
+        for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
         {
-            MaterialManifestEntry & material_entry = material_manifest.at(material_using_texture_info.material_manifest_index);
-            if(material_using_texture_info.diffuse)
+            MaterialManifestEntry &material_entry = material_manifest.at(material_using_texture_info.material_manifest_index);
+            if (material_using_texture_info.diffuse)
             {
                 material_entry.diffuse_tex_index = texture_upload.texture_manifest_index;
             }
-            if(material_using_texture_info.normal)
+            if (material_using_texture_info.normal)
             {
                 material_entry.normal_tex_index = texture_upload.texture_manifest_index;
             }
@@ -925,32 +914,37 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
                     dirty_material_entry_indices.begin(),
                     dirty_material_entry_indices.end(),
                     material_using_texture_info.material_manifest_index) ==
-                dirty_material_entry_indices.end()) 
+                dirty_material_entry_indices.end())
             {
                 dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
             }
         }
     }
     // 2) Update GPU manifest
-    auto const materials_update_staging_buffer = _device.create_buffer({
-        .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = "gpu materials update",
-    });
-    recorder.destroy_buffer_deferred(materials_update_staging_buffer);
-    GPUMaterial * const staging_origin_ptr = _device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
-    for(u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
+    daxa::BufferId materials_update_staging_buffer;
+    GPUMaterial * staging_origin_ptr;
+    if (dirty_material_entry_indices.size())
     {
-        auto const & texture_manifest = _upload_texture_queue.at(0).scene->_material_texture_manifest;
-        auto const & material_manifest = _upload_texture_queue.at(0).scene->_material_manifest;
-        MaterialManifestEntry const & material = material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
+        materials_update_staging_buffer = _device.create_buffer({
+            .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = "gpu materials update",
+        });
+        recorder.destroy_buffer_deferred(materials_update_staging_buffer);
+        staging_origin_ptr = _device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
+    }
+    for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
+    {
+        auto const &texture_manifest = _upload_texture_queue.at(0).scene->_material_texture_manifest;
+        auto const &material_manifest = _upload_texture_queue.at(0).scene->_material_manifest;
+        MaterialManifestEntry const &material = material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
         daxa::ImageId diffuse_id = {};
         daxa::ImageId normal_id = {};
-        if(material.diffuse_tex_index.has_value())
+        if (material.diffuse_tex_index.has_value())
         {
             diffuse_id = texture_manifest.at(material.diffuse_tex_index.value()).runtime.value();
         }
-        if(material.normal_tex_index.has_value())
+        if (material.normal_tex_index.has_value())
         {
             normal_id = texture_manifest.at(material.normal_tex_index.value()).runtime.value();
         }
@@ -978,17 +972,17 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
 auto AssetProcessor::load_all(Scene &scene) -> AssetProcessor::AssetLoadResultCode
 {
     std::optional<AssetProcessor::AssetLoadResultCode> err = {};
-    for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
-    {
-        if (!scene._material_texture_manifest.at(i).runtime.has_value())
-        {
-            auto result = load_texture(scene, i);
-            if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-            {
-                err = result;
-            }
-        }
-    }
+    //for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
+    //{
+    //    if (!scene._material_texture_manifest.at(i).runtime.has_value())
+    //    {
+    //        auto result = load_texture(scene, i);
+    //        if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
+    //        {
+    //            err = result;
+    //        }
+    //    }
+    //}
     for (u32 i = 0; i < scene._mesh_manifest.size(); ++i)
     {
         if (!scene._mesh_manifest.at(i).runtime.has_value())

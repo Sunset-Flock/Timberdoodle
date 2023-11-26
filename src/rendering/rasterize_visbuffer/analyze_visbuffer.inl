@@ -10,10 +10,10 @@
 #define ANALYZE_VIS_BUFFER_WORKGROUP_Y 8
 
 DAXA_DECL_TASK_HEAD_BEGIN(AnalyzeVisbuffer2)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, u_visbuffer)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), u_meshlet_visibility_bitfield)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(VisibleMeshletList), u_visible_meshlets)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, visbuffer)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), meshlet_visibility_bitfield)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(VisibleMeshletList), visible_meshlets)
 // DxDy Image
 // UV Image
 DAXA_DECL_TASK_HEAD_END
@@ -42,8 +42,8 @@ struct AnalyzeVisBufferTask2
     {
         auto & cmd = ti.get_recorder();
         cmd.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2::NAME));
-        auto const x = ti.get_device().info_image(uses.u_visbuffer.image()).value().size.x;
-        auto const y = ti.get_device().info_image(uses.u_visbuffer.image()).value().size.y;
+        auto const x = ti.get_device().info_image(uses.visbuffer.image()).value().size.x;
+        auto const y = ti.get_device().info_image(uses.visbuffer.image()).value().size.y;
         AnalyzeVisbufferPush2 push = {
             .globals = context->shader_globals_address,
             .size = {x, y},

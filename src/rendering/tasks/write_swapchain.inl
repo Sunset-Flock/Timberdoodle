@@ -18,6 +18,8 @@ DAXA_DECL_TASK_HEAD_END
 
 struct WriteSwapchainPush
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
+    WriteSwapchain uses;
     daxa_u32 width;
     daxa_u32 height;
 };
@@ -41,15 +43,16 @@ struct WriteSwapchainTask
     void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         cmd.set_pipeline(*context->compute_pipelines.at(WriteSwapchain::NAME));
         u32 const dispatch_x = round_up_div(ti.get_device().info_image(uses.swapchain.image()).value().size.x, WRITE_SWAPCHAIN_WG_X);
         u32 const dispatch_y = round_up_div(ti.get_device().info_image(uses.swapchain.image()).value().size.y, WRITE_SWAPCHAIN_WG_Y);
-        cmd.push_constant(WriteSwapchainPush{
+        auto push = WriteSwapchainPush{
+            .globals = context->shader_globals_address,
             .width = ti.get_device().info_image(uses.swapchain.image()).value().size.x,
             .height = ti.get_device().info_image(uses.swapchain.image()).value().size.y,
-        });
+        };
+        ti.copy_task_head_to(&push.uses);
+        cmd.push_constant(push);
         cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
     }
 };

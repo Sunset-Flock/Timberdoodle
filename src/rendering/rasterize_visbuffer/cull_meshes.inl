@@ -16,15 +16,13 @@
 #define CULL_MESHES_WORKGROUP_X 8
 #define CULL_MESHES_WORKGROUP_Y 7
 
-#if __cplusplus || defined(CullMeshesCommand_COMMAND)
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
 BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
 DAXA_DECL_TASK_HEAD_END
-#endif
-#if __cplusplus || !defined(CullMeshesCommand_COMMAND)
+
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
@@ -37,12 +35,17 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, u_hiz)
 BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
 DAXA_DECL_TASK_HEAD_END
-#endif
+
+struct CullMeshesCommandPush
+{
+    daxa_BufferPtr(ShaderGlobals) globals;
+    CullMeshesCommand uses;
+};
 
 struct CullMesheshPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    CullMeshesCommand uses;
+    CullMeshes uses;
 };
 
 #if __cplusplus
@@ -52,9 +55,10 @@ struct CullMesheshPush
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
 
-using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsBaseTask<
+using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
     CullMeshesCommand,
-    CULL_MESHES_SHADER_PATH>;
+    CULL_MESHES_SHADER_PATH,
+    CullMeshesCommandPush>;
 
 struct CullMeshesTask
 {

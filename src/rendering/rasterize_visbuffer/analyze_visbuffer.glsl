@@ -15,20 +15,20 @@ vec2 make_gather_uv(vec2 inv_size, uvec2 top_left_index)
     return (vec2(top_left_index) + 1.0f) * inv_size;
 }
 
+DAXA_DECL_PUSH_CONSTANT(AnalyzeVisbufferPush2, push)
 void update_visibility_masks_and_list(uint meshlet_instance_index, uint triangle_mask)
 {
-    const uint prev_value = atomicOr(deref(u_meshlet_visibility_bitfield[meshlet_instance_index]), triangle_mask);
+    const uint prev_value = atomicOr(deref(push.uses.meshlet_visibility_bitfield[meshlet_instance_index]), triangle_mask);
     if (prev_value == 0)
     {
         // prev value == zero means, that we are the first thread to ever see this meshlet visible.
         // As this condition only happens once per meshlet that is marked visible,
         // this thread in the position to uniquely write out this meshlets index to the visible meshlet list.
-        const uint offset = atomicAdd(deref(u_visible_meshlets).count, 1);
-        deref(u_visible_meshlets).meshlet_ids[offset] = meshlet_instance_index;
+        const uint offset = atomicAdd(deref(push.uses.visible_meshlets).count, 1);
+        deref(push.uses.visible_meshlets).meshlet_ids[offset] = meshlet_instance_index;
     }
 }
 
-DAXA_DECL_PUSH_CONSTANT(AnalyzeVisbufferPush2, push)
 layout(local_size_x = ANALYZE_VIS_BUFFER_WORKGROUP_X, local_size_y = ANALYZE_VIS_BUFFER_WORKGROUP_Y) in;
 void main()
 {
@@ -57,7 +57,7 @@ void main()
     //   Around 26x faster even in scenes with lots of small meshlets.
     const ivec2 index = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 sampleIndex = min(index << 1, ivec2(push.size) - 1);
-    uvec4 vis_ids = textureGather(daxa_usampler2D(u_visbuffer, globals.samplers.linear_clamp), make_gather_uv(1.0f / push.size, sampleIndex), 0);
+    uvec4 vis_ids = textureGather(daxa_usampler2D(push.uses.visbuffer, deref(push.globals).samplers.linear_clamp), make_gather_uv(1.0f / push.size, sampleIndex), 0);
     uint list_mask = (vis_ids[0] != INVALID_TRIANGLE_ID ? 1 : 0) |
                      (vis_ids[1] != INVALID_TRIANGLE_ID ? 2 : 0) |
                      (vis_ids[2] != INVALID_TRIANGLE_ID ? 4 : 0) |

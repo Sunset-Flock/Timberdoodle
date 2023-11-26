@@ -38,6 +38,8 @@ DAXA_DECL_TASK_HEAD_END
 
 struct PrefixSumWriteCommandPush
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
+    PrefixSumWriteCommand uses;
     daxa_u32 uint_offset;
 };
 
@@ -65,7 +67,7 @@ struct PrefixSumDownsweepPush
 
 #if __cplusplus
 
-#include "../../gpcontext.hpp"
+#include "../../gpu_context.hpp"
 #include "misc.hpp"
 
 static constexpr inline char const PREFIX_SUM_SHADER_PATH[] = "./src/rendering/tasks/prefix_sum.glsl";

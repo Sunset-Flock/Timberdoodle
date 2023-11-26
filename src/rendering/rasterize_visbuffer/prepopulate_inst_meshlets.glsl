@@ -4,6 +4,14 @@
 
 #include "prepopulate_inst_meshlets.inl"
 
+#if defined(PrepopInstMeshletCommW_COMMAND)
+DAXA_DECL_PUSH_CONSTANT(PrepopInstMeshletCommWPush, push)
+#elif defined(PrepopulateInstMeshletsPush, push)
+DAXA_DECL_PUSH_CONSTANT(PrepopulateInstMeshletsPush, push)
+#else
+DAXA_DECL_PUSH_CONSTANT(SetEntityMeshletVisibilityBitMasksPush, push)
+#endif
+
 #include "shader_lib/cull_util.glsl"
 
 #define WORKGROUP_SIZE PREPOPULATE_INST_MESHLETS_X

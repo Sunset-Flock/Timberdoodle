@@ -7,13 +7,11 @@
 #include "../../shader_shared/asset.inl"
 #define PREPOPULATE_INST_MESHLETS_X 256
 
-#if __cplusplus || defined(PrepopInstMeshletCommW_COMMAND)
 DAXA_DECL_TASK_HEAD_BEGIN(PrepopInstMeshletCommW)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), u_visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
 DAXA_DECL_TASK_HEAD_END
-#endif
-#if __cplusplus || !defined(PrepopInstMeshletCommW_COMMAND) && !defined(SetEntityMeshletVisibilityBitMasks_SHADER)
+
 // In the future we should check if the entity slot is actually valid here.
 // To do that we need a version in the entity id and a version table we can compare to
 DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets)
@@ -24,16 +22,19 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, u_entity_meshlet_visibility_bitfield_offsets)
 DAXA_DECL_TASK_HEAD_END
-#endif
 
-#if __cplusplus || defined(SetEntityMeshletVisibilityBitMasks_SHADER)
 DAXA_DECL_TASK_HEAD_BEGIN(SetEntityMeshletVisibilityBitMasks)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, u_entity_meshlet_visibility_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), u_entity_meshlet_visibility_bitfield_arena)
 DAXA_DECL_TASK_HEAD_END
-#endif
+
+struct PrepopInstMeshletCommWPush
+{
+    daxa_BufferPtr(ShaderGlobals) globals;
+    PrepopInstMeshletCommW uses;
+};
 
 struct PrepopulateInstMeshletsPush
 {
@@ -55,9 +56,10 @@ struct SetEntityMeshletVisibilityBitMasksPush
 static constexpr inline char const PRE_POPULATE_INST_MESHLETS_PATH[] =
     "./src/rendering/rasterize_visbuffer/prepopulate_inst_meshlets.glsl";
 
-using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArgsBaseTask<
+using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
     PrepopInstMeshletCommW,
-    PRE_POPULATE_INST_MESHLETS_PATH>;
+    PRE_POPULATE_INST_MESHLETS_PATH,
+    PrepopInstMeshletCommWPush>;
 
 struct PrepopulateInstantiatedMeshletsTask
 {
