@@ -468,15 +468,9 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     this->context->shader_globals.camera_top_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
     this->context->shader_globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
-    const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobalsBlock), context->device.properties().limits.min_uniform_buffer_offset_alignment);
-    *r_cast<ShaderGlobalsBlock*>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
+    const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
+    *r_cast<ShaderGlobals*>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
     context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
-    context->shader_globals_set_info = {
-        .slot = SHADER_GLOBALS_SLOT,
-        .buffer = context->shader_globals_buffer,
-        .size = sizeof(ShaderGlobalsBlock),
-        .offset = aligned_globals_block_size * flight_frame_index,
-    };
 
     auto swapchain_image = context->swapchain.acquire_next_image();
     if (swapchain_image.is_empty())
@@ -486,7 +480,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     this->swapchain_image.set_images({.images = std::array{swapchain_image}});
     meshlet_instances.swap_buffers(meshlet_instances_last_frame);
 
-    if (static_cast<daxa_u32>(context->swapchain.get_cpu_timeline_value()) == 0)
+    if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0)
     {
         clear_select_buffers();
     }
