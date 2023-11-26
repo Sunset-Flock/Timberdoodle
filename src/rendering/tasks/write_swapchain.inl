@@ -8,13 +8,13 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_USES_BEGIN(WriteSwapchain, 1)
-DAXA_TASK_USE_IMAGE(swapchain, REGULAR_2D, COMPUTE_SHADER_STORAGE_WRITE_ONLY)
-DAXA_TASK_USE_IMAGE(vis_image, REGULAR_2D, COMPUTE_SHADER_STORAGE_READ_ONLY)
-DAXA_TASK_USE_IMAGE(u_debug_image, REGULAR_2D, COMPUTE_SHADER_STORAGE_READ_ONLY)
-DAXA_TASK_USE_BUFFER(u_material_manifest, daxa_BufferPtr(GPUMaterial), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchain)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, swapchain)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, u_debug_image)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), u_material_manifest)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_DECL_TASK_HEAD_END
 
 struct WriteSwapchainPush
 {
@@ -31,7 +31,7 @@ struct WriteSwapchainPush
 
 struct WriteSwapchainTask
 {
-    DAXA_USE_TASK_HEADER(WriteSwapchain)
+    USE_TASK_HEAD(WriteSwapchain)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.glsl"}},
         .push_constant_size = sizeof(WriteSwapchainPush),

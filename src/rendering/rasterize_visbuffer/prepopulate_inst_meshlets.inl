@@ -8,32 +8,44 @@
 #define PREPOPULATE_INST_MESHLETS_X 256
 
 #if __cplusplus || defined(PrepopInstMeshletCommW_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(PrepopInstMeshletCommW, 1)
-DAXA_TASK_USE_BUFFER(u_visible_meshlets_prev, daxa_BufferPtr(VisibleMeshletList), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_command, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopInstMeshletCommW)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), u_visible_meshlets_prev)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
+DAXA_DECL_TASK_HEAD_END
 #endif
 #if __cplusplus || !defined(PrepopInstMeshletCommW_COMMAND) && !defined(SetEntityMeshletVisibilityBitMasks_SHADER)
 // In the future we should check if the entity slot is actually valid here.
 // To do that we need a version in the entity id and a version table we can compare to
-DAXA_DECL_TASK_USES_BEGIN(PrepopulateInstMeshlets, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_visible_meshlets_prev, daxa_BufferPtr(VisibleMeshletList), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets_prev, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshes, daxa_BufferPtr(GPUMesh), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_RWBufferPtr(MeshletInstances), COMPUTE_SHADER_READ_WRITE)
-DAXA_TASK_USE_BUFFER(u_entity_meshlet_visibility_bitfield_offsets, EntityMeshletVisibilityBitfieldOffsetsView, COMPUTE_SHADER_READ_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), u_visible_meshlets_prev)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets_prev)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, u_entity_meshlet_visibility_bitfield_offsets)
+DAXA_DECL_TASK_HEAD_END
 #endif
 
 #if __cplusplus || defined(SetEntityMeshletVisibilityBitMasks_SHADER)
-DAXA_DECL_TASK_USES_BEGIN(SetEntityMeshletVisibilityBitMasks, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshlet_visibility_bitfield_offsets, EntityMeshletVisibilityBitfieldOffsetsView, COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshlet_visibility_bitfield_arena, daxa_RWBufferPtr(daxa_u32), COMPUTE_SHADER_READ_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(SetEntityMeshletVisibilityBitMasks)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, u_entity_meshlet_visibility_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), u_entity_meshlet_visibility_bitfield_arena)
+DAXA_DECL_TASK_HEAD_END
 #endif
+
+struct PrepopulateInstMeshletsPush
+{
+    daxa_BufferPtr(ShaderGlobals) globals;
+    PrepopulateInstMeshlets uses;
+};
+
+struct SetEntityMeshletVisibilityBitMasksPush
+{
+    daxa_BufferPtr(ShaderGlobals) globals;
+    SetEntityMeshletVisibilityBitMasks uses;
+};
 
 #if __cplusplus
 
@@ -49,7 +61,7 @@ using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArg
 
 struct PrepopulateInstantiatedMeshletsTask
 {
-    DAXA_USE_TASK_HEADER(PrepopulateInstMeshlets)
+    USE_TASK_HEAD(PrepopulateInstMeshlets)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}},
         .name = std::string{PrepopulateInstMeshlets::NAME},
@@ -58,9 +70,10 @@ struct PrepopulateInstantiatedMeshletsTask
     void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
+        PrepopulateInstMeshletsPush push = { .globals = context->shader_globals_address };
+        ti.copy_task_head_to(&push.uses);
         cmd.set_pipeline(*context->compute_pipelines.at(PrepopulateInstMeshlets::NAME));
+        cmd.push_constant(push);
         cmd.dispatch_indirect({
             .indirect_buffer = uses.u_command.buffer(),
         });
@@ -69,7 +82,7 @@ struct PrepopulateInstantiatedMeshletsTask
 
 struct SetEntityMeshletVisibilityBitMasksTask
 {
-    DAXA_USE_TASK_HEADER(SetEntityMeshletVisibilityBitMasks)
+    USE_TASK_HEAD(SetEntityMeshletVisibilityBitMasks)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}, {.defines = {{"SetEntityMeshletVisibilityBitMasks_SHADER", "1"}}}},
         .name = std::string{SetEntityMeshletVisibilityBitMasks::NAME},
@@ -78,8 +91,8 @@ struct SetEntityMeshletVisibilityBitMasksTask
     void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
+        SetEntityMeshletVisibilityBitMasksPush push = { .globals = context->shader_globals_address  };
+        ti.copy_task_head_to(&push.uses);
         cmd.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks::NAME));
         cmd.dispatch_indirect({
             .indirect_buffer = uses.u_command.buffer(),

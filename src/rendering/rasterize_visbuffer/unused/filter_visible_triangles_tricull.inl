@@ -7,19 +7,19 @@
 #include "../../shader_shared/asset.inl"
 
 #if __cplusplus || defined(FilterVisibleTrianglesWriteCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(FilterVisibleTrianglesWriteCommand, 1)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_command, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTrianglesWriteCommand)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
+DAXA_DECL_TASK_HEAD_END
 #endif
 
 #if __cplusplus || !defined(FilterVisibleTrianglesWriteCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(FilterVisibleTriangles, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshlet_visibility_bitfields, daxa_BufferPtr(daxa_u32vec4), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_visible_triangles, daxa_RWBufferPtr(TriangleList), COMPUTE_SHADER_READ_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTriangles)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32vec4), u_meshlet_visibility_bitfields)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(TriangleList), u_visible_triangles)
+DAXA_DECL_TASK_HEAD_END
 #endif
 
 #if __cplusplus
@@ -36,7 +36,7 @@ using FilterVisibleTrianglesWriteCommandTask = WriteIndirectDispatchArgsBaseTask
 
 struct FilterVisibleTrianglesTask
 {
-    DAXA_USE_TASK_HEADER(FilterVisibleTriangles)
+    USE_TASK_HEAD(FilterVisibleTriangles)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{FILTER_VISIBLE_TRIANGLES_PATH}},
         .name = std::string{FilterVisibleTriangles::NAME},

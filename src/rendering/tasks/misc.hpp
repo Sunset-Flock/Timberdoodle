@@ -8,7 +8,7 @@
 template <typename T_USES_BASE, char const *T_FILE_PATH>
 struct WriteIndirectDispatchArgsBaseTask
 {
-    DAXA_USE_TASK_HEADER(T_USES_BASE)
+    USE_TASK_HEAD(T_USES_BASE)
     static inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{T_FILE_PATH},
@@ -32,7 +32,7 @@ struct WriteIndirectDispatchArgsBaseTask
 template <typename T_USES_BASE, char const *T_FILE_PATH, typename T_PUSH>
 struct WriteIndirectDispatchArgsPushBaseTask
 {
-    DAXA_USE_TASK_HEADER(T_USES_BASE)
+    USE_TASK_HEAD(T_USES_BASE)
     static inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{T_FILE_PATH},

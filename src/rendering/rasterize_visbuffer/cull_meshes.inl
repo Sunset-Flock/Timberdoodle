@@ -17,27 +17,33 @@
 #define CULL_MESHES_WORKGROUP_Y 7
 
 #if __cplusplus || defined(CullMeshesCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(CullMeshesCommand, 1)
-DAXA_TASK_USE_BUFFER(u_entity_meta, daxa_BufferPtr(GPUEntityMetaData), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_command, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_WRITE)
-DAXA_TASK_USE_BUFFER(u_cull_meshlets_commands, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_WRITE)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
 BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
-DAXA_DECL_TASK_USES_END()
+DAXA_DECL_TASK_HEAD_END
 #endif
 #if __cplusplus || !defined(CullMeshesCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(CullMeshes, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshes, daxa_BufferPtr(GPUMesh), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meta, daxa_BufferPtr(GPUEntityMetaData), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshgroup_indices, daxa_BufferPtr(daxa_u32), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshgroups, daxa_BufferPtr(GPUMeshGroup), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_transforms, daxa_BufferPtr(daxa_f32mat4x3), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_combined_transforms, daxa_BufferPtr(daxa_f32mat4x3), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_IMAGE(u_hiz, REGULAR_2D, COMPUTE_SHADER_SAMPLED)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), u_entity_meshgroup_indices)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), u_meshgroups)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_transforms)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_combined_transforms)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, u_hiz)
 BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
-DAXA_TASK_USE_BUFFER(u_cull_meshlets_commands, daxa_RWBufferPtr(DispatchIndirectStruct), COMPUTE_SHADER_READ_WRITE)
-DAXA_DECL_TASK_USES_END()
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
+DAXA_DECL_TASK_HEAD_END
 #endif
+
+struct CullMesheshPush
+{
+    daxa_BufferPtr(ShaderGlobals) globals;
+    CullMeshesCommand uses;
+};
 
 #if __cplusplus
 #include "../../gpu_context.hpp"
@@ -52,20 +58,22 @@ using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsBaseTask<
 
 struct CullMeshesTask
 {
-    DAXA_USE_TASK_HEADER(CullMeshes)
+    USE_TASK_HEAD(CullMeshes)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
         },
+        .push_constant_size = sizeof(CullMesheshPush),
         .name = std::string{CullMeshes::NAME},
     };
     GPUContext *context = {};
     void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         cmd.set_pipeline(*context->compute_pipelines.at(CullMeshes::NAME));
+        CullMesheshPush push = { .globals = context->shader_globals_address };
+        ti.copy_task_head_to(&push.uses);
+        cmd.push_constant(push);
         cmd.dispatch_indirect({
             .indirect_buffer = uses.u_command.buffer(),
         });

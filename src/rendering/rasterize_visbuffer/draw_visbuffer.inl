@@ -8,61 +8,63 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-#if __cplusplus || defined(DrawVisbufferWriteCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(DrawVisbufferWriteCommand, 1)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_command, daxa_u64, COMPUTE_SHADER_WRITE)
-DAXA_DECL_TASK_USES_END()
-#endif
-#if __cplusplus || defined(NO_MESH_SHADER) || defined(MESH_SHADER)
-DAXA_DECL_TASK_USES_BEGIN(DrawVisbuffer, 1)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommand)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, u_command)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer)
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_TASK_USE_BUFFER(u_command, daxa_u64, DRAW_INDIRECT_INFO_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_BufferPtr(MeshletInstances), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshes, daxa_BufferPtr(GPUMesh), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_combined_transforms, daxa_BufferPtr(daxa_f32mat4x3), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_IMAGE(u_vis_image, REGULAR_2D, COLOR_ATTACHMENT)
-DAXA_TASK_USE_IMAGE(u_debug_image, REGULAR_2D, COLOR_ATTACHMENT)
-DAXA_TASK_USE_IMAGE(u_depth_image, REGULAR_2D, DEPTH_ATTACHMENT)
-DAXA_DECL_TASK_USES_END()
-#endif
-#if __cplusplus || defined(MESH_SHADER_CULL_AND_DRAW)
-DAXA_DECL_TASK_USES_BEGIN(DrawVisbufferMeshShaderCullAndDraw, 1)
+DAXA_TH_BUFFER_PTR(DRAW_INDIRECT_INFO_READ, daxa_u64, u_command)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_combined_transforms)
+DAXA_TH_IMAGE_ID(COLOR_ATTACHMENT, REGULAR_2D, u_vis_image)
+DAXA_TH_IMAGE_ID(COLOR_ATTACHMENT, REGULAR_2D, u_debug_image)
+DAXA_TH_IMAGE_ID(DEPTH_ATTACHMENT, REGULAR_2D, u_depth_image)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShader)
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_TASK_USE_BUFFER(u_command, daxa_u64, DRAW_INDIRECT_INFO_READ)
-DAXA_TASK_USE_BUFFER(u_meshlet_cull_indirect_args, daxa_BufferPtr(MeshletCullIndirectArgTable), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_instantiated_meshlets, daxa_RWBufferPtr(MeshletInstances), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshes, daxa_BufferPtr(GPUMesh), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meta, daxa_BufferPtr(GPUEntityMetaData), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshgroups, daxa_BufferPtr(daxa_u32), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_meshgroups, daxa_BufferPtr(GPUMeshGroup), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_combined_transforms, daxa_BufferPtr(daxa_f32mat4x3), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshlet_visibility_bitfield_offsets, EntityMeshletVisibilityBitfieldOffsetsView, GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_entity_meshlet_visibility_bitfield_arena, daxa_BufferPtr(daxa_u32), GRAPHICS_SHADER_READ)
-DAXA_TASK_USE_IMAGE(u_hiz, REGULAR_2D, GRAPHICS_SHADER_SAMPLED)
-DAXA_TASK_USE_IMAGE(u_vis_image, REGULAR_2D, COLOR_ATTACHMENT)
-DAXA_TASK_USE_IMAGE(u_debug_image, REGULAR_2D, COLOR_ATTACHMENT)
-DAXA_TASK_USE_IMAGE(u_depth_image, REGULAR_2D, DEPTH_ATTACHMENT)
-DAXA_DECL_TASK_USES_END()
-#endif
+DAXA_TH_BUFFER_PTR(DRAW_INDIRECT_INFO_READ, daxa_u64, u_command)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullIndirectArgTable), u_meshlet_cull_indirect_args)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_RWBufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), u_entity_meshgroups)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), u_meshgroups)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, u_entity_meshlet_visibility_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), u_entity_meshlet_visibility_bitfield_arena)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, u_hiz)
+DAXA_TH_IMAGE_ID(COLOR_ATTACHMENT, REGULAR_2D, u_vis_image)
+DAXA_TH_IMAGE_ID(COLOR_ATTACHMENT, REGULAR_2D, u_debug_image)
+DAXA_TH_IMAGE_ID(DEPTH_ATTACHMENT, REGULAR_2D, u_depth_image)
+DAXA_DECL_TASK_HEAD_END
 
 #define DRAW_VISBUFFER_PASS_ONE 0
 #define DRAW_VISBUFFER_PASS_TWO 1
 #define DRAW_VISBUFFER_PASS_OBSERVER 2
 
-struct DrawVisbufferWriteCommandPush
+struct DrawVisbufferPush_WriteCommand
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
+    DrawVisbuffer_WriteCommand uses;
     daxa_u32 pass;
     daxa_u32 mesh_shader;
 };
 
 struct DrawVisbufferPush
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
+    DrawVisbuffer uses;
     daxa_u32 pass;
 };
 
-struct DrawVisbufferCullAndDrawPush
+struct DrawVisbufferPush_MeshShader
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
+    DrawVisbuffer_MeshShader uses;
     daxa_u32 bucket_index;
 };
 
@@ -91,10 +93,10 @@ static inline std::vector<daxa::RenderAttachment> DRAW_VISBUFFER_RENDER_ATTACHME
     },
 };
 
-using DrawVisbufferWriteCommandTask = WriteIndirectDispatchArgsPushBaseTask<
-    DrawVisbufferWriteCommand,
+using DrawVisbuffer_WriteCommandTask = WriteIndirectDispatchArgsPushBaseTask<
+    DrawVisbuffer_WriteCommand,
     DRAW_VISBUFFER_SHADER_PATH,
-    DrawVisbufferWriteCommandPush>;
+    DrawVisbufferPush_WriteCommand>;
 
 inline static const daxa::RasterPipelineCompileInfo DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_NO_MESH_SHADER = []()
 {
@@ -147,14 +149,14 @@ inline static const daxa::RasterPipelineCompileInfo DRAW_VISBUFFER_PIPELINE_COMP
     ret.fragment_shader_info = comp_info;
     ret.mesh_shader_info = comp_info;
     ret.task_shader_info = comp_info;
-    ret.name = "DrawVisbufferMeshShaderCullAndDraw";
-    ret.push_constant_size = sizeof(DrawVisbufferCullAndDrawPush);
+    ret.name = "DrawVisbuffer_MeshShader";
+    ret.push_constant_size = sizeof(DrawVisbufferPush_MeshShader);
     return ret;
 }();
 
 struct DrawVisbufferTask
 {
-    DAXA_USE_TASK_HEADER(DrawVisbuffer)
+    USE_TASK_HEAD(DrawVisbuffer)
     inline static const daxa::RasterPipelineCompileInfo PIPELINE_COMPILE_INFO = DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_NO_MESH_SHADER;
     GPUContext *context = {};
     u32 pass = {};
@@ -165,8 +167,6 @@ struct DrawVisbufferTask
         daxa::ImageId depth_image = uses.u_depth_image.image();
         daxa::ImageId debug_image = uses.u_debug_image.image();
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         const bool clear_images = pass == DRAW_VISBUFFER_PASS_ONE || pass == DRAW_VISBUFFER_PASS_OBSERVER;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         daxa::RenderPassBeginInfo render_pass_begin_info{
@@ -207,9 +207,12 @@ struct DrawVisbufferTask
         {
             render_cmd.set_pipeline(*context->raster_pipelines.at(PIPELINE_COMPILE_INFO.name));
         }
-        render_cmd.push_constant(DrawVisbufferPush{
+        DrawVisbufferPush push{
+            .globals = context->shader_globals_address,
             .pass = pass,
-        });
+        };
+        ti.copy_task_head_to(&push.uses);
+        render_cmd.push_constant(push);
         if (mesh_shader)
         {
             render_cmd.draw_mesh_tasks_indirect({
@@ -233,7 +236,7 @@ struct DrawVisbufferTask
 
 struct CullAndDrawVisbufferTask
 {
-    DAXA_USE_TASK_HEADER(DrawVisbufferMeshShaderCullAndDraw)
+    USE_TASK_HEAD(DrawVisbuffer_MeshShader)
     inline static const daxa::RasterPipelineCompileInfo PIPELINE_COMPILE_INFO = DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW;
     GPUContext *context = {};
     void callback(daxa::TaskInterface ti)
@@ -242,8 +245,6 @@ struct CullAndDrawVisbufferTask
         daxa::ImageId depth_image = uses.u_depth_image.image();
         daxa::ImageId debug_image = uses.u_debug_image.image();
         auto & cmd = ti.get_recorder();
-        cmd.set_uniform_buffer(context->shader_globals_set_info);
-        cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         const bool clear_images = false;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         daxa::RenderPassBeginInfo render_pass_begin_info{
@@ -279,7 +280,12 @@ struct CullAndDrawVisbufferTask
         render_cmd.set_pipeline(*context->raster_pipelines.at(DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW.name));
         for (u32 i = 0; i < 32; ++i)
         {
-            render_cmd.push_constant(DrawVisbufferCullAndDrawPush{.bucket_index = i});
+            DrawVisbufferPush_MeshShader push = {
+                .globals = context->shader_globals_address,
+                .bucket_index = i
+            };
+            ti.copy_task_head_to(&push.uses);
+            render_cmd.push_constant(push);
             render_cmd.draw_mesh_tasks_indirect({
                 .indirect_buffer = uses.u_command.buffer(),
                 .offset = sizeof(DispatchIndirectStruct) * i,
@@ -345,18 +351,18 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         task_clear_buffer(info.tg, draw_command, 0);
         info.tg.add_task(CullMeshletsTask{
             .uses = {
-                .u_commands = info.cull_meshlets_commands,
-                .u_meshlet_cull_indirect_args = info.meshlet_cull_indirect_args,
-                .u_entity_meta_data = info.entity_meta_data,
-                .u_entity_meshgroups = info.entity_meshgroups,
-                .u_meshgroups = info.mesh_groups,
-                .u_entity_combined_transforms = info.entity_combined_transforms,
-                .u_meshes = info.meshes,
-                .u_entity_meshlet_visibility_bitfield_offsets = info.entity_meshlet_visibility_bitfield_offsets,
-                .u_entity_meshlet_visibility_bitfield_arena = info.entity_meshlet_visibility_bitfield_arena,
-                .u_hiz = info.hiz,
-                .u_instantiated_meshlets = info.meshlet_instances,
-                .u_draw_command = draw_command,
+                .hiz = info.hiz,
+                .commands = info.cull_meshlets_commands,
+                .meshlet_cull_indirect_args = info.meshlet_cull_indirect_args,
+                .entity_meta_data = info.entity_meta_data,
+                .entity_meshgroups = info.entity_meshgroups,
+                .meshgroups = info.mesh_groups,
+                .entity_combined_transforms = info.entity_combined_transforms,
+                .meshes = info.meshes,
+                .entity_meshlet_visibility_bitfield_offsets = info.entity_meshlet_visibility_bitfield_offsets,
+                .entity_meshlet_visibility_bitfield_arena = info.entity_meshlet_visibility_bitfield_arena,
+                .instantiated_meshlets = info.meshlet_instances,
+                .draw_command = draw_command,
             },
             .context = info.context,
         });
@@ -397,13 +403,13 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .size = static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct))),
         .name = std::string("draw visbuffer command buffer") + info.context->dummy_string(),
     });
-    info.tg.add_task(DrawVisbufferWriteCommandTask{
+    info.tg.add_task(DrawVisbuffer_WriteCommandTask{
         .uses = {
             .u_instantiated_meshlets = info.meshlet_instances,
             .u_command = draw_command,
         },
         .context = info.context,
-        .push = DrawVisbufferWriteCommandPush{.pass = info.pass, .mesh_shader = info.enable_mesh_shader ? 1u : 0u},
+        .push = DrawVisbufferPush_WriteCommand{.pass = info.pass, .mesh_shader = info.enable_mesh_shader ? 1u : 0u},
     });
     info.tg.add_task(DrawVisbufferTask{
         .uses = {

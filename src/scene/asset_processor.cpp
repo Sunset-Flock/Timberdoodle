@@ -754,7 +754,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         .size = s_cast<daxa::usize>(total_gpu_mesh_size),
         .name = gltf_mesh.name.c_str(),
     });
-    daxa::BufferDeviceAddress bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh_descriptor.mesh_buffer)).value();
+    daxa::DeviceAddress bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh_descriptor.mesh_buffer)).value();
     mesh_data.runtime = mesh_descriptor;
 
     /// NOTE: Write mesh into staging memory.

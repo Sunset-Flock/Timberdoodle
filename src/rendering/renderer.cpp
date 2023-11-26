@@ -160,7 +160,7 @@ void Renderer::compile_pipelines()
         {AnalyzeVisBufferTask2::NAME, AnalyzeVisBufferTask2::PIPELINE_COMPILE_INFO},
         {GEN_HIZ_PIPELINE_COMPILE_INFO.name, GEN_HIZ_PIPELINE_COMPILE_INFO},
         {WriteSwapchainTask::NAME, WriteSwapchainTask::PIPELINE_COMPILE_INFO},
-        {DrawVisbufferWriteCommandTask::NAME, DrawVisbufferWriteCommandTask::PIPELINE_COMPILE_INFO},
+        {DrawVisbuffer_WriteCommandTask::NAME, DrawVisbuffer_WriteCommandTask::PIPELINE_COMPILE_INFO},
         {CullMeshesCommandWriteTask::NAME, CullMeshesCommandWriteTask::PIPELINE_COMPILE_INFO},
         {CullMeshesTask::NAME, CullMeshesTask::PIPELINE_COMPILE_INFO},
         {PrefixSumCommandWriteTask::NAME, PrefixSumCommandWriteTask::PIPELINE_COMPILE_INFO},
@@ -440,7 +440,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     u32 const flight_frame_index = context->swapchain.get_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
     this->update_settings();
-    this->context->shader_globals.globals.settings = context->settings;
+    this->context->shader_globals.settings = context->settings;
     bool const settings_changed = context->settings != context->prev_settings;
     if (settings_changed)
     {
@@ -449,28 +449,28 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     this->context->prev_settings = this->context->settings;
 
     // Set Shader Globals.
-    this->context->shader_globals.globals.settings = this->context->settings;
-    this->context->shader_globals.globals.frame_index = static_cast<u32>(context->swapchain.get_cpu_timeline_value());
-    this->context->shader_globals.globals.delta_time = delta_time;
-    this->context->shader_globals.globals.observer_camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
-    this->context->shader_globals.globals.observer_camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
-    this->context->shader_globals.globals.observer_camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
-    this->context->shader_globals.globals.observer_camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.proj);
-    this->context->shader_globals.globals.observer_camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.vp);
-    this->context->shader_globals.globals.camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.up);
-    this->context->shader_globals.globals.camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.pos);
-    this->context->shader_globals.globals.camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.view);
-    this->context->shader_globals.globals.camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.proj);
-    this->context->shader_globals.globals.camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.vp);
-    this->context->shader_globals.globals.camera_near_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_near_plane_normal);
-    this->context->shader_globals.globals.camera_right_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_right_plane_normal);
-    this->context->shader_globals.globals.camera_left_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_left_plane_normal);
-    this->context->shader_globals.globals.camera_top_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
-    this->context->shader_globals.globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
+    this->context->shader_globals.settings = this->context->settings;
+    this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.get_cpu_timeline_value());
+    this->context->shader_globals.delta_time = delta_time;
+    this->context->shader_globals.observer_camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
+    this->context->shader_globals.observer_camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
+    this->context->shader_globals.observer_camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
+    this->context->shader_globals.observer_camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.proj);
+    this->context->shader_globals.observer_camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.vp);
+    this->context->shader_globals.camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.up);
+    this->context->shader_globals.camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.pos);
+    this->context->shader_globals.camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.view);
+    this->context->shader_globals.camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.proj);
+    this->context->shader_globals.camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.vp);
+    this->context->shader_globals.camera_near_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_near_plane_normal);
+    this->context->shader_globals.camera_right_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_right_plane_normal);
+    this->context->shader_globals.camera_left_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_left_plane_normal);
+    this->context->shader_globals.camera_top_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
+    this->context->shader_globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
     const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobalsBlock), context->device.properties().limits.min_uniform_buffer_offset_alignment);
     *r_cast<ShaderGlobalsBlock*>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
-    context->shader_globals_ptr = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
+    context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
     context->shader_globals_set_info = {
         .slot = SHADER_GLOBALS_SLOT,
         .buffer = context->shader_globals_buffer,

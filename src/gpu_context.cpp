@@ -64,12 +64,12 @@ GPUContext::GPUContext(Window const &window)
           .name = "transient memory pool",
       }},
       shader_globals_buffer{this->device.create_buffer({
-        .size = round_up_to_multiple(sizeof(ShaderGlobalsBlock), device.properties().limits.min_uniform_buffer_offset_alignment) * 4,
+        .size = round_up_to_multiple(sizeof(ShaderGlobals), device.properties().limits.min_uniform_buffer_offset_alignment) * 4,
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE | daxa::MemoryFlagBits::DEDICATED_MEMORY,
         .name = "globals",
       })}
 {
-    shader_globals.globals.samplers = {
+    shader_globals.samplers = {
         .linear_clamp = this->device.create_sampler({
             .name = "linear clamp sampler",
         }), 
@@ -96,7 +96,7 @@ auto GPUContext::dummy_string() -> std::string
 GPUContext::~GPUContext()
 {
     device.destroy_buffer(shader_globals_buffer);
-    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.linear_clamp));
-    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.linear_repeat));
-    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.globals.samplers.nearest_clamp));
+    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_clamp));
+    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_repeat));
+    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.nearest_clamp));
 }

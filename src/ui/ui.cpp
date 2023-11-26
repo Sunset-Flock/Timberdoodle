@@ -3,7 +3,7 @@
 #include <imgui.h>
 
 UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context) :
-    scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.globals.samplers.linear_clamp)),
+    scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp)),
     context{context}
 {
     auto * imgui_context = ImGui::CreateContext();

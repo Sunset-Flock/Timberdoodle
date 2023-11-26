@@ -16,29 +16,25 @@ struct DispatchIndirectValueCount
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectValueCount)
 
-#if __cplusplus || defined(PrefixSumWriteCommand_COMMAND)
-DAXA_DECL_TASK_USES_BEGIN(PrefixSumWriteCommand, 1)
-DAXA_TASK_USE_BUFFER(u_value_count, daxa_BufferPtr(daxa_u32), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_upsweep_command0, daxa_RWBufferPtr(DispatchIndirectValueCount), COMPUTE_SHADER_WRITE)
-DAXA_TASK_USE_BUFFER(u_upsweep_command1, daxa_RWBufferPtr(DispatchIndirectValueCount), COMPUTE_SHADER_WRITE)
-DAXA_TASK_USE_BUFFER(u_downsweep_command, daxa_RWBufferPtr(DispatchIndirectValueCount), COMPUTE_SHADER_WRITE)
-DAXA_DECL_TASK_USES_END()
-#endif
-#if __cplusplus || defined(UPSWEEP)
-DAXA_DECL_TASK_USES_BEGIN(PrefixSumUpsweep, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectValueCount), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_src, daxa_BufferPtr(daxa_u32), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_dst, daxa_RWBufferPtr(daxa_u32), COMPUTE_SHADER_WRITE)
-DAXA_TASK_USE_BUFFER(u_block_sums, daxa_RWBufferPtr(daxa_u32), COMPUTE_SHADER_WRITE)
-DAXA_DECL_TASK_USES_END()
-#endif
-#if __cplusplus || defined(DOWNSWEEP)
-DAXA_DECL_TASK_USES_BEGIN(PrefixSumDownsweep, 1)
-DAXA_TASK_USE_BUFFER(u_command, daxa_BufferPtr(DispatchIndirectValueCount), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_block_sums, daxa_BufferPtr(daxa_u32), COMPUTE_SHADER_READ)
-DAXA_TASK_USE_BUFFER(u_values, daxa_RWBufferPtr(daxa_u32), COMPUTE_SHADER_WRITE)
-DAXA_DECL_TASK_USES_END()
-#endif
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumWriteCommand)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), u_value_count)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), u_upsweep_command0)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), u_upsweep_command1)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), u_downsweep_command)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweep)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), u_src)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), u_dst)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), u_block_sums)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweep)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), u_command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), u_block_sums)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), u_values)
+DAXA_DECL_TASK_HEAD_END
 
 struct PrefixSumWriteCommandPush
 {
@@ -69,7 +65,7 @@ using PrefixSumCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
 // Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
 struct PrefixSumUpsweepTask
 {
-    DAXA_USE_TASK_HEADER(PrefixSumUpsweep)
+    USE_TASK_HEAD(PrefixSumUpsweep)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
@@ -98,7 +94,7 @@ struct PrefixSumUpsweepTask
 
 struct PrefixSumDownsweepTask
 {
-    DAXA_USE_TASK_HEADER(PrefixSumDownsweep)
+    USE_TASK_HEAD(PrefixSumDownsweep)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},

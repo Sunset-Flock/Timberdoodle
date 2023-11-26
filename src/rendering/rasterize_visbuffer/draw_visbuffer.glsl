@@ -10,8 +10,8 @@
 #include "shader_lib/cull_util.glsl"
 #include "shader_lib/observer.glsl"
 
-#if defined(DrawVisbufferWriteCommand_COMMAND) || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferWriteCommandPush, push)
+#if defined(DrawVisbuffer_WriteCommand_COMMAND) || !defined(DAXA_SHADER)
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
 layout(local_size_x = 1) in;
 void main()
 {

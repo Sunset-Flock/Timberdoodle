@@ -14,6 +14,7 @@
 
 struct GenHizPush
 {
+    daxa_BufferPtr(ShaderGlobals) globals;
     daxa_ImageViewId src;
     daxa_ImageViewId mips[GEN_HIZ_LEVELS_PER_DISPATCH];
     daxa_u32 mip_count;
@@ -61,13 +62,13 @@ daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGra
         {
             auto & cmd = ti.get_recorder();
             auto & device = ti.get_device();
-            cmd.set_uniform_buffer(context->shader_globals_set_info);
             cmd.set_pipeline(*context->compute_pipelines.at(GEN_HIZ_PIPELINE_COMPILE_INFO.name));
             auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
             auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
             auto counter_alloc = ti.get_allocator().allocate(sizeof(u32), sizeof(u32)).value();
             *reinterpret_cast<u32*>(counter_alloc.host_address) = 0;
             GenHizPush push{ 
+                .globals = context->shader_globals_address,
                 .src = ti.uses[src_view].view(),
                 .mips = {},
                 .mip_count = mips_this_dispatch,

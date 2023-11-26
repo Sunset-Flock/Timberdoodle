@@ -86,11 +86,6 @@ struct ShaderGlobals
 };
 DAXA_DECL_BUFFER_PTR(ShaderGlobals)
 
-DAXA_DECL_UNIFORM_BUFFER(SHADER_GLOBALS_SLOT) ShaderGlobalsBlock
-{
-    ShaderGlobals globals;
-};
-
 #if DAXA_SHADER
 #define my_sizeof(T) uint64_t(daxa_BufferPtr(T)(daxa_u64(0)) + 1)
 #endif
@@ -142,5 +137,7 @@ struct DispatchIndirectStruct
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
 
-#define BUFFER_COMPUTE_READ(NAME, TYPE) DAXA_TASK_USE_BUFFER(NAME, daxa_BufferPtr(TYPE), COMPUTE_SHADER_READ)
-#define BUFFER_COMPUTE_WRITE(NAME, TYPE) DAXA_TASK_USE_BUFFER(NAME, daxa_RWBufferPtr(TYPE), COMPUTE_SHADER_WRITE)
+#define BUFFER_COMPUTE_READ(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(TYPE), NAME)
+#define BUFFER_COMPUTE_WRITE(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(TYPE), NAME)
+
+#define USE_TASK_HEAD(HEAD) HEAD::Uses uses; static inline constexpr std::string_view NAME = #HEAD;
