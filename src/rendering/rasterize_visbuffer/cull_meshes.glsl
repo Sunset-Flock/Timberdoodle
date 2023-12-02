@@ -10,15 +10,16 @@
 
 #if defined(CullMeshesCommand_COMMAND)
 layout(local_size_x = 32) in;
+DAXA_DECL_PUSH_CONSTANT(CullMeshesCommandPush, push)
 void main()
 {
     if (gl_GlobalInvocationID.x == 0)
     {
-        const uint entity_count = deref(u_entity_meta).entity_count;
+        const uint entity_count = deref(push.uses.entity_meta).entity_count;
         const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
-        deref(u_command).x = dispatch_x;
-        deref(u_command).y = 1;
-        deref(u_command).z = 1;
+        deref(push.uses.command).x = dispatch_x;
+        deref(push.uses.command).y = 1;
+        deref(push.uses.command).z = 1;
     }
     const uint index = gl_GlobalInvocationID.x;
     uint64_t sizeof_arg_table = my_sizeof(MeshletCullIndirectArgTable);
@@ -28,41 +29,42 @@ void main()
     // index 0 starts at sizeof_arg_table + sizeof_arg * MAX_MESHLET_INSTANCES,
     // indes 1 starts at sizeof_arg_table + sizeof_arg * MAX_MESHLET_INSTANCES * 1/2,
     // index 2 ...
-    daxa_u64 addr = daxa_u64(u_meshlet_cull_indirect_args) + sizeof_arg_table + (sizeof_arg * MAX_MESHLET_INSTANCES >> index);
-    deref(u_meshlet_cull_indirect_args).indirect_arg_ptrs[index] = daxa_RWBufferPtr(MeshletCullIndirectArg)(addr);
-    deref(u_meshlet_cull_indirect_args).indirect_arg_counts[index] = 0;
-    deref(u_cull_meshlets_commands[index]).x = 0;
-    deref(u_cull_meshlets_commands[index]).y = 1;
-    deref(u_cull_meshlets_commands[index]).z = 1;
+    daxa_u64 addr = daxa_u64(push.uses.meshlet_cull_indirect_args) + sizeof_arg_table + (sizeof_arg * MAX_MESHLET_INSTANCES >> index);
+    deref(push.uses.meshlet_cull_indirect_args).indirect_arg_ptrs[index] = daxa_RWBufferPtr(MeshletCullIndirectArg)(addr);
+    deref(push.uses.meshlet_cull_indirect_args).indirect_arg_counts[index] = 0;
+    deref(push.uses.cull_meshlets_commands[index]).x = 0;
+    deref(push.uses.cull_meshlets_commands[index]).y = 1;
+    deref(push.uses.cull_meshlets_commands[index]).z = 1;
 }
 #else
+DAXA_DECL_PUSH_CONSTANT(CullMesheshPush, push)
 layout(local_size_x = CULL_MESHES_WORKGROUP_X, local_size_y = CULL_MESHES_WORKGROUP_Y) in;
 void main()
 {
     const uint entity_index = gl_GlobalInvocationID.x;
     const uint in_meshgroup_index = gl_LocalInvocationID.y;
-    if (entity_index >= deref(u_entity_meta).entity_count)
+    if (entity_index >= deref(push.uses.entity_meta).entity_count)
     {
         return;
     }
-    const uint meshgroup_index = deref(u_entity_meshgroup_indices[entity_index]);
+    const uint meshgroup_index = deref(push.uses.entity_meshgroup_indices[entity_index]);
     if (meshgroup_index == INVALID_MANIFEST_INDEX)
     {
         return;
     }
-    const GPUMeshGroup mesh_group = deref(u_meshgroups + meshgroup_index);
+    const GPUMeshGroup mesh_group = deref(push.uses.meshgroups + meshgroup_index);
     if (in_meshgroup_index >= mesh_group.count)
     {
         return;
     }
     const uint mesh_index = mesh_group.mesh_manifest_indices[in_meshgroup_index];
-    const uint meshlet_count = deref(u_meshes[mesh_index]).meshlet_count;
-    const uint material_index = deref(u_meshes[mesh_index]).material_index;
+    const uint meshlet_count = deref(push.uses.meshes[mesh_index]).meshlet_count;
+    const uint material_index = deref(push.uses.meshes[mesh_index]).material_index;
     if (meshlet_count == 0)
     {
         return;
     }
-    // if (entity_index != (globals.frame_index / 10) % 2480)
+    // if (entity_index != (deref(push.globals).frame_index / 10) % 2480)
     // {
     //     return;
     // }
@@ -121,12 +123,12 @@ void main()
         const uint indirect_arg_meshlet_count = 1 << (bucket_index);
         // Mask out bit.
         bucket_bit_mask &= ~indirect_arg_meshlet_count;
-        const uint arg_array_offset = atomicAdd(deref(u_meshlet_cull_indirect_args).indirect_arg_counts[bucket_index], 1);
+        const uint arg_array_offset = atomicAdd(deref(push.uses.meshlet_cull_indirect_args).indirect_arg_counts[bucket_index], 1);
         // Update indirect args for meshlet cull
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
 
-            const uint work_group_size = (globals.settings.enable_mesh_shader == 1) ? TASK_SHADER_WORKGROUP_X : CULL_MESHLETS_WORKGROUP_X;
+            const uint work_group_size = (deref(push.globals).settings.enable_mesh_shader == 1) ? TASK_SHADER_WORKGROUP_X : CULL_MESHLETS_WORKGROUP_X;
             const uint prev_indirect_arg_count = arg_array_offset;
             const uint prev_needed_threads = threads_per_indirect_arg * prev_indirect_arg_count;
             const uint prev_needed_workgroups = (prev_needed_threads + work_group_size - 1) / work_group_size;
@@ -137,7 +139,7 @@ void main()
             const bool update_cull_meshlets_dispatch = prev_needed_workgroups != cur_needed_workgroups;
             if (update_cull_meshlets_dispatch)
             {
-                atomicMax(deref(u_cull_meshlets_commands[bucket_index]).x, cur_needed_workgroups);
+                atomicMax(deref(push.uses.cull_meshlets_commands[bucket_index]).x, cur_needed_workgroups);
             }
         }
         MeshletCullIndirectArg arg;
@@ -146,7 +148,7 @@ void main()
         arg.material_index = material_index;
         arg.in_meshgroup_index = in_meshgroup_index;
         arg.meshlet_indices_offset = meshlet_offset;
-        deref(deref(u_meshlet_cull_indirect_args).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
+        deref(deref(push.uses.meshlet_cull_indirect_args).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }
 #if DEBUG_MESH_CULL1

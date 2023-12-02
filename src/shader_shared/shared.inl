@@ -140,4 +140,4 @@ DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
 #define BUFFER_COMPUTE_READ(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(TYPE), NAME)
 #define BUFFER_COMPUTE_WRITE(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(TYPE), NAME)
 
-#define USE_TASK_HEAD(HEAD) HEAD::Uses uses; static inline constexpr std::string_view NAME = #HEAD;
+#define USE_TASK_HEAD(HEAD) HEAD::Uses uses; static inline constexpr std::string_view NAME = HEAD::NAME;

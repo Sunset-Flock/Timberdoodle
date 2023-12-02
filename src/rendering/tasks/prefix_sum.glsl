@@ -89,7 +89,7 @@ void main()
 #endif // #if defined(UPSWEEP)
 
 #if defined(DOWNSWEEP)
-DAXA_DECL_PUSH_CONSTANT(PrefixSumPush, push)
+DAXA_DECL_PUSH_CONSTANT(PrefixSumDownsweepPush, push)
 layout(local_size_x = PREFIX_SUM_BLOCK_SIZE) in;
 void main()
 {

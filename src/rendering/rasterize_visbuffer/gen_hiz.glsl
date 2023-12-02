@@ -4,12 +4,9 @@
 
 #include "gen_hiz.inl"
 
-#include "shader_lib/cull_util.glsl"
+DAXA_DECL_PUSH_CONSTANT(GenHizPush, push)
 
-DAXA_DECL_BUFFER_REFERENCE CounterView
-{
-    coherent uint value;
-};
+#include "shader_lib/cull_util.glsl"
 
 vec2 make_gather_uv(vec2 inv_size, uvec2 top_left_index)
 {
@@ -17,7 +14,6 @@ vec2 make_gather_uv(vec2 inv_size, uvec2 top_left_index)
 }
 
 DAXA_DECL_IMAGE_ACCESSOR(image2D, coherent, image2DCoherent)
-DAXA_DECL_PUSH_CONSTANT(GenHizPush, push)
 shared float s_mins[2][GEN_HIZ_Y][GEN_HIZ_X];
 void downsample_64x64(
     uvec2 local_index,
@@ -37,24 +33,24 @@ void downsample_64x64(
         vec4 fetch;
         if (src_mip == -1)
         {
-            fetch = textureGather(daxa_sampler2D(push.src, globals.samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
+            fetch = textureGather(daxa_sampler2D(push.uses.src, deref(push.globals).samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
         }
         else
         {
-            fetch.x = imageLoad(daxa_access(image2DCoherent, push.mips[src_mip]), min(src_i + ivec2(0,0), ivec2(min_mip_size) - 1)).x;
-            fetch.y = imageLoad(daxa_access(image2DCoherent, push.mips[src_mip]), min(src_i + ivec2(0,1), ivec2(min_mip_size) - 1)).x;
-            fetch.z = imageLoad(daxa_access(image2DCoherent, push.mips[src_mip]), min(src_i + ivec2(1,0), ivec2(min_mip_size) - 1)).x;
-            fetch.w = imageLoad(daxa_access(image2DCoherent, push.mips[src_mip]), min(src_i + ivec2(1,1), ivec2(min_mip_size) - 1)).x;
+            fetch.x = imageLoad(daxa_access(image2DCoherent, push.uses.mips[src_mip]), min(src_i + ivec2(0,0), ivec2(min_mip_size) - 1)).x;
+            fetch.y = imageLoad(daxa_access(image2DCoherent, push.uses.mips[src_mip]), min(src_i + ivec2(0,1), ivec2(min_mip_size) - 1)).x;
+            fetch.z = imageLoad(daxa_access(image2DCoherent, push.uses.mips[src_mip]), min(src_i + ivec2(1,0), ivec2(min_mip_size) - 1)).x;
+            fetch.w = imageLoad(daxa_access(image2DCoherent, push.uses.mips[src_mip]), min(src_i + ivec2(1,1), ivec2(min_mip_size) - 1)).x;
         }
         const float min_v = min(min(fetch.x, fetch.y), min(fetch.z, fetch.w));
         ivec2 dst_i = ivec2((grid_index * 16 + local_index) * 2) + sub_i;
-        imageStore(daxa_image2D(push.mips[src_mip + 1]), dst_i, vec4(min_v,0,0,0));
+        imageStore(daxa_image2D(push.uses.mips[src_mip + 1]), dst_i, vec4(min_v,0,0,0));
         quad_values[quad_i] = min_v;
     }
     {
         const float min_v = min(min(quad_values.x, quad_values.y), min(quad_values.z, quad_values.w));
         ivec2 dst_i = ivec2(grid_index * 16 + local_index);
-        imageStore(daxa_image2D(push.mips[src_mip + 2]), dst_i, vec4(min_v,0,0,0));
+        imageStore(daxa_image2D(push.uses.mips[src_mip + 2]), dst_i, vec4(min_v,0,0,0));
         s_mins[0][local_index.y][local_index.x] = min_v;
     }
     const uvec2 glob_wg_dst_offset0 = (uvec2(GEN_HIZ_WINDOW_X,GEN_HIZ_WINDOW_Y) * grid_index.xy) / 2;
@@ -80,11 +76,11 @@ void downsample_64x64(
             const uint dst_mip = src_mip + i + 1;
             if (dst_mip == 6)
             {
-                imageStore(daxa_access(image2DCoherent, push.mips[dst_mip]), ivec2(glob_wg_offset + local_index), vec4(min_v,0,0,0));
+                imageStore(daxa_access(image2DCoherent, push.uses.mips[dst_mip]), ivec2(glob_wg_offset + local_index), vec4(min_v,0,0,0));
             }
             else
             {
-                imageStore(daxa_image2D(push.mips[dst_mip]), ivec2(glob_wg_offset + local_index), vec4(min_v,0,0,0));
+                imageStore(daxa_image2D(push.uses.mips[dst_mip]), ivec2(glob_wg_offset + local_index), vec4(min_v,0,0,0));
             }
             s_mins[ping_pong_dst_index][local_index.y][local_index.x] = min_v;
         }
@@ -95,11 +91,11 @@ shared bool s_last_workgroup;
 layout(local_size_x = GEN_HIZ_X, local_size_y = GEN_HIZ_Y) in;
 void main()
 {
-    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, globals.settings.render_target_size, -1, 6);
+    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, deref(push.globals).settings.render_target_size, -1, 6);
 
     if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
     {
-        const uint finished_workgroups = atomicAdd((CounterView(push.counter_address)).value, 1) + 1;
+        const uint finished_workgroups = atomicAdd(deref(push.counter), 1) + 1;
         s_last_workgroup = finished_workgroups == push.total_workgroup_count;
     }
     memoryBarrierShared();
@@ -107,6 +103,6 @@ void main()
 
     if (s_last_workgroup)
     {
-        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), globals.settings.render_target_size >> 6, 5, int(push.mip_count - 6));
+        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), deref(push.globals).settings.render_target_size >> 6, 5, int(push.mip_count - 6));
     }
 }

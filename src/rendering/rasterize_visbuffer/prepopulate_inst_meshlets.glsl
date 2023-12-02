@@ -6,10 +6,10 @@
 
 #if defined(PrepopInstMeshletCommW_COMMAND)
 DAXA_DECL_PUSH_CONSTANT(PrepopInstMeshletCommWPush, push)
-#elif defined(PrepopulateInstMeshletsPush, push)
-DAXA_DECL_PUSH_CONSTANT(PrepopulateInstMeshletsPush, push)
-#else
+#elif defined(SetEntityMeshletVisibilityBitMasks_SHADER)
 DAXA_DECL_PUSH_CONSTANT(SetEntityMeshletVisibilityBitMasksPush, push)
+#else
+DAXA_DECL_PUSH_CONSTANT(PrepopulateInstMeshletsPush, push)
 #endif
 
 #include "shader_lib/cull_util.glsl"
@@ -20,33 +20,33 @@ DAXA_DECL_PUSH_CONSTANT(SetEntityMeshletVisibilityBitMasksPush, push)
 layout(local_size_x = 1) in;
 void main()
 {
-    const uint needed_threads = deref(u_visible_meshlets_prev).count;
+    const uint needed_threads = deref(push.uses.visible_meshlets_prev).count;
     const uint needed_workgroups = (needed_threads + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
     DispatchIndirectStruct command;
     command.x = needed_workgroups;
     command.y = 1;
     command.z = 1;
-    deref(u_command) = command;
+    deref(push.uses.command) = command;
 }
 #elif defined(SetEntityMeshletVisibilityBitMasks_SHADER)
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
-    const uint count = deref(u_instantiated_meshlets).first_count;
+    const uint count = deref(push.uses.instantiated_meshlets).first_count;
     const uint inst_meshlet_index = gl_GlobalInvocationID.x;
     const bool thread_active = inst_meshlet_index < count;
     // TODO: check if entity, its mesh id and meshlets are valid
     if (thread_active)
     {
-        MeshletInstance inst_meshlet = unpack_meshlet_instance(deref(u_instantiated_meshlets).meshlets[inst_meshlet_index]);
+        MeshletInstance inst_meshlet = unpack_meshlet_instance(deref(push.uses.instantiated_meshlets).meshlets[inst_meshlet_index]);
         const uint mask_bit = 1u << (inst_meshlet.meshlet_index % 32);
         const uint local_mask_offset = inst_meshlet.meshlet_index / 32;
-        const uint global_mask_offset = u_entity_meshlet_visibility_bitfield_offsets
+        const uint global_mask_offset = push.uses.entity_meshlet_visibility_bitfield_offsets
                                             .entity_offsets[inst_meshlet.entity_index]
                                             .mesh_bitfield_offset[inst_meshlet.in_meshgroup_index];
         const uint offset = global_mask_offset + local_mask_offset;
 
-        atomicOr(deref(u_entity_meshlet_visibility_bitfield_arena[offset]), mask_bit);
+        atomicOr(deref(push.uses.entity_meshlet_visibility_bitfield_arena[offset]), mask_bit);
     }
 }
 #else
@@ -55,29 +55,29 @@ shared uint s_out_offset;
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
-    const uint count = deref(u_visible_meshlets_prev).count;
+    const uint count = deref(push.uses.visible_meshlets_prev).count;
     const bool thread_active = gl_GlobalInvocationID.x < count;
     // TODO: check if entity, its mesh id and meshlets are valid
     uint inst_meshlet_index_prev = 0;
     MeshletInstance inst_meshlet;
     if (thread_active)
     {
-        inst_meshlet_index_prev = deref(u_visible_meshlets_prev).meshlet_ids[gl_GlobalInvocationID.x];
-        inst_meshlet = unpack_meshlet_instance(deref(u_instantiated_meshlets_prev).meshlets[inst_meshlet_index_prev]);
+        inst_meshlet_index_prev = deref(push.uses.visible_meshlets_prev).meshlet_ids[gl_GlobalInvocationID.x];
+        inst_meshlet = unpack_meshlet_instance(deref(push.uses.instantiated_meshlets_prev).meshlets[inst_meshlet_index_prev]);
         const uint counters_index = inst_meshlet.entity_index * 8 + inst_meshlet.in_meshgroup_index;
         const uint prev_value = atomicCompSwap(
-            u_entity_meshlet_visibility_bitfield_offsets.entity_offsets[inst_meshlet.entity_index].mesh_bitfield_offset[inst_meshlet.in_meshgroup_index],
+            push.uses.entity_meshlet_visibility_bitfield_offsets.entity_offsets[inst_meshlet.entity_index].mesh_bitfield_offset[inst_meshlet.in_meshgroup_index],
             ENT_MESHLET_VIS_OFFSET_UNALLOCATED,
             ENT_MESHLET_VIS_OFFSET_EMPTY);
         // Saw entity (and entity mesh index) the first time -> allocate bitfield offset
         if (prev_value == ENT_MESHLET_VIS_OFFSET_UNALLOCATED)
         {
-            const uint meshlets_in_mesh = deref(u_meshes[inst_meshlet.mesh_index]).meshlet_count;
+            const uint meshlets_in_mesh = deref(push.uses.meshes[inst_meshlet.mesh_index]).meshlet_count;
             if (meshlets_in_mesh > 0)
             {
                 const uint needed_uints_in_bitfield = (meshlets_in_mesh + 32 - 1) / 32;
-                const uint bitfield_arena_offset = atomicAdd(u_entity_meshlet_visibility_bitfield_offsets.back_offset, needed_uints_in_bitfield);
-                atomicExchange(u_entity_meshlet_visibility_bitfield_offsets.entity_offsets[inst_meshlet.entity_index].mesh_bitfield_offset[inst_meshlet.in_meshgroup_index], bitfield_arena_offset);
+                const uint bitfield_arena_offset = atomicAdd(push.uses.entity_meshlet_visibility_bitfield_offsets.back_offset, needed_uints_in_bitfield);
+                atomicExchange(push.uses.entity_meshlet_visibility_bitfield_offsets.entity_offsets[inst_meshlet.entity_index].mesh_bitfield_offset[inst_meshlet.in_meshgroup_index], bitfield_arena_offset);
             }
         }
     }
@@ -97,7 +97,7 @@ void main()
     barrier();
     if (gl_LocalInvocationID.x == 0)
     {
-        s_out_offset = atomicAdd(deref(u_instantiated_meshlets).first_count, s_out_count);
+        s_out_offset = atomicAdd(deref(push.uses.instantiated_meshlets).first_count, s_out_count);
     }
     memoryBarrierShared();
     barrier();
@@ -105,7 +105,7 @@ void main()
     {
         const uint meshlet_instance_index = s_out_offset + local_offset;
         // Write out meshlet instance to the meshlet instance list of the first pass:
-        deref(u_instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(inst_meshlet);
+        deref(push.uses.instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(inst_meshlet);
     }
 }
 #endif

@@ -2,24 +2,20 @@
 
 #include <daxa/daxa.inl>
 
-#if defined(DrawVisbuffer_WriteCommand_COMMAND) || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
-#endif
-#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
-#endif
-#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_TASK || !defined(DAXA_SHADER)
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
-#endif
-#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_MESH || !defined(DAXA_SHADER)
-#if MESH_SHADER_CULL_AND_DRAW
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferCullAndDrawPush, push)
-#else
-DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
-#endif
-#endif
-
 #include "draw_visbuffer.inl"
+
+#if defined(DrawVisbuffer_WriteCommand_COMMAND)
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
+#endif // #if defined(DrawVisbuffer_WriteCommand_COMMAND)
+
+#if NO_MESH_SHADER
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
+#endif // #if NO_MESH_SHADER
+
+#if MESH_SHADER
+DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_MeshShader, push)
+#endif // #if MESH_SHADER
+
 #include "shader_shared/cull_util.inl"
 
 #include "shader_lib/visbuffer.glsl"
@@ -27,7 +23,7 @@ DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
 #include "shader_lib/cull_util.glsl"
 #include "shader_lib/observer.glsl"
 
-#if defined(DrawVisbuffer_WriteCommand_COMMAND) || !defined(DAXA_SHADER)
+#if defined(DrawVisbuffer_WriteCommand_COMMAND)
 layout(local_size_x = 1) in;
 void main()
 {
@@ -37,17 +33,17 @@ void main()
     {
     case DRAW_VISBUFFER_PASS_ONE:
     {
-        meshlets_to_draw = deref(u_instantiated_meshlets).first_count;
+        meshlets_to_draw = deref(push.uses.instantiated_meshlets).first_count;
         break;
     }
     case DRAW_VISBUFFER_PASS_TWO:
     {
-        meshlets_to_draw = deref(u_instantiated_meshlets).second_count;
+        meshlets_to_draw = deref(push.uses.instantiated_meshlets).second_count;
         break;
     }
     case DRAW_VISBUFFER_PASS_OBSERVER:
     {
-        meshlets_to_draw = observer_get_meshlet_instance_draw_count(u_instantiated_meshlets);
+        meshlets_to_draw = observer_get_meshlet_instance_draw_count(push.uses.instantiated_meshlets);
         break;
     }
     default:
@@ -59,7 +55,7 @@ void main()
         command.x = meshlets_to_draw;
         command.y = 1;
         command.z = 1;
-        deref((daxa_RWBufferPtr(DispatchIndirectStruct)(u_command))) = command;
+        deref((daxa_RWBufferPtr(DispatchIndirectStruct)(push.uses.command))) = command;
     }
     else
     {
@@ -68,7 +64,7 @@ void main()
         command.instance_count = meshlets_to_draw;
         command.first_vertex = 0;
         command.first_instance = 0;
-        deref((daxa_RWBufferPtr(DrawIndirectStruct)(u_command))) = command;
+        deref((daxa_RWBufferPtr(DrawIndirectStruct)(push.uses.command))) = command;
     }
 }
 #endif
@@ -107,7 +103,7 @@ void main()
     uint inst_meshlet_index;
     uint triangle_index;
 
-    const uint meshlet_offset = get_meshlet_draw_offset_from_pass(u_instantiated_meshlets, push.pass);
+    const uint meshlet_offset = get_meshlet_draw_offset_from_pass(push.uses.instantiated_meshlets, push.pass);
     inst_meshlet_index = gl_InstanceIndex + meshlet_offset;
     triangle_index = gl_VertexIndex / 3;
 
@@ -117,7 +113,7 @@ void main()
     // daxa_u32 meshlet_index;
     // daxa_u32 mesh_index;
     // daxa_u32 in_meshgroup_index; 
-    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(u_instantiated_meshlets).meshlets[inst_meshlet_index]);
+    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(push.uses.instantiated_meshlets).meshlets[inst_meshlet_index]);
 
     // GPUMesh:
     // daxa_BufferId mesh_buffer;
@@ -130,7 +126,7 @@ void main()
     // daxa_BufferPtr(daxa_u32) indirect_vertices;
     // daxa_BufferPtr(daxa_f32vec3) vertex_positions;
     // daxa_BufferPtr(daxa_f32vec2) vertex_uvs;
-    GPUMesh mesh = deref((u_meshes + meshlet_inst.mesh_index));
+    GPUMesh mesh = deref((push.uses.meshes + meshlet_inst.mesh_index));
 
     // Meshlet:
     // daxa_u32 indirect_vertex_offset;
@@ -146,13 +142,13 @@ void main()
         return;
     }
 
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref(u_meshes[meshlet_inst.mesh_index]).micro_indices;
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref(push.uses.meshes[meshlet_inst.mesh_index]).micro_indices;
     const uint micro_index = get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + triangle_corner_index);
     uint vertex_index = mesh.indirect_vertices[meshlet.indirect_vertex_offset + micro_index].value;
     vertex_index = min(vertex_index, mesh.vertex_count - 1);
     const vec4 vertex_position = vec4(mesh.vertex_positions[vertex_index].value, 1);
-    const mat4x4 view_proj = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? globals.observer_camera_view_projection : globals.camera_view_projection;
-    const vec4 pos = view_proj * mat_4x3_to_4x4(deref(u_entity_combined_transforms[meshlet_inst.entity_index])) * vertex_position;
+    const mat4x4 view_proj = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera_view_projection : deref(push.globals).camera_view_projection;
+    const vec4 pos = view_proj * mat_4x3_to_4x4(deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index])) * vertex_position;
     vec2 uv = vec2(0,0);
     if (daxa_u64(mesh.vertex_uvs) != 0)
     {
@@ -196,17 +192,17 @@ layout(local_size_x = TASK_SHADER_WORKGROUP_X) in;
 void main()
 {
     MeshletInstance meshlet_instance;
-    bool active_thread = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.bucket_index, u_meshlet_cull_indirect_args, meshlet_instance);
+    bool active_thread = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_instance);
 #if ENABLE_MESHLET_CULLING
     if (active_thread)
     {
         active_thread = active_thread && !is_meshlet_occluded(
                                              meshlet_instance,
-                                             u_entity_meshlet_visibility_bitfield_offsets,
-                                             u_entity_meshlet_visibility_bitfield_arena,
-                                             u_entity_combined_transforms,
-                                             u_meshes,
-                                             u_hiz);
+                                             push.uses.entity_meshlet_visibility_bitfield_offsets,
+                                             push.uses.entity_meshlet_visibility_bitfield_arena,
+                                             push.uses.entity_combined_transforms,
+                                             push.uses.meshes,
+                                             push.uses.hiz);
     }
 #endif
     const uint local_arg_offset = gl_SubgroupInvocationID.x;
@@ -216,7 +212,7 @@ void main()
     uint global_meshlet_instances_offset;
     if (subgroupElect())
     {
-        global_meshlet_instances_offset = atomicAdd(deref(u_instantiated_meshlets).second_count, local_surviving_meshlet_count) + deref(u_instantiated_meshlets).first_count;
+        global_meshlet_instances_offset = atomicAdd(deref(push.uses.instantiated_meshlets).second_count, local_surviving_meshlet_count) + deref(push.uses.instantiated_meshlets).first_count;
         tps.global_meshlet_instances_offset = global_meshlet_instances_offset;
         tps.global_meshlet_args_offset = gl_GlobalInvocationID.x;
         tps.local_surviving_meshlet_args_mask = local_surviving_meshlet_args_mask;
@@ -225,7 +221,7 @@ void main()
     if (active_thread)
     {
         const uint meshlet_instance_index = global_meshlet_instances_offset + local_meshlet_instances_offset;
-        deref(u_instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(meshlet_instance);
+        deref(push.uses.instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(meshlet_instance);
     }
     EmitMeshTasksEXT(local_surviving_meshlet_count, 1, 1);
 }
@@ -265,11 +261,11 @@ void main()
     const uint arg_index = tps.global_meshlet_args_offset + s_local_meshlet_arg_offset;
     const uint meshlet_instance_index = tps.global_meshlet_instances_offset + local_meshlet_instances_offset;
     MeshletInstance meshlet_inst;
-    bool active_thread = get_meshlet_instance_from_arg(arg_index, push.bucket_index, u_meshlet_cull_indirect_args, meshlet_inst);
+    bool active_thread = get_meshlet_instance_from_arg(arg_index, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_inst);
 #else
-    const uint meshlet_offset = get_meshlet_draw_offset_from_pass(u_instantiated_meshlets, push.pass);
+    const uint meshlet_offset = get_meshlet_draw_offset_from_pass(push.uses.instantiated_meshlets, push.pass);
     const uint meshlet_instance_index = gl_WorkGroupID.x + meshlet_offset;
-    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(u_instantiated_meshlets).meshlets[meshlet_instance_index]);
+    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(push.uses.instantiated_meshlets).meshlets[meshlet_instance_index]);
 #endif
 
     // GPUMesh:
@@ -280,7 +276,7 @@ void main()
     // daxa_BufferPtr(daxa_u32) micro_indices;
     // daxa_BufferPtr(daxa_u32) indirect_vertices;
     // daxa_BufferPtr(daxa_f32vec3) vertex_positions;
-    GPUMesh mesh = deref((u_meshes + meshlet_inst.mesh_index));
+    GPUMesh mesh = deref((push.uses.meshes + meshlet_inst.mesh_index));
 
     // Meshlet:
     // daxa_u32 indirect_vertex_offset;
@@ -289,14 +285,14 @@ void main()
     // daxa_u32 triangle_count;
     Meshlet meshlet = deref(mesh.meshlets + meshlet_inst.meshlet_index);
 
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref(u_meshes[meshlet_inst.mesh_index]).micro_indices;
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref(push.uses.meshes[meshlet_inst.mesh_index]).micro_indices;
 
     // Transform vertices:
-    const mat4 model_matrix = mat_4x3_to_4x4deref(u_entity_combined_transforms[meshlet_inst.entity_index]);
+    const mat4 model_matrix = mat_4x3_to_4x4deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index]);
 #if MESH_SHADER_CULL_AND_DRAW
-    const mat4 view_proj_matrix = globals.camera_view_projection;
+    const mat4 view_proj_matrix = deref(push.globals).camera_view_projection;
 #else
-    const mat4 view_proj_matrix = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? globals.observer_camera_view_projection : globals.camera_view_projection;
+    const mat4 view_proj_matrix = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera_view_projection : deref(push.globals).camera_view_projection;
 #endif
     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
     // Write Vertices:
@@ -316,7 +312,7 @@ void main()
 #if !MESH_SHADER_CULL_AND_DRAW
         if (push.pass == DRAW_VISBUFFER_PASS_OBSERVER)
         {
-            s_vertex_positions[meshlet_local_vertex_index] = globals.camera_view_projection * model_matrix * vertex_pos;
+            s_vertex_positions[meshlet_local_vertex_index] = deref(push.globals).camera_view_projection * model_matrix * vertex_pos;
         }
         else
 #endif

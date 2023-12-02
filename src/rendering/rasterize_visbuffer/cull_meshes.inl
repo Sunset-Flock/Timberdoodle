@@ -17,23 +17,23 @@
 #define CULL_MESHES_WORKGROUP_Y 7
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
-BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
+BUFFER_COMPUTE_WRITE(meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), u_meshes)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), u_entity_meta)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), u_entity_meshgroup_indices)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), u_meshgroups)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_transforms)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), u_entity_combined_transforms)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, u_hiz)
-BUFFER_COMPUTE_WRITE(u_meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_cull_meshlets_commands)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
+BUFFER_COMPUTE_WRITE(meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshesCommandPush
@@ -79,7 +79,7 @@ struct CullMeshesTask
         ti.copy_task_head_to(&push.uses);
         cmd.push_constant(push);
         cmd.dispatch_indirect({
-            .indirect_buffer = uses.u_command.buffer(),
+            .indirect_buffer = uses.command.buffer(),
         });
     }
 };
@@ -93,15 +93,15 @@ void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph& task_list, CullMes
 
     task_list.add_task(CullMeshesCommandWriteTask{
         .uses={
-            .u_entity_meta = uses.u_entity_meta,
-            .u_command = command_buffer,
-            .u_cull_meshlets_commands = uses.u_cull_meshlets_commands.handle,
-            .u_meshlet_cull_indirect_args = uses.u_meshlet_cull_indirect_args,
+            .entity_meta = uses.entity_meta,
+            .command = command_buffer,
+            .cull_meshlets_commands = uses.cull_meshlets_commands.handle,
+            .meshlet_cull_indirect_args = uses.meshlet_cull_indirect_args,
         },
         .context = context,
     });
 
-    uses.u_command.handle = command_buffer;
+    uses.command.handle = command_buffer;
 
     task_list.add_task(CullMeshesTask{
         .uses={uses},

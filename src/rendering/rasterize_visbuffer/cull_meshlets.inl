@@ -25,7 +25,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshletsPush
 {
-    CullMeshlets u;
+    CullMeshlets uses;
     daxa_BufferPtr(ShaderGlobals) globals;
     daxa_u32 indirect_args_table_id;
     daxa_u32 meshlets_per_indirect_arg;
@@ -61,7 +61,7 @@ struct CullMeshletsTask
                 .indirect_args_table_id = table,
                 .meshlets_per_indirect_arg = (1u << table),
             };
-            ti.copy_task_head_to(&push.u);
+            ti.copy_task_head_to(&push.uses);
             cmd.push_constant(push);
             cmd.dispatch_indirect({
                 .indirect_buffer = uses.commands.buffer(),
