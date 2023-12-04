@@ -96,6 +96,7 @@ struct SetEntityMeshletVisibilityBitMasksTask
         SetEntityMeshletVisibilityBitMasksPush push = { .globals = context->shader_globals_address  };
         ti.copy_task_head_to(&push.uses);
         cmd.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks::NAME));
+        cmd.push_constant(push);
         cmd.dispatch_indirect({
             .indirect_buffer = uses.command.buffer(),
         });

@@ -145,10 +145,12 @@ void Renderer::compile_pipelines()
     for (auto [name, info] : rasters)
     {
         auto compilation_result = this->context->pipeline_manager.add_raster_pipeline(info);
-        if(compilation_result.value()->is_valid())
+        if (compilation_result.value()->is_valid())
         {
             DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
-        }else{
+        }
+        else
+        {
             DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
         }
         this->context->raster_pipelines[name] = compilation_result.value();
@@ -171,16 +173,18 @@ void Renderer::compile_pipelines()
     for (auto [name, info] : computes)
     {
         auto compilation_result = this->context->pipeline_manager.add_compute_pipeline(info);
-        if(compilation_result.value()->is_valid())
+        if (compilation_result.value()->is_valid())
         {
             DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
-        }else{
+        }
+        else
+        {
             DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
         }
         this->context->compute_pipelines[name] = compilation_result.value();
     }
 
-    while(!context->pipeline_manager.all_pipelines_valid())
+    while (!context->pipeline_manager.all_pipelines_valid())
     {
         const auto result = context->pipeline_manager.reload_all();
         if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
@@ -275,7 +279,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     for (auto const &tbuffer : buffers)
     {
         task_list.use_persistent_buffer(tbuffer);
-    } 
+    }
     task_list.use_persistent_buffer(scene->_gpu_entity_meta);
     task_list.use_persistent_buffer(scene->_gpu_entity_transforms);
     task_list.use_persistent_buffer(scene->_gpu_entity_combined_transforms);
@@ -385,6 +389,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .depth_image = depth,
         });
     }
+#if 0
+#endif
     task_list.submit({});
     task_list.add_task(WriteSwapchainTask{
         .uses = {
@@ -402,7 +408,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=, this](daxa::TaskInterface ti)
         {
-            auto & cmd_list = ti.get_recorder();
+            auto &cmd_list = ti.get_recorder();
             auto size = ti.get_device().info_image(ti.uses[swapchain_image].image()).value().size;
             imgui_renderer->record_commands(ImGui::GetDrawData(), cmd_list, ti.uses[swapchain_image].image(), size.x, size.y);
         },
@@ -469,7 +475,7 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     this->context->shader_globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
     const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
-    *r_cast<ShaderGlobals*>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
+    *r_cast<ShaderGlobals *>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
     context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
 
     auto swapchain_image = context->swapchain.acquire_next_image();

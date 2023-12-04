@@ -362,6 +362,7 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
         if (channel_count == 3)
             FreeImage_Unload(modified_bitmap);
     };
+    FreeImage_FlipVertical(modified_bitmap);
     ParsedImageData ret = {};
     u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
     ret.src_buffer = device.create_buffer({
@@ -972,17 +973,17 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
 auto AssetProcessor::load_all(Scene &scene) -> AssetProcessor::AssetLoadResultCode
 {
     std::optional<AssetProcessor::AssetLoadResultCode> err = {};
-    //for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
-    //{
-    //    if (!scene._material_texture_manifest.at(i).runtime.has_value())
-    //    {
-    //        auto result = load_texture(scene, i);
-    //        if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-    //        {
-    //            err = result;
-    //        }
-    //    }
-    //}
+    // for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
+    // {
+    //     if (!scene._material_texture_manifest.at(i).runtime.has_value())
+    //     {
+    //         auto result = load_texture(scene, i);
+    //         if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
+    //         {
+    //             err = result;
+    //         }
+    //     }
+    // }
     for (u32 i = 0; i < scene._mesh_manifest.size(); ++i)
     {
         if (!scene._mesh_manifest.at(i).runtime.has_value())

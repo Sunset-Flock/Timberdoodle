@@ -162,6 +162,9 @@ UIEngine::~UIEngine()
 {
     for(u32 icon_idx = 0; icon_idx < s_cast<u32>(ICONS::SIZE); icon_idx++)
     {
-        context->device.destroy_image(icons.at(icon_idx));
+        if (icons.at(icon_idx).is_empty())
+        {
+            context->device.destroy_image(icons.at(icon_idx));
+        }
     }
 }

@@ -57,21 +57,21 @@ task_gen_hiz_single_pass(GPUContext *context, daxa::TaskGraph &task_graph, daxa:
         .uses = daxa::generic_uses_cast(GenHizTH::Uses{.src = src, .mips = hiz}),
         .task = [=](daxa::TaskInterface ti)
         {
-            // auto &recorder = ti.get_recorder();
-            // auto &device = ti.get_device();
-            // auto &cmd = ti.get_recorder();
-            // cmd.set_pipeline(*context->compute_pipelines.at(GenHizTH::NAME));
-            // auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
-            // auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
-            // GenHizPush push{
-            //     .globals = context->shader_globals_address,
-            //     .counter = ti.get_allocator().allocate_fill(0u).value().device_address,
-            //     .mip_count = mip_count,
-            //     .total_workgroup_count = dispatch_x * dispatch_y,
-            // };
-            // ti.copy_task_head_to(&push.uses);
-            // cmd.push_constant(push);
-            // cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+            auto &recorder = ti.get_recorder();
+            auto &device = ti.get_device();
+            auto &cmd = ti.get_recorder();
+            cmd.set_pipeline(*context->compute_pipelines.at(GenHizTH::NAME));
+            auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
+            auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
+            GenHizPush push{
+                .globals = context->shader_globals_address,
+                .counter = ti.get_allocator().allocate_fill(0u).value().device_address,
+                .mip_count = mip_count,
+                .total_workgroup_count = dispatch_x * dispatch_y,
+            };
+            ti.copy_task_head_to(&push.uses);
+            cmd.push_constant(push);
+            cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
         },
         .name = std::string(GenHizTH::NAME),
     });
