@@ -58,7 +58,7 @@ struct AssetProcessor
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
-        switch(code)
+        switch (code)
         {
             case AssetLoadResultCode::SUCCESS:                                          return "SUCCESS";
             case AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER:                       return "ERROR_MISSING_INDEX_BUFFER";
@@ -78,7 +78,7 @@ struct AssetProcessor
             case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_POSITIONS:               return "ERROR_FAULTY_GLTF_VERTEX_POSITIONS";
             case AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0:                  return "ERROR_MISSING_VERTEX_TEXCOORD_0";
             case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0:              return "ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0";
-            default: return "UNKNOWN";
+            default:                                                                    return "UNKNOWN";
         }
     }
     AssetProcessor(daxa::Device device);
@@ -92,20 +92,20 @@ struct AssetProcessor
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_texture(Scene &scene, u32 texture_manifest_index) -> AssetLoadResultCode;
+    auto load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode;
 
     /**
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_mesh(Scene &scene, u32 mesh_manifest_index) -> AssetLoadResultCode;
+    auto load_mesh(Scene & scene, u32 mesh_manifest_index) -> AssetLoadResultCode;
 
     /**
      * Loads all unloded meshes and material textures for the given scene.
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_all(Scene& scene) -> AssetLoadResultCode;
+    auto load_all(Scene & scene) -> AssetLoadResultCode;
 
     /**
      * NOTE:
@@ -124,14 +124,14 @@ struct AssetProcessor
      */
     auto record_gpu_load_processing_commands() -> daxa::ExecutableCommandList;
 
-private:
-    static inline const std::string VERT_ATTRIB_POSITION_NAME = "POSITION";
-    static inline const std::string VERT_ATTRIB_NORMAL_NAME = "NORMAL";
-    static inline const std::string VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
+  private:
+    static inline std::string const VERT_ATTRIB_POSITION_NAME = "POSITION";
+    static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
+    static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
 
     struct TextureUpload
     {
-        Scene *scene = {};
+        Scene * scene = {};
         daxa::BufferId staging_buffer = {};
         daxa::ImageId dst_image = {};
         u32 texture_manifest_index = {};
@@ -139,7 +139,7 @@ private:
     struct MeshUpload
     {
         // TODO: replace with buffer offset into staging memory.
-        Scene *scene = {};
+        Scene * scene = {};
         daxa::BufferId staging_buffer = {};
         u32 mesh_manifest_index = {};
     };

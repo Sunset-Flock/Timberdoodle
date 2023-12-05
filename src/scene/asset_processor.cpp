@@ -19,8 +19,8 @@ using RawDataRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultC
 
 struct RawImageDataFromURIInfo
 {
-    fastgltf::sources::URI const &uri;
-    fastgltf::Asset const &asset;
+    fastgltf::sources::URI const & uri;
+    fastgltf::Asset const & asset;
     // Wihtout the scename.glb part
     std::filesystem::path const scene_dir_path;
 };
@@ -33,7 +33,7 @@ static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDat
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE;
     }
     ifs.seekg(0, ifs.end);
-    const i32 filesize = ifs.tellg();
+    i32 const filesize = ifs.tellg();
     ifs.seekg(0, ifs.beg);
     std::vector<std::byte> raw(filesize);
     if (!ifs.read(r_cast<char *>(raw.data()), filesize))
@@ -46,7 +46,7 @@ static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDat
         .mime_type = {}};
 }
 
-static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawDataRet
+static auto raw_image_data_from_URI(RawImageDataFromURIInfo const & info) -> RawDataRet
 {
     /// NOTE: Having global paths in your gltf is just wrong. I guess we could later support them by trying to
     //        load the file anyways but cmon what are the chances of that being successful - for now let's just return error
@@ -68,23 +68,23 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const &info) -> RawD
     {
         return raw_image_data_ret;
     }
-    RawImageData &raw_data = std::get<RawImageData>(raw_image_data_ret);
+    RawImageData & raw_data = std::get<RawImageData>(raw_image_data_ret);
     raw_data.mime_type = info.uri.mimeType;
     return raw_data;
 }
 
 struct RawImageDataFromBufferViewInfo
 {
-    fastgltf::sources::BufferView const &buffer_view;
-    fastgltf::Asset const &asset;
+    fastgltf::sources::BufferView const & buffer_view;
+    fastgltf::Asset const & asset;
     // Wihtout the scename.glb part
     std::filesystem::path const scene_dir_path;
 };
 
-static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const &info) -> RawDataRet
+static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const & info) -> RawDataRet
 {
-    fastgltf::BufferView const &gltf_buffer_view = info.asset.bufferViews.at(info.buffer_view.bufferViewIndex);
-    fastgltf::Buffer const &gltf_buffer = info.asset.buffers.at(gltf_buffer_view.bufferIndex);
+    fastgltf::BufferView const & gltf_buffer_view = info.asset.bufferViews.at(info.buffer_view.bufferViewIndex);
+    fastgltf::Buffer const & gltf_buffer = info.asset.buffers.at(gltf_buffer_view.bufferIndex);
 
     if (!std::holds_alternative<fastgltf::sources::URI>(gltf_buffer.data))
     {
@@ -143,68 +143,68 @@ constexpr static auto parse_channel_info(FREE_IMAGE_TYPE image_type) -> ParsedCh
     ChannelInfo ret = {};
     switch (image_type)
     {
-    case FREE_IMAGE_TYPE::FIT_BITMAP:
-    {
-        ret.byte_size = 1u;
-        ret.data_type = ChannelDataType::UNSIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_UINT16:
-    {
-        ret.byte_size = 2u;
-        ret.data_type = ChannelDataType::UNSIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_INT16:
-    {
-        ret.byte_size = 2u;
-        ret.data_type = ChannelDataType::SIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_UINT32:
-    {
-        ret.byte_size = 4u;
-        ret.data_type = ChannelDataType::UNSIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_INT32:
-    {
-        ret.byte_size = 4u;
-        ret.data_type = ChannelDataType::SIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_FLOAT:
-    {
-        ret.byte_size = 4u;
-        ret.data_type = ChannelDataType::FLOATING_POINT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_RGB16:
-    {
-        ret.byte_size = 2u;
-        ret.data_type = ChannelDataType::UNSIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_RGBA16:
-    {
-        ret.byte_size = 2u;
-        ret.data_type = ChannelDataType::UNSIGNED_INT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_RGBF:
-    {
-        ret.byte_size = 4u;
-        ret.data_type = ChannelDataType::FLOATING_POINT;
-        break;
-    }
-    case FREE_IMAGE_TYPE::FIT_RGBAF:
-    {
-        ret.byte_size = 4u;
-        ret.data_type = ChannelDataType::FLOATING_POINT;
-        break;
-    }
-    default:
-        return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT;
+        case FREE_IMAGE_TYPE::FIT_BITMAP:
+        {
+            ret.byte_size = 1u;
+            ret.data_type = ChannelDataType::UNSIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_UINT16:
+        {
+            ret.byte_size = 2u;
+            ret.data_type = ChannelDataType::UNSIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_INT16:
+        {
+            ret.byte_size = 2u;
+            ret.data_type = ChannelDataType::SIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_UINT32:
+        {
+            ret.byte_size = 4u;
+            ret.data_type = ChannelDataType::UNSIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_INT32:
+        {
+            ret.byte_size = 4u;
+            ret.data_type = ChannelDataType::SIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_FLOAT:
+        {
+            ret.byte_size = 4u;
+            ret.data_type = ChannelDataType::FLOATING_POINT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_RGB16:
+        {
+            ret.byte_size = 2u;
+            ret.data_type = ChannelDataType::UNSIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_RGBA16:
+        {
+            ret.byte_size = 2u;
+            ret.data_type = ChannelDataType::UNSIGNED_INT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_RGBF:
+        {
+            ret.byte_size = 4u;
+            ret.data_type = ChannelDataType::FLOATING_POINT;
+            break;
+        }
+        case FREE_IMAGE_TYPE::FIT_RGBAF:
+        {
+            ret.byte_size = 4u;
+            ret.data_type = ChannelDataType::FLOATING_POINT;
+            break;
+        }
+        default:
+            return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT;
     }
     return ret;
 };
@@ -216,7 +216,7 @@ struct PixelInfo
     ChannelDataType channel_data_type;
 };
 
-constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const &info) -> daxa::Format
+constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) -> daxa::Format
 {
     std::array<std::array<std::array<daxa::Format, 3>, 4>, 3> translation = {
         // BYTE SIZE 1
@@ -258,42 +258,42 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const &info) -
     u8 channel_byte_size_idx{};
     switch (info.channel_byte_size)
     {
-    case 1:
-        channel_byte_size_idx = 0u;
-        break;
-    case 2:
-        channel_byte_size_idx = 1u;
-        break;
-    case 4:
-        channel_byte_size_idx = 2u;
-        break;
-    default:
-        return daxa::Format::UNDEFINED;
+        case 1:
+            channel_byte_size_idx = 0u;
+            break;
+        case 2:
+            channel_byte_size_idx = 1u;
+            break;
+        case 4:
+            channel_byte_size_idx = 2u;
+            break;
+        default:
+            return daxa::Format::UNDEFINED;
     }
-    const u8 channel_count_idx = info.channel_count - 1;
+    u8 const channel_count_idx = info.channel_count - 1;
     u8 channel_format_idx{};
     switch (info.channel_data_type)
     {
-    case ChannelDataType::UNSIGNED_INT:
-        channel_format_idx = 0u;
-        break;
-    case ChannelDataType::SIGNED_INT:
-        channel_format_idx = 1u;
-        break;
-    case ChannelDataType::FLOATING_POINT:
-        channel_format_idx = 2u;
-        break;
-    default:
-        return daxa::Format::UNDEFINED;
+        case ChannelDataType::UNSIGNED_INT:
+            channel_format_idx = 0u;
+            break;
+        case ChannelDataType::SIGNED_INT:
+            channel_format_idx = 1u;
+            break;
+        case ChannelDataType::FLOATING_POINT:
+            channel_format_idx = 2u;
+            break;
+        default:
+            return daxa::Format::UNDEFINED;
     }
     return translation[channel_byte_size_idx][channel_count_idx][channel_format_idx];
 };
 
-static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Device &device) -> ParsedImageRet
+static auto free_image_parse_raw_image_data(RawImageData && raw_data, daxa::Device & device) -> ParsedImageRet
 {
     /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
     //        wrapper so that it can internally process the data
-    FIMEMORY *fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
+    FIMEMORY * fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
     defer { FreeImage_CloseMemory(fif_memory_wrapper); };
     FREE_IMAGE_FORMAT image_format = FreeImage_GetFileTypeFromMemory(fif_memory_wrapper, 0);
     // could not deduce filetype from metadata in memory try to guess the format from the file extension
@@ -310,7 +310,7 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT;
     }
-    FIBITMAP *image_bitmap = FreeImage_LoadFromMemory(image_format, fif_memory_wrapper);
+    FIBITMAP * image_bitmap = FreeImage_LoadFromMemory(image_format, fif_memory_wrapper);
     defer { FreeImage_Unload(image_bitmap); };
     if (!image_bitmap)
     {
@@ -321,34 +321,36 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
     u32 const bits_per_pixel = FreeImage_GetBPP(image_bitmap);
     u32 const width = FreeImage_GetWidth(image_bitmap);
     u32 const height = FreeImage_GetHeight(image_bitmap);
-    const bool has_red_channel = FreeImage_GetRedMask(image_bitmap) != 0;
-    const bool has_green_channel = FreeImage_GetGreenMask(image_bitmap) != 0;
-    const bool has_blue_channel = FreeImage_GetBlueMask(image_bitmap) != 0;
+    bool const has_red_channel = FreeImage_GetRedMask(image_bitmap) != 0;
+    bool const has_green_channel = FreeImage_GetGreenMask(image_bitmap) != 0;
+    bool const has_blue_channel = FreeImage_GetBlueMask(image_bitmap) != 0;
 
-    const bool should_contain_all_color_channels =
+    bool const should_contain_all_color_channels =
         (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGB) ||
         (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGBALPHA);
-    const bool contains_all_color_channels = has_red_channel && has_green_channel && has_blue_channel;
+    bool const contains_all_color_channels = has_red_channel && has_green_channel && has_blue_channel;
     DBG_ASSERT_TRUE_M(should_contain_all_color_channels == contains_all_color_channels,
                       std::string("[ERROR][free_image_parse_raw_image_data()] Image color type indicates color channels present") +
                           std::string(" but not all channels were present accoring to color masks"));
 
     ParsedChannel parsed_channel = parse_channel_info(image_type);
-    if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_channel))
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_channel))
     {
         return *err;
     }
 
-    ChannelInfo const &channel_info = std::get<ChannelInfo>(parsed_channel);
+    ChannelInfo const & channel_info = std::get<ChannelInfo>(parsed_channel);
     u32 const channel_count = bits_per_pixel / (channel_info.byte_size * 8u);
 
-    daxa::Format daxa_image_format = daxa_image_format_from_pixel_info({.channel_count = s_cast<u8>(channel_count),
-                                                                        .channel_byte_size = channel_info.byte_size,
-                                                                        .channel_data_type = channel_info.data_type});
+    daxa::Format daxa_image_format = daxa_image_format_from_pixel_info({
+        .channel_count = s_cast<u8>(channel_count),
+        .channel_byte_size = channel_info.byte_size,
+        .channel_data_type = channel_info.data_type,
+    });
 
     /// TODO: Breaks for 32bit 3 channel images (or overallocates idk)
     u32 const rounded_channel_count = channel_count == 3 ? 4 : channel_count;
-    FIBITMAP *modified_bitmap;
+    FIBITMAP * modified_bitmap;
     if (channel_count == 3)
     {
         modified_bitmap = FreeImage_ConvertTo32Bits(image_bitmap);
@@ -367,11 +369,10 @@ static auto free_image_parse_raw_image_data(RawImageData &&raw_data, daxa::Devic
     u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
     ret.src_buffer = device.create_buffer({
         .size = total_image_byte_size,
-        .allocate_info =
-            daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = raw_data.image_path.filename().string() + " staging",
     });
-    std::byte *staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
+    std::byte * staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
     memcpy(staging_dst_ptr, r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
 
     ret.dst_image = device.create_image({
@@ -410,20 +411,20 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
-auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const &filepath) -> NonmanifestLoadRet
+auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet
 {
     RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
     if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
     {
         return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
     }
-    RawImageData &raw_data = std::get<RawImageData>(raw_data_ret);
+    RawImageData & raw_data = std::get<RawImageData>(raw_data_ret);
     ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device);
-    if (auto const *error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
+    if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
         return *error;
     }
-    ParsedImageData const &parsed_data = std::get<ParsedImageData>(parsed_data_ret);
+    ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
 
     auto recorder = _device.create_command_recorder({});
     recorder.destroy_buffer_deferred(parsed_data.src_buffer);
@@ -433,16 +434,20 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const &filep
         .image_id = parsed_data.dst_image,
     });
 
-    recorder.copy_buffer_to_image({.buffer = parsed_data.src_buffer,
-                                   .image = parsed_data.dst_image,
-                                   .image_extent = _device.info_image(parsed_data.dst_image).value().size});
+    recorder.copy_buffer_to_image({
+        .buffer = parsed_data.src_buffer,
+        .image = parsed_data.dst_image,
+        .image_extent = _device.info_image(parsed_data.dst_image).value().size,
+    });
 
-    recorder.pipeline_barrier_image_transition({.src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                                                .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
-                                                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                                                /// TODO: Take the usage from the user for now images only used as attachments
-                                                .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                                                .image_id = parsed_data.dst_image});
+    recorder.pipeline_barrier_image_transition({
+        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
+        .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+        /// TODO: Take the usage from the user for now images only used as attachments
+        .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+        .image_id = parsed_data.dst_image,
+    });
 
     daxa::ExecutableCommandList command_list = recorder.complete_current_commands();
     _device.submit_commands({.command_lists = {&command_list, 1}});
@@ -450,39 +455,41 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const &filep
     return parsed_data.dst_image;
 }
 
-auto AssetProcessor::load_texture(Scene &scene, u32 texture_manifest_index) -> AssetLoadResultCode
+auto AssetProcessor::load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode
 {
-    TextureManifestEntry const &texture_entry = scene._material_texture_manifest.at(texture_manifest_index);
-    SceneFileManifestEntry const &scene_entry = scene._scene_file_manifest.at(texture_entry.scene_file_manifest_index);
-    fastgltf::Asset const &gltf_asset = scene_entry.gltf_asset;
-    fastgltf::Image const &image = gltf_asset.images.at(texture_entry.in_scene_file_index);
+    TextureManifestEntry const & texture_entry = scene._material_texture_manifest.at(texture_manifest_index);
+    SceneFileManifestEntry const & scene_entry = scene._scene_file_manifest.at(texture_entry.scene_file_manifest_index);
+    fastgltf::Asset const & gltf_asset = scene_entry.gltf_asset;
+    fastgltf::Image const & image = gltf_asset.images.at(texture_entry.in_scene_file_index);
     std::vector<std::byte> raw_data = {};
 
     RawDataRet ret = {};
-    if (auto const *uri = std::get_if<fastgltf::sources::URI>(&image.data))
+    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&image.data))
     {
         ret = std::move(raw_image_data_from_URI(RawImageDataFromURIInfo{
             .uri = *uri,
             .asset = gltf_asset,
-            .scene_dir_path = std::filesystem::path(scene_entry.path).remove_filename()}));
+            .scene_dir_path = std::filesystem::path(scene_entry.path).remove_filename(),
+        }));
     }
-    else if (auto const *buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
     {
         ret = std::move(raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo{
             .buffer_view = *buffer_view,
             .asset = gltf_asset,
-            .scene_dir_path = std::filesystem::path(scene_entry.path).remove_filename()}));
+            .scene_dir_path = std::filesystem::path(scene_entry.path).remove_filename(),
+        }));
     }
     else
     {
         return AssetLoadResultCode::ERROR_FAULTY_BUFFER_VIEW;
     }
 
-    if (auto const *error = std::get_if<AssetLoadResultCode>(&ret))
+    if (auto const * error = std::get_if<AssetLoadResultCode>(&ret))
     {
         return *error;
     }
-    RawImageData &raw_image_data = std::get<RawImageData>(ret);
+    RawImageData & raw_image_data = std::get<RawImageData>(ret);
     ParsedImageRet parsed_data_ret;
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
@@ -493,11 +500,11 @@ auto AssetProcessor::load_texture(Scene &scene, u32 texture_manifest_index) -> A
         // FreeImage handles image loading
         parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_image_data), _device);
     }
-    if (auto const *error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
+    if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
         return *error;
     }
-    ParsedImageData const &parsed_data = std::get<ParsedImageData>(parsed_data_ret);
+    ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
     /// NOTE: Append the processed texture to the upload queue.
     {
         std::unique_lock l{*_mtx};
@@ -523,14 +530,14 @@ struct fastgltf::ElementTraits<glm::vec2> : fastgltf::ElementTraitsBase<float, f
 
 template <typename ElemT, bool IS_INDEX_BUFFER>
 auto load_accessor_data_from_file(
-    std::filesystem::path const &root_path,
-    fastgltf::Asset const &gltf_asset,
-    fastgltf::Accessor const &accesor)
+    std::filesystem::path const & root_path,
+    fastgltf::Asset const & gltf_asset,
+    fastgltf::Accessor const & accesor)
     -> std::variant<std::vector<ElemT>, AssetProcessor::AssetLoadResultCode>
 {
     static_assert(!IS_INDEX_BUFFER || std::is_same_v<ElemT, u32>, "Index Buffer must be u32");
-    fastgltf::BufferView const &gltf_buffer_view = gltf_asset.bufferViews.at(accesor.bufferViewIndex.value());
-    fastgltf::Buffer const &gltf_buffer = gltf_asset.buffers.at(gltf_buffer_view.bufferIndex);
+    fastgltf::BufferView const & gltf_buffer_view = gltf_asset.bufferViews.at(accesor.bufferViewIndex.value());
+    fastgltf::Buffer const & gltf_buffer = gltf_asset.buffers.at(gltf_buffer_view.bufferIndex);
     if (!std::holds_alternative<fastgltf::sources::URI>(gltf_buffer.data))
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_BUFFER_VIEW;
@@ -554,7 +561,7 @@ auto load_accessor_data_from_file(
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
     }
-    auto buffer_adapter = [&](const fastgltf::Buffer &buffer)
+    auto buffer_adapter = [&](fastgltf::Buffer const & buffer)
     {
         /// NOTE:   We only have a ptr to the loaded data to the accessors section of the buffer.
         ///         Fastgltf expects a ptr to the begin of the buffer, so we just subtract the offsets.
@@ -588,13 +595,13 @@ auto load_accessor_data_from_file(
     return {std::move(ret)};
 }
 
-auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::AssetLoadResultCode
+auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor::AssetLoadResultCode
 {
-    MeshManifestEntry &mesh_data = scene._mesh_manifest.at(mesh_index);
-    SceneFileManifestEntry &gltf_scene = scene._scene_file_manifest.at(mesh_data.scene_file_manifest_index);
-    fastgltf::Asset &gltf_asset = gltf_scene.gltf_asset;
-    fastgltf::Mesh &gltf_mesh = gltf_asset.meshes[mesh_data.scene_file_mesh_index];
-    fastgltf::Primitive &gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
+    MeshManifestEntry & mesh_data = scene._mesh_manifest.at(mesh_index);
+    SceneFileManifestEntry & gltf_scene = scene._scene_file_manifest.at(mesh_data.scene_file_manifest_index);
+    fastgltf::Asset & gltf_asset = gltf_scene.gltf_asset;
+    fastgltf::Mesh & gltf_mesh = gltf_asset.meshes[mesh_data.scene_file_mesh_index];
+    fastgltf::Primitive & gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
 
 /// NOTE: Process indices (they are required)
 #pragma region INDICES
@@ -602,7 +609,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER;
     }
-    fastgltf::Accessor &index_buffer_gltf_accessor = gltf_asset.accessors.at(gltf_prim.indicesAccessor.value());
+    fastgltf::Accessor & index_buffer_gltf_accessor = gltf_asset.accessors.at(gltf_prim.indicesAccessor.value());
     bool const index_buffer_accessor_valid =
         (index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedInt ||
          index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
@@ -613,7 +620,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR;
     }
     auto index_buffer_data = load_accessor_data_from_file<u32, true>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, index_buffer_gltf_accessor);
-    if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&index_buffer_data))
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&index_buffer_data))
     {
         return *err;
     }
@@ -627,7 +634,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS;
     }
-    fastgltf::Accessor &gltf_vertex_pos_accessor = gltf_asset.accessors.at(vert_attrib_iter->second);
+    fastgltf::Accessor & gltf_vertex_pos_accessor = gltf_asset.accessors.at(vert_attrib_iter->second);
     bool const gltf_vertex_pos_accessor_valid =
         gltf_vertex_pos_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_pos_accessor.type == fastgltf::AccessorType::Vec3;
@@ -637,7 +644,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     }
     // TODO: we can probably load this directly into the staging buffer.
     auto vertex_pos_result = load_accessor_data_from_file<glm::vec3, false>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, gltf_vertex_pos_accessor);
-    if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_pos_result))
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_pos_result))
     {
         return *err;
     }
@@ -652,7 +659,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
     }
-    fastgltf::Accessor &gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
+    fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
     bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;
@@ -661,7 +668,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
     auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
-    if (auto const *err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
     {
         return *err;
     }
@@ -713,7 +720,7 @@ auto AssetProcessor::load_mesh(Scene &scene, u32 mesh_index) -> AssetProcessor::
         meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
     }
     // Trimm array sizes.
-    const meshopt_Meshlet &last = meshlets[meshlet_count - 1];
+    meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
     meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
     meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
     meshlets.resize(meshlet_count);
@@ -802,9 +809,9 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     std::unique_lock l{*_mtx};
     auto recorder = _device.create_command_recorder({});
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
-    for (MeshUpload &mesh_upload : _upload_mesh_queue)
+    for (MeshUpload & mesh_upload : _upload_mesh_queue)
     {
-        MeshManifestEntry &mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
+        MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
         daxa::BufferId staging_buffer = mesh_upload.staging_buffer;
         daxa::BufferId mesh_buffer = std::bit_cast<daxa::BufferId>(mesh_entry.runtime.value().mesh_buffer);
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
@@ -824,7 +831,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
         });
 
         recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
-        auto const &mesh_descriptor = mesh_entry.runtime.value();
+        auto const & mesh_descriptor = mesh_entry.runtime.value();
         auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
         *_device.get_host_address_as<GPUMesh>(meshes_buffer_update_staging_buffer).value() = {
             .mesh_buffer = mesh_descriptor.mesh_buffer,
@@ -863,29 +870,35 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
 #pragma endregion
 
 #pragma region RECORD_TEXTURE_UPLOAD_COMMANDS
-    for (TextureUpload const &texture_upload : _upload_texture_queue)
+    for (TextureUpload const & texture_upload : _upload_texture_queue)
     {
         texture_upload.scene->_material_texture_manifest.at(texture_upload.texture_manifest_index).runtime = texture_upload.dst_image;
         /// TODO: If we are generating mips this will need to change
-        recorder.pipeline_barrier_image_transition({.dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                                                    .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                                                    .image_id = texture_upload.dst_image});
+        recorder.pipeline_barrier_image_transition({
+            .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+            .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .image_id = texture_upload.dst_image,
+        });
     }
-    for (TextureUpload const &texture_upload : _upload_texture_queue)
+    for (TextureUpload const & texture_upload : _upload_texture_queue)
     {
-        recorder.copy_buffer_to_image({.buffer = texture_upload.staging_buffer,
-                                       .image = texture_upload.dst_image,
-                                       .image_offset = {0, 0, 0},
-                                       .image_extent = _device.info_image(texture_upload.dst_image).value().size});
+        recorder.copy_buffer_to_image({
+            .buffer = texture_upload.staging_buffer,
+            .image = texture_upload.dst_image,
+            .image_offset = {0, 0, 0},
+            .image_extent = _device.info_image(texture_upload.dst_image).value().size,
+        });
         recorder.destroy_buffer_deferred(texture_upload.staging_buffer);
     }
-    for (TextureUpload const &texture_upload : _upload_texture_queue)
+    for (TextureUpload const & texture_upload : _upload_texture_queue)
     {
-        recorder.pipeline_barrier_image_transition({.src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                                                    .dst_access = daxa::AccessConsts::TOP_OF_PIPE_READ_WRITE,
-                                                    .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                                                    .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                                                    .image_id = texture_upload.dst_image});
+        recorder.pipeline_barrier_image_transition({
+            .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+            .dst_access = daxa::AccessConsts::TOP_OF_PIPE_READ_WRITE,
+            .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+            .image_id = texture_upload.dst_image,
+        });
     }
 #pragma endregion
 #pragma region RECORD_MATERIAL_UPLOAD_COMMANDS
@@ -894,14 +907,14 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
     std::vector<u32> dirty_material_entry_indices = {};
     // 1) Update CPU Manifest
-    for (TextureUpload const &texture_upload : _upload_texture_queue)
+    for (TextureUpload const & texture_upload : _upload_texture_queue)
     {
-        auto const &texture_manifest = texture_upload.scene->_material_texture_manifest;
-        auto &material_manifest = texture_upload.scene->_material_manifest;
-        TextureManifestEntry const &texture_manifest_entry = texture_manifest.at(texture_upload.texture_manifest_index);
+        auto const & texture_manifest = texture_upload.scene->_material_texture_manifest;
+        auto & material_manifest = texture_upload.scene->_material_manifest;
+        TextureManifestEntry const & texture_manifest_entry = texture_manifest.at(texture_upload.texture_manifest_index);
         for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
         {
-            MaterialManifestEntry &material_entry = material_manifest.at(material_using_texture_info.material_manifest_index);
+            MaterialManifestEntry & material_entry = material_manifest.at(material_using_texture_info.material_manifest_index);
             if (material_using_texture_info.diffuse)
             {
                 material_entry.diffuse_tex_index = texture_upload.texture_manifest_index;
@@ -936,9 +949,9 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     }
     for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
     {
-        auto const &texture_manifest = _upload_texture_queue.at(0).scene->_material_texture_manifest;
-        auto const &material_manifest = _upload_texture_queue.at(0).scene->_material_manifest;
-        MaterialManifestEntry const &material = material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
+        auto const & texture_manifest = _upload_texture_queue.at(0).scene->_material_texture_manifest;
+        auto const & material_manifest = _upload_texture_queue.at(0).scene->_material_manifest;
+        MaterialManifestEntry const & material = material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
         daxa::ImageId diffuse_id = {};
         daxa::ImageId normal_id = {};
         if (material.diffuse_tex_index.has_value())
@@ -970,7 +983,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     return recorder.complete_current_commands();
 }
 
-auto AssetProcessor::load_all(Scene &scene) -> AssetProcessor::AssetLoadResultCode
+auto AssetProcessor::load_all(Scene & scene) -> AssetProcessor::AssetLoadResultCode
 {
     std::optional<AssetProcessor::AssetLoadResultCode> err = {};
     // for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)

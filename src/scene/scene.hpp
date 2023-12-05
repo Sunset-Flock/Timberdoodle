@@ -12,22 +12,22 @@
 #include "../slot_map.hpp"
 using namespace tido::types;
 /**
-* DESCRIPTION:
-* Scenes are described by entities and their resources.
-* These resources can have complex dependencies between each other.
-* We want to be able to load AND UNLOAD the resources asynchronously.
-* BUT we want to remember unloaded resources. We never delete metadata.
-* The metadata tracks all the complex dependencies. Never deleting them makes the lifetimes for dependencies trivial.
-* It also allows us to have a better tracking of when a resource was unloaded how it was used etc. .
-* We store the metadata in manifest arrays.
-* The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
-*/
+ * DESCRIPTION:
+ * Scenes are described by entities and their resources.
+ * These resources can have complex dependencies between each other.
+ * We want to be able to load AND UNLOAD the resources asynchronously.
+ * BUT we want to remember unloaded resources. We never delete metadata.
+ * The metadata tracks all the complex dependencies. Never deleting them makes the lifetimes for dependencies trivial.
+ * It also allows us to have a better tracking of when a resource was unloaded how it was used etc. .
+ * We store the metadata in manifest arrays.
+ * The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
+ */
 
 struct TextureManifestEntry
 {
     struct MaterialManifestIndex
     {
-        bool diffuse = {}; 
+        bool diffuse = {};
         bool normal = {};
         bool metalic = {};
         bool roughness = {};
@@ -35,7 +35,7 @@ struct TextureManifestEntry
     };
     u32 scene_file_manifest_index = {};
     u32 in_scene_file_index = {};
-    // List of materials that use this texture and how they use it 
+    // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
     std::vector<MaterialManifestIndex> material_manifest_indices = {};
@@ -112,40 +112,40 @@ using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;
 struct Scene
 {
     /**
-    * NOTES:
-    * - On the cpu, the entities are stored in a slotmap
-    * - On the gpu, render entities are stored in an 'soa' slotmap
-    * - the slotmaps capacity (and its underlying arrays) will only grow with time, it never shrinks
-    * - all entity buffer updates are recorded within the scenes record commands function
-    * - WARNING: FOR NOW THE RENDERER ASSUMES TIGHTLY PACKED ENTITIES!
-    * - TODO: Upload sparse set to gpu so gpu can tightly iterate!
-    * - TODO: Make the task buffers real buffers grow with time, unfix their size!
-    * - TODO: Combine all into one task buffer when task graph gets array uses.
-    */
+     * NOTES:
+     * - On the cpu, the entities are stored in a slotmap
+     * - On the gpu, render entities are stored in an 'soa' slotmap
+     * - the slotmaps capacity (and its underlying arrays) will only grow with time, it never shrinks
+     * - all entity buffer updates are recorded within the scenes record commands function
+     * - WARNING: FOR NOW THE RENDERER ASSUMES TIGHTLY PACKED ENTITIES!
+     * - TODO: Upload sparse set to gpu so gpu can tightly iterate!
+     * - TODO: Make the task buffers real buffers grow with time, unfix their size!
+     * - TODO: Combine all into one task buffer when task graph gets array uses.
+     */
     daxa::TaskBuffer _gpu_entity_meta = daxa::TaskBufferInfo{.name = "_gpu_entity_meta"};
     daxa::TaskBuffer _gpu_entity_transforms = daxa::TaskBufferInfo{.name = "_gpu_entity_transforms"};
     daxa::TaskBuffer _gpu_entity_combined_transforms = daxa::TaskBufferInfo{.name = "_gpu_entity_combined_transforms"};
-    // UNUSED, but later we wanna do 
+    // UNUSED, but later we wanna do
     // the compined transform calculation on the gpu!
-    daxa::TaskBuffer _gpu_entity_parents = daxa::TaskBufferInfo{.name = "_gpu_entity_parents"};                
-    daxa::TaskBuffer _gpu_entity_mesh_groups = daxa::TaskBufferInfo{.name = "_gpu_entity_mesh_groups"};            
+    daxa::TaskBuffer _gpu_entity_parents = daxa::TaskBufferInfo{.name = "_gpu_entity_parents"};
+    daxa::TaskBuffer _gpu_entity_mesh_groups = daxa::TaskBufferInfo{.name = "_gpu_entity_mesh_groups"};
     RenderEntitySlotMap _render_entities = {};
-    std::vector<RenderEntityId> _dirty_render_entities = {}; 
+    std::vector<RenderEntityId> _dirty_render_entities = {};
 
     /**
-    * NOTES:
-    * -    growing and initializing the manifest on the gpu is recorded in the scene,
-    *      following UPDATES to the manifests are recorded from the asset processor
-    * - growing and initializing the manifest on the cpu is done when recording scene commands
-    * - the manifests only grow and are largely immutable on the cpu
-    * - specific cpu manifests will have 'runtime' data that is not immutable
-    * - the asset processor may update the immutable runtime data within the manifests
-    * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
-    * - TODO: Make the task buffers real buffers grow with time, unfix their size!
-    * */
-    daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};  
+     * NOTES:
+     * -    growing and initializing the manifest on the gpu is recorded in the scene,
+     *      following UPDATES to the manifests are recorded from the asset processor
+     * - growing and initializing the manifest on the cpu is done when recording scene commands
+     * - the manifests only grow and are largely immutable on the cpu
+     * - specific cpu manifests will have 'runtime' data that is not immutable
+     * - the asset processor may update the immutable runtime data within the manifests
+     * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
+     * - TODO: Make the task buffers real buffers grow with time, unfix their size!
+     * */
+    daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};
     daxa::TaskBuffer _gpu_mesh_group_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_group_manifest"};
-    daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};       
+    daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};
     std::vector<SceneFileManifestEntry> _scene_file_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
@@ -169,17 +169,17 @@ struct Scene
     };
     static auto to_string(LoadManifestErrorCode result) -> std::string_view
     {
-        switch(result)
+        switch (result)
         {
-            case LoadManifestErrorCode::FILE_NOT_FOUND: return "FILE_NOT_FOUND";
-            case LoadManifestErrorCode::COULD_NOT_LOAD_ASSET: return "COULD_NOT_LOAD_ASSET";
-            case LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE: return "INVALID_GLTF_FILE_TYPE";
+            case LoadManifestErrorCode::FILE_NOT_FOUND:              return "FILE_NOT_FOUND";
+            case LoadManifestErrorCode::COULD_NOT_LOAD_ASSET:        return "COULD_NOT_LOAD_ASSET";
+            case LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE:      return "INVALID_GLTF_FILE_TYPE";
             case LoadManifestErrorCode::COULD_NOT_PARSE_ASSET_NODES: return "COULD_NOT_PARSE_ASSET_NODES";
-            default: return "UNKNOWN";
+            default:                                                 return "UNKNOWN";
         }
         return "UNKNOWN";
     }
-    auto load_manifest_from_gltf(std::filesystem::path const& root_path, std::filesystem::path const& glb_name) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
+    auto load_manifest_from_gltf(std::filesystem::path const & root_path, std::filesystem::path const & glb_name) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
     auto record_gpu_manifest_update() -> daxa::ExecutableCommandList;
 

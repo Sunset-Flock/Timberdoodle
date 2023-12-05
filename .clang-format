@@ -1,0 +1,29 @@
+Language: Cpp
+BasedOnStyle: LLVM
+
+UseTab: Never
+TabWidth: 4
+IndentWidth: 4
+AccessModifierOffset: -2
+IndentCaseLabels: true
+ColumnLimit: 0
+BreakBeforeBraces: Allman
+QualifierAlignment: Right
+
+SortIncludes: false
+SortUsingDeclarations: false
+
+NamespaceIndentation: All
+CompactNamespaces: true
+
+AllowShortIfStatementsOnASingleLine: true
+AllowShortBlocksOnASingleLine: false
+
+PointerAlignment: Middle
+
+AllowShortCaseLabelsOnASingleLine: true
+AlignConsecutiveShortCaseStatements:
+  Enabled: true
+  AcrossEmptyLines: false
+  AcrossComments: true
+  AlignCaseColons: false
