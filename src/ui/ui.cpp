@@ -22,7 +22,7 @@ UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext 
         }
         icons.push_back(std::get<daxa::ImageId>(ret));
     }
-    constexpr static std::string_view text_font_path = "builtin_assets\\ui\\fonts\\sarasa-term-k-regular.ttf";
+    constexpr static std::string_view text_font_path = "deps\\timberdoodle_assets\\ui\\fonts\\sarasa-term-k-regular.ttf";
     if(std::filesystem::exists(text_font_path))
     {
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());

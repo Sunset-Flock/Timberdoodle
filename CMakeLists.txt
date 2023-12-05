@@ -2,6 +2,20 @@ cmake_minimum_required (VERSION 3.21)
 project(TimberDoodle)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
+
+find_package(Git REQUIRED)
+
+find_package(Git REQUIRED)
+if(NOT EXISTS "${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets")
+    execute_process(COMMAND ${GIT_EXECUTABLE} clone https://github.com/Sunset-Flock/Timberdoodle-assets.git deps/timberdoodle_assets
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMAND_ERROR_IS_FATAL ANY)
+else()
+    execute_process(COMMAND ${GIT_EXECUTABLE} pull
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets
+        COMMAND_ERROR_IS_FATAL ANY)
+endif()
+
 add_executable(${PROJECT_NAME} 
     "src/main.cpp"
     "src/window.cpp"

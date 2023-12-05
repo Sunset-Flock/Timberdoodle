@@ -2,7 +2,14 @@
   "name": "sandbox",
   "version": "0.1.0",
   "dependencies": [
-    "daxa",
+    {
+      "name": "daxa",
+      "features": [
+        "utils-pipeline-manager-glslang",
+        "utils-task-graph",
+        "utils-imgui"
+      ]
+    },
     "glfw3",
     {
       "name": "imgui",

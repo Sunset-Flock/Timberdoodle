@@ -33,17 +33,17 @@ struct UIEngine
     private:
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH
         {
-            "builtin_assets\\ui\\icons\\chevron_up.png",
-            "builtin_assets\\ui\\icons\\chevron_down.png",
-            "builtin_assets\\ui\\icons\\chevron_right.png",
-            "builtin_assets\\ui\\icons\\mesh.png",
-            "builtin_assets\\ui\\icons\\meshgroup.png",
-            "builtin_assets\\ui\\icons\\plus.png",
-            "builtin_assets\\ui\\icons\\minus.png",
-            "builtin_assets\\ui\\icons\\camera.png",
-            "builtin_assets\\ui\\icons\\light.png",
-            "builtin_assets\\ui\\icons\\material.png",
-            "builtin_assets\\ui\\icons\\collection.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\chevron_up.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\chevron_down.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\chevron_right.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\mesh.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\meshgroup.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\plus.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\minus.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\camera.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\light.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\material.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\collection.png",
         };
         GPUContext * context;
         f32 text_font_size = 15.0f;
