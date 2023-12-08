@@ -82,7 +82,7 @@ Window::Window(i32 width, i32 height, std::string_view name)
 #if defined(_WIN32)
     {
         auto hwnd = r_cast<HWND>(glfw_handle);
-        bool value = true;
+        BOOL value = true;
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
         auto is_windows11_or_greater = []() -> bool
         {
