@@ -6,7 +6,7 @@ TabWidth: 4
 IndentWidth: 4
 AccessModifierOffset: -2
 IndentCaseLabels: true
-ColumnLimit: 0
+ColumnLimit: 120
 BreakBeforeBraces: Allman
 QualifierAlignment: Right
 
@@ -16,10 +16,11 @@ SortUsingDeclarations: false
 NamespaceIndentation: All
 CompactNamespaces: true
 
+AllowShortBlocksOnASingleLine: true
 AllowShortIfStatementsOnASingleLine: true
-AllowShortBlocksOnASingleLine: false
-AllowShortFunctionsOnASingleLine: true
-AllowShortLambdasOnASingleLine: true
+AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortLambdasOnASingleLine: Inline
+AlignAfterOpenBracket: DontAlign
 
 PointerAlignment: Middle
 
