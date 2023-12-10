@@ -1,5 +1,4 @@
 #include "thread_pool.hpp"
-
 using namespace tido::types;
 
 ThreadPool::ThreadPool(ThreadPool &&)
@@ -17,6 +16,7 @@ ThreadPool::~ThreadPool()
 }
 
 thread_local static i32 this_thread_index = INVALID_THREAD_INDEX;
+thread_local static TaskChunk current_task_chunk = {};
 
 ThreadPool::ThreadPool(std::optional<u32> thread_count)
 {
@@ -28,19 +28,21 @@ ThreadPool::ThreadPool(std::optional<u32> thread_count)
                 this_thread_index = thread_index; 
                 while(true)
                 {
-                    work_available.wait(queues_lock, [&]{ return !high_priority_tasks.empty() || !low_priority_tasks.empty(); });
+                    std::unique_lock lock{task_queues_mutex};
+                    work_available.wait(lock, [&]{ return !high_priority_tasks.empty() || !low_priority_tasks.empty(); });
+
                 }
-            };
-        ))
+            }
+        ));
     }
 }
 
-void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW)
+void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority)
 {
 
 }
 
-void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW)
+void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priority)
 {
 
 }

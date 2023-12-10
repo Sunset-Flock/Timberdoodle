@@ -4,6 +4,8 @@
 #include <optional>
 #include <atomic>
 #include <deque>
+#include <condition_variable>
+#include <mutex>
 
 #include "../timberdoodle.hpp"
 using namespace tido::types;
@@ -48,7 +50,7 @@ struct ThreadPool
 	ThreadPool(u32 thread_count);
     std::vector<std::thread> worker_threads = {};
 	std::condition_variable work_available = {};
-	std::mutex queues_lock = {};
+	std::mutex task_queues_mutex = {};
     std::deque<TaskChunk> high_priority_tasks = {};
     std::deque<TaskChunk> low_priority_tasks = {};
 };
