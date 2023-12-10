@@ -18,6 +18,8 @@ CompactNamespaces: true
 
 AllowShortIfStatementsOnASingleLine: true
 AllowShortBlocksOnASingleLine: false
+AllowShortFunctionsOnASingleLine: true
+AllowShortLambdasOnASingleLine: true
 
 PointerAlignment: Middle
 

@@ -10,7 +10,7 @@
 #include "../timberdoodle.hpp"
 using namespace tido::types;
 
-static constexpr u32 TASK_STORAGE_SIZE = 64;
+static constexpr u32 EXIT_CHUNK_CODE = std::numeric_limits<u32>::max();
 
 enum struct TaskPriority
 {
@@ -33,24 +33,27 @@ struct TaskChunk
     u32 chunk_index = {};
 };
 
-constexpr static i32 INVALID_THREAD_INDEX = -1;
 struct ThreadPool
 {
   public:
-    ThreadPool(std::optional<u32> thread_count);
-	ThreadPool(ThreadPool &&);
-	ThreadPool& operator=(ThreadPool &&);
-	ThreadPool(const ThreadPool &) = delete;
-	ThreadPool& operator=(const ThreadPool &) = delete;
+    ThreadPool(std::optional<u32> thread_count = std::nullopt);
+    ThreadPool(ThreadPool &&) = default;
+    ThreadPool & operator=(ThreadPool &&) = default;
+    ThreadPool(ThreadPool const &) = delete;
+    ThreadPool & operator=(ThreadPool const &) = delete;
     ~ThreadPool();
-	void blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
-	void async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
+    void blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
+    void async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
 
   private:
-	ThreadPool(u32 thread_count);
+    struct SharedData
+    {
+        std::condition_variable work_available = {};
+        std::mutex task_queues_mutex = {};
+        std::deque<TaskChunk> high_priority_tasks = {};
+        std::deque<TaskChunk> low_priority_tasks = {};
+    };
+    static void worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32 thread_id);
+    std::shared_ptr<SharedData> shared_data = {};
     std::vector<std::thread> worker_threads = {};
-	std::condition_variable work_available = {};
-	std::mutex task_queues_mutex = {};
-    std::deque<TaskChunk> high_priority_tasks = {};
-    std::deque<TaskChunk> low_priority_tasks = {};
 };
