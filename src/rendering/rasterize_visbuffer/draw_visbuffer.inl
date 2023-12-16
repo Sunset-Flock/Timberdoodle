@@ -8,23 +8,23 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommand)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommand, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 7)
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
 DAXA_TH_BUFFER_PTR(DRAW_INDIRECT_INFO_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_IMAGE_ID(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, debug_image)
-DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, depth_image)
+DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShader)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShader, 14)
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
 DAXA_TH_BUFFER_PTR(DRAW_INDIRECT_INFO_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullIndirectArgTable), meshlet_cull_indirect_args)
@@ -37,9 +37,9 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsV
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, vis_image)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, debug_image)
-DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, depth_image)
+DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
+DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 #define DRAW_VISBUFFER_PASS_ONE 0
@@ -49,7 +49,7 @@ DAXA_DECL_TASK_HEAD_END
 struct DrawVisbufferPush_WriteCommand
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DrawVisbuffer_WriteCommand uses;
+    DAXA_TH_BLOB(DrawVisbuffer_WriteCommand) uses;
     daxa_u32 pass;
     daxa_u32 mesh_shader;
 };
@@ -57,14 +57,14 @@ struct DrawVisbufferPush_WriteCommand
 struct DrawVisbufferPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DrawVisbuffer uses;
+    DAXA_TH_BLOB(DrawVisbuffer) uses;
     daxa_u32 pass;
 };
 
 struct DrawVisbufferPush_MeshShader
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DrawVisbuffer_MeshShader uses;
+    DAXA_TH_BLOB(DrawVisbuffer_MeshShader) uses;
     daxa_u32 bucket_index;
 };
 
@@ -154,9 +154,8 @@ inline static const daxa::RasterPipelineCompileInfo DRAW_VISBUFFER_PIPELINE_COMP
     return ret;
 }();
 
-struct DrawVisbufferTask
+struct DrawVisbufferTask : DrawVisbuffer
 {
-    USE_TASK_HEAD(DrawVisbuffer)
     inline static const daxa::RasterPipelineCompileInfo PIPELINE_COMPILE_INFO = DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_NO_MESH_SHADER;
     GPUContext *context = {};
     u32 pass = {};
@@ -234,9 +233,8 @@ struct DrawVisbufferTask
     }
 };
 
-struct CullAndDrawVisbufferTask
+struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
 {
-    USE_TASK_HEAD(DrawVisbuffer_MeshShader)
     inline static const daxa::RasterPipelineCompileInfo PIPELINE_COMPILE_INFO = DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW;
     GPUContext *context = {};
     void callback(daxa::TaskInterface ti)

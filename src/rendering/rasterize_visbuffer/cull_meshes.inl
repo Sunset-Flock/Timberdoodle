@@ -16,14 +16,14 @@
 #define CULL_MESHES_WORKGROUP_X 8
 #define CULL_MESHES_WORKGROUP_Y 7
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
 BUFFER_COMPUTE_WRITE(meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 10)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
@@ -39,13 +39,13 @@ DAXA_DECL_TASK_HEAD_END
 struct CullMeshesCommandPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    CullMeshesCommand uses;
+    DAXA_TH_BLOB(CullMeshesCommand) uses;
 };
 
 struct CullMesheshPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    CullMeshes uses;
+    DAXA_TH_BLOB(CullMeshes) uses;
 };
 
 #if __cplusplus
@@ -60,9 +60,8 @@ using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
     CULL_MESHES_SHADER_PATH,
     CullMeshesCommandPush>;
 
-struct CullMeshesTask
+struct CullMeshesTask : CullMeshes
 {
-    USE_TASK_HEAD(CullMeshes)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},

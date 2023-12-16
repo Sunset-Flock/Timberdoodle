@@ -16,21 +16,21 @@ struct DispatchIndirectValueCount
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectValueCount)
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumWriteCommand)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumWriteCommand, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), value_count)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command0)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command1)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), downsweep_command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweep)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweep, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), src)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), block_sums)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweep)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweep, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), block_sums)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), values)
@@ -39,7 +39,7 @@ DAXA_DECL_TASK_HEAD_END
 struct PrefixSumWriteCommandPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    PrefixSumWriteCommand uses;
+    DAXA_TH_BLOB(PrefixSumWriteCommand) uses;
     daxa_u32 uint_offset;
 };
 
@@ -54,14 +54,14 @@ struct PrefixSumRange
 struct PrefixSumUpsweepPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    PrefixSumUpsweep uses;
+    DAXA_TH_BLOB(PrefixSumUpsweep) uses;
     PrefixSumRange range;
 };
 
 struct PrefixSumDownsweepPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    PrefixSumDownsweep uses;
+    DAXA_TH_BLOB(PrefixSumDownsweep) uses;
     PrefixSumRange range;
 };
 
@@ -79,9 +79,8 @@ using PrefixSumCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
 >;
 
 // Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
-struct PrefixSumUpsweepTask
+struct PrefixSumUpsweepTask : PrefixSumUpsweep
 {
-    USE_TASK_HEAD(PrefixSumUpsweep)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
@@ -109,9 +108,8 @@ struct PrefixSumUpsweepTask
     }
 };
 
-struct PrefixSumDownsweepTask
+struct PrefixSumDownsweepTask : PrefixSumDownsweep
 {
-    USE_TASK_HEAD(PrefixSumDownsweep)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},

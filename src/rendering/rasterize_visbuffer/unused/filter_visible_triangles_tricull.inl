@@ -7,14 +7,14 @@
 #include "../../shader_shared/asset.inl"
 
 #if __cplusplus || defined(FilterVisibleTrianglesWriteCommand_COMMAND)
-DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTrianglesWriteCommand)
+DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTrianglesWriteCommand, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
 DAXA_DECL_TASK_HEAD_END
 #endif
 
 #if __cplusplus || !defined(FilterVisibleTrianglesWriteCommand_COMMAND)
-DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTriangles)
+DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTriangles, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32vec4), u_meshlet_visibility_bitfields)
@@ -34,9 +34,8 @@ using FilterVisibleTrianglesWriteCommandTask = WriteIndirectDispatchArgsBaseTask
     FilterVisibleTrianglesWriteCommand,
     FILTER_VISIBLE_TRIANGLES_PATH>;
 
-struct FilterVisibleTrianglesTask
+struct FilterVisibleTrianglesTask : FilterVisibleTriangles
 {
-    USE_TASK_HEAD(FilterVisibleTriangles)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{FILTER_VISIBLE_TRIANGLES_PATH}},
         .name = std::string{FilterVisibleTriangles::NAME},

@@ -7,14 +7,14 @@
 #include "../../shader_shared/asset.inl"
 #define PREPOPULATE_INST_MESHLETS_X 256
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrepopInstMeshletCommW)
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopInstMeshletCommW, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
 DAXA_DECL_TASK_HEAD_END
 
 // In the future we should check if the entity slot is actually valid here.
 // To do that we need a version in the entity id and a version table we can compare to
-DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets)
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets, 6)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets_prev)
@@ -23,7 +23,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(SetEntityMeshletVisibilityBitMasks)
+DAXA_DECL_TASK_HEAD_BEGIN(SetEntityMeshletVisibilityBitMasks, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
@@ -33,19 +33,19 @@ DAXA_DECL_TASK_HEAD_END
 struct PrepopInstMeshletCommWPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    PrepopInstMeshletCommW uses;
+    DAXA_TH_BLOBL(PrepopInstMeshletCommW) uses;
 };
 
 struct PrepopulateInstMeshletsPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    PrepopulateInstMeshlets uses;
+    DAXA_TH_BLOB(PrepopulateInstMeshlets) uses;
 };
 
 struct SetEntityMeshletVisibilityBitMasksPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    SetEntityMeshletVisibilityBitMasks uses;
+    DAXA_TH_BLOB(SetEntityMeshletVisibilityBitMasks) uses;
 };
 
 #if __cplusplus
@@ -61,9 +61,8 @@ using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArg
     PRE_POPULATE_INST_MESHLETS_PATH,
     PrepopInstMeshletCommWPush>;
 
-struct PrepopulateInstantiatedMeshletsTask
+struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
 {
-    USE_TASK_HEAD(PrepopulateInstMeshlets)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}},
         .name = std::string{PrepopulateInstMeshlets::NAME},
@@ -82,9 +81,8 @@ struct PrepopulateInstantiatedMeshletsTask
     }
 };
 
-struct SetEntityMeshletVisibilityBitMasksTask
+struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMasks
 {
-    USE_TASK_HEAD(SetEntityMeshletVisibilityBitMasks)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}, {.defines = {{"SetEntityMeshletVisibilityBitMasks_SHADER", "1"}}}},
         .name = std::string{SetEntityMeshletVisibilityBitMasks::NAME},

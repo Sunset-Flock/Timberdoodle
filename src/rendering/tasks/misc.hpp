@@ -5,9 +5,8 @@
 #include "../../gpu_context.hpp"
 
 template <typename T_USES_BASE, char const *T_FILE_PATH, typename T_PUSH>
-struct WriteIndirectDispatchArgsPushBaseTask
+struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
 {
-    USE_TASK_HEAD(T_USES_BASE)
     static inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{T_FILE_PATH},
@@ -36,17 +35,16 @@ struct WriteIndirectDispatchArgsPushBaseTask
 void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, u32 value, i32 range = CLEAR_REST)
 {
     tg.add_task({
-        .uses = {daxa::task_resource_uses::BufferTransferWrite{buffer}},
+        .attachments = {daxa::TaskBufferAttachment{.access=daxa::TaskBufferAccess::TRANSFER_WRITE, .view=buffer}},
         .task = [=](daxa::TaskInterface ti){
-            auto & cmd = ti.get_recorder();
-            cmd.clear_buffer({
-                .buffer = ti.uses[buffer].buffer(),
+            ti.recorder.clear_buffer({
+                .buffer = ti.buf_attach(buffer).ids[0],
                 .offset = 0,
-                .size = (range == CLEAR_REST) ? ti.get_device().info_buffer(ti.uses[buffer].buffer()).value().size : static_cast<daxa_u32>(range),
+                .size = (range == CLEAR_REST) ? ti.device.info_buffer(ti.buf_attach(buffer).ids[0]).value().size : static_cast<daxa_u32>(range),
                 .clear_value = value,
             });
         },
-        .name = std::string("clear task buffer"),
+        .name = "clear task buffer",
     });
 }
 
@@ -60,21 +58,20 @@ template<size_t N>
 void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, std::array<ClearRange, N> clear_ranges)
 {
     tg.add_task({
-        .uses = {daxa::task_resource_uses::BufferTransferWrite{buffer}},
+        .attachments = {daxa::TaskBufferAttachment{.access=daxa::TaskBufferAccess::TRANSFER_WRITE, .view = buffer}},
         .task = [=](daxa::TaskInterface ti){
-            auto & cmd = ti.get_recorder();
-            auto buffer_size = ti.get_device().info_buffer(ti.uses[buffer].buffer()).value().size;
+            auto buffer_size = ti.device.info_buffer(ti.buf_attach(buffer).ids[0]).value().size;
             for (auto range : clear_ranges)
             {
                 auto copy_size = (range.size == CLEAR_REST) ? (buffer_size - range.offset) : static_cast<u32>(range.size);
                 cmd.clear_buffer({
-                    .buffer = ti.uses[buffer].buffer(),
+                    .buffer = ti.buf_attach(buffer).ids[0],
                     .offset = range.offset,
                     .size = copy_size,
                     .clear_value = range.value,
                 });
             }
         },
-        .name = std::string("multi clear task buffer"),
+        .name = "multi clear task buffer",
     });
 }

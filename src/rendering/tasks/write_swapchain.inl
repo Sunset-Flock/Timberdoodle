@@ -8,7 +8,7 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchain)
+DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchain, 5)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, swapchain)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, debug_image)
@@ -19,7 +19,7 @@ DAXA_DECL_TASK_HEAD_END
 struct WriteSwapchainPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    WriteSwapchain uses;
+    DAXA_TH_BLOB(WriteSwapchain) uses;
     daxa_u32 width;
     daxa_u32 height;
 };
@@ -31,9 +31,8 @@ struct WriteSwapchainPush
 
 #include "../../gpu_context.hpp"
 
-struct WriteSwapchainTask
+struct WriteSwapchainTask : WriteSwapchain
 {
-    USE_TASK_HEAD(WriteSwapchain)
     static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.glsl"}},
         .push_constant_size = sizeof(WriteSwapchainPush),

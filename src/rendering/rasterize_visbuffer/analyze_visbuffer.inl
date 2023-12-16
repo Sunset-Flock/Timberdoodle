@@ -9,7 +9,7 @@
 #define ANALYZE_VIS_BUFFER_WORKGROUP_X 8
 #define ANALYZE_VIS_BUFFER_WORKGROUP_Y 8
 
-DAXA_DECL_TASK_HEAD_BEGIN(AnalyzeVisbuffer2)
+DAXA_DECL_TASK_HEAD_BEGIN(AnalyzeVisbuffer2, 4)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, visbuffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), meshlet_visibility_bitfield)
@@ -22,37 +22,35 @@ struct AnalyzeVisbufferPush2
 {
     daxa_BufferPtr(ShaderGlobals) globals;
     daxa_u32vec2 size;
-    AnalyzeVisbuffer2 uses;
+    DAXA_TH_BLOB(AnalyzeVisbuffer2) uses;
 };
 
 #if __cplusplus
 
 #include "../../gpu_context.hpp"
 
-struct AnalyzeVisBufferTask2
+struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
 {
-    USE_TASK_HEAD(AnalyzeVisbuffer2)
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
         .push_constant_size = sizeof(AnalyzeVisbufferPush2),
         .name = std::string{AnalyzeVisbuffer2::NAME},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface tri) override
     {
-        auto & cmd = ti.get_recorder();
-        cmd.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2::NAME));
-        auto const x = ti.get_device().info_image(uses.visbuffer.image()).value().size.x;
-        auto const y = ti.get_device().info_image(uses.visbuffer.image()).value().size.y;
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2::NAME));
+        auto [x,y,z] = ti.device.info_image(ti.img_attach(visbuffer).ids[0]).value().size;
         AnalyzeVisbufferPush2 push = {
             .globals = context->shader_globals_address,
             .size = {x, y},
+            .uses = DAXA_TH_BLOB(AnalyzeVisbuffer2){ti.shader_byte_blob.begin(), ti.shader_byte_blob.end()},
         };
         ti.copy_task_head_to(&push.uses);
-        cmd.push_constant(push);
+        ti.recorder.push_constant(push);
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
         auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);
-        cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z =  1});
+        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z =  1});
     }
 };
 #endif

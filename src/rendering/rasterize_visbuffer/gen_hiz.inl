@@ -12,7 +12,7 @@
 #define GEN_HIZ_WINDOW_X 64
 #define GEN_HIZ_WINDOW_Y 64
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenHizTH)
+DAXA_DECL_TASK_HEAD_BEGIN(GenHizTH, 2)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, src)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
@@ -20,7 +20,7 @@ DAXA_DECL_TASK_HEAD_END
 struct GenHizPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    GenHizTH uses;
+    DAXA_TH_BLOB(GenHizTH) uses;
     daxa_RWBufferPtr(daxa_u32) counter;
     daxa_u32 mip_count;
     daxa_u32 total_workgroup_count;
