@@ -6,3 +6,4 @@ preproc/*
 .cache*
 imgui.ini
 deps/timberdoodle_assets
+compile_commands.json
