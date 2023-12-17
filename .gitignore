@@ -5,3 +5,4 @@ builtin_assets
 preproc/*
 .cache*
 imgui.ini
+deps/timberdoodle_assets

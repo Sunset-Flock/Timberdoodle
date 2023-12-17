@@ -37,6 +37,7 @@ inline static const daxa::ComputePipelineCompileInfo GEN_HIZ_PIPELINE_COMPILE_IN
     .name = std::string{"GenHiz"},
 };
 
+// TODO(msakmary) Patrick needs to fix this... Idk what he is doing here lmao
 daxa::TaskImageView
 task_gen_hiz_single_pass(GPUContext *context, daxa::TaskGraph &task_graph, daxa::TaskImageView src)
 {
@@ -60,7 +61,7 @@ task_gen_hiz_single_pass(GPUContext *context, daxa::TaskGraph &task_graph, daxa:
             auto &recorder = ti.get_recorder();
             auto &device = ti.get_device();
             auto &cmd = ti.get_recorder();
-            cmd.set_pipeline(*context->compute_pipelines.at(GenHizTH::NAME));
+            cmd.set_pipeline(*context->compute_pipelines.at(GenHizTH{}.name()));
             auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
             auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
             GenHizPush push{
@@ -73,7 +74,7 @@ task_gen_hiz_single_pass(GPUContext *context, daxa::TaskGraph &task_graph, daxa:
             cmd.push_constant(push);
             cmd.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
         },
-        .name = std::string(GenHizTH::NAME),
+        .name = std::string(GenHizTH{}.name()),
     });
     return hiz.view({.level_count = mip_count});
 }

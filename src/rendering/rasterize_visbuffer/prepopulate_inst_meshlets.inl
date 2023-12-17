@@ -20,20 +20,22 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visi
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(
+    COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(SetEntityMeshletVisibilityBitMasks, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(
+    COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
 DAXA_DECL_TASK_HEAD_END
 
 struct PrepopInstMeshletCommWPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DAXA_TH_BLOBL(PrepopInstMeshletCommW) uses;
+    DAXA_TH_BLOB(PrepopInstMeshletCommW) uses;
 };
 
 struct PrepopulateInstMeshletsPush
@@ -56,48 +58,45 @@ struct SetEntityMeshletVisibilityBitMasksPush
 static constexpr inline char const PRE_POPULATE_INST_MESHLETS_PATH[] =
     "./src/rendering/rasterize_visbuffer/prepopulate_inst_meshlets.glsl";
 
-using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
-    PrepopInstMeshletCommW,
-    PRE_POPULATE_INST_MESHLETS_PATH,
-    PrepopInstMeshletCommWPush>;
+using PrepopulateInstantiatedMeshletsCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<PrepopInstMeshletCommW,
+    PRE_POPULATE_INST_MESHLETS_PATH, PrepopInstMeshletCommWPush>;
 
 struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
 {
-    inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
+    inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}},
-        .name = std::string{PrepopulateInstMeshlets::NAME},
+        .name = std::string{PrepopulateInstMeshlets{}.name()},
     };
-    GPUContext *context = {};
+    GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        PrepopulateInstMeshletsPush push = { .globals = context->shader_globals_address };
-        ti.copy_task_head_to(&push.uses);
-        cmd.set_pipeline(*context->compute_pipelines.at(PrepopulateInstMeshlets::NAME));
-        cmd.push_constant(push);
-        cmd.dispatch_indirect({
-            .indirect_buffer = uses.command.buffer(),
-        });
+        PrepopulateInstMeshletsPush push = {
+            .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(PrepopulateInstMeshlets){}.size()>(ti.shader_byte_blob),
+        };
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(PrepopulateInstMeshlets{}.name()));
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
 struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMasks
 {
-    inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
-        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}, {.defines = {{"SetEntityMeshletVisibilityBitMasks_SHADER", "1"}}}},
-        .name = std::string{SetEntityMeshletVisibilityBitMasks::NAME},
+    inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
+        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH},
+            {.defines = {{"SetEntityMeshletVisibilityBitMasks_SHADER", "1"}}}},
+        .name = std::string{SetEntityMeshletVisibilityBitMasks{}.name()},
     };
-    GPUContext *context = {};
+    GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        SetEntityMeshletVisibilityBitMasksPush push = { .globals = context->shader_globals_address  };
-        ti.copy_task_head_to(&push.uses);
-        cmd.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks::NAME));
-        cmd.push_constant(push);
-        cmd.dispatch_indirect({
-            .indirect_buffer = uses.command.buffer(),
-        });
+        SetEntityMeshletVisibilityBitMasksPush push = {
+            .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(SetEntityMeshletVisibilityBitMasks){}.size()>(ti.shader_byte_blob),
+        };
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks{}.name()));
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
@@ -110,10 +109,10 @@ struct PrepopInfo
     daxa::TaskBufferView entity_meshlet_visibility_bitfield_offsets = {};
     daxa::TaskBufferView entity_meshlet_visibility_bitfield_arena = {};
 };
-inline void task_prepopulate_instantiated_meshlets(GPUContext *context, daxa::TaskGraph &tg, PrepopInfo info)
+inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::TaskGraph & tg, PrepopInfo info)
 {
-    // NVIDIA DRIVER BUGS MAKES VKBUFFERFILL IGNORE OFFSET IF() FILL.SIZE + FILL.OFFSET == BUFFER.SIZE). 
-    // WORKAROUND BY DOING A BUFFER 
+    // NVIDIA DRIVER BUGS MAKES VKBUFFERFILL IGNORE OFFSET IF() FILL.SIZE + FILL.OFFSET == BUFFER.SIZE).
+    // WORKAROUND BY DOING A BUFFER
     std::array<ClearRange, 2> clear_ranges = {
         ClearRange{.value = ENT_MESHLET_VIS_OFFSET_UNALLOCATED, .offset = sizeof(daxa_u32), .size = CLEAR_REST},
         ClearRange{.value = 0, .offset = 0, .size = sizeof(daxa_u32)},
@@ -121,33 +120,33 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext *context, daxa::Ta
     task_multi_clear_buffer(tg, info.entity_meshlet_visibility_bitfield_offsets, clear_ranges);
     task_clear_buffer(tg, info.meshlet_instances, 0, sizeof(daxa_u32vec2));
     task_clear_buffer(tg, info.entity_meshlet_visibility_bitfield_arena, 0);
-    auto command_buffer = tg.create_transient_buffer({sizeof(DispatchIndirectStruct), "cb prepopulate_instantiated_meshlets"});
-    tg.add_task(PrepopulateInstantiatedMeshletsCommandWriteTask{
-        .uses = {
-            .visible_meshlets_prev = info.visible_meshlets_prev,
-            .command = command_buffer,
-        },
-        .context = context,
+    auto command_buffer = tg.create_transient_buffer({
+        sizeof(DispatchIndirectStruct),
+        "cb prepopulate_instantiated_meshlets",
     });
-    tg.add_task(PrepopulateInstantiatedMeshletsTask{
-        .uses = {
-            .command = command_buffer,
-            .visible_meshlets_prev = info.visible_meshlets_prev,
-            .instantiated_meshlets_prev = info.meshlet_instances_last_frame,
-            .meshes = info.meshes,
-            .instantiated_meshlets = info.meshlet_instances,
-            .entity_meshlet_visibility_bitfield_offsets = info.entity_meshlet_visibility_bitfield_offsets,
-        },
-        .context = context,
-    });
-    tg.add_task(SetEntityMeshletVisibilityBitMasksTask{
-        .uses = {
-            .command = command_buffer,
-            .instantiated_meshlets = info.meshlet_instances,
-            .entity_meshlet_visibility_bitfield_offsets = info.entity_meshlet_visibility_bitfield_offsets,
-            .entity_meshlet_visibility_bitfield_arena = info.entity_meshlet_visibility_bitfield_arena,
-        },
-        .context = context,
-    });
+    PrepopulateInstantiatedMeshletsCommandWriteTask write_task = {};
+    write_task.attachments.set_view(write_task.visible_meshlets_prev, info.visible_meshlets_prev);
+    write_task.attachments.set_view(write_task.command, command_buffer);
+    write_task.context = context;
+    tg.add_task(write_task);
+
+    PrepopulateInstantiatedMeshletsTask prepopulate_task = {};
+
+    prepopulate_task.attachments.set_view(prepopulate_task.command, command_buffer);
+    prepopulate_task.attachments.set_view(prepopulate_task.visible_meshlets_prev, info.visible_meshlets_prev);
+    prepopulate_task.attachments.set_view(prepopulate_task.instantiated_meshlets_prev, info.meshlet_instances_last_frame);
+    prepopulate_task.attachments.set_view(prepopulate_task.meshes, info.meshes),
+    prepopulate_task.attachments.set_view(prepopulate_task.instantiated_meshlets, info.meshlet_instances);
+    prepopulate_task.attachments.set_view(prepopulate_task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+    prepopulate_task.context = context;
+    tg.add_task(prepopulate_task);
+
+    SetEntityMeshletVisibilityBitMasksTask set_vis_mask = {};
+    set_vis_mask.attachments.set_view(set_vis_mask.command, command_buffer);
+    set_vis_mask.attachments.set_view(set_vis_mask.instantiated_meshlets, info.meshlet_instances);
+    set_vis_mask.attachments.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+    set_vis_mask.attachments.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
+    set_vis_mask.context = context;
+    tg.add_task(set_vis_mask);
 }
 #endif

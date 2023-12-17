@@ -156,19 +156,19 @@ void Renderer::compile_pipelines()
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {SetEntityMeshletVisibilityBitMasksTask::NAME, SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
-        {PrepopulateInstantiatedMeshletsTask::NAME, PrepopulateInstantiatedMeshletsTask::PIPELINE_COMPILE_INFO},
-        {PrepopulateInstantiatedMeshletsCommandWriteTask::NAME, PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {AnalyzeVisBufferTask2::NAME, AnalyzeVisBufferTask2::PIPELINE_COMPILE_INFO},
-        {GenHizTH::NAME, GEN_HIZ_PIPELINE_COMPILE_INFO},
-        {WriteSwapchainTask::NAME, WriteSwapchainTask::PIPELINE_COMPILE_INFO},
-        {DrawVisbuffer_WriteCommandTask::NAME, DrawVisbuffer_WriteCommandTask::PIPELINE_COMPILE_INFO},
-        {CullMeshesCommandWriteTask::NAME, CullMeshesCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {CullMeshesTask::NAME, CullMeshesTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumCommandWriteTask::NAME, PrefixSumCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumUpsweepTask::NAME, PrefixSumUpsweepTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumDownsweepTask::NAME, PrefixSumDownsweepTask::PIPELINE_COMPILE_INFO},
-        {CullMeshletsTask::NAME, CullMeshletsTask::PIPELINE_COMPILE_INFO},
+        {SetEntityMeshletVisibilityBitMasksTask{}.name(), SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
+        {PrepopulateInstantiatedMeshletsTask{}.name(), PrepopulateInstantiatedMeshletsTask::PIPELINE_COMPILE_INFO},
+        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(), PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
+        {AnalyzeVisBufferTask2{}.name(), AnalyzeVisBufferTask2::PIPELINE_COMPILE_INFO},
+        {GenHizTH{}.name(), GEN_HIZ_PIPELINE_COMPILE_INFO},
+        {WriteSwapchainTask{}.name(), WriteSwapchainTask::PIPELINE_COMPILE_INFO},
+        {DrawVisbuffer_WriteCommandTask{}.name(), DrawVisbuffer_WriteCommandTask::PIPELINE_COMPILE_INFO},
+        {CullMeshesCommandWriteTask{}.name(), CullMeshesCommandWriteTask::PIPELINE_COMPILE_INFO},
+        {CullMeshesTask{}.name(), CullMeshesTask::PIPELINE_COMPILE_INFO},
+        {PrefixSumCommandWriteTask{}.name(), PrefixSumCommandWriteTask::PIPELINE_COMPILE_INFO},
+        {PrefixSumUpsweepTask{}.name(), PrefixSumUpsweepTask::PIPELINE_COMPILE_INFO},
+        {PrefixSumDownsweepTask{}.name(), PrefixSumDownsweepTask::PIPELINE_COMPILE_INFO},
+        {CullMeshletsTask{}.name(), CullMeshletsTask::PIPELINE_COMPILE_INFO},
     };
     for (auto [name, info] : computes)
     {
@@ -328,6 +328,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = sizeof(DispatchIndirectStruct) * 32,
         .name = "CullMeshletsCommands",
     });
+    // TODO(mskmary) I will fix this after Patrick decides if the likes the api I can pass here decltype(CullMeshes::attachments)
     tasks_cull_meshes(
         context,
         task_list,
@@ -365,15 +366,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, entity_meshlet_visibility_bitfield_arena, 0);
-    task_list.add_task(AnalyzeVisBufferTask2{
-        .uses = {
-            .visbuffer = visbuffer,
-            .instantiated_meshlets = meshlet_instances,
-            .meshlet_visibility_bitfield = visible_meshlets_bitfield,
-            .visible_meshlets = visible_meshlet_instances,
-        },
-        .context = context,
-    });
+    AnalyzeVisBufferTask2 analyze_task = {};
+
+    analyze_task.attachments.set_view(analyze_task.visbuffer, visbuffer);
+    analyze_task.attachments.set_view(analyze_task.instantiated_meshlets, meshlet_instances);
+    analyze_task.attachments.set_view(analyze_task.meshlet_visibility_bitfield, visible_meshlets_bitfield);
+    analyze_task.attachments.set_view(analyze_task.visible_meshlets, visible_meshlet_instances);
+    analyze_task.context = context;
+    task_list.add_task(analyze_task);
     if (context->settings.enable_observer)
     {
         task_draw_visbuffer({
@@ -392,25 +392,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 #if 0
 #endif
     task_list.submit({});
-    task_list.add_task(WriteSwapchainTask{
-        .uses = {
-            .swapchain = swapchain_image,
-            .vis_image = visbuffer,
-            .debug_image = debug_image,
-            .material_manifest = scene->_gpu_material_manifest,
-            .instantiated_meshlets = meshlet_instances,
-        },
-        .context = context,
-    });
+    WriteSwapchainTask swapchain_task = {};
+    swapchain_task.attachments.set_view(swapchain_task.swapchain, swapchain_image);
+    swapchain_task.attachments.set_view(swapchain_task.vis_image, visbuffer);
+    swapchain_task.attachments.set_view(swapchain_task.debug_image, debug_image);
+    swapchain_task.attachments.set_view(swapchain_task.material_manifest, scene->_gpu_material_manifest);
+    swapchain_task.attachments.set_view(swapchain_task.instantiated_meshlets, meshlet_instances);
+    swapchain_task.context = context;
+    task_list.add_task(swapchain_task);
+
     task_list.add_task({
-        .uses = {
-            ImageColorAttachment<>{swapchain_image},
-        },
+        .attachments = { daxa::TaskImageAttachment{.access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image }},
         .task = [=, this](daxa::TaskInterface ti)
         {
-            auto &cmd_list = ti.get_recorder();
-            auto size = ti.get_device().info_image(ti.uses[swapchain_image].image()).value().size;
-            imgui_renderer->record_commands(ImGui::GetDrawData(), cmd_list, ti.uses[swapchain_image].image(), size.x, size.y);
+            auto size = ti.device.info_image(ti.img_attach(swapchain_image).ids[0]).value().size;
+            imgui_renderer->record_commands(ImGui::GetDrawData(), ti.recorder, ti.img_attach(swapchain_image).ids[0], size.x, size.y);
         },
         .name = "ImGui Draw",
     });

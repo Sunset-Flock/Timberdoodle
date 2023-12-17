@@ -39,15 +39,10 @@ struct CullMeshletsPush
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";
 
-template <std::size_t SIZE> std::array<std::byte, SIZE> span_to_array(std::span<std::byte> blob)
-{
-    std::array<std::byte, SIZE> ret;
-    std::memcpy(ret.data(), blob.data(), SIZE);
-    return ret;
-}
-
 struct CullMeshletsTask : CullMeshlets
 {
+    GPUContext *context = {};
+
     inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info =
             daxa::ShaderCompileInfo{
@@ -57,17 +52,17 @@ struct CullMeshletsTask : CullMeshlets
         .push_constant_size = sizeof(CullMeshletsPush),
         .name = std::string{CullMeshlets{}.name()},
     };
-    std::push.uses = ti.shader_byte_blob;
+
     virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshlets{}.name()));
         for (u32 table = 0; table < 32; ++table)
         {
             auto push = CullMeshletsPush{
+                .uses = span_to_array<DAXA_TH_BLOB(CullMeshlets){}.size()>(ti.shader_byte_blob),
                 .globals = context->shader_globals_address,
                 .indirect_args_table_id = table,
                 .meshlets_per_indirect_arg = (1u << table),
-                .uses = span_to_array<DAXA_TH_BLOB(CullMeshlets){}.size()>(ti.shader_byte_blob),
             };
             ti.recorder.push_constant(push);
             ti.recorder.dispatch_indirect({

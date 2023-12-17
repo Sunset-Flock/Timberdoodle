@@ -34,19 +34,18 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
         .push_constant_size = sizeof(AnalyzeVisbufferPush2),
-        .name = std::string{AnalyzeVisbuffer2::NAME},
+        .name = std::string{AnalyzeVisbuffer2{}.name()},
     };
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface tri) override
+    virtual void callback(daxa::TaskInterface ti) const override
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2::NAME));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2{}.name()));
         auto [x,y,z] = ti.device.info_image(ti.img_attach(visbuffer).ids[0]).value().size;
         AnalyzeVisbufferPush2 push = {
             .globals = context->shader_globals_address,
             .size = {x, y},
-            .uses = DAXA_TH_BLOB(AnalyzeVisbuffer2){ti.shader_byte_blob.begin(), ti.shader_byte_blob.end()},
+            .uses = span_to_array<DAXA_TH_BLOB(AnalyzeVisbuffer2){}.size()>(ti.shader_byte_blob),
         };
-        ti.copy_task_head_to(&push.uses);
         ti.recorder.push_constant(push);
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
         auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);

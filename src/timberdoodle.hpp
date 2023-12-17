@@ -88,6 +88,13 @@ namespace tido
     }
 }
 
+template <std::size_t SIZE> std::array<std::byte, SIZE> span_to_array(std::span<std::byte> blob)
+{
+    std::array<std::byte, SIZE> ret;
+    std::memcpy(ret.data(), blob.data(), SIZE);
+    return ret;
+}
+
 #define s_cast static_cast
 #define d_cast dynamic_cast
 #define r_cast reinterpret_cast

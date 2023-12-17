@@ -7,7 +7,7 @@
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/scene.inl"
 
-/// 
+///
 /// CullMeshesTask goes through all entities and their meshlists.
 /// It checks if the meshes are visible and if they are they get inserted into a visible meshlist.
 /// It also generates a list of meshlet counts for each mesh, that the following meshlet culling uses.
@@ -52,60 +52,55 @@ struct CullMesheshPush
 #include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
 
-static constexpr inline char const CULL_MESHES_SHADER_PATH[] =
-    "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
+static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
 
-using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
-    CullMeshesCommand,
-    CULL_MESHES_SHADER_PATH,
-    CullMeshesCommandPush>;
+using CullMeshesCommandWriteTask =
+    WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
 
 struct CullMeshesTask : CullMeshes
 {
-    static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
-        },
+    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
+        .shader_info =
+            daxa::ShaderCompileInfo{
+                .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
+            },
         .push_constant_size = sizeof(CullMesheshPush),
-        .name = std::string{CullMeshes::NAME},
+        .name = std::string{CullMeshes{}.name()},
     };
-    GPUContext *context = {};
+    GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        cmd.set_pipeline(*context->compute_pipelines.at(CullMeshes::NAME));
-        CullMesheshPush push = { .globals = context->shader_globals_address };
-        ti.copy_task_head_to(&push.uses);
-        cmd.push_constant(push);
-        cmd.dispatch_indirect({
-            .indirect_buffer = uses.command.buffer(),
-        });
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
+        CullMesheshPush push = {
+            .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(CullMeshes){}.size()>(ti.shader_byte_blob),
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
-void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph& task_list, CullMeshes::Uses uses)
+// TODO(msakmary) PATRICK REVIEW
+void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, decltype(CullMeshes::attachments) uses)
 {
     auto command_buffer = task_list.create_transient_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "CullMeshesCommand",
     });
+    CullMeshesTask cull_task = {};
 
-    task_list.add_task(CullMeshesCommandWriteTask{
-        .uses={
-            .entity_meta = uses.entity_meta,
-            .command = command_buffer,
-            .cull_meshlets_commands = uses.cull_meshlets_commands.handle,
-            .meshlet_cull_indirect_args = uses.meshlet_cull_indirect_args,
-        },
-        .context = context,
-    });
+    CullMeshesCommandWriteTask write_task = {};
+    write_task.attachments.set_view(write_task.entity_meta, uses[cull_task.entity_meta].view);
+    write_task.attachments.set_view(write_task.command, uses[cull_task.command].view);
+    write_task.attachments.set_view(write_task.cull_meshlets_commands, uses[cull_task.cull_meshlets_commands].view);
+    write_task.attachments.set_view(write_task.meshlet_cull_indirect_args, uses[cull_task.meshlet_cull_indirect_args].view);
+    write_task.context = context;
+    task_list.add_task(write_task);
 
-    uses.command.handle = command_buffer;
-
-    task_list.add_task(CullMeshesTask{
-        .uses={uses},
-        .context = context,
-    });
+    cull_task.attachments = uses;
+    cull_task.attachments.set_view(cull_task.command, command_buffer);
+    cull_task.context = context;
+    task_list.add_task(cull_task);
 }
 
 #endif

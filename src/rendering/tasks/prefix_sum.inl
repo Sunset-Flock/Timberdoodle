@@ -72,70 +72,67 @@ struct PrefixSumDownsweepPush
 
 static constexpr inline char const PREFIX_SUM_SHADER_PATH[] = "./src/rendering/tasks/prefix_sum.glsl";
 
-using PrefixSumCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<
-    PrefixSumWriteCommand,
-    PREFIX_SUM_SHADER_PATH,
-    PrefixSumWriteCommandPush
->;
+using PrefixSumCommandWriteTask =
+    WriteIndirectDispatchArgsPushBaseTask<PrefixSumWriteCommand, PREFIX_SUM_SHADER_PATH, PrefixSumWriteCommandPush>;
 
 // Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
 struct PrefixSumUpsweepTask : PrefixSumUpsweep
 {
-    static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-            .compile_options = { .defines = {{"UPSWEEP", "1"}}, },
-        },
+    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
+        .shader_info =
+            daxa::ShaderCompileInfo{
+                .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
+                .compile_options =
+                    {
+                        .defines = {{"UPSWEEP", "1"}},
+                    },
+            },
         .push_constant_size = sizeof(PrefixSumUpsweepPush),
-        .name = std::string{PrefixSumUpsweep::NAME},
+        .name = std::string{PrefixSumUpsweep{}.name()},
     };
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        cmd.set_pipeline(*context->compute_pipelines.at(PrefixSumUpsweep::NAME));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumUpsweep{}.name()));
         PrefixSumUpsweepPush push{
             .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumUpsweep){}.size()>(ti.shader_byte_blob),
             .range = range,
         };
-        ti.copy_task_head_to(&push.uses);
-        cmd.push_constant(push);
-        cmd.dispatch_indirect({
-            .indirect_buffer = uses.command.buffer(),
-        });
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
 struct PrefixSumDownsweepTask : PrefixSumDownsweep
 {
-    static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO = {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-            .compile_options = {
-                .defines = {{"DOWNSWEEP", "1"}},
+    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
+        .shader_info =
+            daxa::ShaderCompileInfo{
+                .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
+                .compile_options =
+                    {
+                        .defines = {{"DOWNSWEEP", "1"}},
+                    },
             },
-        },
         .push_constant_size = sizeof(PrefixSumDownsweepPush),
-        .name = std::string{PrefixSumDownsweep::NAME},
+        .name = std::string{PrefixSumDownsweep{}.name()},
     };
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        cmd.set_pipeline(*context->compute_pipelines.at(PrefixSumDownsweep::NAME));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumDownsweep{}.name()));
         PrefixSumDownsweepPush push{
             .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumDownsweep){}.size()>(ti.shader_byte_blob),
             .range = range,
         };
-        ti.copy_task_head_to(&push.uses);
-        cmd.push_constant(push);
-        cmd.dispatch_indirect({
-            .indirect_buffer = uses.command.buffer(),
-        });
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
@@ -145,7 +142,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweep
 struct PrefixSumTaskGroupInfo
 {
     GPUContext * context;
-    daxa::TaskGraph& task_list;
+    daxa::TaskGraph & task_list;
     u32 max_value_count;
     u32 value_count_uint_offset;
     daxa::TaskBufferView value_count_buf;
@@ -171,36 +168,35 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
         .size = sizeof(DispatchIndirectStruct),
         .name = "prefix sum downsweep_command_buffer",
     });
-    info.task_list.add_task(PrefixSumCommandWriteTask{
-        .uses={
-            .value_count = info.value_count_buf,
-            .upsweep_command0 = upsweep0_command_buffer,
-            .upsweep_command1 = upsweep1_command_buffer,
-            .downsweep_command = downsweep_command_buffer,
-        },
-        .context = info.context,
-        .push = {info.value_count_uint_offset}
-    });
+
+    PrefixSumCommandWriteTask write_task = {};
+    write_task.attachments.set_view(write_task.value_count, info.value_count_buf);
+    write_task.attachments.set_view(write_task.upsweep_command0, upsweep0_command_buffer);
+    write_task.attachments.set_view(write_task.upsweep_command1, upsweep1_command_buffer);
+    write_task.attachments.set_view(write_task.downsweep_command, downsweep_command_buffer);
+    write_task.context = info.context;
+    write_task.push.uint_offset = info.value_count_uint_offset;
+    info.task_list.add_task(write_task);
+
     auto max_block_count = (static_cast<u64>(info.max_value_count) + PREFIX_SUM_BLOCK_SIZE - 1) / PREFIX_SUM_BLOCK_SIZE;
     auto block_sums_src = info.task_list.create_transient_buffer({
         .size = static_cast<u32>(sizeof(u32) * max_block_count),
         .name = "prefix sum block_sums_src",
     });
-    info.task_list.add_task(PrefixSumUpsweepTask{
-        .uses={
-            .command = upsweep0_command_buffer,
-            .src = info.src_buf,
-            .dst = info.dst_buf,
-            .block_sums = block_sums_src,
-        },
-        .context = info.context,
-        .range = {
-            .uint_src_offset = info.src_uint_offset,
-            .uint_src_stride = info.src_uint_stride,
-            .uint_dst_offset = info.dst_uint_offset,
-            .uint_dst_stride = info.dst_uint_stride,
-        },
-    });
+
+    PrefixSumUpsweepTask upsweep_task_0 = {};
+    upsweep_task_0.attachments.set_view(upsweep_task_0.command, upsweep0_command_buffer);
+    upsweep_task_0.attachments.set_view(upsweep_task_0.src, info.src_buf);
+    upsweep_task_0.attachments.set_view(upsweep_task_0.dst, info.dst_buf);
+    upsweep_task_0.attachments.set_view(upsweep_task_0.block_sums, block_sums_src);
+    upsweep_task_0.context = info.context;
+    upsweep_task_0.range = {
+        .uint_src_offset = info.src_uint_offset,
+        .uint_src_stride = info.src_uint_stride,
+        .uint_dst_offset = info.dst_uint_offset,
+        .uint_dst_stride = info.dst_uint_stride,
+    };
+    info.task_list.add_task(upsweep_task_0);
     auto block_sums_dst = info.task_list.create_transient_buffer({
         .size = static_cast<u32>(sizeof(u32) * max_block_count),
         .name = "prefix sum block_sums_dst",
@@ -209,35 +205,34 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
         .size = static_cast<u32>(sizeof(u32)),
         .name = "prefix sum block_sums total count",
     });
-    info.task_list.add_task(PrefixSumUpsweepTask{
-        .uses={
-            .command = upsweep1_command_buffer,
-            .src = block_sums_src,
-            .dst = block_sums_dst,
-            .block_sums = total_count,
-        },
-        .context = info.context,
-        .range = {
-            .uint_src_offset = 0,
-            .uint_src_stride = 1,
-            .uint_dst_offset = 0,
-            .uint_dst_stride = 1,
-        },
-    });
-    info.task_list.add_task(PrefixSumDownsweepTask{
-        .uses={
-            .command = downsweep_command_buffer,
-            .block_sums = block_sums_dst,
-            .values = info.dst_buf,
-        },
-        .context = info.context,
-        .range = {
-            .uint_src_offset = std::numeric_limits<u32>::max(),
-            .uint_src_stride = std::numeric_limits<u32>::max(),
-            .uint_dst_offset = info.dst_uint_offset,
-            .uint_dst_stride = info.dst_uint_stride,
-        },
-    });
+
+    PrefixSumUpsweepTask upsweep_task_1 = {};
+    upsweep_task_1.attachments.set_view(upsweep_task_1.command, upsweep1_command_buffer);
+    upsweep_task_1.attachments.set_view(upsweep_task_1.src, block_sums_src);
+    upsweep_task_1.attachments.set_view(upsweep_task_1.dst, block_sums_dst);
+    upsweep_task_1.attachments.set_view(upsweep_task_1.block_sums, total_count);
+    upsweep_task_1.context = info.context;
+    upsweep_task_1.range = {
+        .uint_src_offset = 0,
+        .uint_src_stride = 1,
+        .uint_dst_offset = 0,
+        .uint_dst_stride = 1,
+    };
+    info.task_list.add_task(upsweep_task_1);
+
+    PrefixSumDownsweepTask downsweep_task = {};
+
+    downsweep_task.attachments.set_view(downsweep_task.command, downsweep_command_buffer);
+    downsweep_task.attachments.set_view(downsweep_task.block_sums, block_sums_dst);
+    downsweep_task.attachments.set_view(downsweep_task.values, info.dst_buf);
+    downsweep_task.context = info.context;
+    downsweep_task.range = {
+        .uint_src_offset = std::numeric_limits<u32>::max(),
+        .uint_src_stride = std::numeric_limits<u32>::max(),
+        .uint_dst_offset = info.dst_uint_offset,
+        .uint_dst_stride = info.dst_uint_stride,
+    };
+    info.task_list.add_task(downsweep_task);
 }
 
 #endif

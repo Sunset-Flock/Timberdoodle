@@ -38,7 +38,7 @@ struct FilterVisibleTrianglesTask : FilterVisibleTriangles
 {
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{FILTER_VISIBLE_TRIANGLES_PATH}},
-        .name = std::string{FilterVisibleTriangles::NAME},
+        .name = std::string{FilterVisibleTriangles{}.name()},
     };
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
@@ -46,7 +46,7 @@ struct FilterVisibleTrianglesTask : FilterVisibleTriangles
         auto & cmd = ti.get_recorder();
         cmd.set_uniform_buffer(context->shader_globals_set_info);
         cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
-        cmd.set_pipeline(*context->compute_pipelines.at(FilterVisibleTriangles::NAME));
+        cmd.set_pipeline(*context->compute_pipelines.at(FilterVisibleTriangles{}.name()));
         cmd.dispatch_indirect({
             .indirect_buffer = uses.u_command.buffer(),
         });

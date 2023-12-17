@@ -32,7 +32,7 @@ struct AnalyzeVisBufferTask : AnalyzeVisbuffer
     inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
         .push_constant_size = sizeof(AnalyzeVisbufferPush),
-        .name = std::string{AnalyzeVisbuffer::NAME},
+        .name = std::string{AnalyzeVisbuffer{}.name()},
     };
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
@@ -40,7 +40,7 @@ struct AnalyzeVisBufferTask : AnalyzeVisbuffer
         auto & cmd = ti.get_recorder();
         cmd.set_uniform_buffer(context->shader_globals_set_info);
         cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
-        cmd.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer::NAME));
+        cmd.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer{}.name()));
         auto const x = ti.get_device().info_image(uses.u_visbuffer.image()).size.x;
         auto const y = ti.get_device().info_image(uses.u_visbuffer.image()).size.y;
         cmd.push_constant(AnalyzeVisbufferPush{

@@ -11,22 +11,21 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{T_FILE_PATH},
             .compile_options = {
-                .defines = {{std::string(T_USES_BASE::NAME) + std::string("_COMMAND"), "1"}},
+                .defines = {{std::string(T_USES_BASE{}.name()) + std::string("_COMMAND"), "1"}},
             },
         },
         .push_constant_size = sizeof(T_PUSH),
-        .name = std::string{T_USES_BASE::NAME},
+        .name = std::string{T_USES_BASE{}.name()},
     };
     GPUContext * context = {};
     T_PUSH push = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto & cmd = ti.get_recorder();
-        cmd.set_pipeline(*context->compute_pipelines.at(T_USES_BASE::NAME));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(T_USES_BASE{}.name()));
         push.globals = context->shader_globals_address;
-        ti.copy_task_head_to(&push.uses);
-        cmd.push_constant(push);
-        cmd.dispatch({.x = 1, .y = 1, .z = 1});
+        push.uses = span_to_array<WriteIndirectDispatchArgsPushBaseTask<T_USES_BASE,T_FILE_PATH,T_PUSH>{}.size()>(ti.shader_byte_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
     }
 };
 
@@ -64,7 +63,7 @@ void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
             for (auto range : clear_ranges)
             {
                 auto copy_size = (range.size == CLEAR_REST) ? (buffer_size - range.offset) : static_cast<u32>(range.size);
-                cmd.clear_buffer({
+                ti.recorder.clear_buffer({
                     .buffer = ti.buf_attach(buffer).ids[0],
                     .offset = range.offset,
                     .size = copy_size,
