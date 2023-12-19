@@ -59,7 +59,7 @@ struct CullMeshletsTask : CullMeshlets
         for (u32 table = 0; table < 32; ++table)
         {
             auto push = CullMeshletsPush{
-                .uses = span_to_array<DAXA_TH_BLOB(CullMeshlets){}.size()>(ti.shader_byte_blob),
+                .uses = span_to_array<DAXA_TH_BLOB(CullMeshlets){}.size()>(ti.attachment_shader_data_blob),
                 .globals = context->shader_globals_address,
                 .indirect_args_table_id = table,
                 .meshlets_per_indirect_arg = (1u << table),

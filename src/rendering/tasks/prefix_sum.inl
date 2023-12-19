@@ -98,7 +98,7 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweep
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumUpsweep{}.name()));
         PrefixSumUpsweepPush push{
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumUpsweep){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumUpsweep){}.size()>(ti.attachment_shader_data_blob),
             .range = range,
         };
         ti.recorder.push_constant(push);
@@ -128,7 +128,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweep
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumDownsweep{}.name()));
         PrefixSumDownsweepPush push{
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumDownsweep){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(PrefixSumDownsweep){}.size()>(ti.attachment_shader_data_blob),
             .range = range,
         };
         ti.recorder.push_constant(push);
@@ -170,10 +170,10 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     PrefixSumCommandWriteTask write_task = {};
-    write_task.attachments.set_view(write_task.value_count, info.value_count_buf);
-    write_task.attachments.set_view(write_task.upsweep_command0, upsweep0_command_buffer);
-    write_task.attachments.set_view(write_task.upsweep_command1, upsweep1_command_buffer);
-    write_task.attachments.set_view(write_task.downsweep_command, downsweep_command_buffer);
+    write_task.set_view(write_task.value_count, info.value_count_buf);
+    write_task.set_view(write_task.upsweep_command0, upsweep0_command_buffer);
+    write_task.set_view(write_task.upsweep_command1, upsweep1_command_buffer);
+    write_task.set_view(write_task.downsweep_command, downsweep_command_buffer);
     write_task.context = info.context;
     write_task.push.uint_offset = info.value_count_uint_offset;
     info.task_list.add_task(write_task);
@@ -185,10 +185,10 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     PrefixSumUpsweepTask upsweep_task_0 = {};
-    upsweep_task_0.attachments.set_view(upsweep_task_0.command, upsweep0_command_buffer);
-    upsweep_task_0.attachments.set_view(upsweep_task_0.src, info.src_buf);
-    upsweep_task_0.attachments.set_view(upsweep_task_0.dst, info.dst_buf);
-    upsweep_task_0.attachments.set_view(upsweep_task_0.block_sums, block_sums_src);
+    upsweep_task_0.set_view(upsweep_task_0.command, upsweep0_command_buffer);
+    upsweep_task_0.set_view(upsweep_task_0.src, info.src_buf);
+    upsweep_task_0.set_view(upsweep_task_0.dst, info.dst_buf);
+    upsweep_task_0.set_view(upsweep_task_0.block_sums, block_sums_src);
     upsweep_task_0.context = info.context;
     upsweep_task_0.range = {
         .uint_src_offset = info.src_uint_offset,
@@ -207,10 +207,10 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     PrefixSumUpsweepTask upsweep_task_1 = {};
-    upsweep_task_1.attachments.set_view(upsweep_task_1.command, upsweep1_command_buffer);
-    upsweep_task_1.attachments.set_view(upsweep_task_1.src, block_sums_src);
-    upsweep_task_1.attachments.set_view(upsweep_task_1.dst, block_sums_dst);
-    upsweep_task_1.attachments.set_view(upsweep_task_1.block_sums, total_count);
+    upsweep_task_1.set_view(upsweep_task_1.command, upsweep1_command_buffer);
+    upsweep_task_1.set_view(upsweep_task_1.src, block_sums_src);
+    upsweep_task_1.set_view(upsweep_task_1.dst, block_sums_dst);
+    upsweep_task_1.set_view(upsweep_task_1.block_sums, total_count);
     upsweep_task_1.context = info.context;
     upsweep_task_1.range = {
         .uint_src_offset = 0,
@@ -222,9 +222,9 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     PrefixSumDownsweepTask downsweep_task = {};
 
-    downsweep_task.attachments.set_view(downsweep_task.command, downsweep_command_buffer);
-    downsweep_task.attachments.set_view(downsweep_task.block_sums, block_sums_dst);
-    downsweep_task.attachments.set_view(downsweep_task.values, info.dst_buf);
+    downsweep_task.set_view(downsweep_task.command, downsweep_command_buffer);
+    downsweep_task.set_view(downsweep_task.block_sums, block_sums_dst);
+    downsweep_task.set_view(downsweep_task.values, info.dst_buf);
     downsweep_task.context = info.context;
     downsweep_task.range = {
         .uint_src_offset = std::numeric_limits<u32>::max(),

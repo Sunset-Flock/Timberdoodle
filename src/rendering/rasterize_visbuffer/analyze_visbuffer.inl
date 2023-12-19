@@ -44,7 +44,7 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
         AnalyzeVisbufferPush2 push = {
             .globals = context->shader_globals_address,
             .size = {x, y},
-            .uses = span_to_array<DAXA_TH_BLOB(AnalyzeVisbuffer2){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(AnalyzeVisbuffer2){}.size()>(ti.attachment_shader_data_blob),
         };
         ti.recorder.push_constant(push);
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);

@@ -203,7 +203,7 @@ struct DrawVisbufferTask : DrawVisbuffer
         else { render_cmd.set_pipeline(*context->raster_pipelines.at(PIPELINE_COMPILE_INFO.name)); }
         DrawVisbufferPush push{
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(DrawVisbuffer){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(DrawVisbuffer){}.size()>(ti.attachment_shader_data_blob),
             .pass = pass,
         };
 
@@ -273,7 +273,7 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
         {
             DrawVisbufferPush_MeshShader push = {
                 .globals = context->shader_globals_address,
-                .uses = span_to_array<DAXA_TH_BLOB(DrawVisbuffer_MeshShader){}.size()>(ti.shader_byte_blob),
+                .uses = span_to_array<DAXA_TH_BLOB(DrawVisbuffer_MeshShader){}.size()>(ti.attachment_shader_data_blob),
                 .bucket_index = i,
             };
             render_cmd.push_constant(push);
@@ -313,20 +313,20 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
     if (info.enable_mesh_shader)
     {
         CullAndDrawVisbufferTask task = {};
-        task.attachments.set_view(task.command, info.cull_meshlets_commands);
-        task.attachments.set_view(task.meshlet_cull_indirect_args, info.meshlet_cull_indirect_args);
-        task.attachments.set_view(task.instantiated_meshlets, info.meshlet_instances);
-        task.attachments.set_view(task.meshes, info.meshes);
-        task.attachments.set_view(task.entity_meta, info.entity_meta_data);
-        task.attachments.set_view(task.entity_meshgroups, info.entity_meshgroups);
-        task.attachments.set_view(task.meshgroups, info.mesh_groups);
-        task.attachments.set_view(task.entity_combined_transforms, info.entity_combined_transforms);
-        task.attachments.set_view(task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
-        task.attachments.set_view(task.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
-        task.attachments.set_view(task.hiz, info.hiz);
-        task.attachments.set_view(task.vis_image, info.vis_image);
-        task.attachments.set_view(task.debug_image, info.debug_image);
-        task.attachments.set_view(task.depth_image, info.depth_image);
+        task.set_view(task.command, info.cull_meshlets_commands);
+        task.set_view(task.meshlet_cull_indirect_args, info.meshlet_cull_indirect_args);
+        task.set_view(task.instantiated_meshlets, info.meshlet_instances);
+        task.set_view(task.meshes, info.meshes);
+        task.set_view(task.entity_meta, info.entity_meta_data);
+        task.set_view(task.entity_meshgroups, info.entity_meshgroups);
+        task.set_view(task.meshgroups, info.mesh_groups);
+        task.set_view(task.entity_combined_transforms, info.entity_combined_transforms);
+        task.set_view(task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+        task.set_view(task.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
+        task.set_view(task.hiz, info.hiz);
+        task.set_view(task.vis_image, info.vis_image);
+        task.set_view(task.debug_image, info.debug_image);
+        task.set_view(task.depth_image, info.depth_image);
         task.context = info.context,
         info.tg.add_task(task);
     }
@@ -339,29 +339,29 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         // clear to zero, rest of values will be initialized by CullMeshletsTask.
         task_clear_buffer(info.tg, draw_command, 0);
         CullMeshletsTask cull_task = {};
-        cull_task.attachments.set_view(cull_task.hiz, info.hiz);
-        cull_task.attachments.set_view(cull_task.commands, info.cull_meshlets_commands);
-        cull_task.attachments.set_view(cull_task.meshlet_cull_indirect_args, info.meshlet_cull_indirect_args);
-        cull_task.attachments.set_view(cull_task.entity_meta_data, info.entity_meta_data);
-        cull_task.attachments.set_view(cull_task.entity_meshgroups, info.entity_meshgroups);
-        cull_task.attachments.set_view(cull_task.meshgroups, info.mesh_groups);
-        cull_task.attachments.set_view(cull_task.entity_combined_transforms, info.entity_combined_transforms);
-        cull_task.attachments.set_view(cull_task.meshes, info.meshes);
-        cull_task.attachments.set_view(cull_task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
-        cull_task.attachments.set_view(cull_task.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
-        cull_task.attachments.set_view(cull_task.instantiated_meshlets, info.meshlet_instances);
-        cull_task.attachments.set_view(cull_task.draw_command, draw_command);
+        cull_task.set_view(cull_task.hiz, info.hiz);
+        cull_task.set_view(cull_task.commands, info.cull_meshlets_commands);
+        cull_task.set_view(cull_task.meshlet_cull_indirect_args, info.meshlet_cull_indirect_args);
+        cull_task.set_view(cull_task.entity_meta_data, info.entity_meta_data);
+        cull_task.set_view(cull_task.entity_meshgroups, info.entity_meshgroups);
+        cull_task.set_view(cull_task.meshgroups, info.mesh_groups);
+        cull_task.set_view(cull_task.entity_combined_transforms, info.entity_combined_transforms);
+        cull_task.set_view(cull_task.meshes, info.meshes);
+        cull_task.set_view(cull_task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+        cull_task.set_view(cull_task.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
+        cull_task.set_view(cull_task.instantiated_meshlets, info.meshlet_instances);
+        cull_task.set_view(cull_task.draw_command, draw_command);
         cull_task.context = info.context;
         info.tg.add_task(cull_task);
 
         DrawVisbufferTask draw_task = {};
-        draw_task.attachments.set_view(draw_task.command, draw_command);
-        draw_task.attachments.set_view(draw_task.instantiated_meshlets, info.meshlet_instances);
-        draw_task.attachments.set_view(draw_task.meshes, info.meshes);
-        draw_task.attachments.set_view(draw_task.entity_combined_transforms, info.entity_combined_transforms);
-        draw_task.attachments.set_view(draw_task.vis_image, info.vis_image);
-        draw_task.attachments.set_view(draw_task.debug_image, info.debug_image);
-        draw_task.attachments.set_view(draw_task.depth_image, info.depth_image);
+        draw_task.set_view(draw_task.command, draw_command);
+        draw_task.set_view(draw_task.instantiated_meshlets, info.meshlet_instances);
+        draw_task.set_view(draw_task.meshes, info.meshes);
+        draw_task.set_view(draw_task.entity_combined_transforms, info.entity_combined_transforms);
+        draw_task.set_view(draw_task.vis_image, info.vis_image);
+        draw_task.set_view(draw_task.debug_image, info.debug_image);
+        draw_task.set_view(draw_task.depth_image, info.depth_image);
         draw_task.context = info.context;
         draw_task.pass = DRAW_VISBUFFER_PASS_TWO;
         draw_task.mesh_shader = false;
@@ -391,20 +391,20 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     });
 
     DrawVisbuffer_WriteCommandTask write_task = {};
-    write_task.attachments.set_view(write_task.instantiated_meshlets, info.meshlet_instances);
-    write_task.attachments.set_view(write_task.command, draw_command);
+    write_task.set_view(write_task.instantiated_meshlets, info.meshlet_instances);
+    write_task.set_view(write_task.command, draw_command);
     write_task.context = info.context;
     write_task.push = DrawVisbufferPush_WriteCommand{.pass = info.pass, .mesh_shader = info.enable_mesh_shader ? 1u : 0u};
     info.tg.add_task(write_task);
 
     DrawVisbufferTask draw_task = {};
-    draw_task.attachments.set_view(draw_task.command, draw_command);
-    draw_task.attachments.set_view(draw_task.instantiated_meshlets, info.meshlet_instances);
-    draw_task.attachments.set_view(draw_task.meshes, info.meshes);
-    draw_task.attachments.set_view(draw_task.entity_combined_transforms, info.combined_transforms);
-    draw_task.attachments.set_view(draw_task.vis_image, info.vis_image);
-    draw_task.attachments.set_view(draw_task.debug_image, info.debug_image);
-    draw_task.attachments.set_view(draw_task.depth_image, info.depth_image);
+    draw_task.set_view(draw_task.command, draw_command);
+    draw_task.set_view(draw_task.instantiated_meshlets, info.meshlet_instances);
+    draw_task.set_view(draw_task.meshes, info.meshes);
+    draw_task.set_view(draw_task.entity_combined_transforms, info.combined_transforms);
+    draw_task.set_view(draw_task.vis_image, info.vis_image);
+    draw_task.set_view(draw_task.debug_image, info.debug_image);
+    draw_task.set_view(draw_task.depth_image, info.depth_image);
     draw_task.context = info.context;
     draw_task.pass = info.pass;
     draw_task.mesh_shader = info.enable_mesh_shader;

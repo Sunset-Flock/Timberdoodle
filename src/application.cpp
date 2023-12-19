@@ -173,7 +173,8 @@ Application::Application()
             (DEFAULT_HARDCODED_PATH/DEFAULT_HARDCODED_FILE).string()));
     }
     auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
-    _gpu_context->device.submit_commands({.command_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)}});
+    auto cmd_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)};
+    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
     _gpu_context->device.wait_idle();
 
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());

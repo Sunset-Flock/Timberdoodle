@@ -27,8 +27,8 @@ DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 10)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
@@ -73,34 +73,31 @@ struct CullMeshesTask : CullMeshes
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
         CullMesheshPush push = {
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(CullMeshes){}.size()>(ti.shader_byte_blob),
         };
+        std::copy_n(ti.attachment_shader_data_blob.begin(), ti.attachment_shader_data_blob.size(), push.uses.begin());
         ti.recorder.push_constant(push);
         ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
     }
 };
 
 // TODO(msakmary) PATRICK REVIEW
-void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, decltype(CullMeshes::attachments) uses)
+void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMeshesTask task)
 {
     auto command_buffer = task_list.create_transient_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "CullMeshesCommand",
     });
-    CullMeshesTask cull_task = {};
 
     CullMeshesCommandWriteTask write_task = {};
-    write_task.attachments.set_view(write_task.entity_meta, uses[cull_task.entity_meta].view);
-    write_task.attachments.set_view(write_task.command, uses[cull_task.command].view);
-    write_task.attachments.set_view(write_task.cull_meshlets_commands, uses[cull_task.cull_meshlets_commands].view);
-    write_task.attachments.set_view(write_task.meshlet_cull_indirect_args, uses[cull_task.meshlet_cull_indirect_args].view);
+    write_task.set_view(write_task.entity_meta, task.attachment(task.entity_meta).view);
+    write_task.set_view(write_task.command, task.attachment(task.command).view);
+    write_task.set_view(write_task.cull_meshlets_commands, task.attachment(task.cull_meshlets_commands).view);
+    write_task.set_view(write_task.meshlet_cull_indirect_args, task.attachment(task.meshlet_cull_indirect_args).view);
     write_task.context = context;
     task_list.add_task(write_task);
 
-    cull_task.attachments = uses;
-    cull_task.attachments.set_view(cull_task.command, command_buffer);
-    cull_task.context = context;
-    task_list.add_task(cull_task);
+    task.set_view(task.command, command_buffer);
+    task_list.add_task(task);
 }
 
 #endif

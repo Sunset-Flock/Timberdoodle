@@ -19,26 +19,25 @@ using HWND = void *;
 #define DAXA_SHADER_INCLUDE_DIR "."
 #endif
 
-GPUContext::GPUContext(Window const &window)
-    : context{daxa::create_instance({})},
-      device{this->context.create_device({
-        .max_allowed_images = 100000, 
-        .max_allowed_buffers = 100000, 
-        #if COMPILE_IN_MESH_SHADER
-        .enable_mesh_shader = true, 
-        #endif
-        .name = "Sandbox Device"})},
+GPUContext::GPUContext(Window const & window)
+    : context{daxa::create_instance({})}, device{this->context.create_device({
+          .max_allowed_images = 100000, .max_allowed_buffers = 100000,
+#if COMPILE_IN_MESH_SHADER
+          .enable_mesh_shader = true,
+#endif
+          .name = "Sandbox Device"
+      })},
       swapchain{this->device.create_swapchain({
           .native_window = glfwGetWin32Window(window.glfw_handle),
           .native_window_platform = daxa::NativeWindowPlatform::WIN32_API,
           .surface_format_selector = [](daxa::Format format) -> i32
           {
-                switch (format)
-                {
-                case daxa::Format::R8G8B8A8_UNORM: return 80;
-                case daxa::Format::B8G8R8A8_UNORM: return 60;
-                default: return 0;
-                }
+              switch (format)
+              {
+                  case daxa::Format::R8G8B8A8_UNORM: return 80;
+                  case daxa::Format::B8G8R8A8_UNORM: return 60;
+                  default:                           return 0;
+              }
           },
           .present_mode = daxa::PresentMode::IMMEDIATE,
           .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
@@ -46,15 +45,21 @@ GPUContext::GPUContext(Window const &window)
       })},
       pipeline_manager{daxa::PipelineManager{{
           .device = this->device,
-          .shader_compile_options = daxa::ShaderCompileOptions{
-              .root_paths = {
-                  "./src",
-                  DAXA_SHADER_INCLUDE_DIR,
-              },
-              .write_out_preprocessed_code = "./preproc",
-              .language = daxa::ShaderLanguage::GLSL,
-              .enable_debug_info = true,
-          },
+          .shader_compile_options =
+              []()
+          {
+            // msvc time!
+              return daxa::ShaderCompileOptions{
+                  .root_paths =
+                      {
+                          "./src",
+                          DAXA_SHADER_INCLUDE_DIR,
+                      },
+                  .write_out_preprocessed_code = "./preproc",
+                  .language = daxa::ShaderLanguage::GLSL,
+                  .enable_debug_info = true,
+              };
+          }(),
           .register_null_pipelines_when_first_compile_fails = true,
           .name = "Sandbox PipelineCompiler",
       }}},
@@ -64,28 +69,28 @@ GPUContext::GPUContext(Window const &window)
           .name = "transient memory pool",
       }},
       shader_globals_buffer{this->device.create_buffer({
-        .size = round_up_to_multiple(sizeof(ShaderGlobals), device.properties().limits.min_uniform_buffer_offset_alignment) * 4,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE | daxa::MemoryFlagBits::DEDICATED_MEMORY,
-        .name = "globals",
+          .size = round_up_to_multiple(
+                      sizeof(ShaderGlobals), device.properties().limits.min_uniform_buffer_offset_alignment) *
+                  4,
+          .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE | daxa::MemoryFlagBits::DEDICATED_MEMORY,
+          .name = "globals",
       })}
 {
-    shader_globals.samplers = {
-        .linear_clamp = this->device.create_sampler({
-            .name = "linear clamp sampler",
-        }), 
+    shader_globals.samplers = {.linear_clamp = this->device.create_sampler({
+                                   .name = "linear clamp sampler",
+                               }),
         .linear_repeat = this->device.create_sampler({
             .address_mode_u = daxa::SamplerAddressMode::REPEAT,
             .address_mode_v = daxa::SamplerAddressMode::REPEAT,
             .address_mode_w = daxa::SamplerAddressMode::REPEAT,
             .name = "linear repeat sampler",
-        }), 
+        }),
         .nearest_clamp = this->device.create_sampler({
             .magnification_filter = daxa::Filter::NEAREST,
             .minification_filter = daxa::Filter::NEAREST,
             .mipmap_filter = daxa::Filter::NEAREST,
             .name = "nearest clamp sampler",
-        })
-    };
+        })};
 }
 
 auto GPUContext::dummy_string() -> std::string

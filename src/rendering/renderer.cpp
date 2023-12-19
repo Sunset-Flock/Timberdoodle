@@ -16,38 +16,36 @@
 #include <thread>
 #include <variant>
 
-inline auto create_task_buffer(GPUContext *context, auto size, auto task_buf_name, auto buf_name)
+inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_name, auto buf_name)
 {
     return daxa::TaskBuffer{{
-        .initial_buffers = {
-            .buffers = std::array{
-                context->device.create_buffer({
-                    .size = static_cast<u32>(size),
-                    .name = buf_name,
-                }),
+        .initial_buffers =
+            {
+                .buffers =
+                    std::array{
+                        context->device.create_buffer({
+                            .size = static_cast<u32>(size),
+                            .name = buf_name,
+                        }),
+                    },
             },
-        },
         .name = task_buf_name,
     }};
 }
 
-Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer)
-    : window{window},
-      context{context},
-      scene{scene},
-      asset_manager{asset_manager},
-      imgui_renderer{imgui_renderer}
+Renderer::Renderer(Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager,
+    daxa::ImGuiRenderer * imgui_renderer)
+    : window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
-    meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
-    meshlet_instances_last_frame = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
-    visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
+    meshlet_instances =
+        create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
+    meshlet_instances_last_frame =
+        create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
+    visible_meshlet_instances = create_task_buffer(
+        context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
 
-    buffers = {
-        zero_buffer,
-        meshlet_instances,
-        meshlet_instances_last_frame,
-        visible_meshlet_instances};
+    buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances};
 
     swapchain_image = daxa::TaskImage{{
         .swapchain_image = true,
@@ -81,10 +79,8 @@ Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProce
         {
             {
                 .format = daxa::Format::R32_UINT,
-                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT |
-                         daxa::ImageUsageFlagBits::TRANSFER_SRC |
-                         daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                         daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT | daxa::ImageUsageFlagBits::TRANSFER_SRC |
+                         daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
                 .name = visbuffer.info().name,
             },
             visbuffer,
@@ -92,10 +88,8 @@ Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProce
         {
             {
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT |
-                         daxa::ImageUsageFlagBits::TRANSFER_DST |
-                         daxa::ImageUsageFlagBits::TRANSFER_SRC |
-                         daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT | daxa::ImageUsageFlagBits::TRANSFER_DST |
+                         daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE |
                          daxa::ImageUsageFlagBits::SHADER_SAMPLED,
                 .name = debug_image.info().name,
             },
@@ -115,14 +109,14 @@ Renderer::Renderer(Window *window, GPUContext *context, Scene *scene, AssetProce
 
 Renderer::~Renderer()
 {
-    for (auto &tbuffer : buffers)
+    for (auto & tbuffer : buffers)
     {
         for (auto buffer : tbuffer.get_state().buffers)
         {
             this->context->device.destroy_buffer(buffer);
         }
     }
-    for (auto &timage : images)
+    for (auto & timage : images)
     {
         for (auto image : timage.get_state().images)
         {
@@ -138,7 +132,8 @@ void Renderer::compile_pipelines()
     std::vector<std::tuple<std::string_view, daxa::RasterPipelineCompileInfo>> rasters = {
         {DrawVisbufferTask::PIPELINE_COMPILE_INFO.name, DrawVisbufferTask::PIPELINE_COMPILE_INFO},
 #if COMPILE_IN_MESH_SHADER
-        {DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW.name, DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW},
+        {DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW.name,
+            DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW},
         {DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER.name, DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER},
 #endif
     };
@@ -151,14 +146,17 @@ void Renderer::compile_pipelines()
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}",
+                name, compilation_result.message()));
         }
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {SetEntityMeshletVisibilityBitMasksTask{}.name(), SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
+        {SetEntityMeshletVisibilityBitMasksTask{}.name(),
+            SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
         {PrepopulateInstantiatedMeshletsTask{}.name(), PrepopulateInstantiatedMeshletsTask::PIPELINE_COMPILE_INFO},
-        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(), PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
+        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(),
+            PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
         {AnalyzeVisBufferTask2{}.name(), AnalyzeVisBufferTask2::PIPELINE_COMPILE_INFO},
         {GenHizTH{}.name(), GEN_HIZ_PIPELINE_COMPILE_INFO},
         {WriteSwapchainTask{}.name(), WriteSwapchainTask::PIPELINE_COMPILE_INFO},
@@ -179,14 +177,15 @@ void Renderer::compile_pipelines()
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name, compilation_result.message()));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}",
+                name, compilation_result.message()));
         }
         this->context->compute_pipelines[name] = compilation_result.value();
     }
 
     while (!context->pipeline_manager.all_pipelines_valid())
     {
-        const auto result = context->pipeline_manager.reload_all();
+        auto const result = context->pipeline_manager.reload_all();
         if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
         {
             std::cout << daxa::get<daxa::PipelineReloadError>(result).message << std::endl;
@@ -198,7 +197,7 @@ void Renderer::compile_pipelines()
 
 void Renderer::recreate_framebuffer()
 {
-    for (auto &[info, timg] : frame_buffer_images)
+    for (auto & [info, timg] : frame_buffer_images)
     {
         if (!timg.get_state().images.empty() && !timg.get_state().images[0].is_empty())
         {
@@ -229,10 +228,7 @@ void Renderer::clear_select_buffers()
 
 void Renderer::window_resized()
 {
-    if (this->window->size.x == 0 || this->window->size.y == 0)
-    {
-        return;
-    }
+    if (this->window->size.x == 0 || this->window->size.y == 0) { return; }
     this->context->swapchain.resize();
     recreate_framebuffer();
 }
@@ -242,26 +238,32 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // Rasterize Visbuffer:
     // - reset/clear certain buffers
     // - prepopulate meshlet instances, these meshlet instances are drawn in the first pass.
-    //     - uses list of visible meshlets of last frame (visible_meshlet_instances) and meshlet instance list from last frame (meshlet_instances_last_frame)
+    //     - uses list of visible meshlets of last frame (visible_meshlet_instances) and meshlet instance list from last
+    //     frame (meshlet_instances_last_frame)
     //     - filteres meshlets when their entities/ meshes got invalidated.
-    //     - builds bitfields (entity_meshlet_visibility_bitfield_offsets), that denote if a meshlet of an entity is drawn in the first pass.
+    //     - builds bitfields (entity_meshlet_visibility_bitfield_offsets), that denote if a meshlet of an entity is
+    //     drawn in the first pass.
     // - draw first pass
     //     - draws meshlet instances, generated by prepopulate_instantiated_meshlets.
-    //     - draws trianlge id and depth. triangle id indexes into the meshlet instance list (that is freshly generated every frame), also stores triangle index within meshlet.
+    //     - draws trianlge id and depth. triangle id indexes into the meshlet instance list (that is freshly generated
+    //     every frame), also stores triangle index within meshlet.
     //     - effectively draws the meshlets that were visible last frame as the first thing.
     // - build hiz depth map
     //     - lowest mip is half res of render target resolution, depth map at full res is not copied into the hiz.
-    //     - single pass downsample dispatch. Each workgroup downsamples a 64x64 region, the very last workgroup to finish downsamples all the results of the previous workgroups.
+    //     - single pass downsample dispatch. Each workgroup downsamples a 64x64 region, the very last workgroup to
+    //     finish downsamples all the results of the previous workgroups.
     // - cull meshes
     //     - dispatch over all entities for all their meshes
     //     - cull against: hiz, frustum
     //     - builds argument lists for meshlet culling.
-    //     - 32 meshlet cull argument lists, each beeing a bucket for arguments. An argument in each bucket represents 2^bucket_index meshlets to be processed.
+    //     - 32 meshlet cull argument lists, each beeing a bucket for arguments. An argument in each bucket represents
+    //     2^bucket_index meshlets to be processed.
     // - cull and draw meshlets
     //     - 32 dispatches each going over one of the generated cull argument lists.
     //     - when mesh shaders are enabled, this is a single pipeline. Task shaders cull in this case.
     //     - when mesh shaders are disabled, a compute shader culls.
-    //     - in either case, the task/compute cull shader fill the list of meshlet instances. This list is used to compactly reference meshlets via pixel id.
+    //     - in either case, the task/compute cull shader fill the list of meshlet instances. This list is used to
+    //     compactly reference meshlets via pixel id.
     //     - draws triangle id and depth
     //     - meshlet cull against: frustum, hiz
     //     - triangle cull (only on with mesh shaders) against: backface
@@ -276,7 +278,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .swapchain = this->context->swapchain,
         .name = "Sandbox main TaskGraph",
     }};
-    for (auto const &tbuffer : buffers)
+    for (auto const & tbuffer : buffers)
     {
         task_list.use_persistent_buffer(tbuffer);
     }
@@ -288,17 +290,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_manifest);
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
-    for (auto const &timage : images)
+    for (auto const & timage : images)
     {
         task_list.use_persistent_image(timage);
     }
     task_list.use_persistent_image(swapchain_image);
 
-    auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer({sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
-    auto entity_meshlet_visibility_bitfield_arena = task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
-    task_prepopulate_instantiated_meshlets(
-        context,
-        task_list,
+    auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer(
+        {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32),
+            "meshlet_visibility_bitfield_offsets"});
+    auto entity_meshlet_visibility_bitfield_arena =
+        task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
+    task_prepopulate_instantiated_meshlets(context, task_list,
         PrepopInfo{
             .meshes = scene->_gpu_mesh_manifest,
             .visible_meshlets_prev = visible_meshlet_instances,
@@ -328,21 +331,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = sizeof(DispatchIndirectStruct) * 32,
         .name = "CullMeshletsCommands",
     });
-    // TODO(mskmary) I will fix this after Patrick decides if the likes the api I can pass here decltype(CullMeshes::attachments)
-    tasks_cull_meshes(
-        context,
-        task_list,
-        {
-            .meshes = scene->_gpu_mesh_manifest,
-            .entity_meta = scene->_gpu_entity_meta,
-            .entity_meshgroup_indices = scene->_gpu_entity_mesh_groups,
-            .meshgroups = scene->_gpu_mesh_group_manifest,
-            .entity_transforms = scene->_gpu_entity_transforms,
-            .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
-            .hiz = hiz,
-            .meshlet_cull_indirect_args = meshlet_cull_indirect_args,
-            .cull_meshlets_commands = cull_meshlets_commands,
-        });
+    // TODO(mskmary) I will fix this after Patrick decides if the likes the api I can pass here
+    // decltype(CullMeshes::attachments)
+    CullMeshesTask cull_meshes_task;
+    cull_meshes_task.context = context;
+    cull_meshes_task.set_view(cull_meshes_task.meshes, scene->_gpu_mesh_manifest);
+    cull_meshes_task.set_view(cull_meshes_task.entity_meta, scene->_gpu_entity_meta);
+    cull_meshes_task.set_view(cull_meshes_task.entity_meshgroup_indices, scene->_gpu_entity_mesh_groups);
+    cull_meshes_task.set_view(cull_meshes_task.meshgroups, scene->_gpu_mesh_group_manifest);
+    cull_meshes_task.set_view(cull_meshes_task.entity_transforms, scene->_gpu_entity_transforms);
+    cull_meshes_task.set_view(
+        cull_meshes_task.entity_combined_transforms, scene->_gpu_entity_combined_transforms);
+    cull_meshes_task.set_view(cull_meshes_task.hiz, hiz);
+    cull_meshes_task.set_view(cull_meshes_task.meshlet_cull_indirect_args, meshlet_cull_indirect_args);
+    cull_meshes_task.set_view(cull_meshes_task.cull_meshlets_commands, cull_meshlets_commands);
+    tasks_cull_meshes(context, task_list, cull_meshes_task);
     task_cull_and_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -362,16 +365,17 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .debug_image = debug_image,
         .depth_image = depth,
     });
-    auto visible_meshlets_bitfield = task_list.create_transient_buffer({sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, "visible meshlets bitfield"});
+    auto visible_meshlets_bitfield =
+        task_list.create_transient_buffer({sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, "visible meshlets bitfield"});
     task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, entity_meshlet_visibility_bitfield_arena, 0);
     AnalyzeVisBufferTask2 analyze_task = {};
 
-    analyze_task.attachments.set_view(analyze_task.visbuffer, visbuffer);
-    analyze_task.attachments.set_view(analyze_task.instantiated_meshlets, meshlet_instances);
-    analyze_task.attachments.set_view(analyze_task.meshlet_visibility_bitfield, visible_meshlets_bitfield);
-    analyze_task.attachments.set_view(analyze_task.visible_meshlets, visible_meshlet_instances);
+    analyze_task.set_view(analyze_task.visbuffer, visbuffer);
+    analyze_task.set_view(analyze_task.instantiated_meshlets, meshlet_instances);
+    analyze_task.set_view(analyze_task.meshlet_visibility_bitfield, visible_meshlets_bitfield);
+    analyze_task.set_view(analyze_task.visible_meshlets, visible_meshlet_instances);
     analyze_task.context = context;
     task_list.add_task(analyze_task);
     if (context->settings.enable_observer)
@@ -393,20 +397,23 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 #endif
     task_list.submit({});
     WriteSwapchainTask swapchain_task = {};
-    swapchain_task.attachments.set_view(swapchain_task.swapchain, swapchain_image);
-    swapchain_task.attachments.set_view(swapchain_task.vis_image, visbuffer);
-    swapchain_task.attachments.set_view(swapchain_task.debug_image, debug_image);
-    swapchain_task.attachments.set_view(swapchain_task.material_manifest, scene->_gpu_material_manifest);
-    swapchain_task.attachments.set_view(swapchain_task.instantiated_meshlets, meshlet_instances);
+    swapchain_task.set_view(swapchain_task.swapchain, swapchain_image);
+    swapchain_task.set_view(swapchain_task.vis_image, visbuffer);
+    swapchain_task.set_view(swapchain_task.debug_image, debug_image);
+    swapchain_task.set_view(swapchain_task.material_manifest, scene->_gpu_material_manifest);
+    swapchain_task.set_view(swapchain_task.instantiated_meshlets, meshlet_instances);
     swapchain_task.context = context;
     task_list.add_task(swapchain_task);
 
     task_list.add_task({
-        .attachments = { daxa::TaskImageAttachment{.access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image }},
-        .task = [=, this](daxa::TaskInterface ti)
+        .attachments = {daxa::TaskImageAttachment{
+            .access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image}},
+        .task =
+            [=, this](daxa::TaskInterface ti)
         {
             auto size = ti.device.info_image(ti.img_attach(swapchain_image).ids[0]).value().size;
-            imgui_renderer->record_commands(ImGui::GetDrawData(), ti.recorder, ti.img_attach(swapchain_image).ids[0], size.x, size.y);
+            imgui_renderer->record_commands(
+                ImGui::GetDrawData(), ti.recorder, ti.img_attach(swapchain_image).ids[0], size.x, size.y);
         },
         .name = "ImGui Draw",
     });
@@ -421,15 +428,14 @@ void Renderer::update_settings()
 {
     context->settings.render_target_size.x = window->size.x;
     context->settings.render_target_size.y = window->size.y;
-    context->settings.render_target_size_inv = {1.0f / context->settings.render_target_size.x, 1.0f / context->settings.render_target_size.y};
+    context->settings.render_target_size_inv = {
+        1.0f / context->settings.render_target_size.x, 1.0f / context->settings.render_target_size.y};
 }
 
-void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &observer_camera_info, f32 const delta_time)
+void Renderer::render_frame(
+    CameraInfo const & camera_info, CameraInfo const & observer_camera_info, f32 const delta_time)
 {
-    if (this->window->size.x == 0 || this->window->size.y == 0)
-    {
-        return;
-    }
+    if (this->window->size.x == 0 || this->window->size.y == 0) { return; }
     auto reloaded_result = context->pipeline_manager.reload_all();
     if (auto reload_err = daxa::get_if<daxa::PipelineReloadError>(&reloaded_result))
     {
@@ -439,56 +445,63 @@ void Renderer::render_frame(CameraInfo const &camera_info, CameraInfo const &obs
     {
         std::cout << "Successfully reloaded!\n";
     }
-    u32 const flight_frame_index = context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
-    daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
+    u32 const flight_frame_index =
+        context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
+    daxa_u32vec2 render_target_size = {
+        static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
     this->update_settings();
     this->context->shader_globals.settings = context->settings;
     bool const settings_changed = context->settings != context->prev_settings;
-    if (settings_changed)
-    {
-        this->main_task_graph = create_main_task_graph();
-    }
+    if (settings_changed) { this->main_task_graph = create_main_task_graph(); }
     this->context->prev_settings = this->context->settings;
 
     // Set Shader Globals.
     this->context->shader_globals.settings = this->context->settings;
     this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
     this->context->shader_globals.delta_time = delta_time;
-    this->context->shader_globals.observer_camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
-    this->context->shader_globals.observer_camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
-    this->context->shader_globals.observer_camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
-    this->context->shader_globals.observer_camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.proj);
-    this->context->shader_globals.observer_camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.vp);
+    this->context->shader_globals.observer_camera_up =
+        *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
+    this->context->shader_globals.observer_camera_pos =
+        *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
+    this->context->shader_globals.observer_camera_view =
+        *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
+    this->context->shader_globals.observer_camera_projection =
+        *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.proj);
+    this->context->shader_globals.observer_camera_view_projection =
+        *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.vp);
     this->context->shader_globals.camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.up);
     this->context->shader_globals.camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.pos);
     this->context->shader_globals.camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.view);
     this->context->shader_globals.camera_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.proj);
     this->context->shader_globals.camera_view_projection = *reinterpret_cast<daxa_f32mat4x4 const *>(&camera_info.vp);
-    this->context->shader_globals.camera_near_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_near_plane_normal);
-    this->context->shader_globals.camera_right_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_right_plane_normal);
-    this->context->shader_globals.camera_left_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_left_plane_normal);
-    this->context->shader_globals.camera_top_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
-    this->context->shader_globals.camera_bottom_plane_normal = *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
+    this->context->shader_globals.camera_near_plane_normal =
+        *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_near_plane_normal);
+    this->context->shader_globals.camera_right_plane_normal =
+        *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_right_plane_normal);
+    this->context->shader_globals.camera_left_plane_normal =
+        *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_left_plane_normal);
+    this->context->shader_globals.camera_top_plane_normal =
+        *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_top_plane_normal);
+    this->context->shader_globals.camera_bottom_plane_normal =
+        *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
-    const u32 aligned_globals_block_size = round_up_to_multiple(sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
-    *r_cast<ShaderGlobals *>(context->device.get_host_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index) = context->shader_globals;
-    context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() + aligned_globals_block_size * flight_frame_index;
+    u32 const aligned_globals_block_size = round_up_to_multiple(
+        sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
+    *r_cast<ShaderGlobals *>(context->device.get_host_address(context->shader_globals_buffer).value() +
+                             aligned_globals_block_size * flight_frame_index) = context->shader_globals;
+    context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() +
+                                      aligned_globals_block_size * flight_frame_index;
 
     auto swapchain_image = context->swapchain.acquire_next_image();
-    if (swapchain_image.is_empty())
-    {
-        return;
-    }
+    if (swapchain_image.is_empty()) { return; }
     this->swapchain_image.set_images({.images = std::array{swapchain_image}});
     meshlet_instances.swap_buffers(meshlet_instances_last_frame);
 
-    if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0)
-    {
-        clear_select_buffers();
-    }
+    if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
     this->submit_info = {};
-    auto const t_semas = std::array{std::pair{this->context->transient_mem.timeline_semaphore(), this->context->transient_mem.timeline_value()}};
+    auto const t_semas = std::array{
+        std::pair{this->context->transient_mem.timeline_semaphore(), this->context->transient_mem.timeline_value()}};
     this->submit_info.signal_timeline_semaphores = t_semas;
     main_task_graph.execute({});
     context->prev_settings = context->settings;

@@ -23,7 +23,7 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(T_USES_BASE{}.name()));
         push.globals = context->shader_globals_address;
-        push.uses = span_to_array<WriteIndirectDispatchArgsPushBaseTask<T_USES_BASE,T_FILE_PATH,T_PUSH>{}.size()>(ti.shader_byte_blob);
+        push.uses = span_to_array<WriteIndirectDispatchArgsPushBaseTask<T_USES_BASE,T_FILE_PATH,T_PUSH>{}.size()>(ti.attachment_shader_data_blob);
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
     }

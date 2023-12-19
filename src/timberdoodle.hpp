@@ -85,8 +85,8 @@ namespace tido
         using f64mat4x2 = glm::dmat4x2;
         using f64mat4x3 = glm::dmat4x3;
         using f64mat4x4 = glm::dmat4x4;
-    }
-}
+    } // namespace types
+} // namespace tido
 
 template <std::size_t SIZE> std::array<std::byte, SIZE> span_to_array(std::span<std::byte> blob)
 {
@@ -102,13 +102,14 @@ template <std::size_t SIZE> std::array<std::byte, SIZE> span_to_array(std::span<
 #ifdef _DEBUG
 #include <fmt/format.h>
 #define DEBUG_MSG(M) fmt::println("{}", M);
-#define DBG_ASSERT_TRUE_M(X, M)                                  \
-    [&] {                                                        \
-        if (!(X))                                                \
-        {                                                        \
-            fmt::println("ASSERTION FAILURE: {}", M);            \
-            throw std::runtime_error("DEBUG ASSERTION FAILURE"); \
-        }                                                        \
+#define DBG_ASSERT_TRUE_M(X, M)                                                                                        \
+    [&]                                                                                                                \
+    {                                                                                                                  \
+        if (!(X))                                                                                                      \
+        {                                                                                                              \
+            fmt::println("ASSERTION FAILURE: {}", M);                                                                  \
+            throw std::runtime_error("DEBUG ASSERTION FAILURE");                                                       \
+        }                                                                                                              \
     }()
 #else
 #define DEBUG_MSG(M)
@@ -116,10 +117,19 @@ template <std::size_t SIZE> std::array<std::byte, SIZE> span_to_array(std::span<
 #endif
 
 #ifndef defer
-struct defer_dummy {};
-template <class F> struct deferrer { F f; ~deferrer() { f(); } };
-template <class F> deferrer<F> operator*(defer_dummy, F f) { return {f}; }
+struct defer_dummy
+{
+};
+template <class F> struct deferrer
+{
+    F f;
+    ~deferrer() { f(); }
+};
+template <class F> deferrer<F> operator*(defer_dummy, F f)
+{
+    return {f};
+}
 #define DEFER_(LINE) zz_defer##LINE
 #define DEFER(LINE) DEFER_(LINE)
-#define defer auto DEFER(__LINE__) = defer_dummy{} *[&]()
+#define defer auto DEFER(__LINE__) = defer_dummy{} * [&]()
 #endif // defer

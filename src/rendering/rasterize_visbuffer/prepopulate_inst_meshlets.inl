@@ -72,7 +72,7 @@ struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
     {
         PrepopulateInstMeshletsPush push = {
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(PrepopulateInstMeshlets){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(PrepopulateInstMeshlets){}.size()>(ti.attachment_shader_data_blob),
         };
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrepopulateInstMeshlets{}.name()));
         ti.recorder.push_constant(push);
@@ -92,7 +92,7 @@ struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMas
     {
         SetEntityMeshletVisibilityBitMasksPush push = {
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(SetEntityMeshletVisibilityBitMasks){}.size()>(ti.shader_byte_blob),
+            .uses = span_to_array<DAXA_TH_BLOB(SetEntityMeshletVisibilityBitMasks){}.size()>(ti.attachment_shader_data_blob),
         };
         ti.recorder.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks{}.name()));
         ti.recorder.push_constant(push);
@@ -125,27 +125,27 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
         "cb prepopulate_instantiated_meshlets",
     });
     PrepopulateInstantiatedMeshletsCommandWriteTask write_task = {};
-    write_task.attachments.set_view(write_task.visible_meshlets_prev, info.visible_meshlets_prev);
-    write_task.attachments.set_view(write_task.command, command_buffer);
+    write_task.set_view(write_task.visible_meshlets_prev, info.visible_meshlets_prev);
+    write_task.set_view(write_task.command, command_buffer);
     write_task.context = context;
     tg.add_task(write_task);
 
     PrepopulateInstantiatedMeshletsTask prepopulate_task = {};
 
-    prepopulate_task.attachments.set_view(prepopulate_task.command, command_buffer);
-    prepopulate_task.attachments.set_view(prepopulate_task.visible_meshlets_prev, info.visible_meshlets_prev);
-    prepopulate_task.attachments.set_view(prepopulate_task.instantiated_meshlets_prev, info.meshlet_instances_last_frame);
-    prepopulate_task.attachments.set_view(prepopulate_task.meshes, info.meshes),
-    prepopulate_task.attachments.set_view(prepopulate_task.instantiated_meshlets, info.meshlet_instances);
-    prepopulate_task.attachments.set_view(prepopulate_task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+    prepopulate_task.set_view(prepopulate_task.command, command_buffer);
+    prepopulate_task.set_view(prepopulate_task.visible_meshlets_prev, info.visible_meshlets_prev);
+    prepopulate_task.set_view(prepopulate_task.instantiated_meshlets_prev, info.meshlet_instances_last_frame);
+    prepopulate_task.set_view(prepopulate_task.meshes, info.meshes),
+    prepopulate_task.set_view(prepopulate_task.instantiated_meshlets, info.meshlet_instances);
+    prepopulate_task.set_view(prepopulate_task.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
     prepopulate_task.context = context;
     tg.add_task(prepopulate_task);
 
     SetEntityMeshletVisibilityBitMasksTask set_vis_mask = {};
-    set_vis_mask.attachments.set_view(set_vis_mask.command, command_buffer);
-    set_vis_mask.attachments.set_view(set_vis_mask.instantiated_meshlets, info.meshlet_instances);
-    set_vis_mask.attachments.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
-    set_vis_mask.attachments.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
+    set_vis_mask.set_view(set_vis_mask.command, command_buffer);
+    set_vis_mask.set_view(set_vis_mask.instantiated_meshlets, info.meshlet_instances);
+    set_vis_mask.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets);
+    set_vis_mask.set_view(set_vis_mask.entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena);
     set_vis_mask.context = context;
     tg.add_task(set_vis_mask);
 }
