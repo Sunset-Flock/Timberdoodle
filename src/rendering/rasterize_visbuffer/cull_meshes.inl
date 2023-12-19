@@ -54,8 +54,7 @@ struct CullMesheshPush
 
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
 
-using CullMeshesCommandWriteTask =
-    WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
+using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
 
 struct CullMeshesTask : CullMeshes
 {
@@ -68,7 +67,7 @@ struct CullMeshesTask : CullMeshes
         .name = std::string{CullMeshes{}.name()},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
         CullMesheshPush push = {
@@ -90,7 +89,7 @@ void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMe
 
     CullMeshesCommandWriteTask write_task = {};
     write_task.set_view(write_task.entity_meta, task.attachment(task.entity_meta).view);
-    write_task.set_view(write_task.command, task.attachment(task.command).view);
+    write_task.set_view(write_task.command, command_buffer);
     write_task.set_view(write_task.cull_meshlets_commands, task.attachment(task.cull_meshlets_commands).view);
     write_task.set_view(write_task.meshlet_cull_indirect_args, task.attachment(task.meshlet_cull_indirect_args).view);
     write_task.context = context;

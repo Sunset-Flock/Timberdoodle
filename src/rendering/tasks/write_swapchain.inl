@@ -39,7 +39,7 @@ struct WriteSwapchainTask : WriteSwapchain
         .name = std::string{WriteSwapchain{}.name()},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(WriteSwapchain{}.name()));
         u32 const dispatch_x = round_up_div(ti.device.info_image(ti.img_attach(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);

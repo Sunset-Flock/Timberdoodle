@@ -19,12 +19,15 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
     };
     GPUContext * context = {};
     T_PUSH push = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(T_USES_BASE{}.name()));
-        push.globals = context->shader_globals_address;
-        push.uses = span_to_array<WriteIndirectDispatchArgsPushBaseTask<T_USES_BASE,T_FILE_PATH,T_PUSH>{}.size()>(ti.attachment_shader_data_blob);
-        ti.recorder.push_constant(push);
+        // Cope because push is passed as a parameter when constructing the task and the callback 
+        // has to be const
+        T_PUSH real_push = push;
+        real_push.globals = context->shader_globals_address;
+        real_push.uses = span_to_array<DAXA_TH_BLOB(T_USES_BASE){}.size()>(ti.attachment_shader_data_blob);
+        ti.recorder.push_constant(real_push);
         ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
     }
 };

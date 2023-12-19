@@ -33,17 +33,16 @@ inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_na
     }};
 }
 
-Renderer::Renderer(Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager,
-    daxa::ImGuiRenderer * imgui_renderer)
+Renderer::Renderer(
+    Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer)
     : window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
-    meshlet_instances =
-        create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
+    meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
     meshlet_instances_last_frame =
         create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
-    visible_meshlet_instances = create_task_buffer(
-        context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
+    visible_meshlet_instances =
+        create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances};
 
@@ -146,14 +145,13 @@ void Renderer::compile_pipelines()
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}",
-                name, compilation_result.message()));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name,
+                compilation_result.message()));
         }
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {SetEntityMeshletVisibilityBitMasksTask{}.name(),
-            SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
+        {SetEntityMeshletVisibilityBitMasksTask{}.name(), SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
         {PrepopulateInstantiatedMeshletsTask{}.name(), PrepopulateInstantiatedMeshletsTask::PIPELINE_COMPILE_INFO},
         {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(),
             PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
@@ -177,8 +175,8 @@ void Renderer::compile_pipelines()
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}",
-                name, compilation_result.message()));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name,
+                compilation_result.message()));
         }
         this->context->compute_pipelines[name] = compilation_result.value();
     }
@@ -297,8 +295,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(swapchain_image);
 
     auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer(
-        {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32),
-            "meshlet_visibility_bitfield_offsets"});
+        {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
     auto entity_meshlet_visibility_bitfield_arena =
         task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
     task_prepopulate_instantiated_meshlets(context, task_list,
@@ -340,8 +337,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     cull_meshes_task.set_view(cull_meshes_task.entity_meshgroup_indices, scene->_gpu_entity_mesh_groups);
     cull_meshes_task.set_view(cull_meshes_task.meshgroups, scene->_gpu_mesh_group_manifest);
     cull_meshes_task.set_view(cull_meshes_task.entity_transforms, scene->_gpu_entity_transforms);
-    cull_meshes_task.set_view(
-        cull_meshes_task.entity_combined_transforms, scene->_gpu_entity_combined_transforms);
+    cull_meshes_task.set_view(cull_meshes_task.entity_combined_transforms, scene->_gpu_entity_combined_transforms);
     cull_meshes_task.set_view(cull_meshes_task.hiz, hiz);
     cull_meshes_task.set_view(cull_meshes_task.meshlet_cull_indirect_args, meshlet_cull_indirect_args);
     cull_meshes_task.set_view(cull_meshes_task.cull_meshlets_commands, cull_meshlets_commands);
@@ -406,8 +402,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.add_task(swapchain_task);
 
     task_list.add_task({
-        .attachments = {daxa::TaskImageAttachment{
-            .access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image}},
+        .attachments = {daxa::TaskImageAttachment{.access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image}},
         .task =
             [=, this](daxa::TaskInterface ti)
         {
@@ -432,8 +427,7 @@ void Renderer::update_settings()
         1.0f / context->settings.render_target_size.x, 1.0f / context->settings.render_target_size.y};
 }
 
-void Renderer::render_frame(
-    CameraInfo const & camera_info, CameraInfo const & observer_camera_info, f32 const delta_time)
+void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & observer_camera_info, f32 const delta_time)
 {
     if (this->window->size.x == 0 || this->window->size.y == 0) { return; }
     auto reloaded_result = context->pipeline_manager.reload_all();
@@ -441,14 +435,10 @@ void Renderer::render_frame(
     {
         std::cout << "Failed to reload " << reload_err->message << '\n';
     }
-    if (auto _ = daxa::get_if<daxa::PipelineReloadSuccess>(&reloaded_result))
-    {
-        std::cout << "Successfully reloaded!\n";
-    }
+    if (auto _ = daxa::get_if<daxa::PipelineReloadSuccess>(&reloaded_result)) { std::cout << "Successfully reloaded!\n"; }
     u32 const flight_frame_index =
         context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
-    daxa_u32vec2 render_target_size = {
-        static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
+    daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(this->window->size.x), static_cast<daxa_u32>(this->window->size.y)};
     this->update_settings();
     this->context->shader_globals.settings = context->settings;
     bool const settings_changed = context->settings != context->prev_settings;
@@ -459,12 +449,9 @@ void Renderer::render_frame(
     this->context->shader_globals.settings = this->context->settings;
     this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
     this->context->shader_globals.delta_time = delta_time;
-    this->context->shader_globals.observer_camera_up =
-        *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
-    this->context->shader_globals.observer_camera_pos =
-        *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
-    this->context->shader_globals.observer_camera_view =
-        *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
+    this->context->shader_globals.observer_camera_up = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.up);
+    this->context->shader_globals.observer_camera_pos = *reinterpret_cast<daxa_f32vec3 const *>(&observer_camera_info.pos);
+    this->context->shader_globals.observer_camera_view = *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.view);
     this->context->shader_globals.observer_camera_projection =
         *reinterpret_cast<daxa_f32mat4x4 const *>(&observer_camera_info.proj);
     this->context->shader_globals.observer_camera_view_projection =
@@ -485,8 +472,8 @@ void Renderer::render_frame(
     this->context->shader_globals.camera_bottom_plane_normal =
         *reinterpret_cast<daxa_f32vec3 const *>(&camera_info.camera_bottom_plane_normal);
     // Upload Shader Globals.
-    u32 const aligned_globals_block_size = round_up_to_multiple(
-        sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
+    u32 const aligned_globals_block_size =
+        round_up_to_multiple(sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
     *r_cast<ShaderGlobals *>(context->device.get_host_address(context->shader_globals_buffer).value() +
                              aligned_globals_block_size * flight_frame_index) = context->shader_globals;
     context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() +
@@ -500,8 +487,8 @@ void Renderer::render_frame(
     if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
     this->submit_info = {};
-    auto const t_semas = std::array{
-        std::pair{this->context->transient_mem.timeline_semaphore(), this->context->transient_mem.timeline_value()}};
+    auto const t_semas =
+        std::array{std::pair{this->context->transient_mem.timeline_semaphore(), this->context->transient_mem.timeline_value()}};
     this->submit_info.signal_timeline_semaphores = t_semas;
     main_task_graph.execute({});
     context->prev_settings = context->settings;

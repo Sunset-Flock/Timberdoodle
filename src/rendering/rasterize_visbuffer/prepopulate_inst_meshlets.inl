@@ -68,7 +68,7 @@ struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
         .name = std::string{PrepopulateInstMeshlets{}.name()},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         PrepopulateInstMeshletsPush push = {
             .globals = context->shader_globals_address,
@@ -88,7 +88,7 @@ struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMas
         .name = std::string{SetEntityMeshletVisibilityBitMasks{}.name()},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         SetEntityMeshletVisibilityBitMasksPush push = {
             .globals = context->shader_globals_address,

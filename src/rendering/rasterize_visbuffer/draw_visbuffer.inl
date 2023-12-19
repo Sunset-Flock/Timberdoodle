@@ -162,7 +162,7 @@ struct DrawVisbufferTask : DrawVisbuffer
     GPUContext * context = {};
     u32 pass = {};
     bool mesh_shader = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         bool const clear_images = pass == DRAW_VISBUFFER_PASS_ONE || pass == DRAW_VISBUFFER_PASS_OBSERVER;
         auto [x, y, z] = ti.device.info_image(ti.img_attach(depth_image).ids[0]).value().size;
@@ -234,7 +234,7 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
     inline static daxa::RasterPipelineCompileInfo const PIPELINE_COMPILE_INFO =
         DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW;
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         bool const clear_images = false;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;

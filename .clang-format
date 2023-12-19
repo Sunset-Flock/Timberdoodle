@@ -6,7 +6,7 @@ TabWidth: 4
 IndentWidth: 4
 AccessModifierOffset: -2
 IndentCaseLabels: true
-ColumnLimit: 120
+ColumnLimit: 130
 BreakBeforeBraces: Allman
 QualifierAlignment: Right
 

@@ -37,9 +37,27 @@ inline static daxa::ComputePipelineCompileInfo const GEN_HIZ_PIPELINE_COMPILE_IN
     .name = std::string{"GenHiz"},
 };
 
-// TODO(msakmary) Patrick needs to fix this... Idk what he is doing here lmao
-daxa::TaskImageView task_gen_hiz_single_pass(
-    GPUContext * context, daxa::TaskGraph & task_graph, daxa::TaskImageView src)
+struct GenHizTask : GenHizTH
+{
+    GPUContext * context = {};
+    virtual void callback(daxa::TaskInterface ti) const override
+    {
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(GenHizTH{}.name()));
+        auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
+        auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
+        GenHizPush push{
+            .globals = context->shader_globals_address,
+            .uses = span_to_array<DAXA_TH_BLOB(GenHizTH){}.size()>(ti.attachment_shader_data_blob),
+            .counter = ti.allocator->allocate_fill(0u).value().device_address,
+            .mip_count = ti.img_attach(mips).view.slice.level_count,
+            .total_workgroup_count = dispatch_x * dispatch_y,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+    }
+};
+
+daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGraph & task_graph, daxa::TaskImageView src)
 {
     daxa_u32vec2 const hiz_size =
         daxa_u32vec2(context->settings.render_target_size.x / 2, context->settings.render_target_size.y / 2);
@@ -53,27 +71,11 @@ daxa::TaskImageView task_gen_hiz_single_pass(
         .sample_count = 1,
         .name = "hiz",
     });
-    GenHizTH gen_hiz_th{};
-    task_graph.add_task({ 
-        .attachments = decltype(daxa::InlineTaskInfo::attachments){gen_hiz_th.get_attachments().begin(), gen_hiz_th.get_attachments().end()},
-        .task =
-            [=](daxa::TaskInterface ti)
-        {
-            ti.recorder.set_pipeline(*context->compute_pipelines.at(GenHizTH{}.name()));
-            auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
-            auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
-            GenHizPush push{
-                .globals = context->shader_globals_address,
-                .uses = span_to_array<DAXA_TH_BLOB(GenHizTH){}.size()>(ti.attachment_shader_data_blob),
-                .counter = ti.allocator->allocate_fill(0u).value().device_address,
-                .mip_count = mip_count,
-                .total_workgroup_count = dispatch_x * dispatch_y,
-            };
-            ti.recorder.push_constant(push);
-            ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        },
-        .name = GenHizTH{}.name(),
-    });
+    GenHizTask task = {};
+    task.context = context;
+    task.set_view(task.src, src);
+    task.set_view(task.mips, hiz);
+    task_graph.add_task(task);
     return hiz.view({.level_count = mip_count});
 }
 

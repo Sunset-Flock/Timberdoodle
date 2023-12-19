@@ -93,7 +93,7 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweep
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumUpsweep{}.name()));
         PrefixSumUpsweepPush push{
@@ -123,7 +123,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweep
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumDownsweep{}.name()));
         PrefixSumDownsweepPush push{

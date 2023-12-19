@@ -35,7 +35,7 @@ struct AnalyzeVisBufferTask : AnalyzeVisbuffer
         .name = std::string{AnalyzeVisbuffer{}.name()},
     };
     GPUContext * context = {};
-    void callback(daxa::TaskInterface ti)
+    virtual void callback(daxa::TaskInterface ti) const override
     {
         auto & cmd = ti.get_recorder();
         cmd.set_uniform_buffer(context->shader_globals_set_info);
