@@ -65,6 +65,7 @@ struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
 {
     inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH}},
+        .push_constant_size = sizeof(PrepopulateInstMeshletsPush),
         .name = std::string{PrepopulateInstMeshlets{}.name()},
     };
     GPUContext * context = {};
@@ -85,6 +86,7 @@ struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMas
     inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{PRE_POPULATE_INST_MESHLETS_PATH},
             {.defines = {{"SetEntityMeshletVisibilityBitMasks_SHADER", "1"}}}},
+        .push_constant_size = sizeof(SetEntityMeshletVisibilityBitMasksPush),
         .name = std::string{SetEntityMeshletVisibilityBitMasks{}.name()},
     };
     GPUContext * context = {};
