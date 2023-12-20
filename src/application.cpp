@@ -125,7 +125,7 @@ bool test(std::unique_ptr<ThreadPool> const & tp)
     /// TESTING +=====================================
     struct SumTask : Task
     {
-        u32 const DATA_SIZE = 1'000'000u;
+        u32 const DATA_SIZE = 1'000'000'000u;
         u32 const CHUNK_COUNT = 10u;
         u32 const CHUNK_SIZE = DATA_SIZE / CHUNK_COUNT;
         std::vector<u32> data = {};
