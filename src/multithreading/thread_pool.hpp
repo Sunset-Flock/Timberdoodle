@@ -11,6 +11,7 @@
 using namespace tido::types;
 
 static constexpr u32 EXIT_CHUNK_CODE = std::numeric_limits<u32>::max();
+static constexpr u32 EXTERNAL_THREAD_INDEX = std::numeric_limits<u32>::max();
 
 enum struct TaskPriority
 {
@@ -20,11 +21,12 @@ enum struct TaskPriority
 
 struct Task
 {
-    virtual ~Task();
+    virtual ~Task() = default;
     virtual void callback(u32 chunk_index, u32 thread_index) = 0;
 
     u32 chunk_count = {};
     std::atomic_uint32_t finished = {};
+    std::atomic_uint32_t started = {};
 };
 
 struct TaskChunk
@@ -48,7 +50,12 @@ struct ThreadPool
   private:
     struct SharedData
     {
+        // Signaled whenever there is work added to one of the work queues
         std::condition_variable work_available = {};
+        // Signaled whenever a worker thread detects that it is finishing the last chunk of a task 
+        std::condition_variable work_done = {};
+
+        std::mutex work_done_mutex = {};
         std::mutex task_queues_mutex = {};
         std::deque<TaskChunk> high_priority_tasks = {};
         std::deque<TaskChunk> low_priority_tasks = {};

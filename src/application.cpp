@@ -126,6 +126,40 @@ void CameraController::update_matrices(Window &window)
 
 Application::Application()
 {
+
+    _threadpool = std::make_unique<ThreadPool>();
+
+    /// TESTING +=====================================
+    struct SumTask : Task
+    {
+        const u32 DATA_SIZE = 10'000'000u;
+        const u32 CHUNK_COUNT = 100u;
+        const u32 CHUNK_SIZE = DATA_SIZE / CHUNK_COUNT;
+        std::vector<u32> data = {};
+        std::atomic_uint32_t result = 0;
+        SumTask()
+        {
+            data = std::vector<u32>(DATA_SIZE, 2);
+            chunk_count = CHUNK_COUNT; 
+        };
+
+        virtual void callback(u32 chunk_index, u32 thread_index) override
+        {
+            const u32 start_index = chunk_index * CHUNK_SIZE;
+            const u32 end_index = (chunk_index + 1) * CHUNK_SIZE;
+            u32 local_result = 0;
+            fmt::println("Thread {} starting work on chunk {}", thread_index, chunk_index);
+            for(u32 i = start_index; i < end_index; i++)
+            {
+                local_result += data.at(i);
+            }
+            result += local_result;
+        };
+    };
+    auto task = std::make_shared<SumTask>();
+    _threadpool->blocking_dispatch(task);
+    fmt::println("sum result is {}",task->result.load());
+
     _window = std::make_unique<Window>(1920, 1080, "Sandbox");
 
     _gpu_context = std::make_unique<GPUContext>(*_window);
@@ -135,8 +169,8 @@ Application::Application()
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
     auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
     if (Scene::LoadManifestErrorCode const *err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {

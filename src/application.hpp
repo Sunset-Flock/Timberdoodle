@@ -15,6 +15,7 @@ using namespace tido::types;
 #include "ui/ui.hpp"
 #include "rendering/renderer.hpp"
 #include "gpu_context.hpp"
+#include "multithreading/thread_pool.hpp"
 
 struct CameraController
 {
@@ -64,6 +65,7 @@ private:
     std::unique_ptr<AssetProcessor> _asset_manager = {};
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
+    std::unique_ptr<ThreadPool> _threadpool = {};
     CameraController camera_controller = {};
     CameraController observer_camera_controller = {};
     bool control_observer = false;
