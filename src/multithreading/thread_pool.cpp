@@ -31,10 +31,9 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         // Received invalid chunk code in the chunk index which exits this thread
         if (current_chunk.chunk_index == EXIT_CHUNK_CODE) { return; }
         current_chunk.task->callback(current_chunk.chunk_index, thread_index);
-        const u32 prev_finished_count = current_chunk.task->finished.fetch_add(1);
-        // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
-        if(prev_finished_count == (current_chunk.task->chunk_count - 1))
         {
+            std::lock_guard done_lock{shared_data->work_done_mutex};
+            current_chunk.task->finished += 1;
             shared_data->work_done.notify_all();
         }
     }
@@ -93,7 +92,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
     {
         // This thread was not the last one working on this task, therefore we wait here to be notified once
         // the last worker thread processing this task is done
-        std::unique_lock work_done_lock {shared_data->task_queues_mutex};
+        std::unique_lock work_done_lock {shared_data->work_done_mutex};
         shared_data->work_done.wait( work_done_lock, [&]{return task->finished == task->chunk_count;});
     }
 }

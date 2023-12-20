@@ -8,6 +8,7 @@
 #include <daxa/utils/task_graph.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
 #include <daxa/utils/mem.hpp>
+#include <fmt/format.h>
 #include <cinttypes>
 
 namespace tido
