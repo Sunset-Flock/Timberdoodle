@@ -4,8 +4,6 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
 
 find_package(Git REQUIRED)
-
-find_package(Git REQUIRED)
 if(NOT EXISTS "${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets")
     execute_process(COMMAND ${GIT_EXECUTABLE} clone https://github.com/Sunset-Flock/Timberdoodle-assets.git deps/timberdoodle_assets
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
