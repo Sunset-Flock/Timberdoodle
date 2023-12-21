@@ -7,16 +7,15 @@ ThreadPool::~ThreadPool()
 
 void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32 thread_index)
 {
-    TaskChunk current_chunk = {};
+    std::unique_lock lock{shared_data->threadpool_mutex};
     while (true)
     {
-        std::unique_lock lock{shared_data->threadpool_mutex};
         shared_data->work_available.wait(
             lock, [&] { return !shared_data->high_priority_tasks.empty() || !shared_data->low_priority_tasks.empty(); });
 
         bool const high_priority_work_available = !shared_data->high_priority_tasks.empty();
         auto & selected_queue = high_priority_work_available ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
-        current_chunk = std::move(selected_queue.front());
+        TaskChunk current_chunk = std::move(selected_queue.front());
         selected_queue.pop_front();
         current_chunk.task->started += 1;
         lock.unlock();
@@ -48,31 +47,28 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
 {
     // Don't need mutex here as no thread is working on this task yet
     task->not_finished = task->chunk_count;
-    std::unique_lock lock{shared_data->threadpool_mutex, std::defer_lock};
     auto & selected_queue = priority == TaskPriority::HIGH ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
 
-    lock.lock();
     // chunk_index 0 will be worked on by this thread
+    std::unique_lock lock{shared_data->threadpool_mutex};
+
     for (u32 chunk_index = 1; chunk_index < task->chunk_count; chunk_index++)
     {
         selected_queue.push_back({task, chunk_index});
     }
-    lock.unlock();
 
     shared_data->work_available.notify_all();
-
     // Contribute to finishing this task from this thread
     u32 current_chunk_index = 0;
     bool worked_on_last_chunk = false;
     while (current_chunk_index != NO_MORE_CHUNKS_CODE)
     {
-        lock.lock();
         task->started += 1;
+
         lock.unlock();
-
         task->callback(current_chunk_index, EXTERNAL_THREAD_INDEX);
-
         lock.lock();
+
         task->not_finished -= 1;
         bool more_chunks_in_queue = (task->started != task->chunk_count);
         if (more_chunks_in_queue)
@@ -83,14 +79,12 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
         else { current_chunk_index = NO_MORE_CHUNKS_CODE; }
 
         worked_on_last_chunk = (task->not_finished == 0);
-        lock.unlock();
     }
 
     if (!worked_on_last_chunk)
     {
         // This thread was not the last one working on this task, therefore we wait here to be notified once
         // the last worker thread processing this task is done
-        lock.lock();
         shared_data->work_done.wait(lock, [&] { return task->not_finished == 0; });
     }
 }

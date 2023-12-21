@@ -2,6 +2,8 @@
 #include <fmt/core.h>
 #include <fmt/format.h>
 
+#include <intrin.h>
+
 void CameraController::process_input(Window & window, f32 dt)
 {
     f32 speed = window.key_pressed(GLFW_KEY_LEFT_SHIFT) ? translationSpeed * 4.0f : translationSpeed;
@@ -117,16 +119,22 @@ struct Stopwatch
     typename Clock::time_point const start_point;
 };
 
+u32 expensive_op(u32 value)
+{
+    return u32(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(float(value))))))))))))));
+}
+
 using PreciseStopwatch = Stopwatch<>;
 using SystemStopwatch = Stopwatch<std::chrono::system_clock>;
 using MonotonicStopwatch = Stopwatch<std::chrono::steady_clock>;
 bool test(std::unique_ptr<ThreadPool> const & tp)
 {
+
     /// TESTING +=====================================
     struct SumTask : Task
     {
-        u32 const DATA_SIZE = 1'000'000'000u;
-        u32 const CHUNK_COUNT = 10u;
+        u32 const DATA_SIZE = 16'000'000u;
+        u32 const CHUNK_COUNT = 16'00u;
         u32 const CHUNK_SIZE = DATA_SIZE / CHUNK_COUNT;
         std::vector<u32> data = {};
         std::atomic_uint32_t result = 0;
@@ -145,9 +153,9 @@ bool test(std::unique_ptr<ThreadPool> const & tp)
             u32 const start_index = chunk_index * CHUNK_SIZE;
             u32 const end_index = (chunk_index + 1) * CHUNK_SIZE;
             u32 local_result = 0;
-            for (u32 i = start_index; i < end_index; i++)
+            for (u32 i = start_index; i < end_index; i += 1)
             {
-                local_result += data.at(i);
+                local_result += expensive_op(data.at(i));
             }
             result += local_result;
         };
@@ -165,7 +173,7 @@ bool test(std::unique_ptr<ThreadPool> const & tp)
     u32 st_start_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
     for (u32 i = 0; i < task->DATA_SIZE; i++)
     {
-        single_threaded_result += task->data.at(i);
+        single_threaded_result += expensive_op(task->data.at(i));
     }
     u32 st_end_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
     fmt::println("Single treaded dispatch took {}us", st_end_time - st_start_time);
@@ -187,7 +195,7 @@ bool test(std::unique_ptr<ThreadPool> const & tp)
 Application::Application()
 {
 
-    _threadpool = std::make_unique<ThreadPool>();
+    _threadpool = std::make_unique<ThreadPool>(8);
     bool tests_passed = true;
     for(u32 test_iteration = 0; test_iteration < 1000; test_iteration++)
     {
