@@ -77,7 +77,7 @@ struct PrepopulateInstantiatedMeshletsTask : PrepopulateInstMeshlets
         };
         ti.recorder.set_pipeline(*context->compute_pipelines.at(PrepopulateInstMeshlets{}.name()));
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
     }
 };
 
@@ -98,7 +98,7 @@ struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMas
         };
         ti.recorder.set_pipeline(*context->compute_pipelines.at(SetEntityMeshletVisibilityBitMasks{}.name()));
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
     }
 };
 

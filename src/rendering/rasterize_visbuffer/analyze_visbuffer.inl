@@ -40,7 +40,7 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
     virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2{}.name()));
-        auto [x,y,z] = ti.device.info_image(ti.img_attach(visbuffer).ids[0]).value().size;
+        auto [x,y,z] = ti.device.info_image(ti.img(visbuffer).ids[0]).value().size;
         AnalyzeVisbufferPush2 push = {
             .globals = context->shader_globals_address,
             .size = {x, y},

@@ -75,7 +75,7 @@ struct CullMeshesTask : CullMeshes
         };
         std::copy_n(ti.attachment_shader_data_blob.begin(), ti.attachment_shader_data_blob.size(), push.uses.begin());
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
     }
 };
 

@@ -13,15 +13,15 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instan
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 7)
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 7)
 DAXA_TH_BUFFER_PTR(DRAW_INDIRECT_INFO_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
-DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShader, 14)
@@ -38,9 +38,9 @@ DAXA_TH_BUFFER_PTR(
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_NO_SHADER(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
-DAXA_TH_IMAGE_NO_SHADER(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 #define DRAW_VISBUFFER_PASS_ONE 0
@@ -165,12 +165,12 @@ struct DrawVisbufferTask : DrawVisbuffer
     virtual void callback(daxa::TaskInterface ti) const override
     {
         bool const clear_images = pass == DRAW_VISBUFFER_PASS_ONE || pass == DRAW_VISBUFFER_PASS_OBSERVER;
-        auto [x, y, z] = ti.device.info_image(ti.img_attach(depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.info_image(ti.img(depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.img_attach(depth_image).ids[0].default_view(),
+                    .image_view = ti.img(depth_image).ids[0].default_view(),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -180,14 +180,14 @@ struct DrawVisbufferTask : DrawVisbuffer
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.img_attach(vis_image).ids[0].default_view(),
+                .image_view = ti.img(vis_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
             },
             daxa::RenderAttachmentInfo{
-                .image_view = ti.img_attach(debug_image).ids[0].default_view(),
+                .image_view = ti.img(debug_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
@@ -211,7 +211,7 @@ struct DrawVisbufferTask : DrawVisbuffer
         if (mesh_shader)
         {
             render_cmd.draw_mesh_tasks_indirect({
-                .indirect_buffer = ti.buf_attach(command).ids[0],
+                .indirect_buffer = ti.buf(command).ids[0],
                 .offset = 0,
                 .draw_count = 1,
                 .stride = sizeof(DispatchIndirectStruct),
@@ -220,7 +220,7 @@ struct DrawVisbufferTask : DrawVisbuffer
         else
         {
             render_cmd.draw_indirect({
-                .draw_command_buffer = ti.buf_attach(command).ids[0],
+                .draw_command_buffer = ti.buf(command).ids[0],
                 .draw_count = 1,
                 .draw_command_stride = sizeof(DrawIndirectStruct),
             });
@@ -238,11 +238,11 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
     {
         bool const clear_images = false;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        auto [x, y, z] = ti.device.info_image(ti.img_attach(depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.info_image(ti.img(depth_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.img_attach(depth_image).ids[0].default_view(),
+                    .image_view = ti.img(depth_image).ids[0].default_view(),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -252,14 +252,14 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.img_attach(vis_image).ids[0].default_view(),
+                .image_view = ti.img(vis_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::ClearValue{std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0}},
             },
             daxa::RenderAttachmentInfo{
-                .image_view = ti.img_attach(debug_image).ids[0].default_view(),
+                .image_view = ti.img(debug_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
@@ -278,7 +278,7 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
             };
             render_cmd.push_constant(push);
             render_cmd.draw_mesh_tasks_indirect({
-                .indirect_buffer = ti.buf_attach(command).ids[0],
+                .indirect_buffer = ti.buf(command).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * i,
                 .draw_count = 1,
                 .stride = sizeof(DispatchIndirectStruct),

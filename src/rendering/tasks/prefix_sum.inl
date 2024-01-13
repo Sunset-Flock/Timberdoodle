@@ -102,7 +102,7 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweep
             .range = range,
         };
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
     }
 };
 
@@ -132,7 +132,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweep
             .range = range,
         };
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf_attach(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
     }
 };
 

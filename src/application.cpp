@@ -99,118 +99,9 @@ void CameraController::update_matrices(Window & window)
     int i = 0;
 }
 
-#include <cstdlib>
-template <typename Clock = std::chrono::high_resolution_clock>
-struct Stopwatch
-{
-    public:
-    Stopwatch() : start_point(Clock::now()) {}
-
-    template <typename Rep = typename Clock::duration::rep, typename Units = typename Clock::duration>
-    Rep elapsed_time() const
-    {
-        std::atomic_thread_fence(std::memory_order_relaxed);
-        auto counted_time = std::chrono::duration_cast<Units>(Clock::now() - start_point).count();
-        std::atomic_thread_fence(std::memory_order_relaxed);
-        return static_cast<Rep>(counted_time);
-    }
-
-    private:
-    typename Clock::time_point const start_point;
-};
-
-u32 expensive_op(u32 value)
-{
-    return u32(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(std::sqrt(float(value))))))))))))));
-}
-
-using PreciseStopwatch = Stopwatch<>;
-using SystemStopwatch = Stopwatch<std::chrono::system_clock>;
-using MonotonicStopwatch = Stopwatch<std::chrono::steady_clock>;
-bool test(std::unique_ptr<ThreadPool> const & tp)
-{
-
-    /// TESTING +=====================================
-    struct SumTask : Task
-    {
-        u32 const DATA_SIZE = 16'000'000u;
-        u32 const CHUNK_COUNT = 16'00u;
-        u32 const CHUNK_SIZE = DATA_SIZE / CHUNK_COUNT;
-        std::vector<u32> data = {};
-        std::atomic_uint32_t result = 0;
-        SumTask()
-        {
-            data = std::vector<u32>(DATA_SIZE);
-            for (u32 i = 0; i < DATA_SIZE; i++)
-            {
-                data.at(i) = rand() % 100;
-            }
-            chunk_count = CHUNK_COUNT;
-        };
-
-        virtual void callback(u32 chunk_index, u32 thread_index) override
-        {
-            u32 const start_index = chunk_index * CHUNK_SIZE;
-            u32 const end_index = (chunk_index + 1) * CHUNK_SIZE;
-            u32 local_result = 0;
-            for (u32 i = start_index; i < end_index; i += 1)
-            {
-                local_result += expensive_op(data.at(i));
-            }
-            result += local_result;
-        };
-    };
-
-
-    auto task = std::make_shared<SumTask>();
-    PreciseStopwatch stopwatch = {};
-    u32 mt_start_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
-    tp->blocking_dispatch(task);
-    u32 mt_end_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
-    fmt::println("Blocking dispatch took {}us", mt_end_time - mt_start_time);
-
-    u32 single_threaded_result = 0;
-    u32 st_start_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
-    for (u32 i = 0; i < task->DATA_SIZE; i++)
-    {
-        single_threaded_result += expensive_op(task->data.at(i));
-    }
-    u32 st_end_time = stopwatch.elapsed_time<u32, std::chrono::microseconds>();
-    fmt::println("Single treaded dispatch took {}us", st_end_time - st_start_time);
-
-    if (single_threaded_result != task->result) { 
-        fmt::println("Single threaded and multi threaded results don't match");
-        return false;
-    }
-    else
-    { 
-        fmt::println("Single threaded result matches multithreded {} with multithreaded being {}x faster",
-            task->result.load(), 
-            f32(st_end_time - st_start_time)/f32(mt_end_time - mt_start_time)
-        ); 
-        return true;
-    }
-}
-
 Application::Application()
 {
-
     _threadpool = std::make_unique<ThreadPool>(8);
-    bool tests_passed = true;
-    for(u32 test_iteration = 0; test_iteration < 1000; test_iteration++)
-    {
-        fmt::println("Running test iteration {}", test_iteration);
-        if(!test(_threadpool))
-        {
-            fmt::println("TEST FAILED on iteration {}", test_iteration);
-            tests_passed = false;
-            break;
-        }
-    }
-    if(!tests_passed)
-    {
-        fmt::println("TESTS DID NOT PASS");
-    }
 
     _window = std::make_unique<Window>(1920, 1080, "Sandbox");
 
@@ -222,7 +113,7 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
     auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
     if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {

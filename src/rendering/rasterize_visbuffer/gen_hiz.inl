@@ -49,7 +49,7 @@ struct GenHizTask : GenHizTH
             .globals = context->shader_globals_address,
             .uses = span_to_array<DAXA_TH_BLOB(GenHizTH){}.size()>(ti.attachment_shader_data_blob),
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
-            .mip_count = ti.img_attach(mips).view.slice.level_count,
+            .mip_count = ti.img(mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
         };
         ti.recorder.push_constant(push);

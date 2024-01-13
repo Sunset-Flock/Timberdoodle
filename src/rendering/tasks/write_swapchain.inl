@@ -42,13 +42,13 @@ struct WriteSwapchainTask : WriteSwapchain
     virtual void callback(daxa::TaskInterface ti) const override
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(WriteSwapchain{}.name()));
-        u32 const dispatch_x = round_up_div(ti.device.info_image(ti.img_attach(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
-        u32 const dispatch_y = round_up_div(ti.device.info_image(ti.img_attach(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
+        u32 const dispatch_x = round_up_div(ti.device.info_image(ti.img(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
+        u32 const dispatch_y = round_up_div(ti.device.info_image(ti.img(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
         auto push = WriteSwapchainPush{
             .globals = context->shader_globals_address,
             .uses = span_to_array<DAXA_TH_BLOB(WriteSwapchain){}.size()>(ti.attachment_shader_data_blob),
-            .width = ti.device.info_image(ti.img_attach(swapchain).ids[0]).value().size.x,
-            .height = ti.device.info_image(ti.img_attach(swapchain).ids[0]).value().size.y,
+            .width = ti.device.info_image(ti.img(swapchain).ids[0]).value().size.x,
+            .height = ti.device.info_image(ti.img(swapchain).ids[0]).value().size.y,
         };
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});

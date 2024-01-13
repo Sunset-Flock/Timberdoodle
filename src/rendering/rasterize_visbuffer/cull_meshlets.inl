@@ -66,7 +66,7 @@ struct CullMeshletsTask : CullMeshlets
             };
             ti.recorder.push_constant(push);
             ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.buf_attach(commands).ids[0],
+                .indirect_buffer = ti.buf(commands).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * table,
             });
         }

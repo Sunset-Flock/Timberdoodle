@@ -406,9 +406,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .task =
             [=, this](daxa::TaskInterface ti)
         {
-            auto size = ti.device.info_image(ti.img_attach(swapchain_image).ids[0]).value().size;
+            auto size = ti.device.info_image(ti.img(swapchain_image).ids[0]).value().size;
             imgui_renderer->record_commands(
-                ImGui::GetDrawData(), ti.recorder, ti.img_attach(swapchain_image).ids[0], size.x, size.y);
+                ImGui::GetDrawData(), ti.recorder, ti.img(swapchain_image).ids[0], size.x, size.y);
         },
         .name = "ImGui Draw",
     });

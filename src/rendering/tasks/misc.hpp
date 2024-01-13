@@ -40,9 +40,9 @@ void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, u32 va
         .attachments = {daxa::TaskBufferAttachment{.access=daxa::TaskBufferAccess::TRANSFER_WRITE, .view=buffer}},
         .task = [=](daxa::TaskInterface ti){
             ti.recorder.clear_buffer({
-                .buffer = ti.buf_attach(buffer).ids[0],
+                .buffer = ti.buf(buffer).ids[0],
                 .offset = 0,
-                .size = (range == CLEAR_REST) ? ti.device.info_buffer(ti.buf_attach(buffer).ids[0]).value().size : static_cast<daxa_u32>(range),
+                .size = (range == CLEAR_REST) ? ti.device.info_buffer(ti.buf(buffer).ids[0]).value().size : static_cast<daxa_u32>(range),
                 .clear_value = value,
             });
         },
@@ -62,12 +62,12 @@ void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
     tg.add_task({
         .attachments = {daxa::TaskBufferAttachment{.access=daxa::TaskBufferAccess::TRANSFER_WRITE, .view = buffer}},
         .task = [=](daxa::TaskInterface ti){
-            auto buffer_size = ti.device.info_buffer(ti.buf_attach(buffer).ids[0]).value().size;
+            auto buffer_size = ti.device.info_buffer(ti.buf(buffer).ids[0]).value().size;
             for (auto range : clear_ranges)
             {
                 auto copy_size = (range.size == CLEAR_REST) ? (buffer_size - range.offset) : static_cast<u32>(range.size);
                 ti.recorder.clear_buffer({
-                    .buffer = ti.buf_attach(buffer).ids[0],
+                    .buffer = ti.buf(buffer).ids[0],
                     .offset = range.offset,
                     .size = copy_size,
                     .clear_value = range.value,

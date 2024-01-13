@@ -46,6 +46,5 @@ void main()
     vec4 debug_value = imageLoad(daxa_image2D(push.uses.debug_image), index);
     output_value = vec4(mix(output_value.xyz, debug_value.xyz, debug_value.a), output_value.a);
 
-    // imageStore(daxa_image2D(swapchain), index, output_value);
-    imageStore(daxa_image2D(push.uses.swapchain), index, color);
+    imageStore(daxa_image2D(push.uses.swapchain), index, output_value);
 }
