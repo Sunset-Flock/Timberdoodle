@@ -182,6 +182,7 @@ auto Application::run() -> i32
 
 void Application::update()
 {
+    bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
     _ui_engine->main_update(_gpu_context->settings, *_scene);
     if (control_observer)
@@ -196,21 +197,15 @@ void Application::update()
     }
     if (_window->key_just_pressed(GLFW_KEY_H))
     {
-        DEBUG_MSG(fmt::format("switched enable_observer from {} to {}", _renderer->context->settings.enable_observer,
-            !(_renderer->context->settings.enable_observer)));
-        _renderer->context->settings.enable_observer = !_renderer->context->settings.enable_observer;
+        _renderer->context->settings.draw_from_observer = !_renderer->context->settings.draw_from_observer;
     }
     if (_window->key_just_pressed(GLFW_KEY_J))
     {
-        DEBUG_MSG(fmt::format("switched control_observer from {} to {}", control_observer, !(control_observer)));
         control_observer = !control_observer;
     }
     if (_window->key_just_pressed(GLFW_KEY_K))
     {
-        DEBUG_MSG("reset observer");
-        control_observer = false;
-        _renderer->context->settings.enable_observer = false;
-        observer_camera_controller = camera_controller;
+        reset_observer = true;
     }
 #if COMPILE_IN_MESH_SHADER
     if (_window->key_just_pressed(GLFW_KEY_M))
@@ -226,6 +221,25 @@ void Application::update()
             ((_renderer->context->settings.observer_show_pass + 1) % 3)));
         _renderer->context->settings.observer_show_pass = (_renderer->context->settings.observer_show_pass + 1) % 3;
     }
+    if (_ui_engine->camera_settings)
+    {
+        if (ImGui::Begin("camera settings", nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            bool draw_from_observer = static_cast<bool>(_renderer->context->settings.draw_from_observer);
+            ImGui::Checkbox("draw from observer (H)", &draw_from_observer);
+            _renderer->context->settings.draw_from_observer = static_cast<u32>(draw_from_observer);
+            ImGui::Checkbox("control observer   (J)", &control_observer);
+            reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
+            ImGui::End();
+        }
+    }
+    if (reset_observer)
+    {
+        control_observer = false;
+        _renderer->context->settings.draw_from_observer = static_cast<u32>(false);
+        observer_camera_controller = camera_controller;
+    }
+    ImGui::Render();
 }
 
 Application::~Application()

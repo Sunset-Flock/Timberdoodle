@@ -23,6 +23,7 @@ struct UIEngine
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_scene_hierarchy = false;
+        bool camera_settings = false;
         tido::ui::SceneGraph scene_graph{};
         daxa::ImGuiRenderer imgui_renderer = {};
 

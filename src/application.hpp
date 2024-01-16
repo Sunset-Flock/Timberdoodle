@@ -68,6 +68,7 @@ private:
     std::unique_ptr<ThreadPool> _threadpool = {};
     CameraController camera_controller = {};
     CameraController observer_camera_controller = {};
+    bool draw_observer = false;
     bool control_observer = false;
     bool keep_running = true;
     f32 delta_time = 0.016666f;

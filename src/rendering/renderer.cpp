@@ -101,7 +101,7 @@ Renderer::Renderer(
     compile_pipelines();
 
     context->settings.enable_mesh_shader = 0;
-    context->settings.enable_observer = 0;
+    context->settings.draw_from_observer = 0;
     update_settings();
     main_task_graph = create_main_task_graph();
 }
@@ -374,7 +374,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     analyze_task.set_view(analyze_task.visible_meshlets, visible_meshlet_instances);
     analyze_task.context = context;
     task_list.add_task(analyze_task);
-    if (context->settings.enable_observer)
+    if (context->settings.draw_from_observer)
     {
         task_draw_visbuffer({
             .context = context,

@@ -3,6 +3,15 @@ using namespace tido::types;
 
 ThreadPool::~ThreadPool()
 {
+    {
+        std::unique_lock lock{shared_data->threadpool_mutex};
+        shared_data->kill = true;
+        shared_data->work_available.notify_all();
+    }
+    for (auto& worker : worker_threads)
+    {
+        worker.join();
+    }
 }
 
 void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32 thread_index)
@@ -11,7 +20,11 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
     while (true)
     {
         shared_data->work_available.wait(
-            lock, [&] { return !shared_data->high_priority_tasks.empty() || !shared_data->low_priority_tasks.empty(); });
+            lock, [&] { return !shared_data->high_priority_tasks.empty() || !shared_data->low_priority_tasks.empty() || shared_data->kill; });
+        if (shared_data->kill)
+        {
+            return;
+        }
 
         bool const high_priority_work_available = !shared_data->high_priority_tasks.empty();
         auto & selected_queue = high_priority_work_available ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
@@ -20,8 +33,6 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         current_chunk.task->started += 1;
         lock.unlock();
 
-        // Received invalid chunk code in the chunk index which exits this thread
-        if (current_chunk.chunk_index == EXIT_CHUNK_CODE) { return; }
         current_chunk.task->callback(current_chunk.chunk_index, thread_index);
 
         lock.lock();

@@ -63,6 +63,7 @@ struct ThreadPool
         std::mutex threadpool_mutex = {};
         std::deque<TaskChunk> high_priority_tasks = {};
         std::deque<TaskChunk> low_priority_tasks = {};
+        bool kill = false;
     };
     static void worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32 thread_id);
     std::shared_ptr<SharedData> shared_data = {};

@@ -42,6 +42,7 @@ void UIEngine::main_update(Settings &settings, Scene const & scene)
             ImGui::MenuItem("Settings", NULL, &widget_settings);
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_hierarchy);
+            ImGui::MenuItem("Camera Settings", NULL, &camera_settings);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -71,7 +72,6 @@ void UIEngine::main_update(Settings &settings, Scene const & scene)
     {
         draw_scenegraph(scene);
     }
-    ImGui::Render();
 }
 
 void UIEngine::draw_scenegraph(Scene const & scene)

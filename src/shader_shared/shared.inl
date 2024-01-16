@@ -33,7 +33,7 @@ struct Settings
     daxa_u32vec2 render_target_size;
     daxa_f32vec2 render_target_size_inv;
     daxa_u32 enable_mesh_shader;
-    daxa_u32 enable_observer;
+    daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
 #if __cplusplus
     auto operator==(Settings const &other) const -> bool 
@@ -48,7 +48,7 @@ struct Settings
         : render_target_size{ 16, 16 },
         render_target_size_inv{ 1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y },
         enable_mesh_shader{ 0 },
-        enable_observer{ 0 },
+        draw_from_observer{ 0 },
         observer_show_pass{ 0 }
     {
     }
