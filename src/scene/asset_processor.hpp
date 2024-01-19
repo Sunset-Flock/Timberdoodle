@@ -1,12 +1,5 @@
 #pragma once
 
-// #include <assimp/Importer.hpp>
-// #include <assimp/mesh.h>
-// #include <assimp/scene.h>
-// #include <assimp/postprocess.h>
-// #include <assimp/IOStream.hpp>
-// #include <assimp/IOSystem.hpp>
-
 #include <filesystem>
 #include <meshoptimizer.h>
 
@@ -21,17 +14,6 @@ using MeshIndex = size_t;
 using ImageIndex = size_t;
 
 #define MAX_MESHES 10000
-
-// inline std::string generate_mesh_name(aiMesh* mesh)
-// {
-//     return
-//         std::string(mesh->mName.C_Str()) + std::string(" m:") + std::to_string(mesh->mMaterialIndex);
-// }
-//
-// inline std::string generate_texture_name(aiMaterial * material, aiTextureType type)
-// {
-//     return std::string(material->GetName().C_Str()) + aiTextureTypeToString(type);
-// }
 
 struct AssetProcessor
 {

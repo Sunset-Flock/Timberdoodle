@@ -55,16 +55,16 @@ mat4 mat_4x3_to_4x4(mat4x3 in_mat)
 bool is_out_of_frustum(vec3 ws_center, float ws_radius)
 {
     const vec3 frustum_planes[5] = {
-        deref(push.globals).camera_right_plane_normal,
-        deref(push.globals).camera_left_plane_normal,
-        deref(push.globals).camera_top_plane_normal,
-        deref(push.globals).camera_bottom_plane_normal,
-        deref(push.globals).camera_near_plane_normal,
+        deref(push.globals).camera.right_plane_normal,
+        deref(push.globals).camera.left_plane_normal,
+        deref(push.globals).camera.top_plane_normal,
+        deref(push.globals).camera.bottom_plane_normal,
+        deref(push.globals).camera.near_plane_normal,
     };
     bool out_of_frustum = false;
     for (uint i = 0; i < 5; ++i)
     {
-        out_of_frustum = out_of_frustum || (dot((ws_center - deref(push.globals).camera_pos), frustum_planes[i]) - ws_radius) > 0.0f;
+        out_of_frustum = out_of_frustum || (dot((ws_center - deref(push.globals).camera.pos), frustum_planes[i]) - ws_radius) > 0.0f;
     }
     return out_of_frustum;
 }
@@ -72,11 +72,11 @@ bool is_out_of_frustum(vec3 ws_center, float ws_radius)
 bool is_tri_out_of_frustum(vec3 tri[3])
 {
     const vec3 frustum_planes[5] = {
-        deref(push.globals).camera_right_plane_normal,
-        deref(push.globals).camera_left_plane_normal,
-        deref(push.globals).camera_top_plane_normal,
-        deref(push.globals).camera_bottom_plane_normal,
-        deref(push.globals).camera_near_plane_normal,
+        deref(push.globals).camera.right_plane_normal,
+        deref(push.globals).camera.left_plane_normal,
+        deref(push.globals).camera.top_plane_normal,
+        deref(push.globals).camera.bottom_plane_normal,
+        deref(push.globals).camera.near_plane_normal,
     };
     bool out_of_frustum = false;
     for (uint i = 0; i < 5; ++i)
@@ -84,7 +84,7 @@ bool is_tri_out_of_frustum(vec3 tri[3])
         bool tri_out_of_plane = true;
         for (uint ti = 0; ti < 3; ++ti)
         {
-            tri_out_of_plane = tri_out_of_plane && dot((tri[ti] - deref(push.globals).camera_pos), frustum_planes[i]) > 0.0f;
+            tri_out_of_plane = tri_out_of_plane && dot((tri[ti] - deref(push.globals).camera.pos), frustum_planes[i]) > 0.0f;
         }
         out_of_frustum = out_of_frustum || tri_out_of_plane;
     }
@@ -127,8 +127,8 @@ bool is_meshlet_occluded(
     BoundingSphere bounds = deref(mesh_data.meshlet_bounds[meshlet_inst.meshlet_index]);
     const float scaled_radius = radius_scaling * bounds.radius;
     const vec3 ws_center = (model_matrix * vec4(bounds.center, 1)).xyz;
-    const vec3 center_to_camera = normalize(deref(push.globals).camera_pos - ws_center);
-    const vec3 tangential_up = normalize(deref(push.globals).camera_up - center_to_camera * dot(center_to_camera, deref(push.globals).camera_up));
+    const vec3 center_to_camera = normalize(deref(push.globals).camera.pos - ws_center);
+    const vec3 tangential_up = normalize(deref(push.globals).camera.up - center_to_camera * dot(center_to_camera, deref(push.globals).camera.up));
     const vec3 tangent_left = -cross(tangential_up, center_to_camera);
     NdcBounds ndc_bounds;
     init_ndc_bounds(ndc_bounds);
@@ -142,7 +142,7 @@ bool is_meshlet_occluded(
             {
                 // TODO: make this use a precalculated obb, not this shit sphere derived one.
                 const vec3 bounding_box_corner_ws = bounds.center + bounds.radius * 0.5f * (center_to_camera * z + tangential_up * y + tangent_left * x);
-                const vec4 projected_pos = deref(push.globals).camera_view_projection * model_matrix * vec4(bounding_box_corner_ws, 1);
+                const vec4 projected_pos = deref(push.globals).camera.view_proj * model_matrix * vec4(bounding_box_corner_ws, 1);
                 const vec3 ndc_pos = projected_pos.xyz / projected_pos.w;
                 add_vertex_to_ndc_bounds(ndc_bounds, ndc_pos);
             }

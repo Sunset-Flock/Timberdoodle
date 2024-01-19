@@ -23,6 +23,18 @@
 #define COMPILE_IN_MESH_SHADER 0
 
 #if __cplusplus
+#define glmsf32vec2 glm::vec2
+#define glmsf32vec3 glm::vec3
+#define glmsf32vec4 glm::vec4
+#define glmsf32mat4 glm::mat4
+#else
+#define glmsf32vec2 daxa_f32vec2
+#define glmsf32vec3 daxa_f32vec3
+#define glmsf32vec4 daxa_f32vec4
+#define glmsf32mat4 daxa_f32mat4x4
+#endif 
+
+#if __cplusplus
 #define SHADER_ONLY(x)
 #else
 #define SHADER_ONLY(x) x
@@ -62,23 +74,24 @@ struct GlobalSamplers
     daxa_SamplerId nearest_clamp;
 };
 
+struct CameraInfo
+{
+    glmsf32mat4 view;
+    glmsf32mat4 proj;
+    glmsf32mat4 view_proj;
+    glmsf32vec3 pos;
+    glmsf32vec3 up;
+    glmsf32vec3 near_plane_normal;
+    glmsf32vec3 left_plane_normal;
+    glmsf32vec3 right_plane_normal;
+    glmsf32vec3 top_plane_normal;
+    glmsf32vec3 bottom_plane_normal;
+};
+
 struct ShaderGlobals
 {
-    daxa_f32mat4x4 camera_view;
-    daxa_f32mat4x4 camera_projection;
-    daxa_f32mat4x4 camera_view_projection;
-    daxa_f32vec3 camera_pos;
-    daxa_f32vec3 camera_up;
-    daxa_f32vec3 camera_near_plane_normal;
-    daxa_f32vec3 camera_left_plane_normal;
-    daxa_f32vec3 camera_right_plane_normal;
-    daxa_f32vec3 camera_top_plane_normal;
-    daxa_f32vec3 camera_bottom_plane_normal;
-    daxa_f32mat4x4 observer_camera_view;
-    daxa_f32mat4x4 observer_camera_projection;
-    daxa_f32mat4x4 observer_camera_view_projection;
-    daxa_f32vec3 observer_camera_pos;
-    daxa_f32vec3 observer_camera_up;
+    CameraInfo camera;
+    CameraInfo observer_camera;
     daxa_u32 frame_index;
     daxa_f32 delta_time;
     Settings settings;

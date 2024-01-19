@@ -69,7 +69,7 @@ void CameraController::update_matrices(Window & window)
     prespective[1][1] *= -1.0f;
     this->cam_info.proj = prespective;
     this->cam_info.view = glm::lookAt(position, position + forward, up);
-    this->cam_info.vp = this->cam_info.proj * this->cam_info.view;
+    this->cam_info.view_proj = this->cam_info.proj * this->cam_info.view;
     this->cam_info.pos = this->position;
     this->cam_info.up = this->up;
     glm::vec3 ws_ndc_corners[2][2][2];
@@ -86,15 +86,15 @@ void CameraController::update_matrices(Window & window)
             }
         }
     }
-    this->cam_info.camera_near_plane_normal = glm::normalize(
+    this->cam_info.near_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
-    this->cam_info.camera_right_plane_normal = glm::normalize(
+    this->cam_info.right_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[1][1][0] - ws_ndc_corners[1][0][0], ws_ndc_corners[1][0][1] - ws_ndc_corners[1][0][0]));
-    this->cam_info.camera_left_plane_normal = glm::normalize(
+    this->cam_info.left_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][0][1], ws_ndc_corners[0][0][0] - ws_ndc_corners[0][0][1]));
-    this->cam_info.camera_top_plane_normal = glm::normalize(
+    this->cam_info.top_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[0][0][1] - ws_ndc_corners[0][0][0]));
-    this->cam_info.camera_bottom_plane_normal = glm::normalize(
+    this->cam_info.bottom_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
     int i = 0;
 }

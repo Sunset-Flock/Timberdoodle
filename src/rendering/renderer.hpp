@@ -10,20 +10,6 @@
 
 #include "../gpu_context.hpp"
 
-struct CameraInfo
-{
-    glm::mat4 view = {};
-    glm::mat4 proj = {};
-    glm::mat4 vp = {};
-    glm::vec3 pos = {};
-    glm::vec3 up = {};
-    glm::vec3 camera_near_plane_normal = {};
-    glm::vec3 camera_left_plane_normal = {};
-    glm::vec3 camera_right_plane_normal = {};
-    glm::vec3 camera_top_plane_normal = {};
-    glm::vec3 camera_bottom_plane_normal = {};
-};
-
 // Renderer struct.
 // This should idealy handle all rendering related information and functionality.
 struct Renderer

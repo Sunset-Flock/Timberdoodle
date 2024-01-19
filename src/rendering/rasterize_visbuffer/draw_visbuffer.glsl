@@ -147,7 +147,7 @@ void main()
     uint vertex_index = mesh.indirect_vertices[meshlet.indirect_vertex_offset + micro_index].value;
     vertex_index = min(vertex_index, mesh.vertex_count - 1);
     const vec4 vertex_position = vec4(mesh.vertex_positions[vertex_index].value, 1);
-    const mat4x4 view_proj = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera_view_projection : deref(push.globals).camera_view_projection;
+    const mat4x4 view_proj = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera.view_proj : deref(push.globals).camera.view_proj;
     const vec4 pos = view_proj * mat_4x3_to_4x4(deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index])) * vertex_position;
     vec2 uv = vec2(0,0);
     if (daxa_u64(mesh.vertex_uvs) != 0)
@@ -290,9 +290,9 @@ void main()
     // Transform vertices:
     const mat4 model_matrix = mat_4x3_to_4x4deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index]);
 #if MESH_SHADER_CULL_AND_DRAW
-    const mat4 view_proj_matrix = deref(push.globals).camera_view_projection;
+    const mat4 view_proj_matrix = deref(push.globals).camera.view_proj;
 #else
-    const mat4 view_proj_matrix = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera_view_projection : deref(push.globals).camera_view_projection;
+    const mat4 view_proj_matrix = (push.pass == DRAW_VISBUFFER_PASS_OBSERVER) ? deref(push.globals).observer_camera.view_proj : deref(push.globals).camera.view_proj;
 #endif
     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
     // Write Vertices:
@@ -312,7 +312,7 @@ void main()
 #if !MESH_SHADER_CULL_AND_DRAW
         if (push.pass == DRAW_VISBUFFER_PASS_OBSERVER)
         {
-            s_vertex_positions[meshlet_local_vertex_index] = deref(push.globals).camera_view_projection * model_matrix * vertex_pos;
+            s_vertex_positions[meshlet_local_vertex_index] = deref(push.globals).camera.view_proj * model_matrix * vertex_pos;
         }
         else
 #endif
