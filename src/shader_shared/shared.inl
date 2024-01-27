@@ -23,6 +23,7 @@
 #define COMPILE_IN_MESH_SHADER 0
 
 #if __cplusplus
+#include <glm/glm.hpp>
 #define glmsf32vec2 glm::vec2
 #define glmsf32vec3 glm::vec3
 #define glmsf32vec4 glm::vec4

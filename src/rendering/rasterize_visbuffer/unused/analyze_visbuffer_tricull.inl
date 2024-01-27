@@ -18,9 +18,9 @@ DAXA_DECL_TASK_HEAD_END
 
 struct AnalyzeVisbufferPush
 {
-    DAXA_TH_BLOB(AnalyzeVisbuffer) uses;
     daxa_u32 width;
     daxa_u32 height;
+    DAXA_TH_BLOB(AnalyzeVisbuffer, uses)
 };
 
 #if __cplusplus
@@ -29,13 +29,13 @@ struct AnalyzeVisbufferPush
 
 struct AnalyzeVisBufferTask : AnalyzeVisbuffer
 {
-    inline static const daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
+    inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
-        .push_constant_size = sizeof(AnalyzeVisbufferPush),
+        .push_constant_size = s_cast<u32>(sizeof(AnalyzeVisbufferPush) + AnalyzeVisbuffer::attachment_shader_data_size()),
         .name = std::string{AnalyzeVisbuffer{}.name()},
     };
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
         cmd.set_uniform_buffer(context->shader_globals_set_info);
@@ -44,9 +44,13 @@ struct AnalyzeVisBufferTask : AnalyzeVisbuffer
         auto const x = ti.get_device().info_image(uses.u_visbuffer.image()).size.x;
         auto const y = ti.get_device().info_image(uses.u_visbuffer.image()).size.y;
         cmd.push_constant(AnalyzeVisbufferPush{
-            // TODO: Add uses
             .width = x,
             .height = y,
+        });
+        cmd.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+            .offset = sizeof(AnalyzeVisbufferPush),
         });
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
         auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);

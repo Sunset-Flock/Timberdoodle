@@ -20,10 +20,10 @@ DAXA_DECL_TASK_HEAD_END
 struct GenHizPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DAXA_TH_BLOB(GenHizTH) uses;
     daxa_RWBufferPtr(daxa_u32) counter;
     daxa_u32 mip_count;
     daxa_u32 total_workgroup_count;
+    DAXA_TH_BLOB(GenHizTH, uses)
 };
 
 #if __cplusplus
@@ -33,26 +33,30 @@ struct GenHizPush
 
 inline static daxa::ComputePipelineCompileInfo const GEN_HIZ_PIPELINE_COMPILE_INFO{
     .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},
-    .push_constant_size = sizeof(GenHizPush),
+    .push_constant_size = s_cast<u32>(sizeof(GenHizPush) + GenHizTH::attachment_shader_data_size()),
     .name = std::string{"GenHiz"},
 };
 
 struct GenHizTask : GenHizTH
 {
+    GenHizTH::Views views = {};
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(GenHizTH{}.name()));
         auto const dispatch_x = round_up_div(context->settings.render_target_size.x, GEN_HIZ_WINDOW_X);
         auto const dispatch_y = round_up_div(context->settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
-        GenHizPush push{
+        ti.recorder.push_constant(GenHizPush{
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(GenHizTH){}.size()>(ti.attachment_shader_data_blob),
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
-            .mip_count = ti.img(mips).view.slice.level_count,
+            .mip_count = ti.get(mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
-        };
-        ti.recorder.push_constant(push);
+        });
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+            .offset = sizeof(GenHizPush),
+        });
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
     }
 };
@@ -71,11 +75,13 @@ daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGra
         .sample_count = 1,
         .name = "hiz",
     });
-    GenHizTask task = {};
-    task.context = context;
-    task.set_view(task.src, src);
-    task.set_view(task.mips, hiz);
-    task_graph.add_task(task);
+    task_graph.add_task(GenHizTask{
+        .views = std::array{
+            daxa::TaskViewVariant{std::pair{GenHizTask::src, src}},
+            daxa::TaskViewVariant{std::pair{GenHizTask::mips, hiz}},
+        },
+        .context = context,
+    });
     return hiz.view({.level_count = mip_count});
 }
 

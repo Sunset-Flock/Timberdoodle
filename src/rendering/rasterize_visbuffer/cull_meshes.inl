@@ -39,13 +39,13 @@ DAXA_DECL_TASK_HEAD_END
 struct CullMeshesCommandPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DAXA_TH_BLOB(CullMeshesCommand) uses;
+    DAXA_TH_BLOB(CullMeshesCommand, uses)
 };
 
 struct CullMesheshPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DAXA_TH_BLOB(CullMeshes) uses;
+    DAXA_TH_BLOB(CullMeshes, uses)
 };
 
 #if __cplusplus
@@ -58,28 +58,29 @@ using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<CullMes
 
 struct CullMeshesTask : CullMeshes
 {
+    CullMeshes::Views views = {};
     static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
         .shader_info =
             daxa::ShaderCompileInfo{
                 .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
             },
-        .push_constant_size = sizeof(CullMesheshPush),
+        .push_constant_size = s_cast<u32>(sizeof(CullMesheshPush) + CullMeshes::attachment_shader_data_size()),
         .name = std::string{CullMeshes{}.name()},
     };
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
-        CullMesheshPush push = {
-            .globals = context->shader_globals_address,
-        };
-        std::copy_n(ti.attachment_shader_data_blob.begin(), ti.attachment_shader_data_blob.size(), push.uses.begin());
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.buf(command).ids[0]});
+        ti.recorder.push_constant(CullMesheshPush{.globals = context->shader_globals_address});
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+            .offset = sizeof(CullMesheshPush),
+        });
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
     }
 };
 
-// TODO(msakmary) PATRICK REVIEW
 void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMeshesTask task)
 {
     auto command_buffer = task_list.create_transient_buffer({
@@ -87,15 +88,17 @@ void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMe
         .name = "CullMeshesCommand",
     });
 
-    CullMeshesCommandWriteTask write_task = {};
-    write_task.set_view(write_task.entity_meta, task.attachment(task.entity_meta).view);
-    write_task.set_view(write_task.command, command_buffer);
-    write_task.set_view(write_task.cull_meshlets_commands, task.attachment(task.cull_meshlets_commands).view);
-    write_task.set_view(write_task.meshlet_cull_indirect_args, task.attachment(task.meshlet_cull_indirect_args).view);
-    write_task.context = context;
-    task_list.add_task(write_task);
+    task_list.add_task(CullMeshesCommandWriteTask{
+        .views = std::array{
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::entity_meta.value))}},
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::command, command_buffer}},
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::cull_meshlets_commands, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::cull_meshlets_commands.value))}},
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::meshlet_cull_indirect_args, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::meshlet_cull_indirect_args.value))}},
+        },
+        .context = context,
+    });
 
-    task.set_view(task.command, command_buffer);
+    task.views.views.at(CullMeshesTask::command.value) = command_buffer;
     task_list.add_task(task);
 }
 

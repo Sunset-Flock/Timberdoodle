@@ -328,19 +328,22 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = sizeof(DispatchIndirectStruct) * 32,
         .name = "CullMeshletsCommands",
     });
-    // TODO(mskmary) I will fix this after Patrick decides if the likes the api I can pass here
-    // decltype(CullMeshes::attachments)
-    CullMeshesTask cull_meshes_task;
-    cull_meshes_task.context = context;
-    cull_meshes_task.set_view(cull_meshes_task.meshes, scene->_gpu_mesh_manifest);
-    cull_meshes_task.set_view(cull_meshes_task.entity_meta, scene->_gpu_entity_meta);
-    cull_meshes_task.set_view(cull_meshes_task.entity_meshgroup_indices, scene->_gpu_entity_mesh_groups);
-    cull_meshes_task.set_view(cull_meshes_task.meshgroups, scene->_gpu_mesh_group_manifest);
-    cull_meshes_task.set_view(cull_meshes_task.entity_transforms, scene->_gpu_entity_transforms);
-    cull_meshes_task.set_view(cull_meshes_task.entity_combined_transforms, scene->_gpu_entity_combined_transforms);
-    cull_meshes_task.set_view(cull_meshes_task.hiz, hiz);
-    cull_meshes_task.set_view(cull_meshes_task.meshlet_cull_indirect_args, meshlet_cull_indirect_args);
-    cull_meshes_task.set_view(cull_meshes_task.cull_meshlets_commands, cull_meshlets_commands);
+    CullMeshesTask cull_meshes_task = {
+        .views = std::array{
+            // TODO(msakmary) I assume this is set later so I just provide some invalid handle here
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::command, daxa::TaskBufferView{}}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshes, scene->_gpu_mesh_manifest}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_meta, scene->_gpu_entity_meta}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_meshgroup_indices, scene->_gpu_entity_mesh_groups}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshgroups, scene->_gpu_mesh_group_manifest}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_transforms, scene->_gpu_entity_transforms}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_combined_transforms, scene->_gpu_entity_combined_transforms}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::hiz, hiz}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshlet_cull_indirect_args, meshlet_cull_indirect_args}},
+            daxa::TaskViewVariant{std::pair{CullMeshesTask::cull_meshlets_commands, cull_meshlets_commands}},
+        },
+        .context = context
+    };
     tasks_cull_meshes(context, task_list, cull_meshes_task);
     task_cull_and_draw_visbuffer({
         .context = context,
@@ -366,14 +369,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, entity_meshlet_visibility_bitfield_arena, 0);
-    AnalyzeVisBufferTask2 analyze_task = {};
 
-    analyze_task.set_view(analyze_task.visbuffer, visbuffer);
-    analyze_task.set_view(analyze_task.instantiated_meshlets, meshlet_instances);
-    analyze_task.set_view(analyze_task.meshlet_visibility_bitfield, visible_meshlets_bitfield);
-    analyze_task.set_view(analyze_task.visible_meshlets, visible_meshlet_instances);
-    analyze_task.context = context;
-    task_list.add_task(analyze_task);
+    task_list.add_task(AnalyzeVisBufferTask2{
+        .views = std::array{
+            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::visbuffer, visbuffer}},
+            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::instantiated_meshlets, meshlet_instances}},
+            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::meshlet_visibility_bitfield, visible_meshlets_bitfield}},
+            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::visible_meshlets, visible_meshlet_instances}},
+        },
+        .context = context,
+    });
     if (context->settings.draw_from_observer)
     {
         task_draw_visbuffer({
@@ -392,23 +397,25 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 #if 0
 #endif
     task_list.submit({});
-    WriteSwapchainTask swapchain_task = {};
-    swapchain_task.set_view(swapchain_task.swapchain, swapchain_image);
-    swapchain_task.set_view(swapchain_task.vis_image, visbuffer);
-    swapchain_task.set_view(swapchain_task.debug_image, debug_image);
-    swapchain_task.set_view(swapchain_task.material_manifest, scene->_gpu_material_manifest);
-    swapchain_task.set_view(swapchain_task.instantiated_meshlets, meshlet_instances);
-    swapchain_task.context = context;
-    task_list.add_task(swapchain_task);
+    task_list.add_task(WriteSwapchainTask{
+        .views = std::array{
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::swapchain, swapchain_image}},
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::vis_image, visbuffer}},
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::debug_image, debug_image}},
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::material_manifest, scene->_gpu_material_manifest}},
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::instantiated_meshlets, meshlet_instances}},
+        },
+        .context = context,
+    });
 
     task_list.add_task({
-        .attachments = {daxa::TaskImageAttachment{.access = daxa::TaskImageAccess::COLOR_ATTACHMENT, .view = swapchain_image}},
+        .attachments = {daxa::inl_atch(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image)},
         .task =
             [=, this](daxa::TaskInterface ti)
         {
-            auto size = ti.device.info_image(ti.img(swapchain_image).ids[0]).value().size;
+            auto size = ti.device.info_image(ti.get(swapchain_image).ids[0]).value().size;
             imgui_renderer->record_commands(
-                ImGui::GetDrawData(), ti.recorder, ti.img(swapchain_image).ids[0], size.x, size.y);
+                ImGui::GetDrawData(), ti.recorder, ti.get(swapchain_image).ids[0], size.x, size.y);
         },
         .name = "ImGui Draw",
     });

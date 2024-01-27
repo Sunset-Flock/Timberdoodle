@@ -19,9 +19,9 @@ DAXA_DECL_TASK_HEAD_END
 struct WriteSwapchainPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
-    DAXA_TH_BLOB(WriteSwapchain) uses;
     daxa_u32 width;
     daxa_u32 height;
+    DAXA_TH_BLOB(WriteSwapchain, uses)
 };
 
 #define WRITE_SWAPCHAIN_WG_X 16
@@ -33,24 +33,28 @@ struct WriteSwapchainPush
 
 struct WriteSwapchainTask : WriteSwapchain
 {
-    static const inline daxa::ComputePipelineCompileInfo PIPELINE_COMPILE_INFO{
+    WriteSwapchain::Views views = {};
+    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.glsl"}},
-        .push_constant_size = sizeof(WriteSwapchainPush),
+        .push_constant_size = s_cast<u32>(sizeof(WriteSwapchainPush) + WriteSwapchain::attachment_shader_data_size()),
         .name = std::string{WriteSwapchain{}.name()},
     };
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(WriteSwapchain{}.name()));
-        u32 const dispatch_x = round_up_div(ti.device.info_image(ti.img(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
-        u32 const dispatch_y = round_up_div(ti.device.info_image(ti.img(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
-        auto push = WriteSwapchainPush{
+        u32 const dispatch_x = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
+        u32 const dispatch_y = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
+        ti.recorder.push_constant(WriteSwapchainPush{
             .globals = context->shader_globals_address,
-            .uses = span_to_array<DAXA_TH_BLOB(WriteSwapchain){}.size()>(ti.attachment_shader_data_blob),
-            .width = ti.device.info_image(ti.img(swapchain).ids[0]).value().size.x,
-            .height = ti.device.info_image(ti.img(swapchain).ids[0]).value().size.y,
-        };
-        ti.recorder.push_constant(push);
+            .width = ti.device.info_image(ti.get(swapchain).ids[0]).value().size.x,
+            .height = ti.device.info_image(ti.get(swapchain).ids[0]).value().size.y,
+        });
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+            .offset = sizeof(WriteSwapchainPush),
+        });
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
     }
 };

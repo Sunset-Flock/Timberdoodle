@@ -17,8 +17,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgro
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(
-    COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DrawIndirectStruct), draw_command)
@@ -26,10 +25,10 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshletsPush
 {
-    DAXA_TH_BLOB(CullMeshlets) uses;
     daxa_BufferPtr(ShaderGlobals) globals;
     daxa_u32 indirect_args_table_id;
     daxa_u32 meshlets_per_indirect_arg;
+    DAXA_TH_BLOB(CullMeshlets, uses)
 };
 
 #if __cplusplus
@@ -41,7 +40,8 @@ inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
 
 struct CullMeshletsTask : CullMeshlets
 {
-    GPUContext *context = {};
+    CullMeshlets::Views views = {};
+    GPUContext * context = {};
 
     inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
         .shader_info =
@@ -49,24 +49,27 @@ struct CullMeshletsTask : CullMeshlets
                 .source = daxa::ShaderFile{CULL_MESHLETS_SHADER_PATH},
                 .compile_options = {.defines = {{"CullMeshlets_", "1"}}},
             },
-        .push_constant_size = sizeof(CullMeshletsPush),
+        .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush) + CullMeshlets::attachment_shader_data_size()),
         .name = std::string{CullMeshlets{}.name()},
     };
 
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshlets{}.name()));
         for (u32 table = 0; table < 32; ++table)
         {
-            auto push = CullMeshletsPush{
-                .uses = span_to_array<DAXA_TH_BLOB(CullMeshlets){}.size()>(ti.attachment_shader_data_blob),
+            ti.recorder.push_constant(CullMeshletsPush{
                 .globals = context->shader_globals_address,
                 .indirect_args_table_id = table,
                 .meshlets_per_indirect_arg = (1u << table),
-            };
-            ti.recorder.push_constant(push);
+            });
+            ti.recorder.push_constant_vptr({
+                .data = ti.attachment_shader_data.data(),
+                .size = ti.attachment_shader_data.size(),
+                .offset = sizeof(CullMeshletsPush),
+            });
             ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.buf(commands).ids[0],
+                .indirect_buffer = ti.get(commands).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * table,
             });
         }

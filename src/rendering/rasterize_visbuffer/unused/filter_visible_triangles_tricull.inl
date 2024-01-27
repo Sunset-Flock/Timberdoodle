@@ -41,7 +41,7 @@ struct FilterVisibleTrianglesTask : FilterVisibleTriangles
         .name = std::string{FilterVisibleTriangles{}.name()},
     };
     GPUContext * context = {};
-    virtual void callback(daxa::TaskInterface ti) const override
+    void callback(daxa::TaskInterface ti)
     {
         auto & cmd = ti.get_recorder();
         cmd.set_uniform_buffer(context->shader_globals_set_info);
