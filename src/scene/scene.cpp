@@ -269,7 +269,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
             if (auto const * trs = std::get_if<fastgltf::Node::TRS>(&trans))
             {
                 auto const scaled = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
-                auto const quat_rotation_mat = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2])) * scaled;
+                auto const quat_rotation_mat = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));
                 auto const rotated_scaled = quat_rotation_mat * scaled;
                 auto const translated_rotated_scaled = glm::translate(
                                                            glm::identity<glm::mat4x4>(),
