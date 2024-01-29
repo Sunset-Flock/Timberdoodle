@@ -8,6 +8,7 @@
 #endif // DWMWA_USE_IMMERSIVE_DARK_MODE
 #endif // defined(_WIN32)
 
+#define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
 
 using namespace tido::types;
@@ -81,7 +82,7 @@ Window::Window(i32 width, i32 height, std::string_view name)
 /// NOTE: This makes the borders of the window dark mode on win 10 and 11
 #if defined(_WIN32)
     {
-        auto hwnd = r_cast<HWND>(glfw_handle);
+        auto hwnd = s_cast<HWND>(glfwGetWin32Window(glfw_handle));
         BOOL value = true;
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &value, sizeof(value));
         auto is_windows11_or_greater = []() -> bool
