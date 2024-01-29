@@ -74,23 +74,26 @@ static constexpr inline char const PREFIX_SUM_SHADER_PATH[] = "./src/rendering/t
 
 using PrefixSumCommandWriteTask =
     WriteIndirectDispatchArgsPushBaseTask<PrefixSumWriteCommand, PREFIX_SUM_SHADER_PATH, PrefixSumWriteCommandPush>;
-
-// Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
-struct PrefixSumUpsweepTask : PrefixSumUpsweep
+auto prefix_sum_write_command_pipeline_compile_info()
 {
-    PrefixSumUpsweep::Views views = {};
-    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
+    return write_indirect_dispatch_args_base_compile_pipeline_info<PrefixSumWriteCommand, PREFIX_SUM_SHADER_PATH, PrefixSumWriteCommandPush>();
+}
+// Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
+inline daxa::ComputePipelineCompileInfo prefix_sum_upsweep_pipeline_compile_info()
+{
+    return {
         .shader_info =
             daxa::ShaderCompileInfo{
                 .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-                .compile_options =
-                    {
-                        .defines = {{"UPSWEEP", "1"}},
-                    },
+                .compile_options = {.defines = {{"UPSWEEP", "1"}}},
             },
         .push_constant_size = s_cast<u32>(sizeof(PrefixSumUpsweepPush) + PrefixSumUpsweep::attachment_shader_data_size()),
         .name = std::string{PrefixSumUpsweep{}.name()},
     };
+}
+struct PrefixSumUpsweepTask : PrefixSumUpsweep
+{
+    PrefixSumUpsweep::AttachmentViews views = {};
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
@@ -110,21 +113,21 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweep
     }
 };
 
-struct PrefixSumDownsweepTask : PrefixSumDownsweep
+inline daxa::ComputePipelineCompileInfo prefix_sum_downsweep_pipeline_compile_info()
 {
-    PrefixSumDownsweep::Views views = {};
-    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
+    return {
         .shader_info =
             daxa::ShaderCompileInfo{
                 .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-                .compile_options =
-                    {
-                        .defines = {{"DOWNSWEEP", "1"}},
-                    },
+                .compile_options = {.defines = {{"DOWNSWEEP", "1"}}},
             },
         .push_constant_size = s_cast<u32>(sizeof(PrefixSumDownsweepPush) + PrefixSumDownsweep::attachment_shader_data_size()),
         .name = std::string{PrefixSumDownsweep{}.name()},
     };
+}
+struct PrefixSumDownsweepTask : PrefixSumDownsweep
+{
+    PrefixSumDownsweep::AttachmentViews views = {};
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};

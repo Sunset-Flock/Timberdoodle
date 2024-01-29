@@ -37,7 +37,7 @@ void main()
     deref(push.uses.cull_meshlets_commands[index]).z = 1;
 }
 #else
-DAXA_DECL_PUSH_CONSTANT(CullMesheshPush, push)
+DAXA_DECL_PUSH_CONSTANT(CullMeshesPush, push)
 layout(local_size_x = CULL_MESHES_WORKGROUP_X, local_size_y = CULL_MESHES_WORKGROUP_Y) in;
 void main()
 {

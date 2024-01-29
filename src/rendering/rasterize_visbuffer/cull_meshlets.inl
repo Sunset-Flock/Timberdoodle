@@ -38,12 +38,9 @@ struct CullMeshletsPush
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";
 
-struct CullMeshletsTask : CullMeshlets
+inline daxa::ComputePipelineCompileInfo cull_meshlets_pipeline_compile_info()
 {
-    CullMeshlets::Views views = {};
-    GPUContext * context = {};
-
-    inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
+    return {
         .shader_info =
             daxa::ShaderCompileInfo{
                 .source = daxa::ShaderFile{CULL_MESHLETS_SHADER_PATH},
@@ -52,6 +49,12 @@ struct CullMeshletsTask : CullMeshlets
         .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush) + CullMeshlets::attachment_shader_data_size()),
         .name = std::string{CullMeshlets{}.name()},
     };
+};
+
+struct CullMeshletsTask : CullMeshlets
+{
+    CullMeshlets::AttachmentViews views = {};
+    GPUContext * context = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -69,7 +72,7 @@ struct CullMeshletsTask : CullMeshlets
                 .offset = sizeof(CullMeshletsPush),
             });
             ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(commands).ids[0],
+                .indirect_buffer = ti.get(CullMeshlets::commands).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * table,
             });
         }

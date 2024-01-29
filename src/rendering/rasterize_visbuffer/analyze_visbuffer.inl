@@ -29,19 +29,22 @@ struct AnalyzeVisbufferPush2
 
 #include "../../gpu_context.hpp"
 
-struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
+inline daxa::ComputePipelineCompileInfo analyze_visbufer_pipeline_compile_info()
 {
-    AnalyzeVisbuffer2::Views views = {};
-    inline static daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
+    return {
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
         .push_constant_size = s_cast<u32>(sizeof(AnalyzeVisbufferPush2) + AnalyzeVisbuffer2::attachment_shader_data_size()),
-        .name = std::string{AnalyzeVisbuffer2{}.name()},
+        .name = std::string{AnalyzeVisbuffer2{}.name()}
     };
+};
+struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
+{
+    AnalyzeVisbuffer2::AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2{}.name()));
-        auto [x, y, z] = ti.device.info_image(ti.get(visbuffer).ids[0]).value().size;
+        auto [x, y, z] = ti.device.info_image(ti.get(AnalyzeVisbuffer2::visbuffer).ids[0]).value().size;
         ti.recorder.push_constant(AnalyzeVisbufferPush2{
             .globals = context->shader_globals_address,
             .size = {x, y},

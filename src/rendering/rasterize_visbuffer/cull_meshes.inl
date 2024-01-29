@@ -42,7 +42,7 @@ struct CullMeshesCommandPush
     DAXA_TH_BLOB(CullMeshesCommand, uses)
 };
 
-struct CullMesheshPush
+struct CullMeshesPush
 {
     daxa_BufferPtr(ShaderGlobals) globals;
     DAXA_TH_BLOB(CullMeshes, uses)
@@ -55,29 +55,34 @@ struct CullMesheshPush
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
 
 using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
+auto cull_meshes_write_command_pipeline_compile_info()
+{
+    return write_indirect_dispatch_args_base_compile_pipeline_info<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>();
+}
+
+inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{.source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH}},
+        .push_constant_size = s_cast<u32>(sizeof(CullMeshesPush) + CullMeshes::attachment_shader_data_size()),
+        .name = std::string{CullMeshes{}.name()},
+    };
+}
 
 struct CullMeshesTask : CullMeshes
 {
-    CullMeshes::Views views = {};
-    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO = {
-        .shader_info =
-            daxa::ShaderCompileInfo{
-                .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
-            },
-        .push_constant_size = s_cast<u32>(sizeof(CullMesheshPush) + CullMeshes::attachment_shader_data_size()),
-        .name = std::string{CullMeshes{}.name()},
-    };
+    CullMeshes::AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
-        ti.recorder.push_constant(CullMesheshPush{.globals = context->shader_globals_address});
+        ti.recorder.push_constant(CullMeshesPush{.globals = context->shader_globals_address});
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(CullMesheshPush),
+            .offset = sizeof(CullMeshesPush),
         });
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(CullMeshes::command).ids[0]});
     }
 };
 

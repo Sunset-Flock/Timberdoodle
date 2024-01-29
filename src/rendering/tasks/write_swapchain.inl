@@ -31,14 +31,17 @@ struct WriteSwapchainPush
 
 #include "../../gpu_context.hpp"
 
-struct WriteSwapchainTask : WriteSwapchain
+inline daxa::ComputePipelineCompileInfo write_swapchain_pipeline_compile_info()
 {
-    WriteSwapchain::Views views = {};
-    static inline daxa::ComputePipelineCompileInfo const PIPELINE_COMPILE_INFO{
+    return {
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.glsl"}},
         .push_constant_size = s_cast<u32>(sizeof(WriteSwapchainPush) + WriteSwapchain::attachment_shader_data_size()),
         .name = std::string{WriteSwapchain{}.name()},
     };
+};
+struct WriteSwapchainTask : WriteSwapchain
+{
+    WriteSwapchain::AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {

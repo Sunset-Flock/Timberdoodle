@@ -39,10 +39,8 @@ Renderer::Renderer(
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
-    meshlet_instances_last_frame =
-        create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
-    visible_meshlet_instances =
-        create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
+    meshlet_instances_last_frame = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
+    visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances};
 
@@ -128,12 +126,11 @@ Renderer::~Renderer()
 
 void Renderer::compile_pipelines()
 {
-    std::vector<std::tuple<std::string_view, daxa::RasterPipelineCompileInfo>> rasters = {
-        {DrawVisbufferTask::PIPELINE_COMPILE_INFO.name, DrawVisbufferTask::PIPELINE_COMPILE_INFO},
+    std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
+        {draw_visbuffer_no_mesh_shader_pipeline_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_compile_info()},
 #if COMPILE_IN_MESH_SHADER
-        {DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW.name,
-            DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER_CULL_AND_DRAW},
-        {DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER.name, DRAW_VISBUFFER_PIPELINE_COMPILE_INFO_MESH_SHADER},
+        {draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name, draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()},
+        {draw_visbuffer_mesh_shader_pipeline_compile_info().name, draw_visbuffer_mesh_shader_pipeline_compile_info()},
 #endif
     };
     for (auto [name, info] : rasters)
@@ -151,20 +148,19 @@ void Renderer::compile_pipelines()
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {SetEntityMeshletVisibilityBitMasksTask{}.name(), SetEntityMeshletVisibilityBitMasksTask::PIPELINE_COMPILE_INFO},
-        {PrepopulateInstantiatedMeshletsTask{}.name(), PrepopulateInstantiatedMeshletsTask::PIPELINE_COMPILE_INFO},
-        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(),
-            PrepopulateInstantiatedMeshletsCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {AnalyzeVisBufferTask2{}.name(), AnalyzeVisBufferTask2::PIPELINE_COMPILE_INFO},
-        {GenHizTH{}.name(), GEN_HIZ_PIPELINE_COMPILE_INFO},
-        {WriteSwapchainTask{}.name(), WriteSwapchainTask::PIPELINE_COMPILE_INFO},
-        {DrawVisbuffer_WriteCommandTask{}.name(), DrawVisbuffer_WriteCommandTask::PIPELINE_COMPILE_INFO},
-        {CullMeshesCommandWriteTask{}.name(), CullMeshesCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {CullMeshesTask{}.name(), CullMeshesTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumCommandWriteTask{}.name(), PrefixSumCommandWriteTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumUpsweepTask{}.name(), PrefixSumUpsweepTask::PIPELINE_COMPILE_INFO},
-        {PrefixSumDownsweepTask{}.name(), PrefixSumDownsweepTask::PIPELINE_COMPILE_INFO},
-        {CullMeshletsTask{}.name(), CullMeshletsTask::PIPELINE_COMPILE_INFO},
+        {SetEntityMeshletVisibilityBitMasksTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
+        {PrepopulateInstantiatedMeshletsTask{}.name(), prepopulate_inst_meshlets_pipeline_compile_info()},
+        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(), prepopulate_instantiated_meshlets_command_write_pipeline_compile_info()},
+        {AnalyzeVisBufferTask2{}.name(), analyze_visbufer_pipeline_compile_info()},
+        {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
+        {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
+        {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
+        {CullMeshesCommandWriteTask{}.name(), cull_meshes_write_command_pipeline_compile_info()},
+        {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
+        {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},
+        {PrefixSumUpsweepTask{}.name(), prefix_sum_upsweep_pipeline_compile_info()},
+        {PrefixSumDownsweepTask{}.name(), prefix_sum_downsweep_pipeline_compile_info()},
+        {CullMeshletsTask{}.name(), cull_meshlets_pipeline_compile_info()},
     };
     for (auto [name, info] : computes)
     {
@@ -300,10 +296,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
     task_prepopulate_instantiated_meshlets(context, task_list,
         PrepopInfo{
-            .meshes = scene->_gpu_mesh_manifest,
-            .visible_meshlets_prev = visible_meshlet_instances,
-            .meshlet_instances_last_frame = meshlet_instances_last_frame,
-            .meshlet_instances = meshlet_instances,
+            .meshes = scene->_gpu_mesh_manifest.view(),
+            .visible_meshlets_prev = visible_meshlet_instances.view(),
+            .meshlet_instances_last_frame = meshlet_instances_last_frame.view(),
+            .meshlet_instances = meshlet_instances.view(),
             .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
             .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
         });
@@ -342,8 +338,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::TaskViewVariant{std::pair{CullMeshesTask::meshlet_cull_indirect_args, meshlet_cull_indirect_args}},
             daxa::TaskViewVariant{std::pair{CullMeshesTask::cull_meshlets_commands, cull_meshlets_commands}},
         },
-        .context = context
-    };
+        .context = context};
     tasks_cull_meshes(context, task_list, cull_meshes_task);
     task_cull_and_draw_visbuffer({
         .context = context,
@@ -409,13 +404,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
 
     task_list.add_task({
-        .attachments = {daxa::inl_atch(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image)},
+        .attachments = {daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image)},
         .task =
             [=, this](daxa::TaskInterface ti)
         {
-            auto size = ti.device.info_image(ti.get(swapchain_image).ids[0]).value().size;
+            auto size = ti.device.info_image(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
             imgui_renderer->record_commands(
-                ImGui::GetDrawData(), ti.recorder, ti.get(swapchain_image).ids[0], size.x, size.y);
+                ImGui::GetDrawData(), ti.recorder, ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0], size.x, size.y);
         },
         .name = "ImGui Draw",
     });

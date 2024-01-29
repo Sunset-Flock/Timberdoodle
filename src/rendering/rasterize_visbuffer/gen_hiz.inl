@@ -31,15 +31,18 @@ struct GenHizPush
 #include <format>
 #include "../../gpu_context.hpp"
 
-inline static daxa::ComputePipelineCompileInfo const GEN_HIZ_PIPELINE_COMPILE_INFO{
-    .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},
-    .push_constant_size = s_cast<u32>(sizeof(GenHizPush) + GenHizTH::attachment_shader_data_size()),
-    .name = std::string{"GenHiz"},
+inline daxa::ComputePipelineCompileInfo gen_hiz_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},
+        .push_constant_size = s_cast<u32>(sizeof(GenHizPush) + GenHizTH::attachment_shader_data_size()),
+        .name = std::string{"GenHiz"},
+    };
 };
 
 struct GenHizTask : GenHizTH
 {
-    GenHizTH::Views views = {};
+    GenHizTH::AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
@@ -49,7 +52,7 @@ struct GenHizTask : GenHizTH
         ti.recorder.push_constant(GenHizPush{
             .globals = context->shader_globals_address,
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
-            .mip_count = ti.get(mips).view.slice.level_count,
+            .mip_count = ti.get(GenHizTH::mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
         });
         ti.recorder.push_constant_vptr({

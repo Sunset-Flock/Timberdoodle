@@ -22,7 +22,7 @@ struct GPUContext
     daxa::types::DeviceAddress shader_globals_address = {};
 
     // Pipelines:
-    std::unordered_map<std::string_view, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
+    std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
     std::unordered_map<std::string_view, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
 
     // Data
