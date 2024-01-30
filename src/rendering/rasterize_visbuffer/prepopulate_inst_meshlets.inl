@@ -159,7 +159,8 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
             daxa::TaskViewVariant{std::pair{PrepopulateInstantiatedMeshletsTask::instantiated_meshlets, info.meshlet_instances}},
             daxa::TaskViewVariant{std::pair{PrepopulateInstantiatedMeshletsTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets}},
         },
-        .context = context});
+        .context = context,
+    });
 
     tg.add_task(SetEntityMeshletVisibilityBitMasksTask{
         .views = std::array{
@@ -168,6 +169,7 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
             daxa::TaskViewVariant{std::pair{SetEntityMeshletVisibilityBitMasksTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets}},
             daxa::TaskViewVariant{std::pair{SetEntityMeshletVisibilityBitMasksTask::entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena}},
         },
-        .context = context});
+        .context = context,
+    });
 }
 #endif

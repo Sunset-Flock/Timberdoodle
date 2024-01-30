@@ -64,14 +64,6 @@ void main()
     {
         return;
     }
-    // if (entity_index != (deref(push.globals).frame_index / 10) % 2480)
-    // {
-    //     return;
-    // }
-    if (entity_index == 0)
-    {
-        return;
-    }
 
     // How does this work?
     // - this is an asymertric work distribution problem

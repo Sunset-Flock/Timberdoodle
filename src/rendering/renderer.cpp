@@ -296,10 +296,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
     task_prepopulate_instantiated_meshlets(context, task_list,
         PrepopInfo{
-            .meshes = scene->_gpu_mesh_manifest.view(),
-            .visible_meshlets_prev = visible_meshlet_instances.view(),
-            .meshlet_instances_last_frame = meshlet_instances_last_frame.view(),
-            .meshlet_instances = meshlet_instances.view(),
+            .meshes = scene->_gpu_mesh_manifest,
+            .visible_meshlets_prev = visible_meshlet_instances,
+            .meshlet_instances_last_frame = meshlet_instances_last_frame,
+            .meshlet_instances = meshlet_instances,
             .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
             .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
         });

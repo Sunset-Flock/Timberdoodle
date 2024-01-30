@@ -755,7 +755,7 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
     u32 const total_gpu_mesh_size = accumulated_offset;
     mesh_descriptor.mesh_buffer = _device.create_buffer({
         .size = s_cast<daxa::usize>(total_gpu_mesh_size),
-        .name = gltf_mesh.name.c_str(),
+        .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(mesh_data.scene_file_primitive_index),
     });
     daxa::DeviceAddress bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh_descriptor.mesh_buffer)).value();
     mesh_data.runtime = mesh_descriptor;
@@ -764,7 +764,7 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
     daxa::BufferId staging_buffer = _device.create_buffer({
         .size = s_cast<daxa::usize>(total_gpu_mesh_size),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = std::string(gltf_mesh.name.c_str()) + " staging",
+        .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(mesh_data.scene_file_primitive_index) + " staging",
     });
     auto staging_ptr = _device.get_host_address(staging_buffer).value();
     std::memcpy(
@@ -812,7 +812,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     for (MeshUpload & mesh_upload : _upload_mesh_queue)
     {
         MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
-        daxa::BufferId staging_buffer = mesh_upload.staging_buffer;
+        const daxa::BufferId staging_buffer = mesh_upload.staging_buffer;
         daxa::BufferId mesh_buffer = std::bit_cast<daxa::BufferId>(mesh_entry.runtime.value().mesh_buffer);
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
         recorder.copy_buffer_to_buffer({
@@ -821,8 +821,6 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .size = _device.info_buffer(mesh_buffer).value().size,
         });
         recorder.destroy_buffer_deferred(staging_buffer);
-        /// NOTE: write an update to the meshes info buffer array.
-        auto const gpu_meshes_buffer = mesh_upload.scene->_gpu_mesh_group_manifest.get_state().buffers[0];
         // TODO: replace staging buffer with offset into staging memory pool!
         auto const meshes_buffer_update_staging_buffer = _device.create_buffer({
             .size = sizeof(GPUMesh),
@@ -830,7 +828,6 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .name = "gpumeshes update",
         });
 
-        recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
         auto const & mesh_descriptor = mesh_entry.runtime.value();
         auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
         *_device.get_host_address_as<GPUMesh>(meshes_buffer_update_staging_buffer).value() = {
@@ -853,14 +850,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .dst_offset = sizeof(GPUMesh) * mesh_upload.mesh_manifest_index,
             .size = sizeof(GPUMesh),
         });
-        recorder.destroy_buffer_deferred(staging_buffer);
-        /// NOTE: Copy the actual mesh data from the staging buffer to the actual buffer.
-        recorder.copy_buffer_to_buffer({
-            .src_buffer = mesh_upload.staging_buffer,
-            .dst_buffer = mesh_buffer,
-            .size = _device.info_buffer(mesh_upload.staging_buffer).value().size,
-        });
-        recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
+        recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
     }
     recorder.pipeline_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
