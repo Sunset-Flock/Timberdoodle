@@ -742,7 +742,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
     daxa::BufferId staging_buffer = _device.create_buffer({
         .size = s_cast<daxa::usize>(total_mesh_buffer_size),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = std::string(gltf_mesh.name.c_str()) + " staging",
+        .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(mesh_data.scene_file_primitive_index) + " staging",
     });
     auto staging_ptr = _device.get_host_address(staging_buffer).value();
 
@@ -814,6 +814,9 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
     for (MeshUpload & mesh_upload : _upload_mesh_queue)
     {
+        MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
+        daxa::BufferId staging_buffer = mesh_upload.staging_buffer;
+        daxa::BufferId mesh_buffer = std::bit_cast<daxa::BufferId>(mesh_entry.runtime.value().mesh_buffer);
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_upload.staging_buffer,
