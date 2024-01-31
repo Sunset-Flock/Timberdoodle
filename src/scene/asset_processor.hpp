@@ -70,6 +70,8 @@ struct AssetProcessor
     using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
     auto load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet;
 
+    using MeshLoadRet = std::variant<AssetLoadResultCode, GPUMesh>;
+
     /**
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
@@ -80,14 +82,22 @@ struct AssetProcessor
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_mesh(Scene & scene, u32 mesh_manifest_index) -> AssetLoadResultCode;
+    struct LoadMeshInfo
+    {
+        std::filesystem::path asset_path;
+        fastgltf::Asset & asset;
+        u32 gltf_mesh_index;
+        u32 gltf_primitive_index;
+        u32 global_material_manifest_offset;
+    };
+    auto load_mesh(LoadMeshInfo const & info) -> MeshLoadRet;
 
     /**
      * Loads all unloded meshes and material textures for the given scene.
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_all(Scene & scene) -> AssetLoadResultCode;
+    // auto load_all(Scene & scene) -> AssetLoadResultCode;
 
     /**
      * NOTE:
@@ -121,9 +131,8 @@ struct AssetProcessor
     struct MeshUpload
     {
         // TODO: replace with buffer offset into staging memory.
-        Scene * scene = {};
         daxa::BufferId staging_buffer = {};
-        u32 mesh_manifest_index = {};
+        daxa::BufferId mesh_buffer = {};
     };
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.

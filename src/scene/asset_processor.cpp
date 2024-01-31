@@ -458,7 +458,7 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
 auto AssetProcessor::load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode
 {
     TextureManifestEntry const & texture_entry = scene._material_texture_manifest.at(texture_manifest_index);
-    SceneFileManifestEntry const & scene_entry = scene._scene_file_manifest.at(texture_entry.scene_file_manifest_index);
+    GltfAssetManifestEntry const & scene_entry = scene._gltf_asset_manifest.at(texture_entry.scene_file_manifest_index);
     fastgltf::Asset const & gltf_asset = scene_entry.gltf_asset;
     fastgltf::Image const & image = gltf_asset.images.at(texture_entry.in_scene_file_index);
     std::vector<std::byte> raw_data = {};
@@ -595,13 +595,11 @@ auto load_accessor_data_from_file(
     return {std::move(ret)};
 }
 
-auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor::AssetLoadResultCode
+auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
 {
-    MeshManifestEntry & mesh_data = scene._mesh_manifest.at(mesh_index);
-    SceneFileManifestEntry & gltf_scene = scene._scene_file_manifest.at(mesh_data.scene_file_manifest_index);
-    fastgltf::Asset & gltf_asset = gltf_scene.gltf_asset;
-    fastgltf::Mesh & gltf_mesh = gltf_asset.meshes[mesh_data.scene_file_mesh_index];
-    fastgltf::Primitive & gltf_prim = gltf_mesh.primitives[mesh_data.scene_file_primitive_index];
+    fastgltf::Asset & gltf_asset = info.asset;
+    fastgltf::Mesh & gltf_mesh = gltf_asset.meshes[info.gltf_mesh_index];
+    fastgltf::Primitive & gltf_prim = gltf_mesh.primitives[info.gltf_primitive_index];
 
 /// NOTE: Process indices (they are required)
 #pragma region INDICES
@@ -619,7 +617,7 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR;
     }
-    auto index_buffer_data = load_accessor_data_from_file<u32, true>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, index_buffer_gltf_accessor);
+    auto index_buffer_data = load_accessor_data_from_file<u32, true>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, index_buffer_gltf_accessor);
     if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&index_buffer_data))
     {
         return *err;
@@ -643,7 +641,7 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_POSITIONS;
     }
     // TODO: we can probably load this directly into the staging buffer.
-    auto vertex_pos_result = load_accessor_data_from_file<glm::vec3, false>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, gltf_vertex_pos_accessor);
+    auto vertex_pos_result = load_accessor_data_from_file<glm::vec3, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_pos_accessor);
     if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_pos_result))
     {
         return *err;
@@ -667,7 +665,7 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
-    auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{gltf_scene.path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
+    auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
     if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
     {
         return *err;
@@ -725,83 +723,88 @@ auto AssetProcessor::load_mesh(Scene & scene, u32 mesh_index) -> AssetProcessor:
     meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
     meshlets.resize(meshlet_count);
 
-    /// NOTE: Write Mesh descriptor.
-    GPUMeshDescriptor mesh_descriptor = {};
-    u32 accumulated_offset = 0;
-    // ---
-    mesh_descriptor.offset_meshlets = accumulated_offset;
-    accumulated_offset += sizeof(Meshlet) * meshlet_count;
-    // ---
-    mesh_descriptor.offset_meshlet_bounds = accumulated_offset;
-    accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
-    // ---
-    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
-    mesh_descriptor.offset_micro_indices = accumulated_offset;
-    accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
-    // ---
-    mesh_descriptor.offset_indirect_vertices = accumulated_offset;
-    accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
-    // ---
-    mesh_descriptor.offset_vertex_positions = accumulated_offset;
-    accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
-    // ---
-    mesh_descriptor.offset_vertex_texcoodrs0 = accumulated_offset;
-    accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
-    // ---
-    /// TODO: If there is no material index add default debug material?
-    mesh_descriptor.material_index = gltf_scene.material_manifest_offset + gltf_prim.materialIndex.value();
-    mesh_descriptor.meshlet_count = meshlet_count;
-    mesh_descriptor.vertex_count = vertex_count;
-    u32 const total_gpu_mesh_size = accumulated_offset;
-    mesh_descriptor.mesh_buffer = _device.create_buffer({
-        .size = s_cast<daxa::usize>(total_gpu_mesh_size),
+    u32 const total_mesh_buffer_size = 
+        sizeof(Meshlet) * meshlet_count + 
+        sizeof(BoundingSphere) * meshlet_count + 
+        sizeof(u8) * meshlet_micro_indices.size() + 
+        sizeof(u32) * meshlet_indirect_vertices.size() +
+        sizeof(daxa_f32vec3) * vert_positions.size() +
+        sizeof(daxa_f32vec2) * vert_texcoord0.size();
+
+    /// NOTE: Fill GPUMesh runtime data
+    GPUMesh mesh = {};
+    mesh.mesh_buffer = _device.create_buffer({
+        .size = s_cast<daxa::usize>(total_mesh_buffer_size),
         .name = gltf_mesh.name.c_str(),
     });
-    daxa::DeviceAddress bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh_descriptor.mesh_buffer)).value();
-    mesh_data.runtime = mesh_descriptor;
+    daxa::DeviceAddress mesh_bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
-    /// NOTE: Write mesh into staging memory.
     daxa::BufferId staging_buffer = _device.create_buffer({
-        .size = s_cast<daxa::usize>(total_gpu_mesh_size),
+        .size = s_cast<daxa::usize>(total_mesh_buffer_size),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = std::string(gltf_mesh.name.c_str()) + " staging",
     });
     auto staging_ptr = _device.get_host_address(staging_buffer).value();
+
+    u32 accumulated_offset = 0;
+    // ---
+    mesh.meshlets = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_meshlets,
+        staging_ptr + accumulated_offset,
         meshlets.data(),
         meshlets.size() * sizeof(Meshlet));
+    accumulated_offset += sizeof(Meshlet) * meshlet_count;
+    // ---
+    mesh.meshlet_bounds = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_meshlet_bounds,
+        staging_ptr + accumulated_offset,
         meshlet_bounds.data(),
         meshlet_bounds.size() * sizeof(BoundingSphere));
+    accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
+    // ---
+    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
+    mesh.micro_indices = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_micro_indices,
+        staging_ptr + accumulated_offset,
         meshlet_micro_indices.data(),
         meshlet_micro_indices.size() * sizeof(u8));
+    accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
+    // ---
+    mesh.indirect_vertices = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_indirect_vertices,
+        staging_ptr + accumulated_offset,
         meshlet_indirect_vertices.data(),
         meshlet_indirect_vertices.size() * sizeof(u32));
+    accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
+    // ---
+    mesh.vertex_positions = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_vertex_positions,
+        staging_ptr + accumulated_offset,
         vert_positions.data(),
         vert_positions.size() * sizeof(daxa_f32vec3));
+    accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
+    // ---
+    mesh.vertex_uvs = mesh_bda + accumulated_offset;
     std::memcpy(
-        staging_ptr + mesh_descriptor.offset_vertex_texcoodrs0,
+        staging_ptr + accumulated_offset,
         vert_texcoord0.data(),
         vert_positions.size() * sizeof(daxa_f32vec2));
+    // ---
+    /// TODO: If there is no material index add default debug material?
+    mesh.material_index = info.global_material_manifest_offset + gltf_prim.materialIndex.value();
+    mesh.meshlet_count = meshlet_count;
+    mesh.vertex_count = vertex_count;
+
 
     /// NOTE: Append the processed mesh to the upload queue.
     {
         std::unique_lock l{*_mtx};
         _upload_mesh_queue.push_back(MeshUpload{
-            .scene = &scene,
             .staging_buffer = staging_buffer,
-            .mesh_manifest_index = mesh_index,
+            .mesh_buffer = std::bit_cast<daxa::BufferId>(mesh.mesh_buffer),
         });
     }
-    return AssetProcessor::AssetLoadResultCode::SUCCESS;
+    return mesh;
 }
 
 auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCommandList
@@ -811,56 +814,55 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
     for (MeshUpload & mesh_upload : _upload_mesh_queue)
     {
-        MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
-        daxa::BufferId staging_buffer = mesh_upload.staging_buffer;
-        daxa::BufferId mesh_buffer = std::bit_cast<daxa::BufferId>(mesh_entry.runtime.value().mesh_buffer);
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
         recorder.copy_buffer_to_buffer({
-            .src_buffer = staging_buffer,
-            .dst_buffer = mesh_buffer,
-            .size = _device.info_buffer(mesh_buffer).value().size,
-        });
-        recorder.destroy_buffer_deferred(staging_buffer);
-        /// NOTE: write an update to the meshes info buffer array.
-        auto const gpu_meshes_buffer = mesh_upload.scene->_gpu_mesh_group_manifest.get_state().buffers[0];
-        // TODO: replace staging buffer with offset into staging memory pool!
-        auto const meshes_buffer_update_staging_buffer = _device.create_buffer({
-            .size = sizeof(GPUMesh),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-            .name = "gpumeshes update",
-        });
-
-        recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
-        auto const & mesh_descriptor = mesh_entry.runtime.value();
-        auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
-        *_device.get_host_address_as<GPUMesh>(meshes_buffer_update_staging_buffer).value() = {
-            .mesh_buffer = mesh_descriptor.mesh_buffer,
-            .material_index = mesh_descriptor.material_index,
-            .meshlet_count = mesh_descriptor.meshlet_count,
-            .vertex_count = mesh_descriptor.vertex_count,
-            .meshlets = mesh_buffer_bda + mesh_descriptor.offset_meshlets,
-            .meshlet_bounds = mesh_buffer_bda + mesh_descriptor.offset_meshlet_bounds,
-            .micro_indices = mesh_buffer_bda + mesh_descriptor.offset_micro_indices,
-            .indirect_vertices = mesh_buffer_bda + mesh_descriptor.offset_indirect_vertices,
-            .vertex_positions = mesh_buffer_bda + mesh_descriptor.offset_vertex_positions,
-            .vertex_uvs = mesh_buffer_bda + mesh_descriptor.offset_vertex_texcoodrs0,
-        };
-        daxa::BufferId gpu_mesh_manifest = mesh_upload.scene->_gpu_mesh_manifest.get_state().buffers[0];
-        /// NOTE: Write the mesh manifest on the gpu.
-        recorder.copy_buffer_to_buffer({
-            .src_buffer = meshes_buffer_update_staging_buffer,
-            .dst_buffer = gpu_mesh_manifest,
-            .dst_offset = sizeof(GPUMesh) * mesh_upload.mesh_manifest_index,
-            .size = sizeof(GPUMesh),
-        });
-        recorder.destroy_buffer_deferred(staging_buffer);
-        /// NOTE: Copy the actual mesh data from the staging buffer to the actual buffer.
-        recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_upload.staging_buffer,
-            .dst_buffer = mesh_buffer,
-            .size = _device.info_buffer(mesh_upload.staging_buffer).value().size,
+            .dst_buffer = mesh_upload.mesh_buffer,
+            .size = _device.info_buffer(mesh_upload.mesh_buffer).value().size,
         });
         recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
+
+        // /// NOTE: write an update to the meshes info buffer array.
+        // MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
+        // auto const gpu_meshes_buffer = mesh_upload.scene->_gpu_mesh_group_manifest.get_state().buffers[0];
+        // // TODO: replace staging buffer with offset into staging memory pool!
+        // auto const meshes_buffer_update_staging_buffer = _device.create_buffer({
+        //     .size = sizeof(GPUMesh),
+        //     .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        //     .name = "gpumeshes update",
+        // });
+
+        // recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
+        // auto const & mesh_descriptor = mesh_entry.runtime.value();
+        // auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
+        // *_device.get_host_address_as<GPUMesh>(meshes_buffer_update_staging_buffer).value() = {
+        //     .mesh_buffer = mesh_descriptor.mesh_buffer,
+        //     .material_index = mesh_descriptor.material_index,
+        //     .meshlet_count = mesh_descriptor.meshlet_count,
+        //     .vertex_count = mesh_descriptor.vertex_count,
+        //     .meshlets = mesh_buffer_bda + mesh_descriptor.offset_meshlets,
+        //     .meshlet_bounds = mesh_buffer_bda + mesh_descriptor.offset_meshlet_bounds,
+        //     .micro_indices = mesh_buffer_bda + mesh_descriptor.offset_micro_indices,
+        //     .indirect_vertices = mesh_buffer_bda + mesh_descriptor.offset_indirect_vertices,
+        //     .vertex_positions = mesh_buffer_bda + mesh_descriptor.offset_vertex_positions,
+        //     .vertex_uvs = mesh_buffer_bda + mesh_descriptor.offset_vertex_texcoodrs0,
+        // };
+        // daxa::BufferId gpu_mesh_manifest = mesh_upload.scene->_gpu_mesh_manifest.get_state().buffers[0];
+        // /// NOTE: Write the mesh manifest on the gpu.
+        // recorder.copy_buffer_to_buffer({
+        //     .src_buffer = meshes_buffer_update_staging_buffer,
+        //     .dst_buffer = gpu_mesh_manifest,
+        //     .dst_offset = sizeof(GPUMesh) * mesh_upload.mesh_manifest_index,
+        //     .size = sizeof(GPUMesh),
+        // });
+        // recorder.destroy_buffer_deferred(staging_buffer);
+        // /// NOTE: Copy the actual mesh data from the staging buffer to the actual buffer.
+        // recorder.copy_buffer_to_buffer({
+        //     .src_buffer = mesh_upload.staging_buffer,
+        //     .dst_buffer = mesh_buffer,
+        //     .size = _device.info_buffer(mesh_upload.staging_buffer).value().size,
+        // });
+        // recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
     }
     recorder.pipeline_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
@@ -983,34 +985,34 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     return recorder.complete_current_commands();
 }
 
-auto AssetProcessor::load_all(Scene & scene) -> AssetProcessor::AssetLoadResultCode
-{
-    std::optional<AssetProcessor::AssetLoadResultCode> err = {};
-    // for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
-    // {
-    //     if (!scene._material_texture_manifest.at(i).runtime.has_value())
-    //     {
-    //         auto result = load_texture(scene, i);
-    //         if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-    //         {
-    //             err = result;
-    //         }
-    //     }
-    // }
-    for (u32 i = 0; i < scene._mesh_manifest.size(); ++i)
-    {
-        if (!scene._mesh_manifest.at(i).runtime.has_value())
-        {
-            auto result = load_mesh(scene, i);
-            if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-            {
-                err = result;
-            }
-        }
-    }
-    if (err.has_value())
-    {
-        return err.value();
-    }
-    return AssetProcessor::AssetLoadResultCode::SUCCESS;
-}
+// auto AssetProcessor::load_all(Scene & scene) -> AssetProcessor::AssetLoadResultCode
+// {
+//     std::optional<AssetProcessor::AssetLoadResultCode> err = {};
+//     // for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
+//     // {
+//     //     if (!scene._material_texture_manifest.at(i).runtime.has_value())
+//     //     {
+//     //         auto result = load_texture(scene, i);
+//     //         if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
+//     //         {
+//     //             err = result;
+//     //         }
+//     //     }
+//     // }
+//     for (u32 i = 0; i < scene._mesh_manifest.size(); ++i)
+//     {
+//         if (!scene._mesh_manifest.at(i).runtime.has_value())
+//         {
+//             auto result = load_mesh(scene, i);
+//             if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
+//             {
+//                 err = result;
+//             }
+//         }
+//     }
+//     if (err.has_value())
+//     {
+//         return err.value();
+//     }
+//     return AssetProcessor::AssetLoadResultCode::SUCCESS;
+// }

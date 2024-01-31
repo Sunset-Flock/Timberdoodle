@@ -38,7 +38,11 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         lock.lock();
         current_chunk.task->not_finished -= 1;
         // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
-        if (current_chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
+        if (current_chunk.task->not_finished == 0) 
+        { 
+            shared_data->work_done.notify_all(); 
+            current_chunk.task->done = {true};
+        }
     }
 }
 

@@ -25,6 +25,8 @@ struct Task
     virtual ~Task() = default;
     virtual void callback(u32 chunk_index, u32 thread_index) = 0;
 
+    std::atomic_bool done = {};
+
     u32 padd0[64] = {};
     u32 chunk_count = {};
     u32 padd1[64] = {};

@@ -10,6 +10,7 @@
 #include "../shader_shared/asset.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
+#include "../multithreading/thread_pool.hpp"
 using namespace tido::types;
 /**
  * DESCRIPTION:
@@ -54,25 +55,27 @@ struct MaterialManifestEntry
 
 struct MeshManifestEntry
 {
-    std::optional<u32> material_manifest_index = {};
-    u32 scene_file_manifest_index = {};
-    u32 scene_file_mesh_index = {};
-    u32 scene_file_primitive_index = {};
-    std::optional<GPUMeshDescriptor> runtime = {};
+    u32 gltf_asset_manifest_index = {};
+    u32 asset_local_mesh_index = {};
+    u32 asset_local_primitive_index = {};
+    std::optional<GPUMesh> runtime = {};
 };
 
 struct MeshGroupManifestEntry
 {
-    std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices = {};
+    std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices = {}; 
     u32 mesh_count = {};
-    u32 scene_file_manifest_index = {};
-    u32 in_scene_file_index = {};
+    u32 gltf_asset_manifest_index = {};
+    u32 asset_local_index = {};
     std::string name = {};
 };
 
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
+// TODO(msakmary) This assumes entity is only one of these types exclusively however this is not true
+//                for example, an entity can be both Transform (aka parent to other entities) and
+//                Meshgroup (aka have a meshgroup index and represent mesh)
 enum struct EntityType
 {
     ROOT,
@@ -94,12 +97,13 @@ struct RenderEntity
     std::string name = {};
 };
 
-struct SceneFileManifestEntry
+struct GltfAssetManifestEntry
 {
     std::filesystem::path path = {};
     fastgltf::Asset gltf_asset{};
-    /// @brief  Offsets of the gltf indices to the loaded manifest indices.
-    ///         Subtracting the scene offset from the manifest index gives you the gltf index.
+    /// @brief  Offsets of the gltf asset local indices that is applied when storing the data into the global manifest.
+    ///         For example, when a meshgroup has asset_local_index = 4 it is the 5th meshgroup in its gltf asset. 
+    ///         meshgroup.asset_local_index + mesh_group_manifest_offset then gives the global index into the meshgroup manifest
     u32 texture_manifest_offset = {};
     u32 material_manifest_offset = {};
     u32 mesh_group_manifest_offset = {};
@@ -146,7 +150,7 @@ struct Scene
     daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};
     daxa::TaskBuffer _gpu_mesh_group_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_group_manifest"};
     daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};
-    std::vector<SceneFileManifestEntry> _scene_file_manifest = {};
+    std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshManifestEntry> _mesh_manifest = {};
@@ -179,7 +183,13 @@ struct Scene
         }
         return "UNKNOWN";
     }
-    auto load_manifest_from_gltf(std::filesystem::path const & root_path, std::filesystem::path const & glb_name) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
+    struct LoadManifestInfo
+    {
+        std::filesystem::path root_path;
+        std::filesystem::path asset_name;
+        ThreadPool & thread_pool;
+    };
+    auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
     auto record_gpu_manifest_update() -> daxa::ExecutableCommandList;
 

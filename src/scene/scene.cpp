@@ -86,10 +86,10 @@ Scene::~Scene()
 }
 
 // TODO: Loading god function.
-auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std::filesystem::path const & glb_name) -> std::variant<RenderEntityId, LoadManifestErrorCode>
+auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {
 #pragma region SETUP
-    auto file_path = root_path / glb_name;
+    auto file_path = info.root_path / info.asset_name;
 
     fastgltf::Parser parser{};
 
@@ -134,7 +134,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
             return LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE;
     }
 
-    u32 const scene_file_manifest_index = s_cast<u32>(_scene_file_manifest.size());
+    u32 const gltf_asset_manifest_index = s_cast<u32>(_gltf_asset_manifest.size());
     u32 const texture_manifest_offset = s_cast<u32>(_material_texture_manifest.size());
     u32 const material_manifest_offset = s_cast<u32>(_material_manifest.size());
     u32 const mesh_group_manifest_offset = s_cast<u32>(_mesh_group_manifest.size());
@@ -149,7 +149,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
     {
         u32 const texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
         _material_texture_manifest.push_back(TextureManifestEntry{
-            .scene_file_manifest_index = scene_file_manifest_index,
+            .scene_file_manifest_index = gltf_asset_manifest_index,
             .in_scene_file_index = i,
             .material_manifest_indices = {}, // Filled when reading in materials
             .runtime = {},                   // Loaded later
@@ -209,14 +209,22 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
         _material_manifest.push_back(MaterialManifestEntry{
             .diffuse_tex_index = diffuse_texture_index,
             .normal_tex_index = normal_texture_index,
-            .scene_file_manifest_index = scene_file_manifest_index,
+            .scene_file_manifest_index = gltf_asset_manifest_index,
             .in_scene_file_index = material_index,
             .name = material.name.c_str()});
         _new_material_manifest_entries += 1;
     }
 #pragma endregion
 
+
 #pragma region POPULATE_MESHGROUP_AND_MESH_MANIFEST
+    struct LoadMeshTask : Task
+    {
+        virutal void callback(u32 chunk_index, u32 thread_index) override
+        {
+            
+        };
+    };
     /// NOTE: fastgltf::Mesh is a MeshGroup
     std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); mesh_group_index++)
@@ -231,20 +239,26 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
             mesh_manifest_indices.at(mesh_index) = mesh_manifest_entry;
             std::optional<u32> material_manifest_index = mesh.materialIndex.has_value() ? std::optional{s_cast<u32>(mesh.materialIndex.value()) + material_manifest_offset} : std::nullopt;
             _mesh_manifest.push_back(MeshManifestEntry{
-                .material_manifest_index = std::move(material_manifest_index),
-                .scene_file_manifest_index = scene_file_manifest_index,
-                .scene_file_mesh_index = mesh_group_index,
-                .scene_file_primitive_index = mesh_index,
+                .gltf_asset_manifest_index = gltf_asset_manifest_index,
+                // Gltf calls a meshgroup a mesh because these local indices are only used for loading we use the gltf naming
+                .asset_local_mesh_index = mesh_group_index,
+                // Same as above Gltf calls a mesh a primitive
+                .asset_local_primitive_index = mesh_index,
             });
             _new_mesh_manifest_entries += 1;
+
+            // Launch loading of this mesh
+            info.thread_pool.async_dispatch({
+
+            });
         }
 
         _mesh_group_manifest.push_back(MeshGroupManifestEntry{
             .mesh_manifest_indices = std::move(mesh_manifest_indices),
             .mesh_count = s_cast<u32>(mesh_group.primitives.size()),
-            .scene_file_manifest_index = scene_file_manifest_index,
-            .in_scene_file_index = mesh_group_index,
-            .name = mesh_group.name.c_str()});
+            .gltf_asset_manifest_index = gltf_asset_manifest_index,
+            .asset_local_index = mesh_group_index,
+            .name = mesh_group.name.c_str(),});
         _new_mesh_group_manifest_entries += 1;
         mesh_manifest_indices.fill(0u);
     }
@@ -335,7 +349,7 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
         .next_sibling = std::nullopt,
         .parent = std::nullopt,
         .mesh_group_manifest_index = std::nullopt,
-        .name = glb_name.filename().replace_extension("").string() + "_" + std::to_string(scene_file_manifest_index),
+        .name = glb_name.filename().replace_extension("").string() + "_" + std::to_string(gltf_asset_manifest_index),
     });
 
     _dirty_render_entities.push_back(root_r_ent_id);
@@ -363,14 +377,15 @@ auto Scene::load_manifest_from_gltf(std::filesystem::path const & root_path, std
 
 #pragma endregion
 
-    _scene_file_manifest.push_back(SceneFileManifestEntry{
+    _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
         .path = file_path,
         .gltf_asset = std::move(asset),
         .texture_manifest_offset = texture_manifest_offset,
         .material_manifest_offset = material_manifest_offset,
         .mesh_group_manifest_offset = mesh_group_manifest_offset,
         .mesh_manifest_offset = mesh_manifest_offset,
-        .root_render_entity = root_r_ent_id});
+        .root_render_entity = root_r_ent_id,});
+    
     return root_r_ent_id;
 }
 
