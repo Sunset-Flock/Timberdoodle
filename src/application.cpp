@@ -166,6 +166,12 @@ Application::Application()
 
     last_time_point = std::chrono::steady_clock::now();
     _threadpool->block_on(comp_pipelines_task);
+
+    auto manifest_update_commands = _scene->record_gpu_manifest_update();
+    auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
+    auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
+    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
+    _gpu_context->device.wait_idle();
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 
@@ -193,10 +199,10 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    auto manifest_update_commands = _scene->record_gpu_manifest_update();
-    auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
-    auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
-    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
+    // auto manifest_update_commands = _scene->record_gpu_manifest_update();
+    // auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
+    // auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
+    // _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
