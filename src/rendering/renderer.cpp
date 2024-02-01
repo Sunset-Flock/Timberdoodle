@@ -96,8 +96,6 @@ Renderer::Renderer(
 
     recreate_framebuffer();
 
-    compile_pipelines();
-
     context->settings.enable_mesh_shader = 0;
     context->settings.draw_from_observer = 0;
     update_settings();

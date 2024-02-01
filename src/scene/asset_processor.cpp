@@ -595,6 +595,8 @@ auto load_accessor_data_from_file(
     return {std::move(ret)};
 }
 
+static std::mutex REMOVE_ME_m = {};
+
 auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
 {
     fastgltf::Asset & gltf_asset = *info.asset;
@@ -733,17 +735,22 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
 
     /// NOTE: Fill GPUMesh runtime data
     GPUMesh mesh = {};
-    mesh.mesh_buffer = _device.create_buffer({
-        .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-        .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
-    });
-    daxa::DeviceAddress mesh_bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
-    daxa::BufferId staging_buffer = _device.create_buffer({
-        .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
-    });
+    daxa::DeviceAddress mesh_bda = {};
+    daxa::BufferId staging_buffer = {};
+    {
+        mesh.mesh_buffer = _device.create_buffer({
+            .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+            .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
+        });
+        mesh_bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
+
+        staging_buffer = _device.create_buffer({
+            .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
+        });
+    }
     auto staging_ptr = _device.get_host_address(staging_buffer).value();
 
     u32 accumulated_offset = 0;

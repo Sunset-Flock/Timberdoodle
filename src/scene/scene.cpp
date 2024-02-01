@@ -5,6 +5,8 @@
 
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
+#include <thread>
+#include <chrono>
 
 Scene::Scene(daxa::Device device)
     : _device{std::move(device)}
@@ -393,6 +395,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
+            //std::this_thread::sleep_for(std::chrono::milliseconds(100));
             auto ret = info.asset_processor->load_mesh(info.load_info);
             if (auto const err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
             {

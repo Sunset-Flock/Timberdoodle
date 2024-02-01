@@ -105,6 +105,7 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
 
 void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priority)
 {
+    task->not_finished = task->chunk_count;
     auto & selected_queue = priority == TaskPriority::HIGH ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
     {
         std::lock_guard lock(shared_data->threadpool_mutex);
@@ -114,4 +115,11 @@ void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priorit
         }
     }
     shared_data->work_available.notify_all();
+}
+
+void ThreadPool::block_on(std::shared_ptr<Task> task)
+{
+    std::unique_lock lock{shared_data->threadpool_mutex};
+    shared_data->work_done.wait(lock, [&]
+        { return task->not_finished == 0; });
 }

@@ -110,12 +110,33 @@ Application::Application()
     _scene = std::make_unique<Scene>(_gpu_context->device);
 
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
+
+    _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
+
+    _renderer = std::make_unique<Renderer>(
+        _window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
+
+    struct CompPipelinesTask : Task
+    {
+        Renderer* renderer = {};
+        CompPipelinesTask(Renderer* renderer) : renderer{renderer} { chunk_count = 1; }
+
+        virtual void callback(u32 chunk_index, u32 thread_index) override
+        {
+            renderer->compile_pipelines();
+        }
+    };
+
+    auto comp_pipelines_task = std::make_shared<CompPipelinesTask>(_renderer.get());
+
+    _threadpool->async_dispatch(comp_pipelines_task);
+
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -133,9 +154,9 @@ Application::Application()
     {
         auto const r_id = std::get<RenderEntityId>(result);
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
-        // r_ent.transform = glm::mat4x3(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-        //                       glm::vec3(0.0f, 0.0f, 0.0f)) *
-        //                   10.0f;
+        r_ent.transform = glm::mat4x3(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+                              glm::vec3(0.0f, 0.0f, 0.0f)) *
+                          10.0f;
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
@@ -157,12 +178,9 @@ Application::Application()
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
     _gpu_context->device.wait_idle();
 
-    _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
-
-    _renderer = std::make_unique<Renderer>(
-        _window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
-
     last_time_point = std::chrono::steady_clock::now();
+
+    _threadpool->block_on(comp_pipelines_task);
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 

@@ -25,13 +25,9 @@ struct Task
     virtual ~Task() = default;
     virtual void callback(u32 chunk_index, u32 thread_index) = 0;
 
-    u32 padd0[64] = {};
     u32 chunk_count = {};
-    u32 padd1[64] = {};
     u32 not_finished = {};
-    u32 padd2[64] = {};
     u32 started = {};
-    u32 padd3[64] = {};
 };
 
 struct TaskChunk
@@ -51,6 +47,7 @@ struct ThreadPool
     ~ThreadPool();
     void blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
     void async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
+    void block_on(std::shared_ptr<Task> task);
 
   private:
     struct SharedData
