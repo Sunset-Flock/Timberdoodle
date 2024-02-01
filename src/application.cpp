@@ -102,19 +102,12 @@ void CameraController::update_matrices(Window & window)
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(8);
-
     _window = std::make_unique<Window>(1920, 1080, "Sandbox");
-
     _gpu_context = std::make_unique<GPUContext>(*_window);
-
     _scene = std::make_unique<Scene>(_gpu_context->device);
-
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
-
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
-
-    _renderer = std::make_unique<Renderer>(
-        _window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
+    _renderer = std::make_unique<Renderer>( _window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
 
     struct CompPipelinesTask : Task
     {
@@ -136,7 +129,8 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -154,13 +148,9 @@ Application::Application()
     {
         auto const r_id = std::get<RenderEntityId>(result);
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
-        r_ent.transform = glm::mat4x3(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-                              glm::vec3(0.0f, 0.0f, 0.0f)) *
-                          10.0f;
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
-    auto scene_commands = _scene->record_gpu_manifest_update();
 
     // auto const load_result = _asset_manager->load_all(*_scene);
     // if (load_result != AssetProcessor::AssetLoadResultCode::SUCCESS)
@@ -173,13 +163,8 @@ Application::Application()
     //     DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Success",
     //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     // }
-    auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
-    auto cmd_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)};
-    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
-    _gpu_context->device.wait_idle();
 
     last_time_point = std::chrono::steady_clock::now();
-
     _threadpool->block_on(comp_pipelines_task);
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
@@ -208,6 +193,11 @@ auto Application::run() -> i32
 
 void Application::update()
 {
+    auto manifest_update_commands = _scene->record_gpu_manifest_update();
+    auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
+    auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
+    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
+
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
     _ui_engine->main_update(_gpu_context->settings, *_scene);
@@ -266,11 +256,6 @@ void Application::update()
         observer_camera_controller = camera_controller;
     }
     ImGui::Render();
-
-    auto scene_commands = _scene->record_gpu_manifest_update();
-    auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
-    auto cmd_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)};
-    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 }
 
 Application::~Application()

@@ -802,7 +802,6 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
     mesh.meshlet_count = meshlet_count;
     mesh.vertex_count = vertex_count;
 
-
     /// NOTE: Append the processed mesh to the upload queue.
     {
         std::unique_lock l{*_mtx};
@@ -828,52 +827,10 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
             .size = _device.info_buffer(mesh_upload.mesh_buffer).value().size,
         });
         recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
-
-        // /// NOTE: write an update to the meshes info buffer array.
-        // MeshManifestEntry & mesh_entry = mesh_upload.scene->_mesh_manifest.at(mesh_upload.mesh_manifest_index);
-        // auto const gpu_meshes_buffer = mesh_upload.scene->_gpu_mesh_group_manifest.get_state().buffers[0];
-        // // TODO: replace staging buffer with offset into staging memory pool!
-        // auto const meshes_buffer_update_staging_buffer = _device.create_buffer({
-        //     .size = sizeof(GPUMesh),
-        //     .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        //     .name = "gpumeshes update",
-        // });
-
-        // recorder.destroy_buffer_deferred(meshes_buffer_update_staging_buffer);
-        // auto const & mesh_descriptor = mesh_entry.runtime.value();
-        // auto const mesh_buffer_bda = _device.get_device_address(mesh_buffer).value();
-        // *_device.get_host_address_as<GPUMesh>(meshes_buffer_update_staging_buffer).value() = {
-        //     .mesh_buffer = mesh_descriptor.mesh_buffer,
-        //     .material_index = mesh_descriptor.material_index,
-        //     .meshlet_count = mesh_descriptor.meshlet_count,
-        //     .vertex_count = mesh_descriptor.vertex_count,
-        //     .meshlets = mesh_buffer_bda + mesh_descriptor.offset_meshlets,
-        //     .meshlet_bounds = mesh_buffer_bda + mesh_descriptor.offset_meshlet_bounds,
-        //     .micro_indices = mesh_buffer_bda + mesh_descriptor.offset_micro_indices,
-        //     .indirect_vertices = mesh_buffer_bda + mesh_descriptor.offset_indirect_vertices,
-        //     .vertex_positions = mesh_buffer_bda + mesh_descriptor.offset_vertex_positions,
-        //     .vertex_uvs = mesh_buffer_bda + mesh_descriptor.offset_vertex_texcoodrs0,
-        // };
-        // daxa::BufferId gpu_mesh_manifest = mesh_upload.scene->_gpu_mesh_manifest.get_state().buffers[0];
-        // /// NOTE: Write the mesh manifest on the gpu.
-        // recorder.copy_buffer_to_buffer({
-        //     .src_buffer = meshes_buffer_update_staging_buffer,
-        //     .dst_buffer = gpu_mesh_manifest,
-        //     .dst_offset = sizeof(GPUMesh) * mesh_upload.mesh_manifest_index,
-        //     .size = sizeof(GPUMesh),
-        // });
-        // recorder.destroy_buffer_deferred(staging_buffer);
-        // /// NOTE: Copy the actual mesh data from the staging buffer to the actual buffer.
-        // recorder.copy_buffer_to_buffer({
-        //     .src_buffer = mesh_upload.staging_buffer,
-        //     .dst_buffer = mesh_buffer,
-        //     .size = _device.info_buffer(mesh_upload.staging_buffer).value().size,
-        // });
-        // recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
     }
     recorder.pipeline_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .dst_access = daxa::AccessConsts::READ,
+        .dst_access = daxa::AccessConsts::READ_WRITE,
     });
     _upload_mesh_queue.clear();
 #pragma endregion

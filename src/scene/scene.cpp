@@ -446,29 +446,32 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
     /// TODO: Make buffers resize.
 
     // Calculate required staging buffer size:
-    usize required_staging_size = 0;
-    required_staging_size += sizeof(GPUEntityMetaData);                              // _gpu_entity_meta
-    required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_transforms
-    required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_combined_transforms
-    required_staging_size += sizeof(GPUMeshGroup) * _dirty_render_entities.size();   // _gpu_entity_mesh_groups
-    daxa::BufferId staging_buffer = _device.create_buffer({
-        .size = required_staging_size,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = "entities update staging",
-    });
-    recorder.destroy_buffer_deferred(staging_buffer);
+    daxa::BufferId staging_buffer = {};
     usize staging_offset = 0;
-    std::byte * host_ptr = _device.get_host_address(staging_buffer).value();
-    *r_cast<GPUEntityMetaData *>(host_ptr) = {
-        .entity_count = s_cast<u32>(_render_entities.size()),
-    };
-    recorder.copy_buffer_to_buffer({
-        .src_buffer = staging_buffer,
-        .dst_buffer = _gpu_entity_meta.get_state().buffers[0],
-        .src_offset = staging_offset,
-        .size = sizeof(GPUEntityMetaData),
-    });
-    staging_offset += sizeof(GPUEntityMetaData);
+    std::byte * host_ptr = {};
+    if(_dirty_render_entities.size() > 0)
+    {
+        usize required_staging_size = 0;
+        required_staging_size += sizeof(GPUEntityMetaData);                              // _gpu_entity_meta
+        required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_transforms
+        required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_combined_transforms
+        required_staging_size += sizeof(GPUMeshGroup) * _dirty_render_entities.size();   // _gpu_entity_mesh_groups
+        staging_buffer = _device.create_buffer({
+            .size = required_staging_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = "entities update staging",
+        });
+        recorder.destroy_buffer_deferred(staging_buffer);
+        host_ptr = _device.get_host_address(staging_buffer).value();
+        *r_cast<GPUEntityMetaData *>(host_ptr) = { .entity_count = s_cast<u32>(_render_entities.size())};
+        recorder.copy_buffer_to_buffer({
+            .src_buffer = staging_buffer,
+            .dst_buffer = _gpu_entity_meta.get_state().buffers[0],
+            .src_offset = staging_offset,
+            .size = sizeof(GPUEntityMetaData),
+        });
+        staging_offset += sizeof(GPUEntityMetaData);
+    }
 
     /**
      * TODO:
@@ -532,6 +535,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
             .size = sizeof(u32),
         });
     }
+    _dirty_render_entities.clear();
 
     if (_new_mesh_group_manifest_entries > 0)
     {
@@ -638,6 +642,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
                 });
             }
         }
+        mesh_manifest_upload_queue.clear();
     }
 
     /// TODO: Taskgraph this shit.
