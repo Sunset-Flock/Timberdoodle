@@ -8,7 +8,7 @@ ThreadPool::~ThreadPool()
         shared_data->kill = true;
         shared_data->work_available.notify_all();
     }
-    for (auto& worker : worker_threads)
+    for (auto & worker : worker_threads)
     {
         worker.join();
     }
@@ -20,7 +20,8 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
     while (true)
     {
         shared_data->work_available.wait(
-            lock, [&] { return !shared_data->high_priority_tasks.empty() || !shared_data->low_priority_tasks.empty() || shared_data->kill; });
+            lock, [&]
+            { return !shared_data->high_priority_tasks.empty() || !shared_data->low_priority_tasks.empty() || shared_data->kill; });
         if (shared_data->kill)
         {
             return;
@@ -38,11 +39,7 @@ void ThreadPool::worker(std::shared_ptr<ThreadPool::SharedData> shared_data, u32
         lock.lock();
         current_chunk.task->not_finished -= 1;
         // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
-        if (current_chunk.task->not_finished == 0) 
-        { 
-            shared_data->work_done.notify_all(); 
-            current_chunk.task->done = {true};
-        }
+        if (current_chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
     }
 }
 
@@ -53,7 +50,8 @@ ThreadPool::ThreadPool(std::optional<u32> thread_count)
     for (u32 thread_index = 0; thread_index < real_thread_count; thread_index++)
     {
         worker_threads.push_back({
-            std::thread([=, this]() { ThreadPool::worker(shared_data, thread_index); }),
+            std::thread([=, this]()
+                { ThreadPool::worker(shared_data, thread_index); }),
         });
     }
 }
@@ -100,7 +98,8 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
     {
         // This thread was not the last one working on this task, therefore we wait here to be notified once
         // the last worker thread processing this task is done
-        shared_data->work_done.wait(lock, [&] { return task->not_finished == 0; });
+        shared_data->work_done.wait(lock, [&]
+            { return task->not_finished == 0; });
     }
 }
 

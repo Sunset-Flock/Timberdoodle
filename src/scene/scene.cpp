@@ -61,7 +61,7 @@ Scene::Scene(daxa::Device device)
     _gpu_material_manifest.set_buffers(daxa::TrackedBuffers{
         .buffers = std::array{
             _device.create_buffer({.size = sizeof(GPUMaterial) * MAX_MATERIAL_COUNT,
-                                   .name = "_gpu_material_manifest"}),
+                .name = "_gpu_material_manifest"}),
         },
     });
 }
@@ -156,9 +156,9 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             .name = asset.images[i].name.c_str(),
         });
         DEBUG_MSG(fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  in scene file index: {}\n  manifest index:  {}",
-                              asset.images[i].name,
-                              i,
-                              texture_manifest_index));
+            asset.images[i].name,
+            i,
+            texture_manifest_index));
     }
 #pragma endregion
 
@@ -216,15 +216,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     }
 #pragma endregion
 
-
 #pragma region POPULATE_MESHGROUP_AND_MESH_MANIFEST
-    struct LoadMeshTask : Task
-    {
-        virutal void callback(u32 chunk_index, u32 thread_index) override
-        {
-            
-        };
-    };
     /// NOTE: fastgltf::Mesh is a MeshGroup
     std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); mesh_group_index++)
@@ -246,11 +238,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
                 .asset_local_primitive_index = mesh_index,
             });
             _new_mesh_manifest_entries += 1;
-
-            // Launch loading of this mesh
-            info.thread_pool.async_dispatch({
-
-            });
         }
 
         _mesh_group_manifest.push_back(MeshGroupManifestEntry{
@@ -258,7 +245,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             .mesh_count = s_cast<u32>(mesh_group.primitives.size()),
             .gltf_asset_manifest_index = gltf_asset_manifest_index,
             .asset_local_index = mesh_group_index,
-            .name = mesh_group.name.c_str(),});
+            .name = mesh_group.name.c_str(),
+        });
         _new_mesh_group_manifest_entries += 1;
         mesh_manifest_indices.fill(0u);
     }
@@ -282,13 +270,11 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             glm::mat4x3 ret_trans;
             if (auto const * trs = std::get_if<fastgltf::Node::TRS>(&trans))
             {
-                auto const scaled = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
-                auto const quat_rotation_mat = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));
-                auto const rotated_scaled = quat_rotation_mat * scaled;
-                auto const translated_rotated_scaled = glm::translate(
-                                                           glm::identity<glm::mat4x4>(),
-                                                           glm::vec3(trs->translation[0], trs->translation[1], trs->translation[2])) *
-                                                       rotated_scaled;
+                auto const scale = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
+                auto const rotation = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));
+                auto const translation = glm::translate(glm::identity<glm::mat4x4>(), glm::vec3(trs->translation[0], trs->translation[1], trs->translation[2]));
+                auto const rotated_scaled = rotation * scale;
+                auto const translated_rotated_scaled = translation * rotated_scaled;
                 /// NOTE: As the last row is always (0,0,0,1) we dont store it.
                 ret_trans = glm::mat4x3(translated_rotated_scaled);
             }
@@ -349,7 +335,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         .next_sibling = std::nullopt,
         .parent = std::nullopt,
         .mesh_group_manifest_index = std::nullopt,
-        .name = glb_name.filename().replace_extension("").string() + "_" + std::to_string(gltf_asset_manifest_index),
+        .name = info.asset_name.filename().replace_extension("").string() + "_" + std::to_string(gltf_asset_manifest_index),
     });
 
     _dirty_render_entities.push_back(root_r_ent_id);
@@ -379,13 +365,75 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
     _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
         .path = file_path,
-        .gltf_asset = std::move(asset),
+        .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(asset)),
         .texture_manifest_offset = texture_manifest_offset,
         .material_manifest_offset = material_manifest_offset,
         .mesh_group_manifest_offset = mesh_group_manifest_offset,
         .mesh_manifest_offset = mesh_manifest_offset,
-        .root_render_entity = root_r_ent_id,});
-    
+        .root_render_entity = root_r_ent_id,
+    });
+
+    struct LoadMeshTask : Task
+    {
+        struct TaskInfo
+        {
+            AssetProcessor::LoadMeshInfo load_info = {};
+            AssetProcessor * asset_processor = {};
+            u32 manifest_index = {};
+            std::mutex * upload_queue_mutex = {};
+            std::vector<MeshManifestUpload> * mesh_manifest_upload_queue = {};
+        };
+
+        TaskInfo info = {};
+        LoadMeshTask(TaskInfo const & info)
+            : info{info}
+        {
+            chunk_count = 1;
+        }
+
+        virtual void callback(u32 chunk_index, u32 thread_index) override
+        {
+            auto ret = info.asset_processor->load_mesh(info.load_info);
+            if (auto const err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+            {
+                DEBUG_MSG(fmt::format("[ERROR]Failed to load mesh group {} mesh {} - error {}",
+                    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index, AssetProcessor::to_string(*err)));
+            }
+            GPUMesh const & mesh = std::get<GPUMesh>(ret);
+            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
+                info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
+            {
+                std::lock_guard<std::mutex> lock{*info.upload_queue_mutex};
+                info.mesh_manifest_upload_queue->push_back({
+                    .mesh = mesh,
+                    .manifest_index = info.manifest_index,
+                });
+            }
+        };
+    };
+
+    for (u32 mesh_manifest_index = 0; mesh_manifest_index < _new_mesh_manifest_entries; mesh_manifest_index++)
+    {
+        auto const & curr_asset = _gltf_asset_manifest.back();
+        auto const & mesh_manifest_entry = _mesh_manifest.at(curr_asset.mesh_manifest_offset + mesh_manifest_index);
+        // Launch loading of this mesh
+        info.thread_pool->async_dispatch(
+            std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
+                .load_info = {
+                    .asset_path = curr_asset.path,
+                    .asset = curr_asset.gltf_asset.get(),
+                    .gltf_mesh_index = mesh_manifest_entry.asset_local_mesh_index,
+                    .gltf_primitive_index = mesh_manifest_entry.asset_local_primitive_index,
+                    .global_material_manifest_offset = curr_asset.material_manifest_offset,
+                },
+                .asset_processor = info.asset_processor.get(),
+                .manifest_index = mesh_manifest_index,
+                .upload_queue_mutex = upload_queue_mutex.get(),
+                .mesh_manifest_upload_queue = &mesh_manifest_upload_queue,
+            }),
+            TaskPriority::LOW);
+    }
+
     return root_r_ent_id;
 }
 
@@ -553,6 +601,40 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
             .dst_offset = material_manifest_offset * sizeof(GPUMaterial),
             .size = sizeof(GPUMaterial) * _new_material_manifest_entries,
         });
+    }
+
+    /// TODO: Taskgraph this shit.
+    recorder.pipeline_barrier({
+        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .dst_access = daxa::AccessConsts::READ_WRITE,
+    });
+
+    {
+        std::lock_guard<std::mutex> lock{*upload_queue_mutex};
+        if(mesh_manifest_upload_queue.size() > 0)
+        {
+            daxa::BufferId staging_buffer = _device.create_buffer({
+                .size = mesh_manifest_upload_queue.size() * sizeof(GPUMesh),
+                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+                .name = "mesh manifest upload staging buffer",
+            });
+
+            recorder.destroy_buffer_deferred(staging_buffer);
+            GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(staging_buffer).value();
+            for (i32 upload_index = 0; upload_index < mesh_manifest_upload_queue.size(); upload_index++)
+            {
+                auto const & upload = mesh_manifest_upload_queue.at(upload_index);
+                _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
+                std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
+                recorder.copy_buffer_to_buffer({
+                    .src_buffer = staging_buffer,
+                    .dst_buffer = _gpu_mesh_manifest.get_state().buffers[0],
+                    .src_offset = upload_index * sizeof(GPUMesh),
+                    .dst_offset = upload.manifest_index * sizeof(GPUMesh),
+                    .size = sizeof(GPUMesh),
+                });
+            }
+        }
     }
 
     /// TODO: Taskgraph this shit.

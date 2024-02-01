@@ -212,8 +212,7 @@ namespace tido
                 ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
                 if(inner_node_state == RetNodeState::OPEN)
                 {
-                    MaterialManifestEntry const & material_manifest_entry = 
-                        scene._material_manifest.at(mesh_manifest_entry.material_manifest_index.value());
+                    MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
                     std::string const material_uuid = fmt::format("{}", material_manifest_entry.name);
                     add_level();
                     add_leaf_node(material_uuid, ICONS::MATERIAL);

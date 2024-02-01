@@ -93,7 +93,7 @@ void UIEngine::draw_scenegraph(Scene const & scene)
     //  INNER - middle - indent and unindent
     //  INNER - last - indent and unindent twice (one accumulated from ROOT)
     std::vector<StackEntry> entity_graph_stack;
-    entity_graph_stack.push_back({scene._scene_file_manifest.at(0).root_render_entity, true, true, -1});
+    entity_graph_stack.push_back({scene._gltf_asset_manifest.at(0).root_render_entity, true, true, -1});
 
     while(!entity_graph_stack.empty())
     {

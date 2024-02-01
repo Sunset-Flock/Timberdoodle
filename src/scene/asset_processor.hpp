@@ -2,11 +2,12 @@
 
 #include <filesystem>
 #include <meshoptimizer.h>
+#include <fastgltf/types.hpp>
+#include <mutex>
 
 #include "../timberdoodle.hpp"
 #include "../gpu_context.hpp"
 #include "../shader_shared/asset.inl"
-#include "scene.hpp"
 
 using namespace tido::types;
 
@@ -70,26 +71,26 @@ struct AssetProcessor
     using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
     auto load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet;
 
+
+    /**
+     * THREADSAFETY:
+     * * internally synchronized, can be called on multiple threads in parallel.
+     */
+    // auto load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode;
+
     using MeshLoadRet = std::variant<AssetLoadResultCode, GPUMesh>;
-
-    /**
-     * THREADSAFETY:
-     * * internally synchronized, can be called on multiple threads in parallel.
-     */
-    auto load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode;
-
-    /**
-     * THREADSAFETY:
-     * * internally synchronized, can be called on multiple threads in parallel.
-     */
     struct LoadMeshInfo
     {
-        std::filesystem::path asset_path;
-        fastgltf::Asset & asset;
-        u32 gltf_mesh_index;
-        u32 gltf_primitive_index;
-        u32 global_material_manifest_offset;
+        std::filesystem::path asset_path = {};
+        fastgltf::Asset * asset;
+        u32 gltf_mesh_index = {};
+        u32 gltf_primitive_index = {};
+        u32 global_material_manifest_offset = {};
     };
+    /**
+     * THREADSAFETY:
+     * * internally synchronized, can be called on multiple threads in parallel.
+     */
     auto load_mesh(LoadMeshInfo const & info) -> MeshLoadRet;
 
     /**
@@ -121,6 +122,8 @@ struct AssetProcessor
     static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
     static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
 
+    // TODO(msakmary) REMOVE
+    struct Scene;
     struct TextureUpload
     {
         Scene * scene = {};

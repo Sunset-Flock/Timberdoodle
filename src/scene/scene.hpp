@@ -11,6 +11,7 @@
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "../multithreading/thread_pool.hpp"
+#include "asset_processor.hpp"
 using namespace tido::types;
 /**
  * DESCRIPTION:
@@ -23,7 +24,6 @@ using namespace tido::types;
  * We store the metadata in manifest arrays.
  * The only data that can change in the manifests are in leaf nodes of the dependencies, eg texture data, mesh data.
  */
-
 struct TextureManifestEntry
 {
     struct MaterialManifestIndex
@@ -100,7 +100,7 @@ struct RenderEntity
 struct GltfAssetManifestEntry
 {
     std::filesystem::path path = {};
-    fastgltf::Asset gltf_asset{};
+    std::unique_ptr<fastgltf::Asset> gltf_asset = {};
     /// @brief  Offsets of the gltf asset local indices that is applied when storing the data into the global manifest.
     ///         For example, when a meshgroup has asset_local_index = 4 it is the 5th meshgroup in its gltf asset. 
     ///         meshgroup.asset_local_index + mesh_group_manifest_offset then gives the global index into the meshgroup manifest
@@ -161,6 +161,14 @@ struct Scene
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
 
+    struct MeshManifestUpload
+    {
+        GPUMesh mesh;
+        u32 manifest_index;
+    };
+    std::unique_ptr<std::mutex> upload_queue_mutex = std::make_unique<std::mutex>();
+    std::vector<MeshManifestUpload> mesh_manifest_upload_queue = {};
+
     Scene(daxa::Device device);
     ~Scene();
 
@@ -187,7 +195,8 @@ struct Scene
     {
         std::filesystem::path root_path;
         std::filesystem::path asset_name;
-        ThreadPool & thread_pool;
+        std::unique_ptr<ThreadPool> & thread_pool;
+        std::unique_ptr<AssetProcessor> & asset_processor;
     };
     auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 

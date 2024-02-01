@@ -108,13 +108,22 @@ Application::Application()
     _gpu_context = std::make_unique<GPUContext>(*_window);
 
     _scene = std::make_unique<Scene>(_gpu_context->device);
+
+    _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
     std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
-    auto const result = _scene->load_manifest_from_gltf(DEFAULT_HARDCODED_PATH, DEFAULT_HARDCODED_FILE);
+
+    auto const result = _scene->load_manifest_from_gltf({
+        .root_path = DEFAULT_HARDCODED_PATH,
+        .asset_name = DEFAULT_HARDCODED_FILE,
+        .thread_pool = _threadpool,
+        .asset_processor = _asset_manager,
+    });
+
     if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {
         DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
@@ -124,26 +133,25 @@ Application::Application()
     {
         auto const r_id = std::get<RenderEntityId>(result);
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
-        r_ent.transform = glm::mat4x3(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
-                              glm::vec3(0.0f, 0.0f, 0.0f)) *
-                          10.0f;
+        // r_ent.transform = glm::mat4x3(glm::vec3(1.0f, 0.0f, 0.0f), glm::vec3(0.0f, 0.0f, 1.0f), glm::vec3(0.0f, 1.0f, 0.0f),
+        //                       glm::vec3(0.0f, 0.0f, 0.0f)) *
+        //                   10.0f;
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
     auto scene_commands = _scene->record_gpu_manifest_update();
 
-    _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
-    auto const load_result = _asset_manager->load_all(*_scene);
-    if (load_result != AssetProcessor::AssetLoadResultCode::SUCCESS)
-    {
-        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Error: {}",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), AssetProcessor::to_string(load_result)));
-    }
-    else
-    {
-        DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Success",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
-    }
+    // auto const load_result = _asset_manager->load_all(*_scene);
+    // if (load_result != AssetProcessor::AssetLoadResultCode::SUCCESS)
+    // {
+    //     DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Error: {}",
+    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), AssetProcessor::to_string(load_result)));
+    // }
+    // else
+    // {
+    //     DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Success",
+    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
+    // }
     auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
     auto cmd_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)};
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
@@ -240,6 +248,11 @@ void Application::update()
         observer_camera_controller = camera_controller;
     }
     ImGui::Render();
+
+    auto scene_commands = _scene->record_gpu_manifest_update();
+    auto exc_cmd_list = _asset_manager->record_gpu_load_processing_commands();
+    auto cmd_lists = std::array{std::move(scene_commands), std::move(exc_cmd_list)};
+    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 }
 
 Application::~Application()
