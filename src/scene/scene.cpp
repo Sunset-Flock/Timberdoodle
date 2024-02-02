@@ -458,7 +458,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         required_staging_size += sizeof(GPUMeshGroup) * _dirty_render_entities.size();   // _gpu_entity_mesh_groups
         staging_buffer = _device.create_buffer({
             .size = required_staging_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "entities update staging",
         });
         recorder.destroy_buffer_deferred(staging_buffer);
@@ -542,7 +542,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         u32 const mesh_group_staging_buffer_size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries;
         daxa::BufferId mesh_group_staging_buffer = _device.create_buffer({
             .size = mesh_group_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh group update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_group_staging_buffer);
@@ -571,7 +571,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         u32 const mesh_manifest_offset = _mesh_manifest.size() - _new_mesh_manifest_entries;
         daxa::BufferId mesh_staging_buffer = _device.create_buffer({
             .size = mesh_update_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_staging_buffer);
@@ -593,7 +593,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         u32 const material_manifest_offset = _material_manifest.size() - _new_material_manifest_entries;
         daxa::BufferId material_staging_buffer = _device.create_buffer({
             .size = material_update_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "material update staging buffer",
         });
         recorder.destroy_buffer_deferred(material_staging_buffer);
@@ -622,7 +622,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         {
             daxa::BufferId staging_buffer = _device.create_buffer({
                 .size = mesh_manifest_upload_queue.size() * sizeof(GPUMesh),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = "mesh manifest upload staging buffer",
             });
 

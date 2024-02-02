@@ -72,7 +72,7 @@ GPUContext::GPUContext(Window const & window)
           .size = round_up_to_multiple(
                       sizeof(ShaderGlobals), device.properties().limits.min_uniform_buffer_offset_alignment) *
                   4,
-          .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE | daxa::MemoryFlagBits::DEDICATED_MEMORY,
+          .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM | daxa::MemoryFlagBits::DEDICATED_MEMORY,
           .name = "globals",
       })}
 {

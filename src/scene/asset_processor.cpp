@@ -369,7 +369,7 @@ static auto free_image_parse_raw_image_data(RawImageData && raw_data, daxa::Devi
     u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
     ret.src_buffer = device.create_buffer({
         .size = total_image_byte_size,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
         .name = raw_data.image_path.filename().string() + " staging",
     });
     std::byte * staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
@@ -747,7 +747,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
 
         staging_buffer = _device.create_buffer({
             .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
         });
     }
@@ -907,7 +907,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     // {
     //     materials_update_staging_buffer = _device.create_buffer({
     //         .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
-    //         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+    //         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
     //         .name = "gpu materials update",
     //     });
     //     recorder.destroy_buffer_deferred(materials_update_staging_buffer);
