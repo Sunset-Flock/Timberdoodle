@@ -161,14 +161,6 @@ struct Scene
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
 
-    struct MeshManifestUpload
-    {
-        GPUMesh mesh;
-        u32 manifest_index;
-    };
-    std::unique_ptr<std::mutex> upload_queue_mutex = std::make_unique<std::mutex>();
-    std::vector<MeshManifestUpload> mesh_manifest_upload_queue = {};
-
     Scene(daxa::Device device);
     ~Scene();
 
@@ -200,7 +192,7 @@ struct Scene
     };
     auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
-    auto record_gpu_manifest_update() -> daxa::ExecutableCommandList;
+    auto record_gpu_manifest_update(std::vector<AssetProcessor::MeshUploadInfo> const & uploaded_meshes) -> daxa::ExecutableCommandList;
 
     daxa::Device _device = {};
 };

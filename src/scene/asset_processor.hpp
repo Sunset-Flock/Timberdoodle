@@ -78,7 +78,15 @@ struct AssetProcessor
      */
     // auto load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode;
 
-    using MeshLoadRet = std::variant<AssetLoadResultCode, GPUMesh>;
+    struct MeshUploadInfo
+    {
+        // TODO: replace with buffer offset into staging memory.
+        daxa::BufferId staging_buffer = {};
+        daxa::BufferId mesh_buffer = {};
+
+        GPUMesh mesh = {};
+        u32 manifest_index = {};
+    };
     struct LoadMeshInfo
     {
         std::filesystem::path asset_path = {};
@@ -86,12 +94,13 @@ struct AssetProcessor
         u32 gltf_mesh_index = {};
         u32 gltf_primitive_index = {};
         u32 global_material_manifest_offset = {};
+        u32 manifest_index = {};
     };
     /**
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_mesh(LoadMeshInfo const & info) -> MeshLoadRet;
+    auto load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode;
 
     /**
      * Loads all unloded meshes and material textures for the given scene.
@@ -115,7 +124,12 @@ struct AssetProcessor
      * * optimally called once a frame
      * * should not be called in parallel with load_texture and load_mesh
      */
-    auto record_gpu_load_processing_commands() -> daxa::ExecutableCommandList;
+    struct RecordCommandsRet
+    {
+        daxa::ExecutableCommandList upload_commands = {};
+        std::vector<MeshUploadInfo> uploaded_meshes = {};
+    };
+    auto record_gpu_load_processing_commands() -> RecordCommandsRet;
 
   private:
     static inline std::string const VERT_ATTRIB_POSITION_NAME = "POSITION";
@@ -131,15 +145,9 @@ struct AssetProcessor
         daxa::ImageId dst_image = {};
         u32 texture_manifest_index = {};
     };
-    struct MeshUpload
-    {
-        // TODO: replace with buffer offset into staging memory.
-        daxa::BufferId staging_buffer = {};
-        daxa::BufferId mesh_buffer = {};
-    };
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.
-    std::vector<MeshUpload> _upload_mesh_queue = {};
+    std::vector<MeshUploadInfo> _upload_mesh_queue = {};
     std::vector<TextureUpload> _upload_texture_queue = {};
-    std::unique_ptr<std::mutex> _mtx = std::make_unique<std::mutex>();
+    std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
 };

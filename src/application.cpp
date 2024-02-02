@@ -152,26 +152,8 @@ Application::Application()
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
 
-    // auto const load_result = _asset_manager->load_all(*_scene);
-    // if (load_result != AssetProcessor::AssetLoadResultCode::SUCCESS)
-    // {
-    //     DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Error: {}",
-    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), AssetProcessor::to_string(load_result)));
-    // }
-    // else
-    // {
-    //     DEBUG_MSG(fmt::format("[INFO]Application::Application()] Loading Scene Assets \"{}\" Success",
-    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
-    // }
-
     last_time_point = std::chrono::steady_clock::now();
     _threadpool->block_on(comp_pipelines_task);
-
-    // auto manifest_update_commands = _scene->record_gpu_manifest_update();
-    // auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
-    // auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
-    // _gpu_context->device.submit_commands({.command_lists = cmd_lists});
-    // _gpu_context->device.wait_idle();
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 
@@ -199,9 +181,9 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    auto manifest_update_commands = _scene->record_gpu_manifest_update();
-    auto asset_data_upload_commands = _asset_manager->record_gpu_load_processing_commands();
-    auto cmd_lists = std::array{std::move(asset_data_upload_commands), std::move(manifest_update_commands)};
+    auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
+    auto manifest_update_commands = _scene->record_gpu_manifest_update(asset_data_upload_info.uploaded_meshes);
+    auto cmd_lists = std::array{std::move(asset_data_upload_info.upload_commands), std::move(manifest_update_commands)};
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;

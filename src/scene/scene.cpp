@@ -382,8 +382,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             AssetProcessor::LoadMeshInfo load_info = {};
             AssetProcessor * asset_processor = {};
             u32 manifest_index = {};
-            std::mutex * upload_queue_mutex = {};
-            std::vector<MeshManifestUpload> * mesh_manifest_upload_queue = {};
         };
 
         TaskInfo info = {};
@@ -395,22 +393,17 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
-            //std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            auto ret = info.asset_processor->load_mesh(info.load_info);
-            if (auto const err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+            // std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            auto const ret_status = info.asset_processor->load_mesh(info.load_info);
+            if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
             {
                 DEBUG_MSG(fmt::format("[ERROR]Failed to load mesh group {} mesh {} - error {}",
-                    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index, AssetProcessor::to_string(*err)));
+                    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index, AssetProcessor::to_string(ret_status)));
             }
-            GPUMesh const & mesh = std::get<GPUMesh>(ret);
-            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
-                info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
+            else
             {
-                std::lock_guard<std::mutex> lock{*info.upload_queue_mutex};
-                info.mesh_manifest_upload_queue->push_back({
-                    .mesh = mesh,
-                    .manifest_index = info.manifest_index,
-                });
+                DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
+                    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
             }
         };
     };
@@ -428,11 +421,9 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
                     .gltf_mesh_index = mesh_manifest_entry.asset_local_mesh_index,
                     .gltf_primitive_index = mesh_manifest_entry.asset_local_primitive_index,
                     .global_material_manifest_offset = curr_asset.material_manifest_offset,
+                    .manifest_index = mesh_manifest_index,
                 },
                 .asset_processor = info.asset_processor.get(),
-                .manifest_index = mesh_manifest_index,
-                .upload_queue_mutex = upload_queue_mutex.get(),
-                .mesh_manifest_upload_queue = &mesh_manifest_upload_queue,
             }),
             TaskPriority::LOW);
     }
@@ -440,7 +431,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     return root_r_ent_id;
 }
 
-auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
+auto Scene::record_gpu_manifest_update(std::vector<AssetProcessor::MeshUploadInfo> const & uploaded_meshes) -> daxa::ExecutableCommandList
 {
     auto recorder = _device.create_command_recorder({});
     /// TODO: Make buffers resize.
@@ -449,7 +440,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
     daxa::BufferId staging_buffer = {};
     usize staging_offset = 0;
     std::byte * host_ptr = {};
-    if(_dirty_render_entities.size() > 0)
+    if (_dirty_render_entities.size() > 0)
     {
         usize required_staging_size = 0;
         required_staging_size += sizeof(GPUEntityMetaData);                              // _gpu_entity_meta
@@ -463,7 +454,7 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
         });
         recorder.destroy_buffer_deferred(staging_buffer);
         host_ptr = _device.get_host_address(staging_buffer).value();
-        *r_cast<GPUEntityMetaData *>(host_ptr) = { .entity_count = s_cast<u32>(_render_entities.size())};
+        *r_cast<GPUEntityMetaData *>(host_ptr) = {.entity_count = s_cast<u32>(_render_entities.size())};
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
             .dst_buffer = _gpu_entity_meta.get_state().buffers[0],
@@ -617,20 +608,19 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
     });
 
     {
-        std::lock_guard<std::mutex> lock{*upload_queue_mutex};
-        if(mesh_manifest_upload_queue.size() > 0)
+        if (uploaded_meshes.size() > 0)
         {
             daxa::BufferId staging_buffer = _device.create_buffer({
-                .size = mesh_manifest_upload_queue.size() * sizeof(GPUMesh),
+                .size = uploaded_meshes.size() * sizeof(GPUMesh),
                 .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = "mesh manifest upload staging buffer",
             });
 
             recorder.destroy_buffer_deferred(staging_buffer);
             GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(staging_buffer).value();
-            for (i32 upload_index = 0; upload_index < mesh_manifest_upload_queue.size(); upload_index++)
+            for (i32 upload_index = 0; upload_index < uploaded_meshes.size(); upload_index++)
             {
-                auto const & upload = mesh_manifest_upload_queue.at(upload_index);
+                auto const & upload = uploaded_meshes.at(upload_index);
                 _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
                 std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
                 recorder.copy_buffer_to_buffer({
@@ -642,7 +632,6 @@ auto Scene::record_gpu_manifest_update() -> daxa::ExecutableCommandList
                 });
             }
         }
-        mesh_manifest_upload_queue.clear();
     }
 
     /// TODO: Taskgraph this shit.

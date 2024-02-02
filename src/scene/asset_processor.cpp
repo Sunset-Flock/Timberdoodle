@@ -597,7 +597,7 @@ auto load_accessor_data_from_file(
 
 static std::mutex REMOVE_ME_m = {};
 
-auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
+auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
 {
     fastgltf::Asset & gltf_asset = *info.asset;
     fastgltf::Mesh & gltf_mesh = gltf_asset.meshes[info.gltf_mesh_index];
@@ -804,21 +804,28 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> MeshLoadRet
 
     /// NOTE: Append the processed mesh to the upload queue.
     {
-        std::unique_lock l{*_mtx};
-        _upload_mesh_queue.push_back(MeshUpload{
+        std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
+        _upload_mesh_queue.push_back(MeshUploadInfo{
             .staging_buffer = staging_buffer,
             .mesh_buffer = std::bit_cast<daxa::BufferId>(mesh.mesh_buffer),
+            .mesh = mesh,
+            .manifest_index = info.manifest_index
         });
     }
-    return mesh;
+    return AssetProcessor::AssetLoadResultCode::SUCCESS;
 }
 
-auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCommandList
+auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
 {
-    std::unique_lock l{*_mtx};
+    RecordCommandsRet ret = {};
+    {
+        std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
+        ret.uploaded_meshes = std::move(_upload_mesh_queue);
+        _upload_mesh_queue = {};
+    }
     auto recorder = _device.create_command_recorder({});
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
-    for (MeshUpload & mesh_upload : _upload_mesh_queue)
+    for (MeshUploadInfo & mesh_upload : ret.uploaded_meshes)
     {
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
         recorder.copy_buffer_to_buffer({
@@ -832,7 +839,6 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
-    _upload_mesh_queue.clear();
 #pragma endregion
 
 #pragma region RECORD_TEXTURE_UPLOAD_COMMANDS
@@ -946,37 +952,6 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> daxa::ExecutableCo
     // });
     // _upload_texture_queue.clear();
 #pragma endregion
-    return recorder.complete_current_commands();
+    ret.upload_commands = recorder.complete_current_commands();
+    return ret;
 }
-
-// auto AssetProcessor::load_all(Scene & scene) -> AssetProcessor::AssetLoadResultCode
-// {
-//     std::optional<AssetProcessor::AssetLoadResultCode> err = {};
-//     // for (u32 i = 0; i < scene._material_texture_manifest.size(); ++i)
-//     // {
-//     //     if (!scene._material_texture_manifest.at(i).runtime.has_value())
-//     //     {
-//     //         auto result = load_texture(scene, i);
-//     //         if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-//     //         {
-//     //             err = result;
-//     //         }
-//     //     }
-//     // }
-//     for (u32 i = 0; i < scene._mesh_manifest.size(); ++i)
-//     {
-//         if (!scene._mesh_manifest.at(i).runtime.has_value())
-//         {
-//             auto result = load_mesh(scene, i);
-//             if (result != AssetProcessor::AssetLoadResultCode::SUCCESS && !err.has_value())
-//             {
-//                 err = result;
-//             }
-//         }
-//     }
-//     if (err.has_value())
-//     {
-//         return err.value();
-//     }
-//     return AssetProcessor::AssetLoadResultCode::SUCCESS;
-// }
