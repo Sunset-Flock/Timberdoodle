@@ -33,7 +33,7 @@ void downsample_64x64(
         vec4 fetch;
         if (src_mip == -1)
         {
-            fetch = textureGather(daxa_sampler2D(push.uses.src, deref(push.globals).samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
+            fetch = textureGather(daxa_sampler2D(push.uses.src, deref(push.uses.globals).samplers.linear_clamp), make_gather_uv(invSize, src_i), 0);
         }
         else
         {
@@ -91,7 +91,7 @@ shared bool s_last_workgroup;
 layout(local_size_x = GEN_HIZ_X, local_size_y = GEN_HIZ_Y) in;
 void main()
 {
-    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, deref(push.globals).settings.render_target_size, -1, 6);
+    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, deref(push.uses.globals).settings.render_target_size, -1, 6);
 
     if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
     {
@@ -103,6 +103,6 @@ void main()
 
     if (s_last_workgroup)
     {
-        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), deref(push.globals).settings.render_target_size >> 6, 5, int(push.mip_count - 6));
+        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), deref(push.uses.globals).settings.render_target_size >> 6, 5, int(push.mip_count - 6));
     }
 }

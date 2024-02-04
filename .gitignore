@@ -6,3 +6,4 @@ preproc/*
 .cache*
 imgui.ini
 compile_commands.json
+spv/

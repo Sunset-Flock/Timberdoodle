@@ -26,14 +26,11 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(T_USES_BASE{}.name()));
-        u32 volatile debug = T_USES_BASE::attachment_shader_data_size();
-        push.globals = context->shader_globals_address;
-        ti.recorder.push_constant(push);
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(T_PUSH),
         });
+        ti.recorder.push_constant(push, T_USES_BASE::attachment_shader_data_size());
         ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
     }
 };

@@ -16,14 +16,16 @@
 #define CULL_MESHES_WORKGROUP_X 8
 #define CULL_MESHES_WORKGROUP_Y (MAX_MESHES_PER_MESHGROUP)
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 4)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 5)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
 BUFFER_COMPUTE_WRITE(meshlet_cull_indirect_args, MeshletCullIndirectArgTable)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 10)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 11)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
@@ -38,14 +40,14 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshesCommandPush
 {
-    daxa_BufferPtr(ShaderGlobals) globals;
     DAXA_TH_BLOB(CullMeshesCommand, uses)
+    daxa_u32 dummy;
 };
 
 struct CullMeshesPush
 {
-    daxa_BufferPtr(ShaderGlobals) globals;
     DAXA_TH_BLOB(CullMeshes, uses)
+    daxa_u32 dummy;
 };
 
 #if __cplusplus
@@ -76,11 +78,9 @@ struct CullMeshesTask : CullMeshes
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
-        ti.recorder.push_constant(CullMeshesPush{.globals = context->shader_globals_address});
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(CullMeshesPush),
         });
         ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(CullMeshes::command).ids[0]});
     }
@@ -95,6 +95,7 @@ void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMe
 
     task_list.add_task(CullMeshesCommandWriteTask{
         .views = std::array{
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::globals, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::globals.value))}},
             daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::entity_meta.value))}},
             daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::command, command_buffer}},
             daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::cull_meshlets_commands, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::cull_meshlets_commands.value))}},

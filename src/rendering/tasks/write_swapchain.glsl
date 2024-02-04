@@ -27,7 +27,7 @@ void main()
 
         vec2 uvs = imageLoad(daxa_image2D(push.uses.debug_image), index).rg;
         GPUMaterial material = deref(push.uses.material_manifest[inst_meshlet.material_index]);
-        color = vec4(1,1,1,1);//texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.globals).samplers.linear_repeat), uvs);
+        color = vec4(1,1,1,1);//texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.uses.globals).samplers.linear_repeat), uvs);
         
         float f = float(inst_meshlet.entity_index * 10 + inst_meshlet.meshlet_index) * 0.93213213232;
         vec3 debug_color = vec3(cos(f), cos(f+2), cos(f+4));

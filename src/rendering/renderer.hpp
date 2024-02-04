@@ -10,6 +10,8 @@
 
 #include "../gpu_context.hpp"
 
+#include "tasks/shader_debug_draws.inl"
+
 // Renderer struct.
 // This should idealy handle all rendering related information and functionality.
 struct Renderer
@@ -27,6 +29,7 @@ struct Renderer
 
     daxa::TaskBuffer zero_buffer = {};
 
+    daxa::TaskBuffer shader_debug_buffer = {};
     daxa::TaskBuffer meshlet_instances = {};
     daxa::TaskBuffer meshlet_instances_last_frame = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
@@ -41,6 +44,8 @@ struct Renderer
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
+
+    ShaderDebugDrawContext shader_debug_draws = {};
 
     Window *window = {};
     GPUContext *context = {};

@@ -8,7 +8,8 @@
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/cull_util.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 12)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 13)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), commands)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullIndirectArgTable), meshlet_cull_indirect_args)
@@ -25,10 +26,9 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshletsPush
 {
-    daxa_BufferPtr(ShaderGlobals) globals;
+    DAXA_TH_BLOB(CullMeshlets, uses)
     daxa_u32 indirect_args_table_id;
     daxa_u32 meshlets_per_indirect_arg;
-    DAXA_TH_BLOB(CullMeshlets, uses)
 };
 
 #if __cplusplus
@@ -61,16 +61,14 @@ struct CullMeshletsTask : CullMeshlets
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshlets{}.name()));
         for (u32 table = 0; table < 32; ++table)
         {
-            ti.recorder.push_constant(CullMeshletsPush{
-                .globals = context->shader_globals_address,
-                .indirect_args_table_id = table,
-                .meshlets_per_indirect_arg = (1u << table),
-            });
             ti.recorder.push_constant_vptr({
                 .data = ti.attachment_shader_data.data(),
                 .size = ti.attachment_shader_data.size(),
-                .offset = sizeof(CullMeshletsPush),
             });
+            ti.recorder.push_constant(CullMeshletsPush{
+                .indirect_args_table_id = table,
+                .meshlets_per_indirect_arg = (1u << table),
+            }, CullMeshlets::attachment_shader_data_size());
             ti.recorder.dispatch_indirect({
                 .indirect_buffer = ti.get(CullMeshlets::commands).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * table,

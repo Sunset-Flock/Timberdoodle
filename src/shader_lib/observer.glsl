@@ -6,7 +6,7 @@
 
 uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstances) meshlet_instances)
 {
-    switch (deref(push.globals).settings.observer_show_pass)
+    switch (deref(push.uses.globals).settings.observer_show_pass)
     {
         case 0: return deref(meshlet_instances).first_count;
         case 1: return deref(meshlet_instances).second_count;
@@ -17,7 +17,7 @@ uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstances) m
 
 uint observer_get_meshlet_instance_draw_offset(daxa_BufferPtr(MeshletInstances) meshlet_instances)
 {
-    switch (deref(push.globals).settings.observer_show_pass)
+    switch (deref(push.uses.globals).settings.observer_show_pass)
     {
         case 0: return 0;
         case 1: return deref(meshlet_instances).first_count;

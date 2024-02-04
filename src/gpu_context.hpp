@@ -19,6 +19,7 @@ struct GPUContext
     
     ShaderGlobals shader_globals = {};
     daxa::BufferId shader_globals_buffer = {};
+    daxa::TaskBuffer shader_globals_task_buffer = {};
     daxa::types::DeviceAddress shader_globals_address = {};
 
     // Pipelines:

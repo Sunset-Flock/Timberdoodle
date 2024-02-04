@@ -120,7 +120,7 @@ void main()
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
 
-            const uint work_group_size = (deref(push.globals).settings.enable_mesh_shader == 1) ? TASK_SHADER_WORKGROUP_X : CULL_MESHLETS_WORKGROUP_X;
+            const uint work_group_size = (deref(push.uses.globals).settings.enable_mesh_shader == 1) ? TASK_SHADER_WORKGROUP_X : CULL_MESHLETS_WORKGROUP_X;
             const uint prev_indirect_arg_count = arg_array_offset;
             const uint prev_needed_threads = threads_per_indirect_arg * prev_indirect_arg_count;
             const uint prev_needed_workgroups = (prev_needed_threads + work_group_size - 1) / work_group_size;

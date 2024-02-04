@@ -97,6 +97,7 @@ struct ShaderGlobals
     daxa_f32 delta_time;
     Settings settings;
     GlobalSamplers samplers;
+    // daxa_RWBufferPtr(DebugDrawInfo) debug_info;
 };
 DAXA_DECL_BUFFER_PTR(ShaderGlobals)
 

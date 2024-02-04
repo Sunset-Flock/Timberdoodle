@@ -8,7 +8,8 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchain, 5)
+DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchain, 6)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, swapchain)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, debug_image)
@@ -18,7 +19,6 @@ DAXA_DECL_TASK_HEAD_END
 
 struct WriteSwapchainPush
 {
-    daxa_BufferPtr(ShaderGlobals) globals;
     daxa_u32 width;
     daxa_u32 height;
     DAXA_TH_BLOB(WriteSwapchain, uses)
@@ -49,7 +49,6 @@ struct WriteSwapchainTask : WriteSwapchain
         u32 const dispatch_x = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
         u32 const dispatch_y = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
         ti.recorder.push_constant(WriteSwapchainPush{
-            .globals = context->shader_globals_address,
             .width = ti.device.info_image(ti.get(swapchain).ids[0]).value().size.x,
             .height = ti.device.info_image(ti.get(swapchain).ids[0]).value().size.y,
         });

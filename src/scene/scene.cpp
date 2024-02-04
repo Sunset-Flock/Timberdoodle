@@ -402,8 +402,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             }
             else
             {
-                DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
-                    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
+                //DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
+                //    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
             }
         };
     };

@@ -56,6 +56,7 @@ GPUContext::GPUContext(Window const & window)
                           DAXA_SHADER_INCLUDE_DIR,
                       },
                   .write_out_preprocessed_code = "./preproc",
+                  .spirv_cache_folder = "spv",
                   .language = daxa::ShaderLanguage::GLSL,
                   .enable_debug_info = true,
               };
@@ -69,12 +70,13 @@ GPUContext::GPUContext(Window const & window)
           .name = "transient memory pool",
       }},
       shader_globals_buffer{this->device.create_buffer({
-          .size = round_up_to_multiple(
-                      sizeof(ShaderGlobals), device.properties().limits.min_uniform_buffer_offset_alignment) *
-                  4,
-          .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM | daxa::MemoryFlagBits::DEDICATED_MEMORY,
+          .size = sizeof(ShaderGlobals),
           .name = "globals",
-      })}
+      })},
+      shader_globals_task_buffer{daxa::TaskBuffer{{
+        .initial_buffers = std::array{shader_globals_buffer},
+        .name = "globals",
+      }}}
 {
     shader_globals.samplers = {.linear_clamp = this->device.create_sampler({
                                    .name = "linear clamp sampler",

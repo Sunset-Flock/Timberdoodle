@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include "../shader_shared/scene.inl"
+#include "../shader_shared/debug.inl"
 
 #include "rasterize_visbuffer/draw_visbuffer.inl"
 #include "rasterize_visbuffer/cull_meshes.inl"
@@ -15,6 +16,8 @@
 #include <daxa/utils/pipeline_manager.hpp>
 #include <thread>
 #include <variant>
+
+
 
 inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_name, auto buf_name)
 {
@@ -282,11 +285,28 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_manifest);
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
+    task_list.use_persistent_buffer(context->shader_globals_task_buffer);
     for (auto const & timage : images)
     {
         task_list.use_persistent_image(timage);
     }
     task_list.use_persistent_image(swapchain_image);
+
+    task_list.add_task({
+        .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, context->shader_globals_task_buffer)},
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto const alloc = ti.allocator->allocate_fill(context->shader_globals).value();
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = ti.allocator->buffer(),
+                .dst_buffer = ti.get(context->shader_globals_task_buffer).ids[0],
+                .src_offset = alloc.buffer_offset,
+                .dst_offset = 0,
+                .size = alloc.size,
+            });
+        },
+        .name = "update globals",
+    });
 
     auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer(
         {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
@@ -301,6 +321,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
             .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
         });
+
     task_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -313,7 +334,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .debug_image = debug_image,
         .depth_image = depth,
     });
-    auto hiz = task_gen_hiz_single_pass(context, task_list, depth);
+    auto hiz = task_gen_hiz_single_pass(context, task_list, depth, context->shader_globals_task_buffer);
     auto meshlet_cull_indirect_args = task_list.create_transient_buffer({
         .size = sizeof(MeshletCullIndirectArgTable) + sizeof(MeshletCullIndirectArg) * MAX_MESHLET_INSTANCES * 2,
         .name = "meshlet_cull_indirect_args",
@@ -324,19 +345,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     CullMeshesTask cull_meshes_task = {
         .views = std::array{
-            // TODO(msakmary) I assume this is set later so I just provide some invalid handle here
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::command, daxa::TaskBufferView{}}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshes, scene->_gpu_mesh_manifest}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_meta, scene->_gpu_entity_meta}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_meshgroup_indices, scene->_gpu_entity_mesh_groups}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshgroups, scene->_gpu_mesh_group_manifest}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_transforms, scene->_gpu_entity_transforms}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::entity_combined_transforms, scene->_gpu_entity_combined_transforms}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::hiz, hiz}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::meshlet_cull_indirect_args, meshlet_cull_indirect_args}},
-            daxa::TaskViewVariant{std::pair{CullMeshesTask::cull_meshlets_commands, cull_meshlets_commands}},
+            daxa::attachment_view(CullMeshesTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(CullMeshesTask::command, daxa::TaskBufferView{}),
+            daxa::attachment_view(CullMeshesTask::meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(CullMeshesTask::entity_meta, scene->_gpu_entity_meta),
+            daxa::attachment_view(CullMeshesTask::entity_meshgroup_indices, scene->_gpu_entity_mesh_groups),
+            daxa::attachment_view(CullMeshesTask::meshgroups, scene->_gpu_mesh_group_manifest),
+            daxa::attachment_view(CullMeshesTask::entity_transforms, scene->_gpu_entity_transforms),
+            daxa::attachment_view(CullMeshesTask::entity_combined_transforms, scene->_gpu_entity_combined_transforms),
+            daxa::attachment_view(CullMeshesTask::hiz, hiz),
+            daxa::attachment_view(CullMeshesTask::meshlet_cull_indirect_args, meshlet_cull_indirect_args),
+            daxa::attachment_view(CullMeshesTask::cull_meshlets_commands, cull_meshlets_commands),
         },
-        .context = context};
+        .context = context,
+    };
     tasks_cull_meshes(context, task_list, cull_meshes_task);
     task_cull_and_draw_visbuffer({
         .context = context,
@@ -365,6 +387,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
+            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::globals, context->shader_globals_task_buffer}},
             daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::visbuffer, visbuffer}},
             daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::instantiated_meshlets, meshlet_instances}},
             daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::meshlet_visibility_bitfield, visible_meshlets_bitfield}},
@@ -387,11 +410,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .depth_image = depth,
         });
     }
-#if 0
-#endif
     task_list.submit({});
     task_list.add_task(WriteSwapchainTask{
         .views = std::array{
+            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::globals, context->shader_globals_task_buffer}},
             daxa::TaskViewVariant{std::pair{WriteSwapchainTask::swapchain, swapchain_image}},
             daxa::TaskViewVariant{std::pair{WriteSwapchainTask::vis_image, visbuffer}},
             daxa::TaskViewVariant{std::pair{WriteSwapchainTask::debug_image, debug_image}},
@@ -451,13 +473,6 @@ void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & o
     this->context->shader_globals.settings = this->context->settings;
     this->context->shader_globals.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
     this->context->shader_globals.delta_time = delta_time;
-    // Upload Shader Globals.
-    u32 const aligned_globals_block_size =
-        round_up_to_multiple(sizeof(ShaderGlobals), context->device.properties().limits.min_uniform_buffer_offset_alignment);
-    *r_cast<ShaderGlobals *>(context->device.get_host_address(context->shader_globals_buffer).value() +
-                             aligned_globals_block_size * flight_frame_index) = context->shader_globals;
-    context->shader_globals_address = context->device.get_device_address(context->shader_globals_buffer).value() +
-                                      aligned_globals_block_size * flight_frame_index;
 
     auto swapchain_image = context->swapchain.acquire_next_image();
     if (swapchain_image.is_empty()) { return; }

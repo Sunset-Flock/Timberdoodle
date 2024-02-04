@@ -57,7 +57,7 @@ void main()
     //   Around 26x faster even in scenes with lots of small meshlets.
     const ivec2 index = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 sampleIndex = min(index << 1, ivec2(push.size) - 1);
-    uvec4 vis_ids = textureGather(daxa_usampler2D(push.uses.visbuffer, deref(push.globals).samplers.linear_clamp), make_gather_uv(1.0f / push.size, sampleIndex), 0);
+    uvec4 vis_ids = textureGather(daxa_usampler2D(push.uses.visbuffer, deref(push.uses.globals).samplers.linear_clamp), make_gather_uv(1.0f / push.size, sampleIndex), 0);
     uint list_mask = (vis_ids[0] != INVALID_TRIANGLE_ID ? 1 : 0) |
                      (vis_ids[1] != INVALID_TRIANGLE_ID ? 2 : 0) |
                      (vis_ids[2] != INVALID_TRIANGLE_ID ? 4 : 0) |
