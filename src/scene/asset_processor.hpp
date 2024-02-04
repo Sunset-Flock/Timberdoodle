@@ -69,14 +69,28 @@ struct AssetProcessor
     ~AssetProcessor();
 
     using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
-    auto load_nonmanifest_texture(std::filesystem::path const & filepath) -> NonmanifestLoadRet;
-
+    auto load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb = true) -> NonmanifestLoadRet;
 
     /**
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    // auto load_texture(Scene & scene, u32 texture_manifest_index) -> AssetLoadResultCode;
+    struct TextureUploadInfo
+    {
+        daxa::BufferId staging_buffer = {};
+        daxa::ImageId dst_image = {};
+
+        u32 texture_manifest_index = {};
+    };
+    struct LoadTextureInfo
+    {
+        std::filesystem::path asset_path = {};
+        fastgltf::Asset * asset;
+        u32 gltf_texture_index = {};
+        u32 texture_manifest_index = {};
+        bool load_as_srgb = {};
+    };
+    auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
 
     struct MeshUploadInfo
     {
@@ -128,6 +142,7 @@ struct AssetProcessor
     {
         daxa::ExecutableCommandList upload_commands = {};
         std::vector<MeshUploadInfo> uploaded_meshes = {};
+        std::vector<TextureUploadInfo> uploaded_textures = {};
     };
     auto record_gpu_load_processing_commands() -> RecordCommandsRet;
 
@@ -136,18 +151,10 @@ struct AssetProcessor
     static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
     static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
 
-    // TODO(msakmary) REMOVE
-    struct Scene;
-    struct TextureUpload
-    {
-        Scene * scene = {};
-        daxa::BufferId staging_buffer = {};
-        daxa::ImageId dst_image = {};
-        u32 texture_manifest_index = {};
-    };
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.
     std::vector<MeshUploadInfo> _upload_mesh_queue = {};
-    std::vector<TextureUpload> _upload_texture_queue = {};
+    std::vector<TextureUploadInfo> _upload_texture_queue = {};
     std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
+    std::unique_ptr<std::mutex> _texture_upload_mutex = std::make_unique<std::mutex>();
 };

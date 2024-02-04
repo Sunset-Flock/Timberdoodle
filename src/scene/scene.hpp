@@ -30,12 +30,11 @@ struct TextureManifestEntry
     {
         bool diffuse = {};
         bool normal = {};
-        bool metalic = {};
-        bool roughness = {};
+        bool roughness_metalness = {};
         u32 material_manifest_index = {};
     };
-    u32 scene_file_manifest_index = {};
-    u32 in_scene_file_index = {};
+    u32 gltf_asset_manifest_index = {};
+    u32 asset_local_index = {};
     // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
@@ -46,10 +45,16 @@ struct TextureManifestEntry
 
 struct MaterialManifestEntry
 {
-    std::optional<u32> diffuse_tex_index = {};
-    std::optional<u32> normal_tex_index = {};
-    u32 scene_file_manifest_index = {};
-    u32 in_scene_file_index = {};
+    struct TextureInfo
+    {
+        u32 tex_manifest_index;
+        u32 sampler_index;
+    };
+    std::optional<TextureInfo> diffuse_info = {};
+    std::optional<TextureInfo> normal_info = {};
+    std::optional<TextureInfo> roughness_metalness_info = {};
+    u32 gltf_asset_manifest_index = {};
+    u32 asset_local_index = {};
     std::string name = {};
 };
 
@@ -160,6 +165,7 @@ struct Scene
     u32 _new_mesh_manifest_entries = {};
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
+    u32 _new_texture_manifest_entries = {};
 
     Scene(daxa::Device device);
     ~Scene();
@@ -192,7 +198,12 @@ struct Scene
     };
     auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
-    auto record_gpu_manifest_update(std::vector<AssetProcessor::MeshUploadInfo> const & uploaded_meshes) -> daxa::ExecutableCommandList;
+    struct RecordGPUManifestUpdateInfo
+    {
+        std::span<const AssetProcessor::MeshUploadInfo> uploaded_meshes = {};
+        std::span<const AssetProcessor::TextureUploadInfo> uploaded_textures = {};
+    };
+    auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
 
     daxa::Device _device = {};
 };
