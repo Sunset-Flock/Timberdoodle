@@ -48,7 +48,7 @@ GPUContext::GPUContext(Window const & window)
           .shader_compile_options =
               []()
           {
-            // msvc time!
+              // msvc time!
               return daxa::ShaderCompileOptions{
                   .root_paths =
                       {
@@ -74,13 +74,15 @@ GPUContext::GPUContext(Window const & window)
           .name = "globals",
       })},
       shader_globals_task_buffer{daxa::TaskBuffer{{
-        .initial_buffers = std::array{shader_globals_buffer},
-        .name = "globals",
-      }}}
+          .initial_buffers = {.buffers = std::array{shader_globals_buffer}},
+          .name = "globals",
+      }}},
+      shader_globals_address{this->device.get_device_address(shader_globals_buffer).value()}
 {
-    shader_globals.samplers = {.linear_clamp = this->device.create_sampler({
-                                   .name = "linear clamp sampler",
-                               }),
+    shader_globals.samplers = {
+        .linear_clamp = this->device.create_sampler({
+            .name = "linear clamp sampler",
+        }),
         .linear_repeat = this->device.create_sampler({
             .address_mode_u = daxa::SamplerAddressMode::REPEAT,
             .address_mode_v = daxa::SamplerAddressMode::REPEAT,

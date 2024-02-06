@@ -12,6 +12,8 @@ struct ShaderGlobals
     daxa_u32 frame_index;
     daxa_f32 delta_time;
     Settings settings;
+    SkySettings sky_settings;
+    daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug_draw_info;
 };

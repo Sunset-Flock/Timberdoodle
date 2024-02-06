@@ -1,0 +1,92 @@
+{
+    "_version": 1,
+    "absorption_density": [
+        {
+            "const_term": -0.6666600108146667,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
+            "layer_width": 25.0,
+            "lin_term": 0.06666599959135056
+        },
+        {
+            "const_term": 2.6666600704193115,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
+            "layer_width": 0.0,
+            "lin_term": -0.06666599959135056
+        }
+    ],
+    "absorption_extinction": {
+        "x": 0.00229072,
+        "y": 0.00154036,
+        "z": 0.0
+    },
+    "atmosphere_bottom": 6360.0,
+    "atmosphere_top": 6460.0,
+    "mie_density": [
+        {
+            "const_term": 0.0,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
+            "layer_width": 0.0,
+            "lin_term": 0.0
+        },
+        {
+            "const_term": 0.0,
+            "exp_scale": -0.8333333134651184,
+            "exp_term": 1.0,
+            "layer_width": 0.0,
+            "lin_term": 0.0
+        }
+    ],
+    "mie_extinction": {
+        "x": 0.00443999981507659,
+        "y": 0.00443999981507659,
+        "z": 0.00443999981507659
+    },
+    "mie_phase_function_g": 0.800000011920929,
+    "mie_scale_height": 1.2000000476837158,
+    "mie_scattering": {
+        "x": 0.003996000159531832,
+        "y": 0.003996000159531832,
+        "z": 0.003996000159531832
+    },
+    "multiscattering_dimensions": {
+        "x": 32,
+        "y": 32
+    },
+    "rayleigh_density": [
+        {
+            "const_term": 0.0,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
+            "layer_width": 0.0,
+            "lin_term": 0.0
+        },
+        {
+            "const_term": 0.0,
+            "exp_scale": -0.125,
+            "exp_term": 1.0,
+            "layer_width": 0.0,
+            "lin_term": 0.0
+        }
+    ],
+    "rayleigh_scale_height": 8.696,
+    "rayleigh_scattering": {
+        "x": 0.006604931,
+        "y": 0.012344918,
+        "z": 0.029412623
+    },
+    "sky_dimensions": {
+        "x": 192,
+        "y": 128
+    },
+    "sun_angle": {
+        "x": 94.85399627685547,
+        "y": 61.986000061035156
+    },
+    "transmittance_dimensions": {
+        "x": 256,
+        "y": 64
+    }
+}

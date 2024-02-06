@@ -85,6 +85,13 @@ Scene::~Scene()
             _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().mesh_buffer));
         }
     }
+    for(auto & texture : _material_texture_manifest)
+    {
+        if(texture.runtime.has_value())
+        {
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime.value()));
+        }
+    }
 }
 
 // TODO: Loading god function.
@@ -144,76 +151,106 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 #pragma endregion
 
 #pragma region POPULATE_TEXTURE_MANIFEST
-    /// NOTE: Texture = image + sampler - since we don't care about the samplers we only load the images.
+    /// NOTE: GLTF texture = image + sampler we collapse the sampler into the material itself here we thus only iterate over the images
     //        Later when we load in the materials which reference the textures rather than images we just
     //        translate the textures image index and store that in the material
     for (u32 i = 0; i < s_cast<u32>(asset.images.size()); ++i)
     {
         u32 const texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
         _material_texture_manifest.push_back(TextureManifestEntry{
-            .scene_file_manifest_index = gltf_asset_manifest_index,
-            .in_scene_file_index = i,
+            .gltf_asset_manifest_index = gltf_asset_manifest_index,
+            .asset_local_index = i,
             .material_manifest_indices = {}, // Filled when reading in materials
-            .runtime = {},                   // Loaded later
+            .runtime = {},                   // Filled when the texture data are uploaded to the GPU
             .name = asset.images[i].name.c_str(),
         });
-        DEBUG_MSG(fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  in scene file index: {}\n  manifest index:  {}",
-            asset.images[i].name,
-            i,
-            texture_manifest_index));
+        _new_texture_manifest_entries += 1;
+        DEBUG_MSG(fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  asset local index: {}\n  manifest index:  {}",
+            asset.images[i].name, i, texture_manifest_index));
     }
 #pragma endregion
 
 #pragma region POPULATE_MATERIAL_MANIFEST
+    /// NOTE: Because we previously only loaded the images and not textures we now need to translate
+    //        the texture indices into image indeces and store that
+    auto gltf_texture_to_manifest_texture_index = [&](u32 const texture_index) -> std::optional<u32>
+    {
+        const bool gltf_texture_has_image_index = asset.textures.at(texture_index).imageIndex.has_value();
+        if (!gltf_texture_has_image_index)
+        {
+            return std::nullopt;
+        }
+        else
+        {
+            return s_cast<u32>(asset.textures.at(texture_index).imageIndex.value()) + texture_manifest_offset;
+        }
+    };
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
     {
-        /// NOTE: Because we previously only loaded the images and not textures we now need to translate
-        //        the texture indices into image indeces and store that
-        auto gltf_texture_to_manifest_texture_index = [&](u32 const texture_index) -> std::optional<u32>
-        {
-            const bool gltf_texture_has_image_index = asset.textures.at(texture_index).imageIndex.has_value();
-            if (!gltf_texture_has_image_index)
-            {
-                return std::nullopt;
-            }
-            else
-            {
-                return s_cast<u32>(asset.textures.at(texture_index).imageIndex.value()) + texture_manifest_offset;
-            }
-        };
-
         auto const & material = asset.materials.at(material_index);
-        /// NOTE: This will not work once we add multiple threads since some other thread might push to the vector
-        //        while we are marking the textures as being used by this material
         u32 const material_manifest_index = _material_manifest.size();
         bool const has_normal_texture = material.normalTexture.has_value();
         bool const has_diffuse_texture = material.pbrData.baseColorTexture.has_value();
-        std::optional<u32> diffuse_texture_index = {};
-        std::optional<u32> normal_texture_index = {};
+        bool const has_roughness_metalness_texture = material.pbrData.metallicRoughnessTexture.has_value();
+        std::optional<MaterialManifestEntry::TextureInfo> diffuse_texture_info = {};
+        std::optional<MaterialManifestEntry::TextureInfo> normal_texture_info = {};
+        std::optional<MaterialManifestEntry::TextureInfo> roughnes_metalness_info = {};
         if (has_diffuse_texture)
         {
             u32 const texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
-            diffuse_texture_index = gltf_texture_to_manifest_texture_index(texture_index);
-            _material_texture_manifest.at(diffuse_texture_index.value()).material_manifest_indices.push_back({
-                .diffuse = true,
-                .material_manifest_index = material_manifest_index,
-            });
+            auto const has_index = gltf_texture_to_manifest_texture_index(texture_index).has_value();
+            if (has_index)
+            {
+                diffuse_texture_info = {
+                    .tex_manifest_index = gltf_texture_to_manifest_texture_index(texture_index).value(),
+                    .sampler_index = 0, // TODO(msakmary) ADD SAMPLERS
+                };
+                _material_texture_manifest.at(diffuse_texture_info->tex_manifest_index).material_manifest_indices.push_back({
+                    .diffuse = true,
+                    .material_manifest_index = material_manifest_index,
+                });
+            }
         }
         if (has_normal_texture)
         {
-            u32 const texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
-            normal_texture_index = gltf_texture_to_manifest_texture_index(texture_index);
-            _material_texture_manifest.at(normal_texture_index.value()).material_manifest_indices.push_back({
-                .normal = true,
-                .material_manifest_index = material_manifest_index,
-            });
+            u32 const texture_index = s_cast<u32>(material.normalTexture.value().textureIndex);
+            bool const has_index = gltf_texture_to_manifest_texture_index(texture_index).has_value();
+            if (has_index)
+            {
+                normal_texture_info = {
+                    .tex_manifest_index = gltf_texture_to_manifest_texture_index(texture_index).value(),
+                    .sampler_index = 0, // TODO(msakmary) ADD SAMPLERS
+                };
+                _material_texture_manifest.at(normal_texture_info->tex_manifest_index).material_manifest_indices.push_back({
+                    .normal = true,
+                    .material_manifest_index = material_manifest_index,
+                });
+            }
+        }
+        if (has_roughness_metalness_texture)
+        {
+            u32 const texture_index = s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex);
+            bool const has_index = gltf_texture_to_manifest_texture_index(texture_index).has_value();
+            if (has_index)
+            {
+                roughnes_metalness_info = {
+                    .tex_manifest_index = gltf_texture_to_manifest_texture_index(texture_index).value(),
+                    .sampler_index = 0, // TODO(msakmary) ADD SAMPLERS
+                };
+                _material_texture_manifest.at(roughnes_metalness_info->tex_manifest_index).material_manifest_indices.push_back({
+                    .roughness_metalness = true,
+                    .material_manifest_index = material_manifest_index,
+                });
+            }
         }
         _material_manifest.push_back(MaterialManifestEntry{
-            .diffuse_tex_index = diffuse_texture_index,
-            .normal_tex_index = normal_texture_index,
-            .scene_file_manifest_index = gltf_asset_manifest_index,
-            .in_scene_file_index = material_index,
-            .name = material.name.c_str()});
+            .diffuse_info = diffuse_texture_info,
+            .normal_info = normal_texture_info,
+            .roughness_metalness_info = roughnes_metalness_info,
+            .gltf_asset_manifest_index = gltf_asset_manifest_index,
+            .asset_local_index = material_index,
+            .name = material.name.c_str(),
+        });
         _new_material_manifest_entries += 1;
     }
 #pragma endregion
@@ -375,6 +412,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         .root_render_entity = root_r_ent_id,
     });
 
+#pragma region LOAD_MESHES_ASYNC
     struct LoadMeshTask : Task
     {
         struct TaskInfo
@@ -402,8 +440,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             }
             else
             {
-                //DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
-                //    info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
+                // DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
+                //     info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
             }
         };
     };
@@ -427,11 +465,85 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             }),
             TaskPriority::LOW);
     }
+#pragma endregion
+#pragma region LOAD_TEXTURES_ASYNC
+    struct LoadTextureTask : Task
+    {
+        struct TaskInfo
+        {
+            AssetProcessor::LoadTextureInfo load_info = {};
+            AssetProcessor * asset_processor = {};
+            u32 manifest_index = {};
+        };
+
+        TaskInfo info = {};
+        LoadTextureTask(TaskInfo const & info)
+            : info{info}
+        {
+            chunk_count = 1;
+        }
+
+        virtual void callback(u32 chunk_index, u32 thread_index) override
+        {
+            auto const ret_status = info.asset_processor->load_texture(info.load_info);
+            auto const texture_name = info.load_info.asset->images.at(info.load_info.gltf_texture_index).name;
+            if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
+            {
+                DEBUG_MSG(fmt::format("[ERROR] Failed to load texture index {} name {} - error {}",
+                    info.load_info.gltf_texture_index, texture_name, AssetProcessor::to_string(ret_status)));
+            }
+            else
+            {
+                // DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded texture index {} name {}",
+                //     info.load_info.gltf_texture_index, texture_name));
+            }
+        };
+    };
+
+    for (u32 gltf_texture_index = 0; gltf_texture_index < _new_texture_manifest_entries; gltf_texture_index++)
+    {
+        auto const & curr_asset = _gltf_asset_manifest.back();
+        auto const texture_manifest_index = curr_asset.texture_manifest_offset + gltf_texture_index;
+        auto const & texture_manifest_entry = _material_texture_manifest.at(texture_manifest_index);
+        bool used_as_diffuse = false;
+        for (auto const & material_manifest_index : texture_manifest_entry.material_manifest_indices)
+        {
+            used_as_diffuse |= material_manifest_index.diffuse;
+            DBG_ASSERT_TRUE_M(!(used_as_diffuse && material_manifest_index.normal),
+                "[ERROR] Texture used as diffuse and normal is not supported");
+            DBG_ASSERT_TRUE_M(!(used_as_diffuse && material_manifest_index.roughness_metalness),
+                "[ERROR] Texture used as diffuse and roughness metalness is not supported");
+        }
+        if (!texture_manifest_entry.material_manifest_indices.empty())
+        {
+            // Launch loading of this mesh
+            info.thread_pool->async_dispatch(
+                std::make_shared<LoadTextureTask>(LoadTextureTask::TaskInfo{
+                    .load_info = {
+                        .asset_path = curr_asset.path,
+                        .asset = curr_asset.gltf_asset.get(),
+                        .gltf_texture_index = gltf_texture_index,
+                        .texture_manifest_index = texture_manifest_index,
+                        .load_as_srgb = used_as_diffuse,
+                    },
+                    .asset_processor = info.asset_processor.get(),
+                }),
+                TaskPriority::LOW);
+        }
+        else
+        {
+            auto const texture_name = curr_asset.gltf_asset->images.at(gltf_texture_index).name;
+            // DEBUG_MSG(fmt::format("[INFO] Skipping load of texture index {} name {} - not used by any material",
+            //     gltf_texture_index, texture_name));
+        }
+    }
+    _new_texture_manifest_entries = 0;
+#pragma endregion
 
     return root_r_ent_id;
 }
 
-auto Scene::record_gpu_manifest_update(std::vector<AssetProcessor::MeshUploadInfo> const & uploaded_meshes) -> daxa::ExecutableCommandList
+auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
 {
     auto recorder = _device.create_command_recorder({});
     /// TODO: Make buffers resize.
@@ -606,21 +718,117 @@ auto Scene::record_gpu_manifest_update(std::vector<AssetProcessor::MeshUploadInf
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
-
+    // updating material & texture manifest
     {
-        if (uploaded_meshes.size() > 0)
+        if (info.uploaded_textures.size() > 0)
+        {
+            /// NOTE: We need to propagate each loaded texture image ID into the material manifest This will be done in two steps:
+            //        1) We update the CPU manifest with the correct values and remember the materials that were updated
+            //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
+            std::vector<u32> dirty_material_entry_indices = {};
+            // 1) Update CPU Manifest
+            for (AssetProcessor::TextureUploadInfo const & texture_upload : info.uploaded_textures)
+            {
+                _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime = texture_upload.dst_image;
+                TextureManifestEntry const & texture_manifest_entry = _material_texture_manifest.at(texture_upload.texture_manifest_index);
+                for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
+                {
+                    MaterialManifestEntry & material_entry = _material_manifest.at(material_using_texture_info.material_manifest_index);
+                    if (material_using_texture_info.diffuse)
+                    {
+                        material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                    }
+                    if (material_using_texture_info.normal)
+                    {
+                        material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                    }
+                    if (material_using_texture_info.roughness_metalness)
+                    {
+                        material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                    }
+                    /// NOTE: Add material index only if it was not added previously
+                    if (std::find(
+                            dirty_material_entry_indices.begin(),
+                            dirty_material_entry_indices.end(),
+                            material_using_texture_info.material_manifest_index) ==
+                        dirty_material_entry_indices.end())
+                    {
+                        dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
+                    }
+                }
+            }
+            // // 2) Update GPU manifest
+            daxa::BufferId materials_update_staging_buffer = {};
+            GPUMaterial * staging_origin_ptr = {};
+            if (dirty_material_entry_indices.size())
+            {
+                materials_update_staging_buffer = _device.create_buffer({
+                    .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
+                    .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+                    .name = "gpu materials update staging",
+                });
+                recorder.destroy_buffer_deferred(materials_update_staging_buffer);
+                staging_origin_ptr = _device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
+            }
+            for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
+            {
+                MaterialManifestEntry const & material = _material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
+                daxa::ImageId diffuse_id = {};
+                daxa::ImageId normal_id = {};
+                daxa::ImageId roughness_metalness_id = {};
+                /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this 
+                //        info is present - It might be that diffuse texture was uploaded marking this material as dirty, but 
+                //        the normal texture is not yet present thus we don't yet have the runtime info
+                if (material.diffuse_info.has_value())
+                {
+                    auto const & texture_entry = _material_texture_manifest.at(material.diffuse_info.value().tex_manifest_index);
+                    diffuse_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                }
+                if (material.normal_info.has_value())
+                {
+                    auto const & texture_entry = _material_texture_manifest.at(material.normal_info.value().tex_manifest_index);
+                    normal_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                }
+                if (material.roughness_metalness_info.has_value())
+                {
+                    auto const & texture_entry = _material_texture_manifest.at(material.roughness_metalness_info.value().tex_manifest_index);
+                    roughness_metalness_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                }
+                staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
+                staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
+                staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
+
+                daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
+                recorder.copy_buffer_to_buffer({
+                    .src_buffer = materials_update_staging_buffer,
+                    .dst_buffer = gpu_material_manifest,
+                    .src_offset = sizeof(GPUMaterial) * dirty_materials_index,
+                    .dst_offset = sizeof(GPUMaterial) * dirty_material_entry_indices.at(dirty_materials_index),
+                    .size = sizeof(GPUMaterial),
+                });
+            }
+            recorder.pipeline_barrier({
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = daxa::AccessConsts::READ,
+            });
+        }
+    }
+
+    // updating mesh manifest
+    {
+        if (info.uploaded_meshes.size() > 0)
         {
             daxa::BufferId staging_buffer = _device.create_buffer({
-                .size = uploaded_meshes.size() * sizeof(GPUMesh),
+                .size = info.uploaded_meshes.size() * sizeof(GPUMesh),
                 .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = "mesh manifest upload staging buffer",
             });
 
             recorder.destroy_buffer_deferred(staging_buffer);
             GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(staging_buffer).value();
-            for (i32 upload_index = 0; upload_index < uploaded_meshes.size(); upload_index++)
+            for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
             {
-                auto const & upload = uploaded_meshes.at(upload_index);
+                auto const & upload = info.uploaded_meshes[upload_index];
                 _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
                 std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
                 recorder.copy_buffer_to_buffer({

@@ -1,6 +1,8 @@
 #include "application.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
+#include <fstream>
 
 #include <intrin.h>
 
@@ -107,12 +109,21 @@ Application::Application()
     _scene = std::make_unique<Scene>(_gpu_context->device);
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
-    _renderer = std::make_unique<Renderer>( _window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
+
+    // Renderer needs these to be loaded to know what size the look up tables have to be
+    std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
+    load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _gpu_context->sky_settings);
+    // Avoid recreating all images and task graph in the first frame
+    _gpu_context->prev_sky_settings.transmittance_dimensions = _gpu_context->sky_settings.transmittance_dimensions;
+    _gpu_context->prev_sky_settings.multiscattering_dimensions = _gpu_context->sky_settings.multiscattering_dimensions;
+    _gpu_context->prev_sky_settings.sky_dimensions = _gpu_context->sky_settings.sky_dimensions;
+    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
 
     struct CompPipelinesTask : Task
     {
-        Renderer* renderer = {};
-        CompPipelinesTask(Renderer* renderer) : renderer{renderer} { chunk_count = 1; }
+        Renderer * renderer = {};
+        CompPipelinesTask(Renderer * renderer)
+            : renderer{renderer} { chunk_count = 1; }
 
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
@@ -129,8 +140,8 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
     std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_gltf\\bistro.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -182,13 +193,16 @@ auto Application::run() -> i32
 void Application::update()
 {
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
-    auto manifest_update_commands = _scene->record_gpu_manifest_update(asset_data_upload_info.uploaded_meshes);
+    auto manifest_update_commands = _scene->record_gpu_manifest_update({
+        .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
+        .uploaded_textures = asset_data_upload_info.uploaded_textures,
+    });
     auto cmd_lists = std::array{std::move(asset_data_upload_info.upload_commands), std::move(manifest_update_commands)};
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
-    _ui_engine->main_update(_gpu_context->settings, *_scene);
+    _ui_engine->main_update(_gpu_context->settings, _gpu_context->sky_settings, *_scene);
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);
@@ -244,6 +258,67 @@ void Application::update()
         observer_camera_controller = camera_controller;
     }
     ImGui::Render();
+}
+
+void Application::load_sky_settings(std::filesystem::path const path_to_settings, SkySettings & settings)
+{
+    auto json = nlohmann::json::parse(std::ifstream(path_to_settings));
+    auto read_val = [&json](auto const name, auto & val)
+    {
+        val = json[name];
+    };
+
+    auto read_vec = [&json](auto const name, auto & val)
+    {
+        val.x = json[name]["x"];
+        val.y = json[name]["y"];
+        if constexpr (requires(decltype(val) x){x.z;}) val.z = json[name]["z"];
+        if constexpr (requires(decltype(val) x){x.w;}) val.w = json[name]["w"];
+    };
+    
+    auto read_density_profile_layer = [&json](auto const name, auto const layer, DensityProfileLayer & val)
+    {
+        val.layer_width = json[name][layer]["layer_width"];
+        val.exp_term = json[name][layer]["exp_term"];
+        val.exp_scale = json[name][layer]["exp_scale"];
+        val.lin_term = json[name][layer]["lin_term"];
+        val.const_term = json[name][layer]["const_term"];
+    };
+    read_vec("transmittance_dimensions", settings.transmittance_dimensions);
+    read_vec("multiscattering_dimensions", settings.multiscattering_dimensions);
+    read_vec("sky_dimensions", settings.sky_dimensions);
+
+    f32vec2 sun_angle = {};
+    read_vec("sun_angle", sun_angle);
+
+    read_val("atmosphere_bottom", settings.atmosphere_bottom);
+    read_val("atmosphere_top", settings.atmosphere_top);
+
+    // Mie
+    read_vec("mie_scattering", settings.mie_scattering);
+    read_vec("mie_extinction", settings.mie_extinction);
+    read_val("mie_scale_height", settings.mie_scale_height);
+    read_val("mie_phase_function_g", settings.mie_phase_function_g);
+    read_density_profile_layer("mie_density", 0, settings.mie_density[0]);
+    read_density_profile_layer("mie_density", 1, settings.mie_density[1]);
+
+    // Rayleigh
+    read_vec("rayleigh_scattering", settings.rayleigh_scattering);
+    read_val("rayleigh_scale_height", settings.rayleigh_scale_height);
+    read_density_profile_layer("rayleigh_density", 0, settings.rayleigh_density[0]);
+    read_density_profile_layer("rayleigh_density", 1, settings.rayleigh_density[1]);
+
+    // Absorption
+    read_vec("absorption_extinction", settings.absorption_extinction);
+    read_density_profile_layer("absorption_density", 0, settings.absorption_density[0]);
+    read_density_profile_layer("absorption_density", 1, settings.absorption_density[1]);
+
+    settings.sun_direction =
+    {
+        daxa_f32(glm::cos(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
+        daxa_f32(glm::sin(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
+        daxa_f32(glm::cos(glm::radians(sun_angle.y)))
+    };
 }
 
 Application::~Application()

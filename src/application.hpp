@@ -30,8 +30,8 @@ struct CameraController
     f32 cameraSwaySpeed = 0.05f;
     f32 translationSpeed = 10.0f;
     f32vec3 up = {0.f, 0.f, 1.0f};
-    f32vec3 forward = {0.f, 0.f, 0.f};
-    f32vec3 position = {0.f, 1.f, 0.f};
+    f32vec3 forward = {0.962, -0.25, -0.087};
+    f32vec3 position = {-22.f, 4.f, 6.f};
     f32 yaw = 0.0f;
     f32 pitch = 0.0f;
 };
@@ -45,6 +45,7 @@ public:
     auto run() -> i32;
 private:
     void update();
+    void load_sky_settings(std::filesystem::path const path_to_settings, SkySettings & settings);
 
     /**
         * EXPLANATION: Why do we use unique pointers here?
