@@ -4,6 +4,8 @@
 
 #include "cull_meshlets.inl"
 
+#include "shader_lib/debug.glsl"
+
 DAXA_DECL_PUSH_CONSTANT(CullMeshletsPush,push)
 
 #include "shader_lib/cull_util.glsl"
@@ -33,6 +35,10 @@ void main()
         return;
     }
 #endif
+    ShaderDebugCircleDraw circle;
+    circle.radius = 10;
+    circle.position = vec3(gl_GlobalInvocationID.xyz);
+    draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle);
     const uint out_index = atomicAdd(deref(push.uses.instantiated_meshlets).second_count, 1);
     const uint offset = deref(push.uses.instantiated_meshlets).first_count;
     deref(push.uses.instantiated_meshlets).meshlets[out_index + offset] = pack_meshlet_instance(instanced_meshlet);

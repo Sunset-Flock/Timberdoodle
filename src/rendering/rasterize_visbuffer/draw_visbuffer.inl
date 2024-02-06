@@ -4,6 +4,7 @@
 #include <daxa/utils/task_graph.inl>
 
 #include "../../shader_shared/shared.inl"
+#include "../../shader_shared/globals.inl"
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
@@ -272,6 +273,7 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
             render_cmd.push_constant_vptr({
                 .data = ti.attachment_shader_data.data(),
                 .size = ti.attachment_shader_data.size(),
+                .offset = sizeof(DrawVisbufferPush_MeshShader),
             });
             render_cmd.push_constant(DrawVisbufferPush_MeshShader{ .bucket_index = i}, DrawVisbuffer_MeshShader::attachment_shader_data_size());
             render_cmd.draw_mesh_tasks_indirect({

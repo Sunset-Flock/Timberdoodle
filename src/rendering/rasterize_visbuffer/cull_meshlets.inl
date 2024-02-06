@@ -4,12 +4,13 @@
 #include <daxa/utils/task_graph.inl>
 
 #include "../../shader_shared/shared.inl"
+#include "../../shader_shared/globals.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/cull_util.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 13)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), commands)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullIndirectArgTable), meshlet_cull_indirect_args)

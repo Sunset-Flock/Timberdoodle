@@ -12,12 +12,11 @@
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
+#include "tasks/shader_debug_draws.inl"
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
 #include <thread>
 #include <variant>
-
-
 
 inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_name, auto buf_name)
 {
@@ -129,6 +128,7 @@ void Renderer::compile_pipelines()
 {
     std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
         {draw_visbuffer_no_mesh_shader_pipeline_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_compile_info()},
+        {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
 #if COMPILE_IN_MESH_SHADER
         {draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name, draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()},
         {draw_visbuffer_mesh_shader_pipeline_compile_info().name, draw_visbuffer_mesh_shader_pipeline_compile_info()},
@@ -304,8 +304,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .dst_offset = 0,
                 .size = alloc.size,
             });
+            context->debug_draw_info.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
         },
-        .name = "update globals",
+        .name = "update buffers",
     });
 
     auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer(

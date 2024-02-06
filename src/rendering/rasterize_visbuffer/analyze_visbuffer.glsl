@@ -4,6 +4,7 @@
 
 #include "analyze_visbuffer.inl"
 #include "shader_shared/shared.inl"
+#include "shader_shared/globals.inl"
 
 #include "shader_lib/visbuffer.glsl"
 

@@ -2,6 +2,7 @@
 
 #include <daxa/daxa.inl>
 #include "../shader_shared/shared.inl"
+#include "../shader_shared/globals.inl"
 #include "../shader_shared/asset.inl"
 
 struct NdcBounds

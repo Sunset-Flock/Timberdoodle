@@ -89,18 +89,6 @@ struct CameraInfo
     glmsf32vec3 bottom_plane_normal;
 };
 
-struct ShaderGlobals
-{
-    CameraInfo camera;
-    CameraInfo observer_camera;
-    daxa_u32 frame_index;
-    daxa_f32 delta_time;
-    Settings settings;
-    GlobalSamplers samplers;
-    // daxa_RWBufferPtr(DebugDrawInfo) debug_info;
-};
-DAXA_DECL_BUFFER_PTR(ShaderGlobals)
-
 #if DAXA_SHADER
 #define my_sizeof(T) uint64_t(daxa_BufferPtr(T)(daxa_u64(0)) + 1)
 #endif

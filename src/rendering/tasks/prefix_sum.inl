@@ -4,6 +4,7 @@
 #include <daxa/utils/task_graph.inl>
 
 #include "../../shader_shared/shared.inl"
+#include "../../shader_shared/globals.inl"
 #include "../../shader_shared/asset.inl"
 
 #define PREFIX_SUM_BLOCK_SIZE 1024
