@@ -29,6 +29,8 @@ struct GPUContext
     // Data
     Settings prev_settings = {};
     Settings settings = {};
+    SkySettings prev_sky_settings = {};
+    SkySettings sky_settings = {};
 
     u32 counter = {};
     auto dummy_string() -> std::string;

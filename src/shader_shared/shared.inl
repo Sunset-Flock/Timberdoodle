@@ -41,6 +41,74 @@
 #define SHADER_ONLY(x) x
 #endif
 
+// An atmosphere layer density which can be calculated as:
+//   density = exp_term * exp(exp_scale * h) + linear_term * h + constant_term,
+struct DensityProfileLayer
+{
+    daxa_f32 layer_width;
+    daxa_f32 exp_term;
+    daxa_f32 exp_scale;
+    daxa_f32 lin_term;
+    daxa_f32 const_term;
+};
+
+struct SkySettings
+{
+    daxa_u32vec2 transmittance_dimensions;
+    daxa_u32vec2 multiscattering_dimensions;
+    daxa_u32vec2 sky_dimensions;
+
+    // =============== Atmosphere =====================
+    daxa_f32 sun_brightness;
+    daxa_f32vec3 sun_direction;
+
+    daxa_f32 atmosphere_bottom;
+    daxa_f32 atmosphere_top;
+
+    daxa_f32vec3 mie_scattering;
+    daxa_f32vec3 mie_extinction;
+    daxa_f32 mie_scale_height;
+    daxa_f32 mie_phase_function_g;
+    DensityProfileLayer mie_density[2];
+
+    daxa_f32vec3 rayleigh_scattering;
+    daxa_f32 rayleigh_scale_height;
+    DensityProfileLayer rayleigh_density[2];
+
+    daxa_f32vec3 absorption_extinction;
+    DensityProfileLayer absorption_density[2];
+#if __cplusplus
+    auto operator==(SkySettings const & other) const -> bool
+    {
+        return std::memcmp(this, &other, sizeof(SkySettings)) == 0;
+    }
+    auto operator!=(SkySettings const & other) const -> bool
+    {
+        return std::memcmp(this, &other, sizeof(SkySettings)) != 0;
+    }
+    struct ResolutionChangedFlags
+    {
+        bool transmittance_changed = {};
+        bool multiscattering_changed = {};
+        bool sky_changed = {};
+    };
+    auto resolutions_changed(SkySettings const & other) const -> ResolutionChangedFlags
+    {
+        bool const transmittance_changed =
+            other.transmittance_dimensions.x != transmittance_dimensions.x ||
+            other.transmittance_dimensions.y != transmittance_dimensions.y;
+        bool const multiscattering_changed =
+            other.multiscattering_dimensions.x != multiscattering_dimensions.x ||
+            other.multiscattering_dimensions.y != multiscattering_dimensions.y;
+        bool const sky_changed =
+            other.sky_dimensions.x != sky_dimensions.x ||
+            other.sky_dimensions.y != sky_dimensions.y;
+        return {transmittance_changed, multiscattering_changed, sky_changed};
+    }
+#endif
+};
+DAXA_DECL_BUFFER_PTR(SkySettings)
+
 struct Settings
 {
     daxa_u32vec2 render_target_size;
@@ -96,6 +164,8 @@ struct ShaderGlobals
     daxa_u32 frame_index;
     daxa_f32 delta_time;
     Settings settings;
+    SkySettings sky_settings;
+    daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     // daxa_RWBufferPtr(DebugDrawInfo) debug_info;
 };

@@ -19,13 +19,12 @@
       ]
     },
     "glm",
-    "cgltf",
-    "assimp",
     "meshoptimizer",
     "fastgltf",
     "fmt",
     "ktx",
-    "freeimage"
+    "freeimage",
+    "nlohmann-json"
   ],
   "builtin-baseline": "f5c5b8ddbb88dec7eed4a5ac54c36d1c64d2d29d",
   "vcpkg-configuration": {

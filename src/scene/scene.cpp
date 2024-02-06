@@ -494,8 +494,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             }
             else
             {
-                DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded texture index {} name {}",
-                    info.load_info.gltf_texture_index, texture_name));
+                // DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded texture index {} name {}",
+                //     info.load_info.gltf_texture_index, texture_name));
             }
         };
     };
@@ -533,8 +533,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         else
         {
             auto const texture_name = curr_asset.gltf_asset->images.at(gltf_texture_index).name;
-            DEBUG_MSG(fmt::format("[INFO] Skipping load of texture index {} name {} - not used by any material",
-                gltf_texture_index, texture_name));
+            // DEBUG_MSG(fmt::format("[INFO] Skipping load of texture index {} name {} - not used by any material",
+            //     gltf_texture_index, texture_name));
         }
     }
     _new_texture_manifest_entries = 0;

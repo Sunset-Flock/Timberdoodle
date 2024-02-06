@@ -31,7 +31,7 @@ UIEngine::UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext 
     imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context});
 }
 
-void UIEngine::main_update(Settings &settings, Scene const & scene)
+void UIEngine::main_update(Settings &settings, SkySettings & sky_settings, Scene const & scene)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();

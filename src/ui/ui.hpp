@@ -29,7 +29,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
-        void main_update(Settings &settings, Scene const & scene);
+        void main_update(Settings &settings, SkySettings & sky_settings, Scene const & scene);
 
     private:
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH

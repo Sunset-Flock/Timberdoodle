@@ -24,6 +24,8 @@ struct Renderer
     void clear_select_buffers();
     void window_resized();
     auto create_main_task_graph() -> daxa::TaskGraph;
+    auto create_sky_lut_task_graph() -> daxa::TaskGraph;
+    void recreate_sky_luts();
     void update_settings();
     void render_frame(CameraInfo const &camera_info, CameraInfo const &observer_camera_info, f32 const delta_time);
 
@@ -35,6 +37,9 @@ struct Renderer
     daxa::TaskBuffer visible_meshlet_instances = {};
 
     std::vector<daxa::TaskBuffer> buffers = {};
+    // Images:
+    daxa::TaskImage transmittance = {};
+    daxa::TaskImage multiscattering = {};
 
     // Render Targets:
     daxa::TaskImage swapchain_image = {};
@@ -52,6 +57,7 @@ struct Renderer
     Scene *scene = {};
     AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;
+    daxa::TaskGraph sky_task_graph;
     daxa::CommandSubmitInfo submit_info = {};
     daxa::ImGuiRenderer* imgui_renderer;
 };

@@ -76,7 +76,8 @@ GPUContext::GPUContext(Window const & window)
       shader_globals_task_buffer{daxa::TaskBuffer{{
           .initial_buffers = {.buffers = std::array{shader_globals_buffer}},
           .name = "globals",
-      }}}
+      }}},
+      shader_globals_address{this->device.get_device_address(shader_globals_buffer).value()}
 {
     shader_globals.samplers = {
         .linear_clamp = this->device.create_sampler({

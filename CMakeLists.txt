@@ -32,6 +32,7 @@ find_package(glfw3 CONFIG REQUIRED)
 find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(freeimage CONFIG REQUIRED)
+find_package(nlohmann_json CONFIG REQUIRED)
 
 # FreeImage links OpenEXR, which adds /EHsc for its targets, even if we're using Clang
 function(FIXUP_TARGET TGT_NAME)
@@ -67,6 +68,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     fastgltf::fastgltf
     KTX::ktx
     freeimage::FreeImage
+    nlohmann_json::nlohmann_json
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
