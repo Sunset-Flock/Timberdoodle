@@ -92,6 +92,13 @@ bool is_tri_out_of_frustum(vec3 tri[3])
     return out_of_frustum;
 }
 
+bool REMOVE_draw;
+float REMOVE_radius;
+vec3 REMOVE_position;
+vec3 REMOVE_color;
+
+vec3 REMOVE_position_corner0;
+vec3 REMOVE_position_corner1;
 bool is_meshlet_occluded(
     MeshletInstance meshlet_inst,
     EntityMeshletVisibilityBitfieldOffsetsView entity_meshlet_visibility_bitfield_offsets,
@@ -101,6 +108,8 @@ bool is_meshlet_occluded(
     daxa_ImageViewId hiz
 )
 {
+    REMOVE_draw = false;
+    REMOVE_color = vec3(0,0,1);
     GPUMesh mesh_data = deref(meshes[meshlet_inst.mesh_index]);
     if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
     {
@@ -133,6 +142,11 @@ bool is_meshlet_occluded(
     const vec3 tangent_left = -cross(tangential_up, center_to_camera);
     NdcBounds ndc_bounds;
     init_ndc_bounds(ndc_bounds);
+    REMOVE_position = ws_center;
+    REMOVE_radius = scaled_radius;
+    REMOVE_color = vec3(1,0,0);
+    REMOVE_draw = true;
+
     // construct bounding box from bounding sphere,
     // project each vertex of the box to ndc, min and max the coordinates.
     for (int z = -1; z <= 1; z += 2)
@@ -142,7 +156,7 @@ bool is_meshlet_occluded(
             for (int x = -1; x <= 1; x += 2)
             {
                 // TODO: make this use a precalculated obb, not this shit sphere derived one.
-                const vec3 bounding_box_corner_ws = bounds.center + bounds.radius * 0.5f * (center_to_camera * z + tangential_up * y + tangent_left * x);
+                const vec3 bounding_box_corner_ws = bounds.center + bounds.radius * (center_to_camera * z + tangential_up * y + tangent_left * x);
                 const vec4 projected_pos = deref(push.uses.globals).camera.view_proj * model_matrix * vec4(bounding_box_corner_ws, 1);
                 const vec3 ndc_pos = projected_pos.xyz / projected_pos.w;
                 add_vertex_to_ndc_bounds(ndc_bounds, ndc_pos);
@@ -154,32 +168,90 @@ bool is_meshlet_occluded(
         return true;
     }
 
-    if (ndc_bounds.ndc_min.z < 1.0f && ndc_bounds.ndc_min.z > 0.0f)
+    // if (ndc_bounds.ndc_min.z < 1.0f && ndc_bounds.ndc_min.z > 0.0f)
+    // {
+    //     const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
+    //     const vec2 min_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_min.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    //     const vec2 max_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_max.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    //     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
+    //     const float half_pixel_range = max(1.0f, pixel_range * 0.5f /* we will read a area 2x2 */);
+    //     const float mip = ceil(log2(half_pixel_range));
+    //     const ivec2 quad_corner_texel = ivec2(min_texel_i) >> uint(mip);
+    //     const int imip = int(mip);
+    //     const ivec2 mip_size = max(ivec2(0,0),ivec2(deref(push.uses.globals).settings.render_target_size >> (1 + imip)) - 1);
+    //     const vec4 fetch = vec4(
+    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), mip_size), int(mip)).x,
+    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), mip_size), int(mip)).x,
+    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), mip_size), int(mip)).x,
+    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), mip_size), int(mip)).x
+    //     );
+    //     const float depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
+    //     const bool depth_cull = (depth > ndc_bounds.ndc_max.z);
+    //     if (depth_cull)
+    //     {
+    //         REMOVE_color = vec3(1,1,0);
+    //         return true;
+    //     }
+    // }
+
+    // NEW:
+    const vec4 viewspace_center = deref(push.uses.globals).camera.view * vec4(ws_center,1);
+
+    const vec4 viewspace_corner0 = vec4(vec3(-1,-1,  1/*might be sus*/) * scaled_radius, 0) + viewspace_center;
+    const vec4 viewspace_corner1 = vec4(vec3( 1, 1,  1/*might be sus*/) * scaled_radius, 0) + viewspace_center;
+
+    const vec4 clipspace_corner0 = deref(push.uses.globals).camera.proj * viewspace_corner0;
+    const vec4 clipspace_corner1 = deref(push.uses.globals).camera.proj * viewspace_corner1;
+
+    if (clipspace_corner0.z < 0 || clipspace_corner1.z < 0)
     {
-        const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
-        const vec2 min_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_min.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-        const vec2 max_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_max.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-        const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-        const float half_pixel_range = max(1.0f, pixel_range * 0.5f /* we will read a area 2x2 */);
-        const float mip = ceil(log2(half_pixel_range));
-
-        const ivec2 quad_corner_texel = ivec2(min_texel_i) >> uint(mip);
-        const int imip = int(mip);
-        const ivec2 mip_size = max(ivec2(0,0),ivec2(deref(push.uses.globals).settings.render_target_size >> (1 + imip)) - 1);
-
-        const vec4 fetch = vec4(
-            texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), mip_size), int(mip)).x,
-            texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), mip_size), int(mip)).x,
-            texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), mip_size), int(mip)).x,
-            texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), mip_size), int(mip)).x
-        );
-        const float depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
-        const bool depth_cull = (depth > ndc_bounds.ndc_max.z);
-        if (depth_cull)
-        {
-            return true;
-        }
+        REMOVE_color = vec3(0,1,0);
+        return false;
     }
+
+    vec3 ndc_corner0 = clipspace_corner0.xyz / clipspace_corner0.w;
+    vec3 ndc_corner1 = clipspace_corner1.xyz / clipspace_corner1.w;
+    const vec3 ndc_min = ndc_bounds.ndc_min;//min(ndc_corner0, ndc_corner1);
+    const vec3 ndc_max = ndc_bounds.ndc_max;//max(ndc_corner0, ndc_corner1);
+
+    vec4 mister_bingus = deref(push.uses.globals).camera.view_proj * vec4(ws_center,1);
+
+    if (ndc_max.z > 1.0f || ndc_min.z < 0.0f)
+    {
+        REMOVE_color = vec3(0,1,0);
+        return false;
+    }
+
+    REMOVE_position_corner0 = ndc_min;
+    REMOVE_position_corner1 = ndc_max;
+
+    const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
+    const vec2 min_uv = (ndc_min.xy + 1.0f) * 0.5f;
+    const vec2 max_uv = (ndc_max.xy + 1.0f) * 0.5f;
+    const vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const vec2 max_texel_i = ceil(clamp(f_hiz_resolution * max_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
+    const float half_pixel_range = max(1.0f, pixel_range * 0.5f /* we will read a area 2x2 */);
+    const float mip = ceil(log2(half_pixel_range));
+
+    const ivec2 quad_corner_texel = ivec2(min_texel_i) >> uint(mip);
+    const int imip = int(mip);
+    const ivec2 texel_bounds = max(ivec2(0,0),ivec2(deref(push.uses.globals).settings.render_target_size >> (1 + imip)) - 1);
+
+    const vec4 fetch = vec4(
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), texel_bounds), int(mip)).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), texel_bounds), int(mip)).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), texel_bounds), int(mip)).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), texel_bounds), int(mip)).x
+    );
+    const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
+    const bool depth_cull = ndc_max.z < conservative_depth;
+    if (depth_cull)
+    {
+        REMOVE_color = vec3(1,1,0);
+        return true;
+    }
+
     return false;
 }
 

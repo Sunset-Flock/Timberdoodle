@@ -24,23 +24,43 @@ void main()
         return;
     }
 #if ENABLE_MESHLET_CULLING
-    if (is_meshlet_occluded(
+    const bool occluded = is_meshlet_occluded(
         instanced_meshlet,
         push.uses.entity_meshlet_visibility_bitfield_offsets,
         push.uses.entity_meshlet_visibility_bitfield_arena,
         push.uses.entity_combined_transforms,
         push.uses.meshes,
-        push.uses.hiz))
+        push.uses.hiz);
+        
+    if (occluded && REMOVE_draw)
     {
-        return;
+        ShaderDebugCircleDraw circle;
+        circle.radius = REMOVE_radius;
+        circle.position = REMOVE_position;
+        circle.color = REMOVE_color;
+        circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle);
+        ShaderDebugCircleDraw circle_corner0;
+        circle_corner0.radius = 0.005f;
+        circle_corner0.position = REMOVE_position_corner0;
+        circle_corner0.color = vec3(0,1,0);
+        circle_corner0.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle_corner0);
+        ShaderDebugCircleDraw circle_corner1;
+        circle_corner1.radius = 0.005f;
+        circle_corner1.position = REMOVE_position_corner1;
+        circle_corner1.color = vec3(0,0,1);
+        circle_corner1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle_corner1);
     }
+#else
+    const bool occluded = false;
 #endif
-    ShaderDebugCircleDraw circle;
-    circle.radius = 10;
-    circle.position = vec3(gl_GlobalInvocationID.xyz);
-    draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle);
-    const uint out_index = atomicAdd(deref(push.uses.instantiated_meshlets).second_count, 1);
-    const uint offset = deref(push.uses.instantiated_meshlets).first_count;
-    deref(push.uses.instantiated_meshlets).meshlets[out_index + offset] = pack_meshlet_instance(instanced_meshlet);
-    atomicAdd(deref(push.uses.draw_command).instance_count, 1);
+    if (!occluded)
+    {
+        const uint out_index = atomicAdd(deref(push.uses.instantiated_meshlets).second_count, 1);
+        const uint offset = deref(push.uses.instantiated_meshlets).first_count;
+        deref(push.uses.instantiated_meshlets).meshlets[out_index + offset] = pack_meshlet_instance(instanced_meshlet);
+        atomicAdd(deref(push.uses.draw_command).instance_count, 1);
+    }
 }

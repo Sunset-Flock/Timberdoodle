@@ -7,7 +7,8 @@
 
 struct ShaderDebugDrawContext
 {
-    u32 max_circle_draws = 16'000;
+    u32 max_circle_draws = 256'000;
+    u32 max_box_draws = 256'000;
     u32 circle_vertices = 64;
     daxa::RasterPipeline circle_draw_pipeline = {};
     daxa::BufferId buffer = {};

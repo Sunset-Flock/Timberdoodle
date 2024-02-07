@@ -9,8 +9,8 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawCircles, 3)
 DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(ShaderGlobals), globals)
-DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, colorImage)
-DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depthImage)
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
+DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if __cplusplus
@@ -31,7 +31,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compil
     };
     ret.color_attachments = std::vector{
         daxa::RenderAttachment{
-            .format = daxa::Format::R16G16B16A16_SFLOAT,
+            .format = daxa::Format::R8G8B8A8_UNORM,
         },
     };
     ret.raster = {
@@ -66,11 +66,11 @@ struct DebugDrawCirclesTask : DebugDrawCircles
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto const colorImageSize = ti.device.info_image(ti.get(colorImage).ids[0]).value().size;
+        auto const colorImageSize = ti.device.info_image(ti.get(color_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(DrawVisbuffer::depth_image).ids[0].default_view(),
+                    .image_view = ti.get(depth_image).view_ids[0],
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = daxa::AttachmentLoadOp::LOAD,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -80,7 +80,7 @@ struct DebugDrawCirclesTask : DebugDrawCircles
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.get(colorImage).ids[0].default_view(),
+                .image_view = ti.get(color_image).view_ids[0],
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
@@ -89,7 +89,7 @@ struct DebugDrawCirclesTask : DebugDrawCircles
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         
-        render_cmd.set_pipeline(*context->raster_pipelines.at(std::string(DebugDrawCircles::name())));
+        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
         render_cmd.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),

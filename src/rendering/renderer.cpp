@@ -528,6 +528,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
+    task_list.add_task(DebugDrawCirclesTask{
+        .views = std::array{
+            daxa::attachment_view(DebugDrawCirclesTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(DebugDrawCirclesTask::color_image, swapchain_image),
+            daxa::attachment_view(DebugDrawCirclesTask::depth_image, depth),
+        },
+        .context = context,
+    });
 
     task_list.add_task({
         .attachments = {daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image)},

@@ -134,6 +134,7 @@ Application::Application()
     auto comp_pipelines_task = std::make_shared<CompPipelinesTask>(_renderer.get());
 
     _threadpool->async_dispatch(comp_pipelines_task);
+    _threadpool->block_on(comp_pipelines_task);
 
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
@@ -164,7 +165,6 @@ Application::Application()
     }
 
     last_time_point = std::chrono::steady_clock::now();
-    _threadpool->block_on(comp_pipelines_task);
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 
