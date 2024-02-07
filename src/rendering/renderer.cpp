@@ -127,6 +127,7 @@ void Renderer::compile_pipelines()
     std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
         {draw_visbuffer_no_mesh_shader_pipeline_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_compile_info()},
         {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
+        {draw_shader_debug_rectangles_pipeline_compile_info().name, draw_shader_debug_rectangles_pipeline_compile_info()},
 #if COMPILE_IN_MESH_SHADER
         {draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name, draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()},
         {draw_visbuffer_mesh_shader_pipeline_compile_info().name, draw_visbuffer_mesh_shader_pipeline_compile_info()},
@@ -528,11 +529,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-    task_list.add_task(DebugDrawCirclesTask{
+    task_list.add_task(DebugDrawTask{
         .views = std::array{
-            daxa::attachment_view(DebugDrawCirclesTask::globals, context->shader_globals_task_buffer),
-            daxa::attachment_view(DebugDrawCirclesTask::color_image, swapchain_image),
-            daxa::attachment_view(DebugDrawCirclesTask::depth_image, depth),
+            daxa::attachment_view(DebugDrawTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(DebugDrawTask::color_image, swapchain_image),
+            daxa::attachment_view(DebugDrawTask::depth_image, depth),
         },
         .context = context,
     });

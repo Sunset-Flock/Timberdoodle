@@ -211,10 +211,8 @@ bool is_meshlet_occluded(
 
     vec3 ndc_corner0 = clipspace_corner0.xyz / clipspace_corner0.w;
     vec3 ndc_corner1 = clipspace_corner1.xyz / clipspace_corner1.w;
-    const vec3 ndc_min = ndc_bounds.ndc_min;//min(ndc_corner0, ndc_corner1);
-    const vec3 ndc_max = ndc_bounds.ndc_max;//max(ndc_corner0, ndc_corner1);
-
-    vec4 mister_bingus = deref(push.uses.globals).camera.view_proj * vec4(ws_center,1);
+    const vec3 ndc_min = min(ndc_corner0, ndc_corner1);
+    const vec3 ndc_max = max(ndc_corner0, ndc_corner1);
 
     if (ndc_max.z > 1.0f || ndc_min.z < 0.0f)
     {

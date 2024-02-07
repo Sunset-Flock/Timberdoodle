@@ -8,8 +8,9 @@
 struct ShaderDebugDrawContext
 {
     u32 max_circle_draws = 256'000;
-    u32 max_box_draws = 256'000;
+    u32 max_rectangle_draws = 256'000;
     u32 circle_vertices = 64;
+    u32 rectangle_vertices = 5;
     daxa::RasterPipeline circle_draw_pipeline = {};
     daxa::BufferId buffer = {};
 
@@ -18,6 +19,7 @@ struct ShaderDebugDrawContext
         usize size = {};
         usize circle_draw_array_offset = (size += sizeof(ShaderDebugBufferHead));
         size += sizeof(ShaderDebugCircleDraw) * max_circle_draws;
+        size += sizeof(ShaderDebugRectangleDraw) * max_rectangle_draws;
         buffer = device.create_buffer({
             .size = size,
             .name = "shader debug buffer",
@@ -26,15 +28,25 @@ struct ShaderDebugDrawContext
 
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
+        u32 const circle_buffer_offset = sizeof(ShaderDebugBufferHead);
+        u32 const rectangle_buffer_offset = sizeof(ShaderDebugBufferHead) + sizeof(ShaderDebugCircleDraw) * max_circle_draws;
         auto head = ShaderDebugBufferHead{
-            .draw_indirect_info = {
+            .circle_draw_indirect_info = {
                 .vertex_count = circle_vertices,
                 .instance_count = 0,
                 .first_vertex = 0,
                 .first_instance = 0,
             },
+            .rectangle_draw_indirect_info = {
+                .vertex_count = rectangle_vertices,
+                .instance_count = 0,
+                .first_vertex = 0,
+                .first_instance = 0,
+            },
             .circle_draw_capacity = max_circle_draws,
-            .circle_draws = device.get_device_address(buffer).value() + sizeof(ShaderDebugBufferHead),
+            .rectangle_draw_capacity = max_rectangle_draws,
+            .circle_draws = device.get_device_address(buffer).value() + circle_buffer_offset,
+            .rectangle_draws = device.get_device_address(buffer).value() + rectangle_buffer_offset
         };
         auto alloc = allocator.allocate_fill(head).value();
         recorder.copy_buffer_to_buffer({

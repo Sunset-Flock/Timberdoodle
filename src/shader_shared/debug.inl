@@ -16,10 +16,23 @@ struct ShaderDebugCircleDraw
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugCircleDraw)
 
+struct ShaderDebugRectangleDraw
+{
+    daxa_f32vec3 center;
+    daxa_f32vec3 color;
+    daxa_f32vec2 span;
+    // 0 = worldspace, 1 = ndc.
+    daxa_u32 coord_space;
+};
+DAXA_DECL_BUFFER_PTR(ShaderDebugRectangleDraw)
+
 struct ShaderDebugBufferHead
 {
-    DrawIndirectStruct draw_indirect_info;
+    DrawIndirectStruct circle_draw_indirect_info;
+    DrawIndirectStruct rectangle_draw_indirect_info;
     daxa_u32 circle_draw_capacity;
+    daxa_u32 rectangle_draw_capacity;
     daxa_RWBufferPtr(ShaderDebugCircleDraw) circle_draws;
+    daxa_RWBufferPtr(ShaderDebugRectangleDraw) rectangle_draws;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)

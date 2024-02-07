@@ -7,7 +7,7 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/debug.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawCircles, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(DebugDraw, 3)
 DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(ShaderGlobals), globals)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -17,9 +17,8 @@ DAXA_DECL_TASK_HEAD_END
 
 #include "../../gpu_context.hpp"
 
-static constexpr inline char const DRAW_SHADER_DEBUG_CIRCLES_PATH[] = "./src/rendering/tasks/shader_debug_draws.glsl";
-
-inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compile_info()
+static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.glsl";
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.depth_test = {
@@ -49,18 +48,42 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compil
         .line_width = 2.0f,
         .samples = 1,
     };
+    return ret;
+}
+
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compile_info()
+{
+    auto ret = draw_shader_debug_common_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_CIRCLES_PATH},
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_CIRCLE", "1"}}},
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_CIRCLES_PATH},
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_CIRCLE", "1"}}},
     };
     ret.name = "DrawShaderDebugCircles";
-    ret.push_constant_size = DebugDrawCircles::attachment_shader_data_size();
+    ret.push_constant_size = DebugDraw::attachment_shader_data_size();
     return ret;
 };
 
-struct DebugDrawCirclesTask : DebugDrawCircles
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_rectangles_pipeline_compile_info()
+{
+    auto ret = draw_shader_debug_common_pipeline_compile_info();
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_RECTANGLE", "1"}}},
+    };
+    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_RECTANGLE", "1"}}},
+    };
+    ret.name = "DrawShaderDebugRectangles";
+    ret.push_constant_size = DebugDraw::attachment_shader_data_size();
+    return ret;
+};
+
+struct DebugDrawTask : DebugDraw
 {
     AttachmentViews views = {};
     GPUContext * context = {};
@@ -88,7 +111,7 @@ struct DebugDrawCirclesTask : DebugDrawCircles
             },
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        
+
         render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
         render_cmd.push_constant_vptr({
@@ -100,6 +123,14 @@ struct DebugDrawCirclesTask : DebugDrawCircles
         render_cmd.draw_indirect({
             .draw_command_buffer = context->debug_draw_info.buffer,
             .indirect_buffer_offset = 0,
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
+        render_cmd.draw_indirect({
+            .draw_command_buffer = context->debug_draw_info.buffer,
+            .indirect_buffer_offset = sizeof(DrawIndirectStruct),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
