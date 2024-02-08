@@ -8,6 +8,8 @@
 
 DAXA_DECL_PUSH_CONSTANT(CullMeshletsPush,push)
 
+#define GLOBALS deref(push.uses.globals)
+
 #include "shader_lib/cull_util.glsl"
 
 layout(local_size_x = CULL_MESHLETS_WORKGROUP_X) in;
@@ -32,33 +34,33 @@ void main()
         push.uses.meshes,
         push.uses.hiz);
         
-    if (occluded && REMOVE_draw)
+    if (REMOVE_draw)
     {
-        ShaderDebugCircleDraw circle;
-        circle.radius = REMOVE_radius;
-        circle.position = REMOVE_position;
-        circle.color = REMOVE_color;
-        circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle);
-        // ShaderDebugCircleDraw circle_corner0;
-        // circle_corner0.radius = 0.005f;
-        // circle_corner0.position = REMOVE_position_corner0;
-        // circle_corner0.color = vec3(0,1,0);
-        // circle_corner0.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-        // draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle_corner0);
-        // ShaderDebugCircleDraw circle_corner1;
-        // circle_corner1.radius = 0.005f;
-        // circle_corner1.position = REMOVE_position_corner1;
-        // circle_corner1.color = vec3(0,0,1);
-        // circle_corner1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-        // draw_circle_ws(deref(push.uses.globals).debug_draw_info, circle_corner1);
-        ShaderDebugRectangleDraw rectangle;
-        const vec3 rec_size = (REMOVE_position_corner1 - REMOVE_position_corner0);
-        rectangle.center = REMOVE_position_corner0 + (rec_size * 0.5);
-        rectangle.span = rec_size.xy;
-        rectangle.color = vec3(0, 0, 1);
-        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-        draw_rectangle_ws(deref(push.uses.globals).debug_draw_info, rectangle);
+        //ShaderDebugCircleDraw circle;
+        //circle.radius = REMOVE_radius;
+        //circle.position = REMOVE_position;
+        //circle.color = REMOVE_color;
+        //circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        //debug_draw_circle(deref(push.uses.globals).debug_draw_info, circle);
+        //ShaderDebugCircleDraw circle_corner0;
+        //circle_corner0.radius = 0.005f;
+        //circle_corner0.position = REMOVE_position_corner0;
+        //circle_corner0.color = vec3(0,1,0);
+        //circle_corner0.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        //debug_draw_circle(deref(push.uses.globals).debug_draw_info, circle_corner0);
+        //ShaderDebugCircleDraw circle_corner1;
+        //circle_corner1.radius = 0.005f;
+        //circle_corner1.position = REMOVE_position_corner1;
+        //circle_corner1.color = vec3(0,0,1);
+        //circle_corner1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        //debug_draw_circle(deref(push.uses.globals).debug_draw_info, circle_corner1);
+        //ShaderDebugRectangleDraw rectangle;
+        //const vec3 rec_size = (REMOVE_position_corner1 - REMOVE_position_corner0);
+        //rectangle.center = REMOVE_position_corner0 + (rec_size * 0.5);
+        //rectangle.span = rec_size.xy;
+        //rectangle.color = vec3(0, 0, 1);
+        //rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        //debug_draw_rectangle(deref(push.uses.globals).debug_draw_info, rectangle);
     }
 #else
     const bool occluded = false;

@@ -45,7 +45,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile
         .depth_bias_constant_factor = 0.0f,
         .depth_bias_clamp = 0.0f,
         .depth_bias_slope_factor = 0.0f,
-        .line_width = 2.0f,
+        .line_width = 1.0f,
         .samples = 1,
     };
     return ret;
@@ -80,6 +80,23 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_rectangles_pipeline_com
     };
     ret.name = "DrawShaderDebugRectangles";
     ret.push_constant_size = DebugDraw::attachment_shader_data_size();
+    return ret;
+};
+
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_info()
+{
+    auto ret = draw_shader_debug_common_pipeline_compile_info();
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_AABB", "1"}}},
+    };
+    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_AABB", "1"}}},
+    };
+    ret.name = "DrawShaderDebugAABB";
+    ret.push_constant_size = DebugDraw::attachment_shader_data_size();
+    ret.raster.primitive_topology = daxa::PrimitiveTopology::LINE_LIST;
     return ret;
 };
 
@@ -122,7 +139,7 @@ struct DebugDrawTask : DebugDraw
 
         render_cmd.draw_indirect({
             .draw_command_buffer = context->debug_draw_info.buffer,
-            .indirect_buffer_offset = 0,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
@@ -130,7 +147,15 @@ struct DebugDrawTask : DebugDraw
         render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
         render_cmd.draw_indirect({
             .draw_command_buffer = context->debug_draw_info.buffer,
-            .indirect_buffer_offset = sizeof(DrawIndirectStruct),
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draw_indirect_info),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
+        render_cmd.draw_indirect({
+            .draw_command_buffer = context->debug_draw_info.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,

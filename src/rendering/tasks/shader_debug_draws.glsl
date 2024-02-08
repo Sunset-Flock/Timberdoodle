@@ -3,7 +3,7 @@
 #include "shader_debug_draws.inl"
 #include "shader_shared/debug.inl"
 
-#if defined(DRAW_CIRCLE)
+#if defined(DRAW_CIRCLE) || __cplusplus
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX  || __cplusplus
 
 layout(location = 0) out vec3 vtf_color;
@@ -43,20 +43,9 @@ void main()
 }
 
 #endif // DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX  || __cplusplus
-
-#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || __cplusplus
-
-layout(location = 0) in vec3 vtf_color;
-
-layout(location = 0) out vec4 color;
-void main()
-{
-    color = vec4(vtf_color,1);
-}
-#endif // DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || __cplusplus
 #endif // defined(DRAW_CIRCLE)
 
-#if defined(DRAW_RECTANGLE)
+#if defined(DRAW_RECTANGLE) || __cplusplus
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
 layout(location = 0) out vec3 vtf_color;
 
@@ -94,8 +83,49 @@ void main()
     }
 }
 #endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
+#endif //defined(DRAW_RECTANGLE)
 
-#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT
+
+#if defined(DRAW_AABB) || __cplusplus
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
+layout(location = 0) out vec3 vtf_color;
+
+DAXA_DECL_PUSH_CONSTANT(DebugDraw, attachments)
+const vec3 aabb_vertex_base_offsets[] = vec3[](
+    // Bottom rectangle:
+    vec3(-1,-1,-1), vec3( 1,-1,-1),
+    vec3(-1,-1,-1), vec3(-1, 1,-1),
+    vec3(-1, 1,-1), vec3( 1, 1,-1),
+    vec3( 1,-1,-1), vec3( 1, 1,-1),
+    // Top rectangle:
+    vec3(-1,-1, 1), vec3( 1,-1, 1),
+    vec3(-1,-1, 1), vec3(-1, 1, 1),
+    vec3(-1, 1, 1), vec3( 1, 1, 1),
+    vec3( 1,-1, 1), vec3( 1, 1, 1),
+    // Connecting lines:
+    vec3(-1,-1,-1), vec3(-1,-1, 1),
+    vec3( 1,-1,-1), vec3( 1,-1, 1),
+    vec3(-1, 1,-1), vec3(-1, 1, 1),
+    vec3( 1, 1,-1), vec3( 1, 1, 1)
+);
+
+void main()
+{
+    const uint aabb_idx = gl_InstanceIndex;
+    const uint vertex_idx = gl_VertexIndex;
+
+    const ShaderDebugAABBDraw aabb = deref(deref(deref(attachments.globals).debug_draw_info).aabb_draws + aabb_idx);
+
+    const vec3 model_position = aabb_vertex_base_offsets[vertex_idx] * 0.5f * aabb.size + aabb.position;
+    vtf_color = aabb.color;
+    gl_Position = deref(attachments.globals).camera.view_proj * vec4(model_position, 1);
+}
+#endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
+
+#endif //defined(DRAW_RECTANGLE)
+
+
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || __cplusplus
 layout(location = 0) in vec3 vtf_color;
 
 layout(location = 0) out vec4 color;
@@ -104,6 +134,3 @@ void main()
     color = vec4(vtf_color,1);
 }
 #endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT
-#endif //defined(DRAW_RECTANGLE)
-
-

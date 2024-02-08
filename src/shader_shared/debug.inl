@@ -26,13 +26,27 @@ struct ShaderDebugRectangleDraw
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugRectangleDraw)
 
+struct ShaderDebugAABBDraw
+{
+    daxa_f32vec3 position;
+    daxa_f32vec3 size;
+    daxa_f32vec3 color;
+};
+DAXA_DECL_BUFFER_PTR(ShaderDebugAABBDraw)
+
 struct ShaderDebugBufferHead
 {
     DrawIndirectStruct circle_draw_indirect_info;
     DrawIndirectStruct rectangle_draw_indirect_info;
+    DrawIndirectStruct aabb_draw_indirect_info;
     daxa_u32 circle_draw_capacity;
+    daxa_u32 exceeded_circle_draw_capacity;
     daxa_u32 rectangle_draw_capacity;
+    daxa_u32 exceeded_rectangle_draw_capacity;
+    daxa_u32 aabb_draw_capacity;
+    daxa_u32 exceeded_aabb_draw_capacity;
     daxa_RWBufferPtr(ShaderDebugCircleDraw) circle_draws;
     daxa_RWBufferPtr(ShaderDebugRectangleDraw) rectangle_draws;
+    daxa_RWBufferPtr(ShaderDebugAABBDraw) aabb_draws;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)

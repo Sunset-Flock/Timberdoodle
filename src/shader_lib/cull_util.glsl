@@ -130,6 +130,7 @@ bool is_meshlet_occluded(
     // daxa_f32vec3 center;
     // daxa_f32 radius;
     mat4x4 model_matrix = mat_4x3_to_4x4(deref(entity_combined_transforms[meshlet_inst.entity_index]));
+    mat4x4 view_proj = deref(push.uses.globals).camera.view_proj;
     const float model_scaling_x_squared = dot(model_matrix[0],model_matrix[0]);
     const float model_scaling_y_squared = dot(model_matrix[1],model_matrix[1]);
     const float model_scaling_z_squared = dot(model_matrix[2],model_matrix[2]);
@@ -137,91 +138,54 @@ bool is_meshlet_occluded(
     BoundingSphere bounds = deref(mesh_data.meshlet_bounds[meshlet_inst.meshlet_index]);
     const float scaled_radius = radius_scaling * bounds.radius;
     const vec3 ws_center = (model_matrix * vec4(bounds.center, 1)).xyz;
-    const vec3 center_to_camera = normalize(deref(push.uses.globals).camera.pos - ws_center);
-    const vec3 tangential_up = normalize(deref(push.uses.globals).camera.up - center_to_camera * dot(center_to_camera, deref(push.uses.globals).camera.up));
-    const vec3 tangent_left = -cross(tangential_up, center_to_camera);
-    NdcBounds ndc_bounds;
-    init_ndc_bounds(ndc_bounds);
-    REMOVE_position = ws_center;
-    REMOVE_radius = scaled_radius;
-    REMOVE_color = vec3(1,0,0);
-    REMOVE_draw = true;
 
-    // construct bounding box from bounding sphere,
-    // project each vertex of the box to ndc, min and max the coordinates.
+    if (is_out_of_frustum(ws_center, scaled_radius))
+    {
+        return true;
+    }
+
+    bool initialized_min_max = false;
+    vec3 ndc_min;
+    vec3 ndc_max;
     for (int z = -1; z <= 1; z += 2)
     {
         for (int y = -1; y <= 1; y += 2)
         {
             for (int x = -1; x <= 1; x += 2)
             {
-                // TODO: make this use a precalculated obb, not this shit sphere derived one.
-                const vec3 bounding_box_corner_ws = bounds.center + bounds.radius * (center_to_camera * z + tangential_up * y + tangent_left * x);
-                const vec4 projected_pos = deref(push.uses.globals).camera.view_proj * model_matrix * vec4(bounding_box_corner_ws, 1);
-                const vec3 ndc_pos = projected_pos.xyz / projected_pos.w;
-                add_vertex_to_ndc_bounds(ndc_bounds, ndc_pos);
+                const vec3 model_corner_position = bounds.center + bounds.radius * vec3(x,y,z);
+                const vec4 worldspace_corner_position = model_matrix * vec4(model_corner_position,1);
+                const vec4 clipspace_corner_position = view_proj * worldspace_corner_position;
+                const vec3 ndc_corner_position = clipspace_corner_position.xyz / clipspace_corner_position.w;
+                ndc_min.x = !initialized_min_max ? ndc_corner_position.x : min(ndc_corner_position.x, ndc_min.x);
+                ndc_min.y = !initialized_min_max ? ndc_corner_position.y : min(ndc_corner_position.y, ndc_min.y);
+                ndc_min.z = !initialized_min_max ? ndc_corner_position.z : min(ndc_corner_position.z, ndc_min.z);
+                ndc_max.x = !initialized_min_max ? ndc_corner_position.x : max(ndc_corner_position.x, ndc_max.x);
+                ndc_max.y = !initialized_min_max ? ndc_corner_position.y : max(ndc_corner_position.y, ndc_max.y);
+                ndc_max.z = !initialized_min_max ? ndc_corner_position.z : max(ndc_corner_position.z, ndc_max.z);
+                initialized_min_max = true;
             }
         }
     }
-    if (is_out_of_frustum(ws_center, scaled_radius))
-    {
-        return true;
-    }
 
-    // if (ndc_bounds.ndc_min.z < 1.0f && ndc_bounds.ndc_min.z > 0.0f)
-    // {
-    //     const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
-    //     const vec2 min_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_min.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    //     const vec2 max_texel_i = floor(clamp(f_hiz_resolution * (ndc_bounds.ndc_max.xy + 1.0f) * 0.5f, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    //     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    //     const float half_pixel_range = max(1.0f, pixel_range * 0.5f /* we will read a area 2x2 */);
-    //     const float mip = ceil(log2(half_pixel_range));
-    //     const ivec2 quad_corner_texel = ivec2(min_texel_i) >> uint(mip);
-    //     const int imip = int(mip);
-    //     const ivec2 mip_size = max(ivec2(0,0),ivec2(deref(push.uses.globals).settings.render_target_size >> (1 + imip)) - 1);
-    //     const vec4 fetch = vec4(
-    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), mip_size), int(mip)).x,
-    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), mip_size), int(mip)).x,
-    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), mip_size), int(mip)).x,
-    //         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), mip_size), int(mip)).x
-    //     );
-    //     const float depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
-    //     const bool depth_cull = (depth > ndc_bounds.ndc_max.z);
-    //     if (depth_cull)
-    //     {
-    //         REMOVE_color = vec3(1,1,0);
-    //         return true;
-    //     }
-    // }
-
-    // NEW:
-    const vec4 viewspace_center = deref(push.uses.globals).camera.view * vec4(ws_center,1);
-
-    const vec4 viewspace_corner0 = vec4(vec3(-1,-1,  1/*might be sus*/) * scaled_radius, 0) + viewspace_center;
-    const vec4 viewspace_corner1 = vec4(vec3( 1, 1,  1/*might be sus*/) * scaled_radius, 0) + viewspace_center;
-
-    const vec4 clipspace_corner0 = deref(push.uses.globals).camera.proj * viewspace_corner0;
-    const vec4 clipspace_corner1 = deref(push.uses.globals).camera.proj * viewspace_corner1;
-
-    if (clipspace_corner0.z < 0 || clipspace_corner1.z < 0)
-    {
-        REMOVE_color = vec3(0,1,0);
-        return false;
-    }
-
-    vec3 ndc_corner0 = clipspace_corner0.xyz / clipspace_corner0.w;
-    vec3 ndc_corner1 = clipspace_corner1.xyz / clipspace_corner1.w;
-    const vec3 ndc_min = min(ndc_corner0, ndc_corner1);
-    const vec3 ndc_max = max(ndc_corner0, ndc_corner1);
-
-    if (ndc_max.z > 1.0f || ndc_min.z < 0.0f)
-    {
-        REMOVE_color = vec3(0,1,0);
-        return false;
-    }
+    // For now, if they leave clipspace, we accept them as visible EXCEPT when they are behind the camera entirely.
+    //if (ndc_max.z < 0.0f)
+    //{
+    //    return true;
+    //}
+    //// When the bounding box is partially behind the camera we can do no sensible culling work, we just accept.
+    //if (ndc_min.z < 0.0f && ndc_max.z > 0.0f)
+    //{
+    //    return false;
+    //}
+    ndc_min.x = max(ndc_min.x, -1.0f);
+    ndc_min.y = max(ndc_min.y, -1.0f);
+    ndc_max.x = min(ndc_max.x,  1.0f);
+    ndc_max.y = min(ndc_max.y,  1.0f);
 
     REMOVE_position_corner0 = ndc_min;
     REMOVE_position_corner1 = ndc_max;
+    REMOVE_draw = true;
 
     const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
     const vec2 min_uv = (ndc_min.xy + 1.0f) * 0.5f;
@@ -244,13 +208,19 @@ bool is_meshlet_occluded(
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = ndc_max.z < conservative_depth;
+
+    #if defined(GLOBALS) || __cplusplus
     if (depth_cull)
     {
-        REMOVE_color = vec3(1,1,0);
-        return true;
+        ShaderDebugAABBDraw aabb;
+        aabb.position = ws_center;
+        aabb.size = scaled_radius.xxx * 2.0f;
+        aabb.color = vec3(0, 0, 1);
+        debug_draw_aabb(GLOBALS.debug_draw_info, aabb);
     }
+    #endif
 
-    return false;
+    return depth_cull;
 }
 
 bool get_meshlet_instance_from_arg(uint thread_id, uint arg_bucket_index, daxa_BufferPtr(MeshletCullIndirectArgTable) meshlet_cull_indirect_args, out MeshletInstance meshlet_inst)
