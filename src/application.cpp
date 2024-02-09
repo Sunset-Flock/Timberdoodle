@@ -142,8 +142,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,

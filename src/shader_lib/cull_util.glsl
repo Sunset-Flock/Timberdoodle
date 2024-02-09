@@ -115,7 +115,7 @@ bool is_meshlet_occluded(
         const bool visible_last_frame = (mask & bitfield_uint_bit) != 0;
         if (visible_last_frame)
         {
-            //return true;
+            return true;
         }
     }
     // daxa_f32vec3 center;
@@ -182,21 +182,30 @@ bool is_meshlet_occluded(
     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
     const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
 
-    const int imip = int(mip);
+    // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
+    // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
+    // We check if the quad at its current position within that mip level fits that quad and if not we move up one mip.
+    // This will give us the tightest fit.
+    int imip = int(mip);
+    const ivec2 min_corner_texel = ivec2(min_texel_i) >> imip;
+    const ivec2 max_corner_texel = ivec2(max_texel_i) >> imip;
+    if (any(greaterThan(max_corner_texel - min_corner_texel, ivec2(1)))) {
+        imip += 1;
+    }
     const ivec2 quad_corner_texel = ivec2(min_texel_i) >> imip;
     const ivec2 texel_bounds = max(ivec2(0,0), (ivec2(f_hiz_resolution) >> imip) - 1);
 
     const vec4 fetch = vec4(
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), texel_bounds), int(mip)).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), texel_bounds), int(mip)).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), texel_bounds), int(mip)).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), texel_bounds), int(mip)).x
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), texel_bounds), imip).x
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = ndc_max.z < conservative_depth;
 
     #if defined(GLOBALS) || defined(__cplusplus)
-    if (depth_cull || true)
+    if (depth_cull)
     {
         ShaderDebugAABBDraw aabb;
         aabb.position = ws_center;
@@ -217,6 +226,8 @@ bool is_meshlet_occluded(
             const vec2 max_r = (quad_corner_texel + 2) << imip;
             const vec2 min_r_uv = min_r / f_hiz_resolution;
             const vec2 max_r_uv = max_r / f_hiz_resolution;
+            // const vec2 min_r_uv = min_texel_i / f_hiz_resolution;
+            // const vec2 max_r_uv = (min_texel_i + pixel_range) / f_hiz_resolution;
             const vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
             const vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
             ShaderDebugRectangleDraw rectangle;
