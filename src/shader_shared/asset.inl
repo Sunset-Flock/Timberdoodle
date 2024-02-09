@@ -105,6 +105,13 @@ struct BoundingSphere
 };
 DAXA_DECL_BUFFER_PTR(BoundingSphere)
 
+struct AABB
+{
+    daxa_f32vec3 center;
+    daxa_f32vec3 size;
+};
+DAXA_DECL_BUFFER_PTR(AABB)
+
 #if 0
 #define DEBUG_VERTEX_ID 1
 void encode_vertex_id(daxa_u32 instantiated_meshlet_index, daxa_u32 triangle_index, daxa_u32 triangle_corner, out daxa_u32 vertex_id)
@@ -137,6 +144,7 @@ struct GPUMesh
     daxa_u32 vertex_count;
     daxa_BufferPtr(Meshlet) meshlets;
     daxa_BufferPtr(BoundingSphere) meshlet_bounds;
+    daxa_BufferPtr(AABB) meshlet_aabbs;
     daxa_BufferPtr(daxa_u32) micro_indices;
     daxa_BufferPtr(daxa_u32) indirect_vertices;
     daxa_BufferPtr(daxa_f32vec3) vertex_positions;

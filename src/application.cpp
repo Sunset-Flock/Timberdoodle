@@ -70,8 +70,11 @@ void CameraController::update_matrices(Window & window)
         inf_depth_reverse_z_perspective(glm::radians(fov), f32(window.get_width()) / f32(window.get_height()), near);
     prespective[1][1] *= -1.0f;
     this->cam_info.proj = prespective;
+    this->cam_info.inv_proj = glm::inverse(prespective);
     this->cam_info.view = glm::lookAt(position, position + forward, up);
+    this->cam_info.inv_view = glm::inverse(this->cam_info.view);
     this->cam_info.view_proj = this->cam_info.proj * this->cam_info.view;
+    this->cam_info.inv_view_proj = glm::inverse(this->cam_info.view_proj);
     this->cam_info.pos = this->position;
     this->cam_info.up = this->up;
     glm::vec3 ws_ndc_corners[2][2][2];
@@ -249,6 +252,9 @@ void Application::update()
             _renderer->context->settings.draw_from_observer = static_cast<u32>(draw_from_observer);
             ImGui::Checkbox("control observer   (J)", &control_observer);
             reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
+            
+            std::array<char const * const, 3> modes = { "redraw meshlets visible last frame", "redraw meshlet post cull", "redraw all drawn meshlets" };
+            ImGui::Combo("observer draw pass mode", &_renderer->context->settings.observer_show_pass, modes.data(), modes.size());
             ImGui::End();
         }
     }

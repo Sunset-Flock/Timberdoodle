@@ -127,11 +127,20 @@ bool is_meshlet_occluded(
     const float model_scaling_z_squared = dot(model_matrix[2],model_matrix[2]);
     const float radius_scaling = sqrt(max(max(model_scaling_x_squared,model_scaling_y_squared), model_scaling_z_squared));
     BoundingSphere bounds = deref(mesh_data.meshlet_bounds[meshlet_inst.meshlet_index]);
+    AABB meshlet_aabb = deref(mesh_data.meshlet_aabbs[meshlet_inst.meshlet_index]);
     const float scaled_radius = radius_scaling * bounds.radius;
     const vec3 ws_center = (model_matrix * vec4(bounds.center, 1)).xyz;
 
     if (is_out_of_frustum(ws_center, scaled_radius))
     {
+        #if defined(GLOBALS) || defined(__cplusplus)
+            ShaderDebugCircleDraw circle;
+            circle.position = ws_center;
+            circle.radius = scaled_radius;
+            circle.color = vec3(1,1,0);
+            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            debug_draw_circle(GLOBALS.debug_draw_info, circle);
+        #endif
         return true;
     }
 
@@ -144,7 +153,7 @@ bool is_meshlet_occluded(
         {
             for (int x = -1; x <= 1; x += 2)
             {
-                const vec3 model_corner_position = bounds.center + bounds.radius * vec3(x,y,z);
+                const vec3 model_corner_position = meshlet_aabb.center + meshlet_aabb.size * vec3(x,y,z) * 0.5f;
                 const vec4 worldspace_corner_position = model_matrix * vec4(model_corner_position,1);
                 const vec4 clipspace_corner_position = view_proj * worldspace_corner_position;
                 const vec3 ndc_corner_position = clipspace_corner_position.xyz / clipspace_corner_position.w;
@@ -159,16 +168,6 @@ bool is_meshlet_occluded(
         }
     }
 
-    // For now, if they leave clipspace, we accept them as visible EXCEPT when they are behind the camera entirely.
-    //if (ndc_max.z < 0.0f)
-    //{
-    //    return true;
-    //}
-    //// When the bounding box is partially behind the camera we can do no sensible culling work, we just accept.
-    //if (ndc_min.z < 0.0f && ndc_max.z > 0.0f)
-    //{
-    //    return false;
-    //}
     ndc_min.x = max(ndc_min.x, -1.0f);
     ndc_min.y = max(ndc_min.y, -1.0f);
     ndc_max.x = min(ndc_max.x,  1.0f);
@@ -207,11 +206,17 @@ bool is_meshlet_occluded(
     #if defined(GLOBALS) || defined(__cplusplus)
     if (depth_cull)
     {
-        ShaderDebugAABBDraw aabb;
-        aabb.position = ws_center;
-        aabb.size = scaled_radius.xxx * 2.0f;
-        aabb.color = vec3(0, 0, 1);
-        debug_draw_aabb(GLOBALS.debug_draw_info, aabb);
+        //ShaderDebugAABBDraw aabb;
+        //aabb.position = ws_center;
+        //aabb.size = scaled_radius.xxx * 2.0f;
+        //aabb.color = vec3(0, 0, 1);
+        //debug_draw_aabb(GLOBALS.debug_draw_info, aabb);
+        ShaderDebugAABBDraw aabb1;
+        aabb1.position = (model_matrix * vec4(meshlet_aabb.center,1)).xyz;
+        aabb1.size = (model_matrix * vec4(meshlet_aabb.size,0)).xyz;
+        aabb1.color = vec3(0.1, 0.5, 1);
+        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        debug_draw_aabb(GLOBALS.debug_draw_info, aabb1);
         {
             ShaderDebugRectangleDraw rectangle;
             const vec3 rec_size = (ndc_max - ndc_min);

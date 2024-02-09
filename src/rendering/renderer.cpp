@@ -616,6 +616,13 @@ void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & o
 
     if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
+    context->debug_draw_info.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
+        .position = daxa_f32vec3(0,0,0.5),
+        .size = daxa_f32vec3(2.01,2.01,0.999),
+        .color = daxa_f32vec3(1,0,0),
+        .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
+    });
+
     submit_info = {};
     auto const t_semas = std::array{std::pair{context->transient_mem.timeline_semaphore(), context->transient_mem.timeline_value()}};
     submit_info.signal_timeline_semaphores = t_semas;

@@ -113,7 +113,7 @@ static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const
         .image_path = full_buffer_path,
         .mime_type = uri.mimeType};
 }
-#pragma engregion
+#pragma endregion
 
 #pragma region IMAGE_RAW_DATA_PARSING_HELPERS
 struct ParsedImageData
@@ -717,6 +717,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         CONE_WEIGHT);
     // TODO: Compute OBBs
     std::vector<BoundingSphere> meshlet_bounds(meshlet_count);
+    std::vector<AABB> meshlet_aabbs(meshlet_count);
     for (size_t meshlet_i = 0; meshlet_i < meshlet_count; ++meshlet_i)
     {
         meshopt_Bounds raw_bounds = meshopt_computeMeshletBounds(
@@ -730,6 +731,19 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         meshlet_bounds[meshlet_i].center.y = raw_bounds.center[1];
         meshlet_bounds[meshlet_i].center.z = raw_bounds.center[2];
         meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
+
+        glm::vec3 min_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+        glm::vec3 max_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+
+        for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
+        {
+            glm::vec3 pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
+            min_pos = glm::min(min_pos, pos);
+            max_pos = glm::max(max_pos, pos);
+        }
+
+        meshlet_aabbs[meshlet_i].center = std::bit_cast<daxa_f32vec3>( (max_pos + min_pos) * 0.5f );
+        meshlet_aabbs[meshlet_i].size = std::bit_cast<daxa_f32vec3>( max_pos - min_pos );
     }
     // Trimm array sizes.
     meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
@@ -740,6 +754,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     u32 const total_mesh_buffer_size =
         sizeof(Meshlet) * meshlet_count +
         sizeof(BoundingSphere) * meshlet_count +
+        sizeof(AABB) * meshlet_count +
         sizeof(u8) * meshlet_micro_indices.size() +
         sizeof(u32) * meshlet_indirect_vertices.size() +
         sizeof(daxa_f32vec3) * vert_positions.size() +
@@ -780,6 +795,13 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         meshlet_bounds.data(),
         meshlet_bounds.size() * sizeof(BoundingSphere));
     accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
+    // ---
+    mesh.meshlet_aabbs = mesh_bda + accumulated_offset;
+    std::memcpy(
+        staging_ptr + accumulated_offset,
+        meshlet_aabbs.data(),
+        meshlet_aabbs.size() * sizeof(AABB));
+    accumulated_offset += sizeof(AABB) * meshlet_count;
     // ---
     DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
     mesh.micro_indices = mesh_bda + accumulated_offset;

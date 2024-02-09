@@ -43,7 +43,7 @@ void main()
     }
     if (push.draw_as_observer == 1)
     {
-        out_position = deref(push.attachments.globals).observer_camera.view_proj * (inverse(deref(push.attachments.globals).camera.view_proj) * out_position);
+        out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }
     gl_Position = out_position;
 }
@@ -90,7 +90,7 @@ void main()
     }
     if (push.draw_as_observer == 1)
     {
-        out_position = deref(push.attachments.globals).observer_camera.view_proj * (inverse(deref(push.attachments.globals).camera.view_proj) * out_position);
+        out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }
     gl_Position = out_position;
 }
@@ -131,10 +131,17 @@ void main()
     vec4 out_position;
     const vec3 model_position = aabb_vertex_base_offsets[vertex_idx] * 0.5f * aabb.size + aabb.position;
     vtf_color = aabb.color;
-    out_position = deref(push.attachments.globals).camera.view_proj * vec4(model_position, 1);
+    if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        out_position = deref(push.attachments.globals).camera.view_proj * vec4(model_position, 1);
+    }
+    else if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
+    {
+        out_position = vec4(model_position, 1);
+    }
     if (push.draw_as_observer == 1)
     {
-        out_position = deref(push.attachments.globals).observer_camera.view_proj * (inverse(deref(push.attachments.globals).camera.view_proj) * out_position);
+        out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }
     gl_Position = out_position;
 }

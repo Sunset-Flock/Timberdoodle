@@ -146,8 +146,11 @@ struct GlobalSamplers
 struct CameraInfo
 {
     glmsf32mat4 view;
+    glmsf32mat4 inv_view;
     glmsf32mat4 proj;
+    glmsf32mat4 inv_proj;
     glmsf32mat4 view_proj;
+    glmsf32mat4 inv_view_proj;
     glmsf32vec3 pos;
     glmsf32vec3 up;
     glmsf32vec3 near_plane_normal;

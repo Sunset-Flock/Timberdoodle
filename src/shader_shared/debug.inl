@@ -31,6 +31,7 @@ struct ShaderDebugAABBDraw
     daxa_f32vec3 position;
     daxa_f32vec3 size;
     daxa_f32vec3 color;
+    daxa_u32 coord_space;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugAABBDraw)
 
