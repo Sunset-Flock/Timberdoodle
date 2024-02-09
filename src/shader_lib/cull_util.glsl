@@ -92,13 +92,6 @@ bool is_tri_out_of_frustum(vec3 tri[3])
     return out_of_frustum;
 }
 
-bool REMOVE_draw;
-float REMOVE_radius;
-vec3 REMOVE_position;
-vec3 REMOVE_color;
-
-vec3 REMOVE_position_corner0;
-vec3 REMOVE_position_corner1;
 bool is_meshlet_occluded(
     MeshletInstance meshlet_inst,
     EntityMeshletVisibilityBitfieldOffsetsView entity_meshlet_visibility_bitfield_offsets,
@@ -108,8 +101,6 @@ bool is_meshlet_occluded(
     daxa_ImageViewId hiz
 )
 {
-    REMOVE_draw = false;
-    REMOVE_color = vec3(0,0,1);
     GPUMesh mesh_data = deref(meshes[meshlet_inst.mesh_index]);
     if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
     {
@@ -124,7 +115,7 @@ bool is_meshlet_occluded(
         const bool visible_last_frame = (mask & bitfield_uint_bit) != 0;
         if (visible_last_frame)
         {
-            return true;
+            //return true;
         }
     }
     // daxa_f32vec3 center;
@@ -183,22 +174,17 @@ bool is_meshlet_occluded(
     ndc_max.x = min(ndc_max.x,  1.0f);
     ndc_max.y = min(ndc_max.y,  1.0f);
 
-    REMOVE_position_corner0 = ndc_min;
-    REMOVE_position_corner1 = ndc_max;
-    REMOVE_draw = true;
-
     const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
     const vec2 min_uv = (ndc_min.xy + 1.0f) * 0.5f;
     const vec2 max_uv = (ndc_max.xy + 1.0f) * 0.5f;
     const vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    const vec2 max_texel_i = ceil(clamp(f_hiz_resolution * max_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float half_pixel_range = max(1.0f, pixel_range * 0.5f /* we will read a area 2x2 */);
-    const float mip = ceil(log2(half_pixel_range));
+    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
 
-    const ivec2 quad_corner_texel = ivec2(min_texel_i) >> uint(mip);
     const int imip = int(mip);
-    const ivec2 texel_bounds = max(ivec2(0,0),ivec2(deref(push.uses.globals).settings.render_target_size >> (1 + imip)) - 1);
+    const ivec2 quad_corner_texel = ivec2(min_texel_i) >> imip;
+    const ivec2 texel_bounds = max(ivec2(0,0), (ivec2(f_hiz_resolution) >> imip) - 1);
 
     const vec4 fetch = vec4(
         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), texel_bounds), int(mip)).x,
@@ -209,14 +195,38 @@ bool is_meshlet_occluded(
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = ndc_max.z < conservative_depth;
 
-    #if defined(GLOBALS) || __cplusplus
-    if (depth_cull)
+    #if defined(GLOBALS) || defined(__cplusplus)
+    if (depth_cull || true)
     {
         ShaderDebugAABBDraw aabb;
         aabb.position = ws_center;
         aabb.size = scaled_radius.xxx * 2.0f;
         aabb.color = vec3(0, 0, 1);
         debug_draw_aabb(GLOBALS.debug_draw_info, aabb);
+        {
+            ShaderDebugRectangleDraw rectangle;
+            const vec3 rec_size = (ndc_max - ndc_min);
+            rectangle.center = ndc_min + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = vec3(0, 1, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(deref(push.uses.globals).debug_draw_info, rectangle);
+        }
+        {
+            const vec2 min_r = quad_corner_texel << imip;
+            const vec2 max_r = (quad_corner_texel + 2) << imip;
+            const vec2 min_r_uv = min_r / f_hiz_resolution;
+            const vec2 max_r_uv = max_r / f_hiz_resolution;
+            const vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+            const vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+            ShaderDebugRectangleDraw rectangle;
+            const vec3 rec_size = (vec3(max_r_ndc, ndc_max.z) - vec3(min_r_ndc, ndc_min.z));
+            rectangle.center = vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = vec3(1, 0, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(deref(push.uses.globals).debug_draw_info, rectangle);
+        }
     }
     #endif
 
