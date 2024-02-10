@@ -44,6 +44,7 @@ struct Renderer
     daxa::TaskImage depth = {};
     daxa::TaskImage visbuffer = {};
     daxa::TaskImage debug_image = {};
+    daxa::TaskImage color_image = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};

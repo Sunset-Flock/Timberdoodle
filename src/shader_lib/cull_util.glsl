@@ -43,16 +43,6 @@ void add_vertex_to_ndc_bounds(inout NdcBounds ndc_bounds, vec3 ndc_pos)
     ndc_bounds.valid_vertices += 1;
 }
 
-mat4 mat_4x3_to_4x4(mat4x3 in_mat)
-{
-    return mat4(
-        vec4(in_mat[0], 0.0),
-        vec4(in_mat[1], 0.0),
-        vec4(in_mat[2], 0.0),
-        vec4(in_mat[3], 1.0)
-    );
-}
-
 bool is_out_of_frustum(vec3 ws_center, float ws_radius)
 {
     const vec3 frustum_planes[5] = {

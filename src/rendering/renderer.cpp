@@ -12,6 +12,7 @@
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
+#include "tasks/shade_opaque.inl"
 #include "tasks/sky.inl"
 #include "tasks/shader_debug_draws.inl"
 #include <daxa/types.hpp>
@@ -51,6 +52,7 @@ Renderer::Renderer(
     depth = daxa::TaskImage{{.name = "depth"}};
     visbuffer = daxa::TaskImage{{.name = "visbuffer"}};
     debug_image = daxa::TaskImage{{.name = "debug_image"}};
+    color_image = daxa::TaskImage{{.name = "color_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
 
@@ -58,6 +60,7 @@ Renderer::Renderer(
         debug_image,
         visbuffer,
         depth,
+        color_image,
         transmittance,
         multiscattering,
     };
@@ -89,6 +92,15 @@ Renderer::Renderer(
                 .name = debug_image.info().name,
             },
             debug_image,
+        },
+        {
+            {
+                .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
+                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT | daxa::ImageUsageFlagBits::TRANSFER_DST |
+                         daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+                .name = color_image.info().name,
+            },
+            color_image,
         },
     };
 
@@ -155,6 +167,7 @@ void Renderer::compile_pipelines()
         {AnalyzeVisBufferTask2{}.name(), analyze_visbufer_pipeline_compile_info()},
         {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
         {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
+        {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
         {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
         {CullMeshesCommandWriteTask{}.name(), cull_meshes_write_command_pipeline_compile_info()},
         {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
@@ -519,14 +532,25 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
     }
     task_list.submit({});
+
+    task_list.add_task(ShadeOpaqueTask{
+        .views = std::array{
+            daxa::attachment_view(ShadeOpaqueTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
+            daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
+            daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
+            daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
+        },
+        .context = context,
+    });
+    
     task_list.add_task(WriteSwapchainTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::globals, context->shader_globals_task_buffer}},
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::swapchain, swapchain_image}},
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::vis_image, visbuffer}},
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::debug_image, debug_image}},
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::material_manifest, scene->_gpu_material_manifest}},
-            daxa::TaskViewVariant{std::pair{WriteSwapchainTask::instantiated_meshlets, meshlet_instances}},
+            daxa::attachment_view(WriteSwapchainTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(WriteSwapchainTask::swapchain, swapchain_image),
+            daxa::attachment_view(WriteSwapchainTask::color_image, color_image),
         },
         .context = context,
     });
