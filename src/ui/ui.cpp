@@ -43,6 +43,7 @@ void UIEngine::main_update(Settings &settings, SkySettings & sky_settings, Scene
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_hierarchy);
             ImGui::MenuItem("Camera Settings", NULL, &camera_settings);
+            ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();

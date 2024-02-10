@@ -21,9 +21,9 @@ DAXA_DECL_TASK_HEAD_END
 
 struct ShadeOpaquePush
 {
+    DAXA_TH_BLOB(ShadeOpaque, attachments)
     daxa_f32vec2 size;
     daxa_f32vec2 inv_size;
-    DAXA_TH_BLOB(ShadeOpaque, attachments)
 };
 
 #define SHADE_OPAQUE_WG_X 16
@@ -44,21 +44,21 @@ inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
 struct ShadeOpaqueTask : ShadeOpaque
 {
     AttachmentViews views = {};
+    u32 pass = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(ShadeOpaque{}.name()));
         auto const color_image_id = ti.get(color_image).ids[0];
         auto const color_image_info = ti.device.info_image(color_image_id).value();
-        ti.recorder.push_constant(ShadeOpaquePush{
-            .size = { static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y) },
-            .inv_size = { 1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y) },
-        });
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(ShadeOpaquePush),
         });
+        ti.recorder.push_constant(ShadeOpaquePush{
+            .size = { static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y) },
+            .inv_size = { 1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y) },
+        }, ShadeOpaque::attachment_shader_data_size());
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});

@@ -18,12 +18,14 @@ using namespace tido::ui;
 
 struct UIEngine
 {
-
     public:
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_scene_hierarchy = false;
         bool camera_settings = false;
+        u32 magnify_pixels = 7;
+        bool shader_debug_menu = false;
+        f32 debug_f32vec4_drag_speed = 0.05f;
         tido::ui::SceneGraph scene_graph{};
         daxa::ImGuiRenderer imgui_renderer = {};
 

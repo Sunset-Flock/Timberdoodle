@@ -103,7 +103,7 @@ VisbufferTriangleData get_visbuffer_triangle_data(
     vec2 xy, 
     vec2 screen_size,
     vec2 inv_screen_size,
-    daxa_BufferPtr(ShaderGlobals) globals, 
+    mat4x4 view_proj, 
     daxa_BufferPtr(MeshletInstances) meshlet_instances,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_BufferPtr(daxa_f32mat4x3) combined_transforms)
@@ -143,9 +143,9 @@ VisbufferTriangleData get_visbuffer_triangle_data(
     );
 
     const vec4[] clipspace_vertex_positions = vec4[](
-        deref(globals).camera.view_proj * world_vertex_positions[0],
-        deref(globals).camera.view_proj * world_vertex_positions[1],
-        deref(globals).camera.view_proj * world_vertex_positions[2]
+        view_proj * world_vertex_positions[0],
+        view_proj * world_vertex_positions[1],
+        view_proj * world_vertex_positions[2]
     );
 
     const vec3[] ndc_vertex_positions = vec3[](

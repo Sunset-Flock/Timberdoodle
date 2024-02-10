@@ -258,6 +258,70 @@ void Application::update()
             ImGui::End();
         }
     }
+    if (_ui_engine->shader_debug_menu)
+    {
+        if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
+            ImGui::DragFloat4(
+                "debug f32vec4", 
+                reinterpret_cast<f32*>(&_renderer->context->debug_draw_info.shader_debug_input.debug_fvec),
+                _ui_engine->debug_f32vec4_drag_speed);
+            ImGui::DragInt4(
+                "debug i32vec4", 
+                reinterpret_cast<i32*>(&_renderer->context->debug_draw_info.shader_debug_input.debug_ivec));
+            ImGui::Text(
+                "out debug f32vec4: (%f,%f,%f,%f)",
+                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.x,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.y,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.z,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.w);
+            ImGui::Text(
+                "out debug i32vec4: (%i,%i,%i,%i)",
+                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.x,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.y,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.z,
+                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.w);
+            ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
+            ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
+            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
+            {
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos = {
+                    _window->get_cursor_x(),
+                    _window->get_cursor_y(),
+                };
+            }
+            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
+            {
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x -= 1;
+            }
+            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
+            {
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x += 1;
+            }
+            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
+            {
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y -= 1;
+            }
+            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
+            {
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y += 1;
+            }
+            ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->debug_draw_info.draw_magnified_area_rect);
+            ImGui::InputInt("magnifier window size", &_renderer->context->debug_draw_info.debug_magnifier_pixel_span, 2);
+            ImGui::Text(
+                "detector texel position: (%i,%i)",
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x, 
+                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y);
+            auto magnified_image_imgui_id = _ui_engine->imgui_renderer.create_texture_id({
+                .image_view_id = _renderer->context->debug_draw_info.shader_debug_magnified_image.default_view(),
+                .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->context->shader_globals.samplers.nearest_clamp),
+            });
+            auto const width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y) * 4 / 5;
+            ImGui::Image(magnified_image_imgui_id, ImVec2(width,width));
+            ImGui::End();
+        }
+    }
     if (reset_observer)
     {
         control_observer = false;

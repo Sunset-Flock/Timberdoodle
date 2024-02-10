@@ -15,12 +15,21 @@ void main()
     vec4 output_value = vec4(0,0,0,0);
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
+        mat4x4 view_proj;
+        if (deref(push.attachments.globals).settings.draw_from_observer != 0)
+        {
+            view_proj = deref(push.attachments.globals).observer_camera.view_proj;
+        } 
+        else
+        {
+            view_proj = deref(push.attachments.globals).camera.view_proj;
+        }
         VisbufferTriangleData tri_data = get_visbuffer_triangle_data(
             triangle_id, 
             vec2(index), 
             push.size,
             push.inv_size,
-            push.attachments.globals, 
+            view_proj, 
             push.attachments.instantiated_meshlets,
             push.attachments.meshes,
             push.attachments.combined_transforms);

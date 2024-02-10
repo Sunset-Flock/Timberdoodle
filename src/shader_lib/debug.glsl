@@ -12,7 +12,7 @@ void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Shade
     }
     else
     {
-        atomicAdd(deref(debug_info).exceeded_circle_draw_capacity, 1);
+        atomicAdd(deref(debug_info).gpu_output.exceeded_circle_draw_capacity, 1);
     }
 }
 
@@ -26,7 +26,7 @@ void debug_draw_rectangle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Sh
     }
     else
     {
-        atomicAdd(deref(debug_info).exceeded_rectangle_draw_capacity, 1);
+        atomicAdd(deref(debug_info).gpu_output.exceeded_rectangle_draw_capacity, 1);
     }
 }
 
@@ -40,6 +40,22 @@ void debug_draw_aabb(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderD
     }
     else
     {
-        atomicAdd(deref(debug_info).exceeded_aabb_draw_capacity, 1);
+        atomicAdd(deref(debug_info).gpu_output.exceeded_aabb_draw_capacity, 1);
+    }
+}
+
+void debug_under_cursor_write_i32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, int value, int channel)
+{
+    if (xy == deref(debug_info).cpu_input.texel_detector_pos && channel >= 0 && channel <= 4)
+    {
+        deref(debug_info).gpu_output.debug_ivec4[channel] = value;
+    }
+}
+
+void debug_under_cursor_write_f32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, float value, int channel)
+{
+    if (xy == deref(debug_info).cpu_input.texel_detector_pos && channel >= 0 && channel <= 4)
+    {
+        deref(debug_info).gpu_output.debug_fvec4[channel] = value;
     }
 }

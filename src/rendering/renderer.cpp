@@ -96,7 +96,8 @@ Renderer::Renderer(
         {
             {
                 .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
-                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT | daxa::ImageUsageFlagBits::TRANSFER_DST |
+                .usage = daxa::ImageUsageFlagBits::COLOR_ATTACHMENT | daxa::ImageUsageFlagBits::TRANSFER_DST | 
+                        daxa::ImageUsageFlagBits::TRANSFER_SRC |
                          daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
                 .name = color_image.info().name,
             },
@@ -393,6 +394,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(context->shader_globals_task_buffer);
+    task_list.use_persistent_image(context->debug_draw_info.tshader_debug_magnified_image);
     for (auto const & timage : images)
     {
         task_list.use_persistent_image(timage);
@@ -554,6 +556,37 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
+
+    task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_READ, color_image),
+            daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, context->debug_draw_info.tshader_debug_magnified_image),
+        },
+        .task = [this](daxa::TaskInterface ti)
+        {
+            auto const src_size = ti.device.info_image(ti.get(color_image).ids[0]).value().size;
+            auto const size = static_cast<i32>(context->debug_draw_info.debug_magnifier_pixel_span);
+            auto copy_info = daxa::ImageCopyInfo{
+                .src_image = ti.get(color_image).ids[0],
+                .dst_image = ti.get(context->debug_draw_info.tshader_debug_magnified_image).ids[0],
+                .src_offset = { 
+                    context->debug_draw_info.shader_debug_input.texel_detector_pos.x - (size/2),
+                    context->debug_draw_info.shader_debug_input.texel_detector_pos.y - (size/2),
+                    0,
+                },
+                .extent = { static_cast<u32>(size), static_cast<u32>(size), 1 },
+            };
+            if (
+                copy_info.src_offset.x >= 0 && 
+                copy_info.src_offset.x >= 0 &&
+                (copy_info.src_offset.x + copy_info.extent.x) < src_size.x &&
+                (copy_info.src_offset.y + copy_info.extent.y) < src_size.y)
+            {
+                ti.recorder.copy_image_to_image(copy_info);
+            }
+        },  
+        .name = "copy magnified image out",
+    });
     task_list.add_task(DebugDrawTask{
         .views = std::array{
             daxa::attachment_view(DebugDrawTask::globals, context->shader_globals_task_buffer),
@@ -562,11 +595,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-
     task_list.add_task({
-        .attachments = {daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image)},
-        .task =
-            [=, this](daxa::TaskInterface ti)
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image),
+            daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, context->debug_draw_info.tshader_debug_magnified_image),
+        },
+        .task = [=, this](daxa::TaskInterface ti)
         {
             auto size = ti.device.info_image(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
             imgui_renderer->record_commands(
@@ -650,6 +684,7 @@ void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & o
     submit_info = {};
     auto const t_semas = std::array{std::pair{context->transient_mem.timeline_semaphore(), context->transient_mem.timeline_value()}};
     submit_info.signal_timeline_semaphores = t_semas;
+    context->debug_draw_info.update(context->device, window->size.x, window->size.y);
     main_task_graph.execute({});
     context->device.collect_garbage();
 }
