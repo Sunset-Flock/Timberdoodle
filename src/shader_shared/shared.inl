@@ -21,6 +21,7 @@
 #define ENABLE_TRIANGLE_CULLING 1
 #define ENABLE_SHADER_PRINT_DEBUG 1
 #define COMPILE_IN_MESH_SHADER 0
+#define CULLING_DEBUG_DRAWS 0
 
 #if __cplusplus
 #include <glm/glm.hpp>
@@ -158,6 +159,8 @@ struct CameraInfo
     glmsf32vec3 right_plane_normal;
     glmsf32vec3 top_plane_normal;
     glmsf32vec3 bottom_plane_normal;
+    daxa_u32vec2 screen_size;
+    daxa_f32vec2 inv_screen_size;
 };
 
 #if DAXA_SHADER
@@ -220,6 +223,3 @@ struct DispatchIndirectStruct
     daxa_u32 z;
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
-
-#define BUFFER_COMPUTE_READ(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(TYPE), NAME)
-#define BUFFER_COMPUTE_WRITE(NAME, TYPE) DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(TYPE), NAME)

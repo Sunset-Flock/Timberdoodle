@@ -177,7 +177,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumCommandWriteTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::globals, info.context->shader_globals_task_buffer}},
+            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::globals, info.context->tshader_globals_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::value_count, info.value_count_buf}},
             daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::upsweep_command0, upsweep0_command_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::upsweep_command1, upsweep1_command_buffer}},
@@ -195,7 +195,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.context->shader_globals_task_buffer}},
+            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.context->tshader_globals_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::command, upsweep0_command_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::src, info.src_buf}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::dst, info.dst_buf}},
@@ -220,7 +220,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.context->shader_globals_task_buffer}},
+            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.context->tshader_globals_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::command, upsweep1_command_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::src, block_sums_src}},
             daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::dst, block_sums_dst}},
@@ -237,7 +237,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumDownsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::globals, info.context->shader_globals_task_buffer}},
+            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::globals, info.context->tshader_globals_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::command, downsweep_command_buffer}},
             daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::block_sums, block_sums_dst}},
             daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::values, info.dst_buf}},

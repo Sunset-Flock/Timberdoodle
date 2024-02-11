@@ -15,6 +15,6 @@ struct ShaderGlobals
     SkySettings sky_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
-    daxa_RWBufferPtr(ShaderDebugBufferHead) debug_draw_info;
+    daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
 };
 DAXA_DECL_BUFFER_PTR(ShaderGlobals)

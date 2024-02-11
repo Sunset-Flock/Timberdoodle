@@ -82,3 +82,20 @@ void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
         .name = "multi clear task buffer",
     });
 }
+
+void task_clear_image(daxa::TaskGraph & tg, daxa::TaskImageView image, daxa::ClearValue clear_value)
+{
+    tg.add_task({
+        .attachments = { daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, image)},
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto image_id = ti.get(image).ids[0];
+            ti.recorder.clear_image({
+                .clear_value = clear_value,
+                .dst_image = image_id,
+                .dst_slice = ti.get(image).view.slice,
+            });
+        },
+        .name = "clear image",
+    });
+}

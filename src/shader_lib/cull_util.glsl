@@ -5,44 +5,6 @@
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/asset.inl"
 
-struct NdcBounds
-{
-    vec3 ndc_min;
-    vec3 ndc_max;
-    uint valid_vertices;
-};
-
-void init_ndc_bounds(inout NdcBounds ndc_bounds)
-{
-    ndc_bounds.ndc_min = vec3(0);
-    ndc_bounds.ndc_max = vec3(0);
-    ndc_bounds.valid_vertices = 0;
-}
-
-// All vertex positions MUST be in front of the near plane!
-void add_vertex_to_ndc_bounds(inout NdcBounds ndc_bounds, vec3 ndc_pos)
-{
-    if (ndc_bounds.valid_vertices == 0)
-    {
-        ndc_bounds.ndc_min = ndc_pos;
-        ndc_bounds.ndc_max = ndc_pos;
-    }
-    else
-    {
-        ndc_bounds.ndc_min = vec3(
-            min(ndc_pos.x, ndc_bounds.ndc_min.x),
-            min(ndc_pos.y, ndc_bounds.ndc_min.y),
-            min(ndc_pos.z, ndc_bounds.ndc_min.z)
-        );
-        ndc_bounds.ndc_max = vec3(
-            max(ndc_pos.x, ndc_bounds.ndc_max.x),
-            max(ndc_pos.y, ndc_bounds.ndc_max.y),
-            max(ndc_pos.z, ndc_bounds.ndc_max.z)
-        );
-    }
-    ndc_bounds.valid_vertices += 1;
-}
-
 bool is_out_of_frustum(vec3 ws_center, float ws_radius)
 {
     const vec3 frustum_planes[5] = {
@@ -123,13 +85,13 @@ bool is_meshlet_occluded(
 
     if (is_out_of_frustum(ws_center, scaled_radius))
     {
-        #if defined(GLOBALS) || defined(__cplusplus)
+        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
             ShaderDebugCircleDraw circle;
             circle.position = ws_center;
             circle.radius = scaled_radius;
             circle.color = vec3(1,1,0);
             circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.debug_draw_info, circle);
+            debug_draw_circle(GLOBALS.shader_debug_context, circle);
         #endif
         return true;
     }
@@ -193,20 +155,15 @@ bool is_meshlet_occluded(
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = ndc_max.z < conservative_depth;
 
-    #if defined(GLOBALS) || defined(__cplusplus)
+    #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
     if (depth_cull)
     {
-        //ShaderDebugAABBDraw aabb;
-        //aabb.position = ws_center;
-        //aabb.size = scaled_radius.xxx * 2.0f;
-        //aabb.color = vec3(0, 0, 1);
-        //debug_draw_aabb(GLOBALS.debug_draw_info, aabb);
         ShaderDebugAABBDraw aabb1;
         aabb1.position = (model_matrix * vec4(meshlet_aabb.center,1)).xyz;
         aabb1.size = (model_matrix * vec4(meshlet_aabb.size,0)).xyz;
         aabb1.color = vec3(0.1, 0.5, 1);
         aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.debug_draw_info, aabb1);
+        debug_draw_aabb(GLOBALS.shader_debug_context, aabb1);
         {
             ShaderDebugRectangleDraw rectangle;
             const vec3 rec_size = (ndc_max - ndc_min);
@@ -214,15 +171,13 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(0, 1, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).debug_draw_info, rectangle);
+            debug_draw_rectangle(deref(push.uses.globals).shader_debug_context, rectangle);
         }
         {
             const vec2 min_r = quad_corner_texel << imip;
             const vec2 max_r = (quad_corner_texel + 2) << imip;
             const vec2 min_r_uv = min_r / f_hiz_resolution;
             const vec2 max_r_uv = max_r / f_hiz_resolution;
-            // const vec2 min_r_uv = min_texel_i / f_hiz_resolution;
-            // const vec2 max_r_uv = (min_texel_i + pixel_range) / f_hiz_resolution;
             const vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
             const vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
             ShaderDebugRectangleDraw rectangle;
@@ -231,7 +186,7 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(1, 0, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).debug_draw_info, rectangle);
+            debug_draw_rectangle(deref(push.uses.globals).shader_debug_context, rectangle);
         }
     }
     #endif

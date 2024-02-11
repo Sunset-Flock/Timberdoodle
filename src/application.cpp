@@ -102,6 +102,11 @@ void CameraController::update_matrices(Window & window)
     this->cam_info.bottom_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
     int i = 0;
+    this->cam_info.screen_size = { window.get_width(), window.get_height() };
+    this->cam_info.inv_screen_size = {
+        1.0f / static_cast<f32>(window.get_width()),
+        1.0f / static_cast<f32>(window.get_height()),
+    };
 }
 
 Application::Application()
@@ -265,60 +270,66 @@ void Application::update()
             ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
             ImGui::DragFloat4(
                 "debug f32vec4", 
-                reinterpret_cast<f32*>(&_renderer->context->debug_draw_info.shader_debug_input.debug_fvec),
+                reinterpret_cast<f32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
                 _ui_engine->debug_f32vec4_drag_speed);
             ImGui::DragInt4(
                 "debug i32vec4", 
-                reinterpret_cast<i32*>(&_renderer->context->debug_draw_info.shader_debug_input.debug_ivec));
+                reinterpret_cast<i32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
             ImGui::Text(
                 "out debug f32vec4: (%f,%f,%f,%f)",
-                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.x,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.y,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.z,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_fvec4.w);
+                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.y,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.z,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.w);
             ImGui::Text(
                 "out debug i32vec4: (%i,%i,%i,%i)",
-                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.x,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.y,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.z,
-                _renderer->context->debug_draw_info.shader_debug_output.debug_ivec4.w);
+                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.x,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.y,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.z,
+                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
             ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
             ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
             if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
             {
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos = {
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos = {
                     _window->get_cursor_x(),
                     _window->get_cursor_y(),
                 };
             }
             if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
             {
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x -= 1;
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x -= 1;
             }
             if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
             {
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x += 1;
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x += 1;
             }
             if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
             {
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y -= 1;
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y -= 1;
             }
             if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
             {
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y += 1;
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y += 1;
             }
-            ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->debug_draw_info.draw_magnified_area_rect);
-            ImGui::InputInt("magnifier window size", &_renderer->context->debug_draw_info.debug_magnifier_pixel_span, 2);
+            ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->shader_debug_context.draw_magnified_area_rect);
+            ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
             ImGui::Text(
                 "detector texel position: (%i,%i)",
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.x, 
-                _renderer->context->debug_draw_info.shader_debug_input.texel_detector_pos.y);
-            auto magnified_image_imgui_id = _ui_engine->imgui_renderer.create_texture_id({
-                .image_view_id = _renderer->context->debug_draw_info.shader_debug_magnified_image.default_view(),
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x, 
+                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y);
+            ImGui::Text(
+                "detector center value: (%f,%f,%f,%f)",
+                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x, 
+                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y, 
+                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z, 
+                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
+            auto detector_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
+                .image_view_id = _renderer->context->shader_debug_context.detector_image.default_view(),
                 .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->context->shader_globals.samplers.nearest_clamp),
             });
             auto const width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y) * 4 / 5;
-            ImGui::Image(magnified_image_imgui_id, ImVec2(width,width));
+            ImGui::Image(detector_image_view_id, ImVec2(width,width));
             ImGui::End();
         }
     }

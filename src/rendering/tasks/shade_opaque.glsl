@@ -5,6 +5,8 @@
 #include "shade_opaque.inl"
 
 #include "shader_lib/visbuffer.glsl"
+#include "shader_lib/debug.glsl"
+#include "shader_lib/transform.glsl"
 
 DAXA_DECL_PUSH_CONSTANT(ShadeOpaquePush, push)
 layout(local_size_x = SHADE_OPAQUE_WG_X, local_size_y = SHADE_OPAQUE_WG_Y) in;
@@ -16,7 +18,7 @@ void main()
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
         mat4x4 view_proj;
-        if (deref(push.attachments.globals).settings.draw_from_observer != 0)
+        if (push.observer_pass == 1)
         {
             view_proj = deref(push.attachments.globals).observer_camera.view_proj;
         } 
@@ -38,9 +40,21 @@ void main()
             push.attachments.meshes
         );
 
+        uvec2 main_cam_texel_pos = world_space_to_texel_index(deref(push.attachments.globals).camera, tri_data.world_position);
+
+        if (push.observer_pass == 0)
+        {
+            debug_write_detector_image(
+                deref(push.attachments.globals).debug, 
+                push.attachments.detector_image, 
+                index, 
+                vec4(uvs,0,1));
+        }
+
         vec4 color;
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
-        if(material.diffuse_texture_id.value != 0)
+        uvec2 window_index;
+        if(material.diffuse_texture_id.value != 0 && !debug_in_detector_window(deref(push.attachments.globals).debug, main_cam_texel_pos, window_index))
         {
             color = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), uvs);
         } else {

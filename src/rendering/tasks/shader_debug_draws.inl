@@ -147,7 +147,7 @@ struct DebugDrawTask : DebugDraw
             ti.attachment_shader_data.size());
 
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->debug_draw_info.buffer,
+            .draw_command_buffer = context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
@@ -155,7 +155,7 @@ struct DebugDrawTask : DebugDraw
         });
         render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->debug_draw_info.buffer,
+            .draw_command_buffer = context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
@@ -163,7 +163,7 @@ struct DebugDrawTask : DebugDraw
         });
         render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->debug_draw_info.buffer,
+            .draw_command_buffer = context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),

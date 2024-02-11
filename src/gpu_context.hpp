@@ -16,16 +16,26 @@ struct ShaderDebugDrawContext
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
-    i32 debug_magnifier_pixel_span = 15;
-    i32 old_debug_magnifier_pixel_span = 0;
+    i32 detector_window_size = 15;
+    i32 old_detector_window_size = 0;
     bool draw_magnified_area_rect = true;
     
-    daxa::ImageId shader_debug_magnified_image = {};
-    daxa::TaskImage tshader_debug_magnified_image = {};
+    daxa::ImageInfo detector_image_create_info = { 
+        .format = daxa::Format::R16G16B16A16_SFLOAT, 
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | 
+            daxa::ImageUsageFlagBits::SHADER_STORAGE | 
+            daxa::ImageUsageFlagBits::TRANSFER_DST,
+        .name = "debug detector image",
+    };
+    daxa::ImageId detector_image = {};
+    daxa::TaskImage tdetector_image = {};
+    daxa::BufferId readback_queue = {};
 
     std::vector<ShaderDebugCircleDraw> cpu_debug_circle_draws = {};
     std::vector<ShaderDebugRectangleDraw> cpu_debug_rectangle_draws = {};
     std::vector<ShaderDebugAABBDraw> cpu_debug_aabb_draws = {};
+
+    u32 frame_index = 0;
 
     void init(daxa::Device & device)
     {
@@ -37,51 +47,70 @@ struct ShaderDebugDrawContext
             .size = size,
             .name = "shader debug buffer",
         });
-        shader_debug_magnified_image = device.create_image({
-            .format = daxa::Format::B10G11R11_UFLOAT_PACK32, 
-            .size = { 7, 7, 1 },
-            .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
-            .name = "debug magnified image",
+        detector_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
+        detector_image = device.create_image(detector_image_create_info);
+        tdetector_image = daxa::TaskImage({
+            .initial_images = {.images = std::array{detector_image}}, 
+            .name = "debug detector image",
         });
-        tshader_debug_magnified_image = daxa::TaskImage({
-            .initial_images = {.images = std::array{shader_debug_magnified_image}}, 
-            .name = "tshader_debug_magnified_image",
+        readback_queue = device.create_buffer({
+            .size = sizeof(ShaderDebugOutput) * 4 /*4 is a save value for all kinds of frames in flight setups*/,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
+            .name = "shader debug readback queue",
         });
     }
 
     void update(daxa::Device & device, u32 render_image_size_x, u32 render_image_size_y)
     {
-        if (old_debug_magnifier_pixel_span != debug_magnifier_pixel_span)
+        if (detector_window_size != old_detector_window_size)
         {
-            if (device.is_id_valid(shader_debug_magnified_image))
+            if (device.is_id_valid(detector_image))
             {
-                device.destroy_image(shader_debug_magnified_image);
+                device.destroy_image(detector_image);
             }
-            shader_debug_magnified_image = device.create_image({
-                .format = daxa::Format::B10G11R11_UFLOAT_PACK32, 
-                .size = { static_cast<u32>(debug_magnifier_pixel_span), static_cast<u32>(debug_magnifier_pixel_span), 1 },
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = "debug magnified image",
-            });
-            tshader_debug_magnified_image.set_images({.images=std::array{shader_debug_magnified_image}});
-            old_debug_magnifier_pixel_span = debug_magnifier_pixel_span;
+            detector_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
+            detector_image = device.create_image(detector_image_create_info);
+            tdetector_image.set_images({.images=std::array{detector_image}});
+            old_detector_window_size = detector_window_size;
         }
         if (draw_magnified_area_rect)
         {
             auto u = (static_cast<f32>(shader_debug_input.texel_detector_pos.x) + 0.5f) / static_cast<f32>(render_image_size_x);
             auto v = (static_cast<f32>(shader_debug_input.texel_detector_pos.y) + 0.5f) / static_cast<f32>(render_image_size_y);
-            auto span_u = (static_cast<f32>(debug_magnifier_pixel_span + 2)) / static_cast<f32>(render_image_size_x);
-            auto span_v = (static_cast<f32>(debug_magnifier_pixel_span + 2)) / static_cast<f32>(render_image_size_y);
+            auto span_u = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(render_image_size_x);
+            auto span_v = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(render_image_size_y);
             
             cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
                 .position = {u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.5},
-                .size = {span_u * 2.0f, span_v * 2.0f, 0.99 },
+                .size = {span_u * 2.0f, span_v * 2.0f, 0.99999999 },
                 .color = daxa_f32vec3(1,0,0),
                 .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
             });
         }
+        shader_debug_input.texel_detector_window_half_size = detector_window_size / 2;
+        frame_index += 1;
     }
 
+    struct ReadbackTask : daxa::PartialTask<1, "ReadbackTask">
+    {
+        AttachmentViews views = {};
+        DAXA_TH_BUFFER(TRANSFER_READ, globals); // Use globals as fake dependency for shader debug data.
+        ShaderDebugDrawContext * shader_debug_context = {};
+        void callback(daxa::TaskInterface ti)
+        {
+            // Copy out the debug output from 4 frames ago
+            std::memcpy(&shader_debug_context->shader_debug_output, ti.device.get_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
+            // Set the currently recording frame to write its debug output to the slot we just read from.
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = shader_debug_context->buffer,
+                .dst_buffer = shader_debug_context->readback_queue,
+                .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
+                .dst_offset = sizeof(ShaderDebugOutput) * (shader_debug_context->frame_index % 4),
+                .size = sizeof(ShaderDebugOutput),
+            });
+        }
+    };
+    
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
         u32 const circle_buffer_offset = sizeof(ShaderDebugBufferHead);
@@ -187,10 +216,10 @@ struct GPUContext
 
     ShaderGlobals shader_globals = {};
     daxa::BufferId shader_globals_buffer = {};
-    daxa::TaskBuffer shader_globals_task_buffer = {};
+    daxa::TaskBuffer tshader_globals_buffer = {};
     daxa::types::DeviceAddress shader_globals_address = {};
 
-    ShaderDebugDrawContext debug_draw_info = {};
+    ShaderDebugDrawContext shader_debug_context = {};
 
     // Pipelines:
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};

@@ -14,7 +14,7 @@ void main()
     const uint circle_idx = gl_InstanceIndex;
     const uint vertex_idx = gl_VertexIndex;
 
-    const ShaderDebugCircleDraw circle = deref(deref(deref(push.attachments.globals).debug_draw_info).circle_draws + circle_idx);
+    const ShaderDebugCircleDraw circle = deref(deref(deref(push.attachments.globals).debug).circle_draws + circle_idx);
 
     const float rotation = float(vertex_idx) * (1.0f / (64.0f - 1.0f)) * 2.0f * 3.14f;
     // Make circle in world space.
@@ -69,7 +69,7 @@ void main()
     const uint rectangle_idx = gl_InstanceIndex;
     const uint vertex_idx = gl_VertexIndex;
 
-    const ShaderDebugRectangleDraw rectangle = deref(deref(deref(push.attachments.globals).debug_draw_info).rectangle_draws + rectangle_idx);
+    const ShaderDebugRectangleDraw rectangle = deref(deref(deref(push.attachments.globals).debug).rectangle_draws + rectangle_idx);
     const vec2 scaled_position = rectangle_pos[gl_VertexIndex] * rectangle.span;
 
     vec4 out_position;
@@ -126,7 +126,7 @@ void main()
     const uint aabb_idx = gl_InstanceIndex;
     const uint vertex_idx = gl_VertexIndex;
 
-    const ShaderDebugAABBDraw aabb = deref(deref(deref(push.attachments.globals).debug_draw_info).aabb_draws + aabb_idx);
+    const ShaderDebugAABBDraw aabb = deref(deref(deref(push.attachments.globals).debug).aabb_draws + aabb_idx);
 
     vec4 out_position;
     const vec3 model_position = aabb_vertex_base_offsets[vertex_idx] * 0.5f * aabb.size + aabb.position;

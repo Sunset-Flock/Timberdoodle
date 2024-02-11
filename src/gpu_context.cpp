@@ -73,7 +73,7 @@ GPUContext::GPUContext(Window const & window)
           .size = sizeof(ShaderGlobals),
           .name = "globals",
       })},
-      shader_globals_task_buffer{daxa::TaskBuffer{{
+      tshader_globals_buffer{daxa::TaskBuffer{{
           .initial_buffers = {.buffers = std::array{shader_globals_buffer}},
           .name = "globals",
       }}},
@@ -95,8 +95,8 @@ GPUContext::GPUContext(Window const & window)
             .mipmap_filter = daxa::Filter::NEAREST,
             .name = "nearest clamp sampler",
         })};
-    debug_draw_info.init(device);
-    shader_globals.debug_draw_info = device.get_device_address(debug_draw_info.buffer).value();
+    shader_debug_context.init(device);
+    shader_globals.debug = device.get_device_address(shader_debug_context.buffer).value();
 }
 
 auto GPUContext::dummy_string() -> std::string
@@ -110,5 +110,7 @@ GPUContext::~GPUContext()
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_clamp));
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_repeat));
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.nearest_clamp));
-    device.destroy_buffer(debug_draw_info.buffer);
+    device.destroy_buffer(shader_debug_context.buffer);
+    device.destroy_buffer(shader_debug_context.readback_queue);
+    device.destroy_image(shader_debug_context.detector_image);
 }

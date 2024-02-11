@@ -144,7 +144,7 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
 
     tg.add_task(PrepopulateInstantiatedMeshletsCommandWriteTask{
         .views = std::array{
-            daxa::attachment_view(PrepopulateInstantiatedMeshletsCommandWriteTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(PrepopulateInstantiatedMeshletsCommandWriteTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsCommandWriteTask::visible_meshlets_prev, info.visible_meshlets_prev),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsCommandWriteTask::command, command_buffer),
         },
@@ -153,7 +153,7 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
 
     tg.add_task(PrepopulateInstantiatedMeshletsTask{
         .views = std::array{
-            daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::command, command_buffer),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::visible_meshlets_prev, info.visible_meshlets_prev),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::instantiated_meshlets_prev, info.meshlet_instances_last_frame),
@@ -166,7 +166,7 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
 
     tg.add_task(SetEntityMeshletVisibilityBitMasksTask{
         .views = std::array{
-            daxa::attachment_view(SetEntityMeshletVisibilityBitMasksTask::globals, context->shader_globals_task_buffer),
+            daxa::attachment_view(SetEntityMeshletVisibilityBitMasksTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(SetEntityMeshletVisibilityBitMasksTask::command, command_buffer),
             daxa::attachment_view(SetEntityMeshletVisibilityBitMasksTask::instantiated_meshlets, info.meshlet_instances),
             daxa::attachment_view(SetEntityMeshletVisibilityBitMasksTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets),

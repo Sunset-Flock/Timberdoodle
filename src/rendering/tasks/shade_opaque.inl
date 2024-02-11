@@ -9,8 +9,9 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(ShadeOpaque, 7)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_DECL_TASK_HEAD_BEGIN(ShadeOpaque, 8)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, detector_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, color_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
@@ -24,6 +25,7 @@ struct ShadeOpaquePush
     DAXA_TH_BLOB(ShadeOpaque, attachments)
     daxa_f32vec2 size;
     daxa_f32vec2 inv_size;
+    daxa_u32 observer_pass;
 };
 
 #define SHADE_OPAQUE_WG_X 16
@@ -45,6 +47,7 @@ struct ShadeOpaqueTask : ShadeOpaque
 {
     AttachmentViews views = {};
     u32 pass = {};
+    u32 observer_pass = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
@@ -58,6 +61,7 @@ struct ShadeOpaqueTask : ShadeOpaque
         ti.recorder.push_constant(ShadeOpaquePush{
             .size = { static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y) },
             .inv_size = { 1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y) },
+            .observer_pass = observer_pass,
         }, ShadeOpaque::attachment_shader_data_size());
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
