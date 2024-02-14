@@ -521,19 +521,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .context = context,
     });
 
-    task_list.add_task(ShadeOpaqueTask{
-        .views = std::array{
-            daxa::attachment_view(ShadeOpaqueTask::detector_image, detector_image),
-            daxa::attachment_view(ShadeOpaqueTask::globals, context->tshader_globals_buffer),
-            daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
-            daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
-            daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
-            daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
-            daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
-            daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
-        },
-        .context = context,
-    });
     if (context->settings.draw_from_observer)
     {
         task_draw_visbuffer({
@@ -548,21 +535,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .debug_image = debug_image,
             .depth_image = depth,
         });
-        task_list.add_task(ShadeOpaqueTask{
-            .views = std::array{
-                daxa::attachment_view(ShadeOpaqueTask::detector_image, detector_image),
-                daxa::attachment_view(ShadeOpaqueTask::globals, context->tshader_globals_buffer),
-                daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
-                daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
-                daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
-                daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
-                daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
-                daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
-            },
-            .observer_pass = 1,
-            .context = context,
-        });
     }
+    task_list.add_task(ShadeOpaqueTask{
+        .views = std::array{
+            daxa::attachment_view(ShadeOpaqueTask::detector_image, detector_image),
+            daxa::attachment_view(ShadeOpaqueTask::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
+            daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
+            daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
+            daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
+        },
+        .context = context,
+    });
     task_list.submit({});
 
     task_list.add_task(WriteSwapchainTask{

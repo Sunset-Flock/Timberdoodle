@@ -152,7 +152,7 @@ struct CameraInfo
     glmsf32mat4 inv_proj;
     glmsf32mat4 view_proj;
     glmsf32mat4 inv_view_proj;
-    glmsf32vec3 pos;
+    glmsf32vec3 position;
     glmsf32vec3 up;
     glmsf32vec3 near_plane_normal;
     glmsf32vec3 left_plane_normal;
@@ -161,6 +161,7 @@ struct CameraInfo
     glmsf32vec3 bottom_plane_normal;
     daxa_u32vec2 screen_size;
     daxa_f32vec2 inv_screen_size;
+    daxa_f32 near_plane;
 };
 
 #if DAXA_SHADER

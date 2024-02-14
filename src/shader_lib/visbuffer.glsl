@@ -95,10 +95,12 @@ struct VisbufferTriangleData
     MeshletInstance meshlet_instance;
     BarycentricDeriv bari_deriv;
     vec3 world_position;
+    vec3 world_position_ddx;
+    vec3 world_position_ddy;
     uvec3 vertex_indices;
 };
 
-VisbufferTriangleData get_visbuffer_triangle_data(
+VisbufferTriangleData visgeo_triangle_data(
     uint triangle_id, 
     vec2 xy, 
     vec2 screen_size,
@@ -163,26 +165,44 @@ VisbufferTriangleData get_visbuffer_triangle_data(
         ndc_xy,
         screen_size);
         
-    ret.world_position.x = interpolate_with_deriv(
+    vec3 x_deriv = interpolate_with_deriv(
         ret.bari_deriv, 
         world_vertex_positions[0].x, 
         world_vertex_positions[1].x, 
-        world_vertex_positions[2].x).x;
-    ret.world_position.y = interpolate_with_deriv(
+        world_vertex_positions[2].x);
+    ret.world_position.x = x_deriv.x;
+    ret.world_position_ddx.x = x_deriv.y;
+    ret.world_position_ddy.x = x_deriv.z;
+
+    vec3 y_deriv = interpolate_with_deriv(
         ret.bari_deriv, 
         world_vertex_positions[0].y, 
         world_vertex_positions[1].y, 
-        world_vertex_positions[2].y).x;
-    ret.world_position.z = interpolate_with_deriv(
+        world_vertex_positions[2].y);
+    ret.world_position.y = y_deriv.x;
+    ret.world_position_ddx.y = y_deriv.y;
+    ret.world_position_ddy.y = y_deriv.z;
+
+    vec3 z_deriv = interpolate_with_deriv(
         ret.bari_deriv, 
         world_vertex_positions[0].z, 
         world_vertex_positions[1].z, 
-        world_vertex_positions[2].z).x;
+        world_vertex_positions[2].z);
+    ret.world_position.z = z_deriv.x;
+    ret.world_position_ddx.z = z_deriv.y;
+    ret.world_position_ddy.z = z_deriv.z;
 
     return ret;
 }
 
-vec2 get_interpolated_uv(VisbufferTriangleData tri_data, daxa_BufferPtr(GPUMesh) meshes)
+struct VisbufferTriangleUv
+{
+    vec2 uv;
+    vec2 uv_ddx;
+    vec2 uv_ddy;
+};
+
+VisbufferTriangleUv visgeo_interpolated_uv(VisbufferTriangleData tri_data, daxa_BufferPtr(GPUMesh) meshes)
 {
     GPUMesh mesh = deref(meshes + tri_data.meshlet_instance.mesh_index);
 
@@ -192,16 +212,77 @@ vec2 get_interpolated_uv(VisbufferTriangleData tri_data, daxa_BufferPtr(GPUMesh)
         deref(mesh.vertex_uvs + tri_data.vertex_indices[2])
     );
 
-    vec2 ret;
-    ret.x = interpolate_with_deriv(
+    VisbufferTriangleUv ret;
+
+    vec3 u_deriv = interpolate_with_deriv(
         tri_data.bari_deriv, 
         vertex_uvs[0].x, 
         vertex_uvs[1].x, 
-        vertex_uvs[2].x).x;
-    ret.y = interpolate_with_deriv(
+        vertex_uvs[2].x);
+    ret.uv.x = u_deriv.x;
+    ret.uv_ddx.x = u_deriv.y;
+    ret.uv_ddy.x = u_deriv.z;
+
+    vec3 v_deriv = interpolate_with_deriv(
         tri_data.bari_deriv, 
         vertex_uvs[0].y, 
         vertex_uvs[1].y, 
-        vertex_uvs[2].y).x;
+        vertex_uvs[2].y);
+    ret.uv.y = v_deriv.x;
+    ret.uv_ddx.y = v_deriv.y;
+    ret.uv_ddy.y = v_deriv.z;
+
     return ret;
+}
+
+vec3 visgeo_interpolated_normal(VisbufferTriangleData tri_data, daxa_BufferPtr(GPUMesh) meshes)
+{
+    GPUMesh mesh = deref(meshes + tri_data.meshlet_instance.mesh_index);
+
+    vec3[] vertex_normals = vec3[](
+        deref(mesh.vertex_normals + tri_data.vertex_indices[0]),
+        deref(mesh.vertex_normals + tri_data.vertex_indices[1]),
+        deref(mesh.vertex_normals + tri_data.vertex_indices[2])
+    );
+
+    vec3 ret;
+    ret.x = interpolate_with_deriv(
+        tri_data.bari_deriv, 
+        vertex_normals[0].x, 
+        vertex_normals[1].x, 
+        vertex_normals[2].x).x;
+    ret.y = interpolate_with_deriv(
+        tri_data.bari_deriv, 
+        vertex_normals[0].y, 
+        vertex_normals[1].y, 
+        vertex_normals[2].y).x;
+    ret.z = interpolate_with_deriv(
+        tri_data.bari_deriv, 
+        vertex_normals[0].z, 
+        vertex_normals[1].z, 
+        vertex_normals[2].z).x;
+    ret = normalize(ret);
+    return ret;
+}
+
+mat3x3 visgeo_tbn(VisbufferTriangleData tri_data, VisbufferTriangleUv uv_data, vec3 normal)
+{
+    // Credit: https://stackoverflow.com/questions/5255806/how-to-calculate-tangent-and-binormal
+    /// derivations of the fragment position
+    vec3 pos_dx = tri_data.world_position_ddx;
+    vec3 pos_dy = tri_data.world_position_ddy;
+    // derivations of the texture coordinate
+    vec2 texC_dx = uv_data.uv_ddx;
+    vec2 texC_dy = uv_data.uv_ddy;
+    vec3 t = texC_dy.y * pos_dx - texC_dx.y * pos_dy;
+    vec3 b = texC_dx.x * pos_dy - texC_dy.x * pos_dx;
+    vec3 n = normal;
+    // https://en.wikipedia.org/wiki/Gram%E2%80%93Schmidt_process
+    t = t - n * dot( t, n ); // orthonormalization ot the tangent vectors
+    t = normalize(t);
+    b = normalize(b);
+    b = b - n * dot( b, n ); // orthonormalization of the binormal vectors to the normal vector 
+    b = b - t * dot( b, t ); // orthonormalization of the binormal vectors to the tangent vector
+    mat3 tbn = mat3( normalize(t), normalize(b), n );
+    return tbn;
 }

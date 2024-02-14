@@ -38,6 +38,8 @@ struct AssetProcessor
         ERROR_FAULTY_GLTF_VERTEX_POSITIONS,
         ERROR_MISSING_VERTEX_TEXCOORD_0,
         ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0,
+        ERROR_MISSING_VERTEX_NORMALS,
+        ERROR_FAULTY_GLTF_VERTEX_NORMALS,
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
@@ -148,8 +150,8 @@ struct AssetProcessor
 
   private:
     static inline std::string const VERT_ATTRIB_POSITION_NAME = "POSITION";
-    static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
     static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
+    static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
 
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.

@@ -49,7 +49,7 @@ void main()
     //    output_value = vec4(debug_color * checker,1);
     //    output_value = color;
     //    if (false) {
-    //        VisbufferTriangleData tri_data = get_visbuffer_triangle_data(
+    //        VisbufferTriangleData tri_data = visgeo_triangle_data(
     //            triangle_id, 
     //            vec2(index), 
     //            vec2(push.width, push.height),
@@ -58,7 +58,7 @@ void main()
     //            push.uses.instantiated_meshlets,
     //            push.uses.meshes,
     //            push.uses.combined_transforms);
-    //        vec2 uvs = get_interpolated_uv(
+    //        vec2 uvs = visgeo_interpolated_uv(
     //            tri_data,
     //            push.uses.meshes
     //        );

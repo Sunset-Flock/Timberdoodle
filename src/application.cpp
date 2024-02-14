@@ -75,7 +75,7 @@ void CameraController::update_matrices(Window & window)
     this->cam_info.inv_view = glm::inverse(this->cam_info.view);
     this->cam_info.view_proj = this->cam_info.proj * this->cam_info.view;
     this->cam_info.inv_view_proj = glm::inverse(this->cam_info.view_proj);
-    this->cam_info.pos = this->position;
+    this->cam_info.position = this->position;
     this->cam_info.up = this->up;
     glm::vec3 ws_ndc_corners[2][2][2];
     glm::mat4 inv_view_proj = glm::inverse(this->cam_info.proj * this->cam_info.view);
@@ -107,6 +107,7 @@ void CameraController::update_matrices(Window & window)
         1.0f / static_cast<f32>(window.get_width()),
         1.0f / static_cast<f32>(window.get_height()),
     };
+    this->cam_info.near_plane = this->near;
 }
 
 Application::Application()

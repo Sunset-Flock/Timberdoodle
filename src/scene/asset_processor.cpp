@@ -688,6 +688,30 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
+/// NOTE: Load vertex normals
+#pragma region NORMALS
+    auto normals_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_NORMAL_NAME);
+    if (normals_attrib_iter == gltf_prim.attributes.end())
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_NORMALS;
+    }
+    fastgltf::Accessor & gltf_vertex_normals_accessor = gltf_asset.accessors.at(normals_attrib_iter->second);
+    bool const gltf_vertex_normals_accessor_valid =
+        gltf_vertex_normals_accessor.componentType == fastgltf::ComponentType::Float &&
+        gltf_vertex_normals_accessor.type == fastgltf::AccessorType::Vec3;
+    if (!gltf_vertex_normals_accessor_valid)
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_NORMALS;
+    }
+    auto vertex_normals_pos_result = load_accessor_data_from_file<glm::vec3, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_normals_accessor);
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_normals_pos_result))
+    {
+        return *err;
+    }
+    std::vector<glm::vec3> vert_normals = std::get<std::vector<glm::vec3>>(std::move(vertex_normals_pos_result));
+    DBG_ASSERT_TRUE_M(vert_normals.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
+#pragma endregion
+
     /// NOTE: Generate meshlets:
     constexpr usize MAX_VERTICES = MAX_VERTICES_PER_MESHLET;
     constexpr usize MAX_TRIANGLES = MAX_TRIANGLES_PER_MESHLET;
@@ -758,7 +782,8 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         sizeof(u8) * meshlet_micro_indices.size() +
         sizeof(u32) * meshlet_indirect_vertices.size() +
         sizeof(daxa_f32vec3) * vert_positions.size() +
-        sizeof(daxa_f32vec2) * vert_texcoord0.size();
+        sizeof(daxa_f32vec2) * vert_texcoord0.size() +
+        sizeof(daxa_f32vec3) * vert_normals.size();
 
     /// NOTE: Fill GPUMesh runtime data
     GPUMesh mesh = {};
@@ -829,7 +854,15 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     std::memcpy(
         staging_ptr + accumulated_offset,
         vert_texcoord0.data(),
-        vert_positions.size() * sizeof(daxa_f32vec2));
+        vert_texcoord0.size() * sizeof(daxa_f32vec2));
+    accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
+    // ---
+    mesh.vertex_normals = mesh_bda + accumulated_offset;
+    std::memcpy(
+        staging_ptr + accumulated_offset,
+        vert_normals.data(),
+        vert_normals.size() * sizeof(daxa_f32vec3));
+    accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
     // ---
     /// TODO: If there is no material index add default debug material?
     mesh.material_index = info.global_material_manifest_offset + gltf_prim.materialIndex.value();
