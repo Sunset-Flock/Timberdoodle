@@ -40,30 +40,36 @@ struct AssetProcessor
         ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0,
         ERROR_MISSING_VERTEX_NORMALS,
         ERROR_FAULTY_GLTF_VERTEX_NORMALS,
+        ERROR_MISSING_VERTEX_TANGENTS,
+        ERROR_FAULTY_GLTF_VERTEX_TANGENTS,
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
         switch (code)
         {
-            case AssetLoadResultCode::SUCCESS:                                          return "SUCCESS";
-            case AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER:                       return "ERROR_MISSING_INDEX_BUFFER";
-            case AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR:          return "ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR";
-            case AssetLoadResultCode::ERROR_FAULTY_BUFFER_VIEW:                         return "ERROR_FAULTY_BUFFER_VIEW";
-            case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_GLTF:                        return "ERROR_COULD_NOT_OPEN_GLTF";
-            case AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF:              return "ERROR_COULD_NOT_READ_BUFFER_IN_GLTF";
-            case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE:                return "ERROR_COULD_NOT_OPEN_TEXTURE_FILE";
-            case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE:                return "ERROR_COULD_NOT_READ_TEXTURE_FILE";
-            case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM: return "ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM";
-            case AssetLoadResultCode::ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT:           return "ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT";
-            case AssetLoadResultCode::ERROR_UNKNOWN_FILETYPE_FORMAT:                    return "ERROR_UNKNOWN_FILETYPE_FORMAT";
-            case AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT:            return "ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT";
-            case AssetLoadResultCode::ERROR_URI_FILE_OFFSET_NOT_SUPPORTED:              return "ERROR_URI_FILE_OFFSET_NOT_SUPPORTED";
-            case AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH:                  return "ERROR_UNSUPPORTED_ABSOLUTE_PATH";
-            case AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS:                   return "ERROR_MISSING_VERTEX_POSITIONS";
-            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_POSITIONS:               return "ERROR_FAULTY_GLTF_VERTEX_POSITIONS";
-            case AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0:                  return "ERROR_MISSING_VERTEX_TEXCOORD_0";
-            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0:              return "ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0";
-            default:                                                                    return "UNKNOWN";
+            case AssetLoadResultCode::SUCCESS: return "SUCCESS"; 
+            case AssetLoadResultCode::ERROR_MISSING_INDEX_BUFFER: return "ERROR_MISSING_INDEX_BUFFER"; 
+            case AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR: return "ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR"; 
+            case AssetLoadResultCode::ERROR_FAULTY_BUFFER_VIEW: return "ERROR_FAULTY_BUFFER_VIEW"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_GLTF: return "ERROR_COULD_NOT_OPEN_GLTF"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF: return "ERROR_COULD_NOT_READ_BUFFER_IN_GLTF"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE: return "ERROR_COULD_NOT_OPEN_TEXTURE_FILE"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE: return "ERROR_COULD_NOT_READ_TEXTURE_FILE"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM: return "ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM"; 
+            case AssetLoadResultCode::ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT: return "ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT"; 
+            case AssetLoadResultCode::ERROR_UNKNOWN_FILETYPE_FORMAT: return "ERROR_UNKNOWN_FILETYPE_FORMAT"; 
+            case AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT: return "ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT"; 
+            case AssetLoadResultCode::ERROR_URI_FILE_OFFSET_NOT_SUPPORTED: return "ERROR_URI_FILE_OFFSET_NOT_SUPPORTED"; 
+            case AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH: return "ERROR_UNSUPPORTED_ABSOLUTE_PATH"; 
+            case AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS: return "ERROR_MISSING_VERTEX_POSITIONS"; 
+            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_POSITIONS: return "ERROR_FAULTY_GLTF_VERTEX_POSITIONS"; 
+            case AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0: return "ERROR_MISSING_VERTEX_TEXCOORD_0"; 
+            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0: return "ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0"; 
+            case AssetLoadResultCode::ERROR_MISSING_VERTEX_NORMALS: return "ERROR_MISSING_VERTEX_NORMALS"; 
+            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_NORMALS: return "ERROR_FAULTY_GLTF_VERTEX_NORMALS"; 
+            case AssetLoadResultCode::ERROR_MISSING_VERTEX_TANGENTS: return "ERROR_MISSING_VERTEX_TANGENTS"; 
+            case AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TANGENTS: return "ERROR_FAULTY_GLTF_VERTEX_TANGENTS"; 
+            default: return "UNKNOWN";
         }
     }
     AssetProcessor(daxa::Device device);
@@ -152,6 +158,7 @@ struct AssetProcessor
     static inline std::string const VERT_ATTRIB_POSITION_NAME = "POSITION";
     static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
     static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
+    static inline std::string const VERT_ATTRIB_TANGENT_NAME = "TANGENT";
 
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.

@@ -39,45 +39,29 @@ void main()
             push.attachments.instantiated_meshlets,
             push.attachments.meshes,
             push.attachments.combined_transforms);
-        VisbufferTriangleUv tri_uv = visgeo_interpolated_uv( tri_data, push.attachments.meshes );
-        vec3 geometry_normal = visgeo_interpolated_normal( tri_data, push.attachments.meshes );
-        mat3x3 tbn = visgeo_tbn(tri_data, tri_uv, geometry_normal);
 
-        // vec4 debug_value = vec4(uv,0,1);
-        vec4 debug_value = vec4(geometry_normal * 0.5f + 0.5f, 1);
+        vec4 debug_value = vec4(tri_data.world_normal * 0.5f + 0.5f, 1);
 
-        vec4 color = debug_value;
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
-        uvec2 window_index;
         if(material.diffuse_texture_id.value != 0)
         {
-            color = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_uv.uv);
+            // color = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_uv.uv);
         }
 
-        vec3 normal = geometry_normal;
         if(material.normal_texture_id.value != 0)
         {
-            normal = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_uv.uv).rgb;
-            normal = tbn * normal;
-            color = vec4(normal * 0.5f + 0.5f, 1);
+            vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
         }
-
-#if 0
-        const vec3 light_position = vec3(-5,-5,15);
-        const vec3 light_power = vec3(1,1,1) * 100;
-        const float light_distance = length(tri_data.world_position - light_position);
-        const vec3 to_light_dir = normalize(light_position - tri_data.world_position);
-        color.rgb = (color.rgb * light_power) * (max(0, dot(to_light_dir, normal)) * 1/(light_distance*light_distance));
-#endif
         
-        output_value = vec4(color.rgb,1);//vec4(uv, 0, 1);
+        output_value = debug_value;
 
+        uvec2 detector_window_index;
         debug_write_detector_image(
             deref(push.attachments.globals).debug, 
             push.attachments.detector_image, 
             index, 
             debug_value);
-        if (debug_in_detector_window(deref(push.attachments.globals).debug, index, window_index))
+        if (debug_in_detector_window(deref(push.attachments.globals).debug, index, detector_window_index))
         {
             output_value = debug_value;
         }
