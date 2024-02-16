@@ -51,6 +51,10 @@ void main()
         if(material.normal_texture_id.value != 0)
         {
             vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
+            normal_map = normal_map * 2.0f - 1.0f;
+            mat3 tbn = mat3(tri_data.world_tangent, cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
+            vec3 normal = tbn * normal_map;
+            debug_value = vec4(normal * 0.5f + 0.5f, 1);   
         }
         
         output_value = debug_value;

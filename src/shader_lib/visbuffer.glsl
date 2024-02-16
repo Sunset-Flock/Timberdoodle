@@ -234,33 +234,6 @@ VisbufferTriangleData visgeo_triangle_data(
         worldspace_vertex_normals[2].xyz
     ));
 
-    if (uint64_t(mesh.vertex_tangents) != 0)
-    {
-        const vec3[] vertex_tangents = vec3[](
-            deref(mesh.vertex_tangents + ret.vertex_indices.x).xyz,
-            deref(mesh.vertex_tangents + ret.vertex_indices.y).xyz,
-            deref(mesh.vertex_tangents + ret.vertex_indices.z).xyz
-        );
-
-        // WARNING: WE ACTUALLY NEED THE TRANSPOSE INVERSE HERE
-        const vec4[] worldspace_vertex_tangents = vec4[](
-            model_matrix * vec4(vertex_tangents[0], 0),
-            model_matrix * vec4(vertex_tangents[1], 0),
-            model_matrix * vec4(vertex_tangents[2], 0)
-        );
-
-        ret.world_tangent = normalize(visgeo_interpolate_vec3(
-            ret.bari_deriv.m_lambda, 
-            worldspace_vertex_tangents[0].xyz,
-            worldspace_vertex_tangents[1].xyz,
-            worldspace_vertex_tangents[2].xyz
-        ));
-    }
-    else
-    {
-        ret.world_tangent = vec3(0,0,0);
-    }
-
     const vec2[] vertex_uvs = vec2[](
         deref(mesh.vertex_uvs + ret.vertex_indices.x),
         deref(mesh.vertex_uvs + ret.vertex_indices.y),
@@ -288,30 +261,33 @@ VisbufferTriangleData visgeo_triangle_data(
         vertex_uvs[2]
     );
 
+    // Calculae Tangent.
+    {
+        // Credit: https://stackoverflow.com/questions/5255806/how-to-calculate-tangent-and-binormal
+        /// derivations of the fragment position
+        vec3 p_dx = visgeo_interpolate_vec3(
+            ret.bari_deriv.m_ddx, 
+            world_vertex_positions[0].xyz,
+            world_vertex_positions[1].xyz,
+            world_vertex_positions[2].xyz
+        );
+        vec3 p_dy = visgeo_interpolate_vec3(
+            ret.bari_deriv.m_ddy, 
+            world_vertex_positions[0].xyz,
+            world_vertex_positions[1].xyz,
+            world_vertex_positions[2].xyz
+        );
+        // derivations of the texture coordinate
+        vec2 tc_dx = ret.uv_ddx;
+        vec2 tc_dy = ret.uv_ddy;
+        // compute initial tangent and bi-tangent
+        vec3 t = normalize( tc_dy.y * p_dx - tc_dx.y * p_dy );
+        // get new tangent from a given mesh normal
+        vec3 x = cross(ret.world_normal, t);
+        t = cross(x, ret.world_normal);
+        t = normalize(t);
+        ret.world_tangent = t;
+    }
+
     return ret;
 }
-
-// mat3x3 visgeo_tbn(VisbufferTriangleData tri_data, VisbufferTriangleUv uv_data, vec3 normal)
-// {
-//     // Credit: https://stackoverflow.com/questions/5255806/how-to-calculate-tangent-and-binormal
-//     /// derivations of the fragment position
-//     vec3 p_dx = tri_data.world_position_ddx;
-//     vec3 p_dy = tri_data.world_position_ddy;
-//     // derivations of the texture coordinate
-//     vec2 tc_dx = uv_data.uv_ddx;
-//     vec2 tc_dy = uv_data.uv_ddy;
-//     // compute initial tangent and bi-tangent
-//     vec3 t = normalize( tc_dy.y * p_dx - tc_dx.y * p_dy );
-//     vec3 b = normalize( tc_dy.x * p_dx - tc_dx.x * p_dy ); // sign inversion
-//     // get new tangent from a given mesh normal
-//     vec3 n = normal;
-//     vec3 x = cross(n, t);
-//     t = cross(x, n);
-//     t = normalize(t);
-//     // get updated bi-tangent
-//     x = cross(b, n);
-//     b = cross(n, x);
-//     b = normalize(b);
-//     mat3 tbn = mat3(t, b, n);
-//     return tbn;
-// }

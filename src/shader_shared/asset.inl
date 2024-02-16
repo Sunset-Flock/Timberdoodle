@@ -150,7 +150,6 @@ struct GPUMesh
     daxa_BufferPtr(daxa_f32vec3) vertex_positions;
     daxa_BufferPtr(daxa_f32vec2) vertex_uvs;
     daxa_BufferPtr(daxa_f32vec3) vertex_normals;
-    daxa_BufferPtr(daxa_f32vec4) vertex_tangents;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMesh, 8)
 

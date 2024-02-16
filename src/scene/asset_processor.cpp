@@ -718,27 +718,6 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     DBG_ASSERT_TRUE_M(vert_normals.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
-/// NOTE: Load vertex tangents
-#pragma region TANGENTS
-    std::vector<glm::vec4> vert_tangents;
-    auto tangents_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TANGENT_NAME);
-    if (tangents_attrib_iter != gltf_prim.attributes.end())
-    {
-        fastgltf::Accessor & gltf_vertex_tangents_accessor = gltf_asset.accessors.at(tangents_attrib_iter->second);
-        const bool tangent_accessor_valid =
-            gltf_vertex_tangents_accessor.componentType == fastgltf::ComponentType::Float &&
-            gltf_vertex_tangents_accessor.type == fastgltf::AccessorType::Vec4;
-        if (tangent_accessor_valid)
-        {
-            auto vertex_tangents_pos_result = load_accessor_data_from_file<glm::vec4, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_tangents_accessor);
-            if (auto const * err = std::get_if<std::vector<glm::vec4>>(&vertex_tangents_pos_result))
-            {
-                vert_tangents = std::get<std::vector<glm::vec4>>(std::move(vertex_tangents_pos_result));
-                DBG_ASSERT_TRUE_M(vert_tangents.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
-            }
-        }
-    }
-#pragma endregion
 
     /// NOTE: Generate meshlets:
     constexpr usize MAX_VERTICES = MAX_VERTICES_PER_MESHLET;
@@ -811,8 +790,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         sizeof(u32) * meshlet_indirect_vertices.size() +
         sizeof(daxa_f32vec3) * vert_positions.size() +
         sizeof(daxa_f32vec2) * vert_texcoord0.size() +
-        sizeof(daxa_f32vec3) * vert_normals.size() +
-        sizeof(daxa_f32vec4) * vert_tangents.size();
+        sizeof(daxa_f32vec3) * vert_normals.size();
 
     /// NOTE: Fill GPUMesh runtime data
     GPUMesh mesh = {};
@@ -892,20 +870,6 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         vert_normals.data(),
         vert_normals.size() * sizeof(daxa_f32vec3));
     accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
-    // ---
-    if (!vert_tangents.empty())
-    {
-        mesh.vertex_tangents = mesh_bda + accumulated_offset;
-        std::memcpy(
-            staging_ptr + accumulated_offset,
-            vert_tangents.data(),
-            vert_tangents.size() * sizeof(daxa_f32vec4));
-        accumulated_offset += sizeof(daxa_f32vec4) * vert_tangents.size();
-    }
-    else
-    {
-        mesh.vertex_tangents = 0;
-    }
     // ---
     /// TODO: If there is no material index add default debug material?
     mesh.material_index = info.global_material_manifest_offset + gltf_prim.materialIndex.value();
