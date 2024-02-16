@@ -4,7 +4,9 @@
 #include "../shader_shared/shared.inl"
 
 const float PLANET_RADIUS_OFFSET = 0.01;
+const float BASE_HEIGHT_OFFSET = 1.0;
 const float PI = 3.1415926535897932384626433832795;
+const float M_TO_KM_SCALE = 0.001;
 
 /* Return sqrt clamped to 0 */
 float safe_sqrt(float x)

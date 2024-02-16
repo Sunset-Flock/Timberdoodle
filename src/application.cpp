@@ -402,6 +402,7 @@ void Application::load_sky_settings(std::filesystem::path const path_to_settings
         daxa_f32(glm::sin(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
         daxa_f32(glm::cos(glm::radians(sun_angle.y)))
     };
+    settings.sun_brightness = 10.0f;
 }
 
 Application::~Application()

@@ -436,8 +436,8 @@ void main()
     daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
     if (all(lessThan(gl_GlobalInvocationID.xy, deref(settings).sky_dimensions)))
     {
-        vec3 world_position = deref(push.uses.globals).camera.position * UNIT_SCALE;
-        world_position.z += deref(settings).atmosphere_bottom;
+        vec3 world_position = deref(push.uses.globals).camera.position * M_TO_KM_SCALE;
+        world_position.z += deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET;
 
         vec2 uv = vec2(gl_GlobalInvocationID.xy) / vec2(deref(settings).sky_dimensions.xy);
         SkyviewParams skyview_params = uv_to_skyview_lut_params(

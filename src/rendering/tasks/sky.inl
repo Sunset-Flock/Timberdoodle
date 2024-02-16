@@ -10,7 +10,6 @@
 #define SKY_X_DISPATCH 8
 #define SKY_Y_DISPATCH 8
 
-#define UNIT_SCALE 0.001
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeTransmittance, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)

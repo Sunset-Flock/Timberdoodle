@@ -542,6 +542,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
             daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
+            daxa::attachment_view(ShadeOpaqueTask::transmittance, transmittance),
+            daxa::attachment_view(ShadeOpaqueTask::sky, sky),
             daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
             daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
             daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),

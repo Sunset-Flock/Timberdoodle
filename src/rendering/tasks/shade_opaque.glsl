@@ -8,8 +8,143 @@
 #include "shader_lib/debug.glsl"
 #include "shader_lib/transform.glsl"
 #include "shader_lib/depth_util.glsl"
+#include "shader_lib/sky_util.glsl"
+
+const vec4 sun_color = vec4(255.0, 240.0, 233.0, 255.0)/255.0; // 5800K
 
 DAXA_DECL_PUSH_CONSTANT(ShadeOpaquePush, push)
+
+vec3 get_sun_illuminance(vec3 view_direction, float height, float zenith_cos_angle)
+{
+    daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
+
+    const float sun_solid_angle = 0.25 * PI / 180.0;
+    const float min_sun_cos_theta = cos(sun_solid_angle);
+
+    const vec3 sun_direction = deref(settings).sun_direction;
+    const float cos_theta = dot(view_direction, sun_direction);
+    if(cos_theta >= min_sun_cos_theta) 
+    {
+        TransmittanceParams transmittance_lut_params = TransmittanceParams(height, zenith_cos_angle);
+        vec2 transmittance_texture_uv = transmittance_lut_to_uv(
+            transmittance_lut_params,
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top
+        );
+        
+        vec3 transmittance_to_sun = texture( 
+            daxa_sampler2D( push.attachments.transmittance, deref(push.attachments.globals).samplers.linear_clamp),
+            transmittance_texture_uv
+        ).rgb;
+
+        return transmittance_to_sun * sun_color.rgb * deref(settings).sun_brightness;
+    }
+    return vec3(0.0);
+}
+
+
+vec3 get_atmosphere_illuminance_along_ray(vec3 ray, vec3 world_camera_position, vec3 sun_direction, out bool intersects_ground)
+{
+    daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
+    const vec3 world_up = normalize(world_camera_position);
+
+    const float view_zenith_angle = acos(dot(ray, world_up));
+    const float light_view_angle = acos(dot(
+        normalize(vec3(sun_direction.xy, 0.0)),
+        normalize(vec3(ray.xy, 0.0))
+    ));
+
+    const float atmosphere_intersection_distance = ray_sphere_intersect_nearest(
+        world_camera_position,
+        ray,
+        vec3(0.0),
+        deref(settings).atmosphere_bottom
+    );
+
+    intersects_ground = atmosphere_intersection_distance >= 0.0;
+    const float camera_height = length(world_camera_position);
+
+    vec2 sky_uv = skyview_lut_params_to_uv(
+        intersects_ground,
+        SkyviewParams(view_zenith_angle, light_view_angle),
+        deref(settings).atmosphere_bottom,
+        deref(settings).atmosphere_top,
+        vec2(deref(settings).sky_dimensions),
+        camera_height
+    );
+
+    const vec3 unitless_atmosphere_illuminance = texture(
+        daxa_sampler2D(push.attachments.sky, deref(push.attachments.globals).samplers.linear_clamp) , sky_uv).rgb;
+    const vec3 sun_color_weighed_atmosphere_illuminance = sun_color.rgb * unitless_atmosphere_illuminance;
+    const vec3 atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * deref(settings).sun_brightness;
+
+    return atmosphere_scattering_illuminance;
+}
+
+struct AtmosphereLightingInfo
+{
+    // illuminance from atmosphere along normal vector
+    vec3 atmosphere_normal_illuminance;
+    // illuminance from atmosphere along view vector
+    vec3 atmosphere_direct_illuminance;
+    // direct sun illuminance
+    vec3 sun_direct_illuminance;
+};
+
+AtmosphereLightingInfo get_atmosphere_lighting(vec3 view_direction, vec3 normal)
+{
+    daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
+    // Because the atmosphere is using km as it's default units and we want one unit in world
+    // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
+    const vec3 camera_position = deref(push.attachments.globals).camera.position * M_TO_KM_SCALE;
+    const vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET);
+
+    const vec3 sun_direction = deref(settings).sun_direction;
+
+    bool normal_ray_intersects_ground;
+    bool view_ray_intersects_ground;
+    const vec3 atmosphere_normal_illuminance = get_atmosphere_illuminance_along_ray(
+        normal,
+        world_camera_position,
+        sun_direction,
+        normal_ray_intersects_ground
+    );
+    const vec3 atmosphere_view_illuminance = get_atmosphere_illuminance_along_ray(
+        view_direction,
+        world_camera_position,
+        sun_direction,
+        view_ray_intersects_ground
+    );
+
+    const vec3 direct_sun_illuminance = view_ray_intersects_ground ? 
+        vec3(0.0) : 
+        get_sun_illuminance(
+            view_direction,
+            length(world_camera_position),
+            dot(sun_direction, normalize(world_camera_position))
+        );
+
+    return AtmosphereLightingInfo(
+        atmosphere_normal_illuminance,
+        atmosphere_view_illuminance,
+        direct_sun_illuminance
+    );
+}
+
+// ndc going in needs to be in range [-1, 1]
+vec3 get_view_direction(vec2 ndc_xy)
+{
+    daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
+    const vec3 camera_position = deref(push.attachments.globals).camera.position;//* M_TO_KM_SCALE;
+
+    // Get the direction of ray contecting camera origin and current fragment on the near plane 
+    // in world coordinate system
+    const vec4 unprojected_pos = deref(push.attachments.globals).camera.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
+    const vec3 world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
+
+    return world_direction;
+}
+
 layout(local_size_x = SHADE_OPAQUE_WG_X, local_size_y = SHADE_OPAQUE_WG_Y) in;
 void main()
 {
@@ -69,6 +204,16 @@ void main()
         {
             output_value = debug_value;
         }
+    } else {
+        // scale uvs to be in the range [0, 1]
+        const vec2 uv = vec2(gl_GlobalInvocationID.xy) * deref(push.attachments.globals).settings.render_target_size_inv;
+        const vec2 ndc_xy = (uv * 2.0) - 1.0;
+        const vec3 view_direction = get_view_direction(ndc_xy);
+
+        AtmosphereLightingInfo atmosphere_lighting = get_atmosphere_lighting(view_direction, vec3(0.0, 0.0, 1.0));
+        const vec3 total_direct_illuminance = 
+            (atmosphere_lighting.atmosphere_direct_illuminance + atmosphere_lighting.sun_direct_illuminance);
+        output_value = vec4(total_direct_illuminance, 1.0);
     }
 
     imageStore(daxa_image2D(push.attachments.color_image), index, output_value);
