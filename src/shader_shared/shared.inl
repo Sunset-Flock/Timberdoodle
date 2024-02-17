@@ -34,7 +34,7 @@
 #define glmsf32vec3 daxa_f32vec3
 #define glmsf32vec4 daxa_f32vec4
 #define glmsf32mat4 daxa_f32mat4x4
-#endif 
+#endif
 
 #if __cplusplus
 #define SHADER_ONLY(x)
@@ -118,24 +118,44 @@ struct Settings
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
 #if __cplusplus
-    auto operator==(Settings const &other) const -> bool 
+    auto operator==(Settings const & other) const -> bool
     {
         return std::memcmp(this, &other, sizeof(Settings)) == 0;
     }
-    auto operator!=(Settings const &other) const -> bool
+    auto operator!=(Settings const & other) const -> bool
     {
         return std::memcmp(this, &other, sizeof(Settings)) != 0;
     }
     Settings()
-        : render_target_size{ 16, 16 },
-        render_target_size_inv{ 1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y },
-        enable_mesh_shader{ 0 },
-        draw_from_observer{ 0 },
-        observer_show_pass{ 0 }
+        : render_target_size{16, 16},
+          render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
+          enable_mesh_shader{0},
+          draw_from_observer{0},
+          observer_show_pass{0}
     {
     }
 #endif
 };
+
+struct PostprocessSettings
+{
+    daxa_f32 min_luminance_log2;
+    daxa_f32 max_luminance_log2;
+    daxa_f32 luminance_log2_range;
+    daxa_f32 inv_luminance_log2_range;
+    daxa_f32 luminance_adaption_tau;
+#if __cplusplus
+    PostprocessSettings()
+        : min_luminance_log2{std::log2(0.01f)},
+          max_luminance_log2{std::log2(10.0f)},
+          luminance_log2_range{max_luminance_log2 - min_luminance_log2},
+          inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)},
+          luminance_adaption_tau{1.0f}
+    {
+    }
+#endif
+};
+DAXA_DECL_BUFFER_PTR(PostprocessSettings)
 
 struct GlobalSamplers
 {
@@ -173,14 +193,13 @@ mat4 mat_4x3_to_4x4(mat4x3 in_mat)
         vec4(in_mat[0], 0.0),
         vec4(in_mat[1], 0.0),
         vec4(in_mat[2], 0.0),
-        vec4(in_mat[3], 1.0)
-    );
+        vec4(in_mat[3], 1.0));
 }
 #endif
 
 #if defined(__cplusplus)
 #define SHARED_FUNCTION inline
-#define SHARED_FUNCTION_INOUT(X) X&
+#define SHARED_FUNCTION_INOUT(X) X &
 #else
 #define SHARED_FUNCTION
 #define SHARED_FUNCTION_INOUT(X) inout X

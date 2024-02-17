@@ -14,6 +14,7 @@
 #include "tasks/write_swapchain.inl"
 #include "tasks/shade_opaque.inl"
 #include "tasks/sky.inl"
+#include "tasks/autoexposure.inl"
 #include "tasks/shader_debug_draws.inl"
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
@@ -43,8 +44,9 @@ Renderer::Renderer(
     meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
     meshlet_instances_last_frame = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
+    luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
 
-    buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances};
+    buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, luminance_average};
 
     swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
     depth = daxa::TaskImage{{.name = "depth"}};
@@ -174,6 +176,8 @@ void Renderer::compile_pipelines()
         {ComputeTransmittance{}.name(), compute_transmittance_pipeline_compile_info()},
         {ComputeMultiscattering{}.name(), compute_multiscattering_pipeline_compile_info()},
         {ComputeSky{}.name(), compute_sky_pipeline_compile_info()},
+        {GenLuminanceHistogram{}.name(), gen_luminace_histogram_pipeline_compile_info()},
+        {GenLuminanceAverage{}.name(), gen_luminace_average_pipeline_compile_info()},
     };
     for (auto [name, info] : computes)
     {
@@ -261,6 +265,7 @@ void Renderer::clear_select_buffers()
     task_clear_buffer(list, meshlet_instances, 0, sizeof(u32));
     list.use_persistent_buffer(visible_meshlet_instances);
     task_clear_buffer(list, visible_meshlet_instances, 0, sizeof(u32));
+    task_clear_buffer(list, luminance_average, 0, sizeof(f32));
     list.submit({});
     list.complete({});
     list.execute({});
@@ -397,13 +402,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     task_list.use_persistent_image(swapchain_image);
 
-    task_clear_image(task_list, detector_image, std::array{0.0f,0.0f,0.0f,1.0f});
+    task_clear_image(task_list, detector_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
     task_list.add_task(ShaderDebugDrawContext::ReadbackTask{
-        .views = std::array{ daxa::attachment_view(ShaderDebugDrawContext::ReadbackTask::globals, context->tshader_globals_buffer) },
+        .views = std::array{daxa::attachment_view(ShaderDebugDrawContext::ReadbackTask::globals, context->tshader_globals_buffer)},
         .shader_debug_context = &context->shader_debug_context,
     });
-    
     task_list.add_task({
         .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, context->tshader_globals_buffer)},
         .task = [&](daxa::TaskInterface ti)
@@ -428,6 +432,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto sky = task_list.create_transient_image({.format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {context->sky_settings.sky_dimensions.x, context->sky_settings.sky_dimensions.y, 1},
         .name = "sky look up table"});
+    auto luminance_histogram = task_list.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
 
     task_list.add_task(ComputeSkyTask{
         .views = std::array{
@@ -536,6 +541,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .depth_image = depth,
         });
     }
+    task_list.submit({});
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
             daxa::attachment_view(ShadeOpaqueTask::detector_image, detector_image),
@@ -551,13 +557,30 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-    task_list.submit({});
 
+    task_clear_buffer(task_list, luminance_histogram, 0);
+    task_list.add_task(GenLuminanceHistogramTask{
+        .views = std::array{
+            daxa::attachment_view(GenLuminanceHistogramTask::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(GenLuminanceHistogramTask::histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceHistogramTask::color_image, color_image),
+        },
+        .context = context,
+    });
+    task_list.add_task(GenLuminanceAverageTask{
+        .views = std::array{
+            daxa::attachment_view(GenLuminanceAverageTask::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(GenLuminanceAverageTask::histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceAverageTask::luminance_average, luminance_average),
+        },
+        .context = context,
+    });
     task_list.add_task(WriteSwapchainTask{
         .views = std::array{
             daxa::attachment_view(WriteSwapchainTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(WriteSwapchainTask::swapchain, swapchain_image),
             daxa::attachment_view(WriteSwapchainTask::color_image, color_image),
+            daxa::attachment_view(WriteSwapchainTask::luminance_average, luminance_average),
         },
         .context = context,
     });
@@ -570,7 +593,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-    task_list.add_task({ 
+    task_list.add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image),
             daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, detector_image),

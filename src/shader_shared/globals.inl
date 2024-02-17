@@ -13,6 +13,7 @@ struct ShaderGlobals
     daxa_f32 delta_time;
     Settings settings;
     SkySettings sky_settings;
+    PostprocessSettings postprocess_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;

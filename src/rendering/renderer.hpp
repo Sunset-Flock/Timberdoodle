@@ -33,6 +33,7 @@ struct Renderer
     daxa::TaskBuffer meshlet_instances = {};
     daxa::TaskBuffer meshlet_instances_last_frame = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
+    daxa::TaskBuffer luminance_average = {};
 
     std::vector<daxa::TaskBuffer> buffers = {};
     // Images:
