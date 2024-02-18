@@ -98,7 +98,7 @@ namespace tido
             ImRect real_cell_bounds = ImRect(cell_bounds.Min, ImVec2(cell_bounds.Max.x, real_cell_max_y));
 
             ImVec2 font_size = ImGui::CalcTextSize("x");
-            ImGuiID const elem_id = window->GetID(fmt::format("bounds_elem_{}", uuid).c_str());
+            ImGuiID const elem_id = window->GetID(std::string(uuid).append("be").c_str());
 
             State const elem_state = button_like_behavior(real_cell_bounds, elem_id);
             if (elem_state.pressed)
@@ -121,14 +121,14 @@ namespace tido
                 icon_to_color(icon));
             f32 const prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
             ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
-            ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
+            ImGui::TextUnformatted(uuid.c_str());
             return RetNodeState::CLOSED;
         }
 
-        auto SceneGraph::add_inner_node(std::string uuid, bool no_draw, ICONS icon) -> RetNodeState
+        auto SceneGraph::add_inner_node(void const * uuid, std::string const & name, bool no_draw, ICONS icon) -> RetNodeState
         {
             current_row += 1;
-            ImGuiID const elem_id = window->GetID(fmt::format("be{}", uuid).c_str());
+            ImGuiID const elem_id = window->GetID(uuid);
             bool component_state = window->DC.StateStorage->GetBool(elem_id);
             if (no_draw) return component_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
 
@@ -147,7 +147,7 @@ namespace tido
                 ImVec2(icon_bounds.Max.x, cell_bounds.Min.y),
                 cell_bounds.Max);
 
-            ImGuiID const icon_id = window->GetID(fmt::format("bounds_icon_{}", uuid).c_str());
+            ImGuiID const icon_id = window->GetID(static_cast<u32 const *>(uuid) + 1);
 
             State const icon_state = button_like_behavior(icon_bounds, icon_id);
             State const elem_state = button_like_behavior(elem_bounds, elem_id);
@@ -187,24 +187,23 @@ namespace tido
             }
             f32 const prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
             ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
-            ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
+            ImGui::TextUnformatted(name.c_str());
             return component_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
         }
 
         auto SceneGraph::add_meshgroup_node(RenderEntity const & entity, Scene const & scene, bool no_draw) -> RetNodeState
         {
-            std::string const meshgroup_uuid = fmt::format("{}", entity.name);
-            RetNodeState state = add_inner_node(meshgroup_uuid, no_draw, ICONS::MESHGROUP);
+            RetNodeState state = add_inner_node(&entity, entity.name, no_draw, ICONS::MESHGROUP);
             if (state != RetNodeState::OPEN) { return RetNodeState::CLOSED; }
             MeshGroupManifestEntry const & meshgroup_manifest_entry = scene._mesh_group_manifest.at(entity.mesh_group_manifest_index.value());
 
             add_level();
             for (u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
             {
-                std::string const mesh_uuid = fmt::format("{} - mesh {}", entity.name, mesh_idx);
-                RetNodeState inner_node_state = add_inner_node(mesh_uuid, no_draw, ICONS::MESH);
+                std::string const mesh_name = std::string(entity.name).append("- mesh ").append(std::to_string(mesh_idx));
                 MeshManifestEntry const & mesh_manifest_entry =
                     scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
+                RetNodeState inner_node_state = add_inner_node(&mesh_manifest_entry, mesh_name, no_draw, ICONS::MESH);
                 ImGui::SameLine();
                 u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
                 char const plural_ending = meshlet_count > 1 ? 's' : ' ';
@@ -212,7 +211,7 @@ namespace tido
                 if (inner_node_state == RetNodeState::OPEN)
                 {
                     MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
-                    std::string const material_uuid = fmt::format("{}", material_manifest_entry.name);
+                    std::string const material_uuid = material_manifest_entry.name;
                     add_level();
                     add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
                     remove_level();
@@ -224,7 +223,6 @@ namespace tido
 
         auto SceneGraph::add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState
         {
-            std::string const uuid = fmt::format("{}", entity.name);
             bool no_draw = {};
             bool const is_after_end = current_row >= clipper.DisplayEnd;
             if (is_after_end)
@@ -242,13 +240,13 @@ namespace tido
             {
                 case EntityType::ROOT: [[fallthrough]];
                 case EntityType::TRANSFORM:
-                    return add_inner_node(uuid, no_draw, ICONS::COLLECTION);
+                    return add_inner_node(&entity, entity.name, no_draw, ICONS::COLLECTION);
                 case EntityType::MESHGROUP:
                     return add_meshgroup_node(entity, scene, no_draw);
                 case EntityType::CAMERA:
-                    return add_leaf_node(uuid, ICONS::CAMERA, no_draw);
+                    return add_leaf_node(entity.name, ICONS::CAMERA, no_draw);
                 case EntityType::LIGHT:
-                    return add_leaf_node(uuid, ICONS::LIGHT, no_draw);
+                    return add_leaf_node(entity.name, ICONS::LIGHT, no_draw);
                 default:
                     return RetNodeState::ERROR;
             }

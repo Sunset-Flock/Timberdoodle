@@ -58,7 +58,7 @@ namespace tido
                 auto get_cell_bounds() -> ImRect;
                 auto add_meshgroup_node(RenderEntity const & entity, Scene const & scene, bool no_draw) -> RetNodeState;
                 auto add_leaf_node(std::string uuid, ICONS icon, bool no_draw) -> RetNodeState;
-                auto add_inner_node(std::string uuid, bool no_draw, ICONS icon = ICONS::SIZE) -> RetNodeState;
+                auto add_inner_node(void const * uuid, std::string const & name, bool no_draw, ICONS icon = ICONS::SIZE) -> RetNodeState;
         };
     }
 }
