@@ -119,6 +119,6 @@ void main()
     const float exposure = compute_exposure(deref(push.attachments.luminance_average));
     const vec3 exposed_color = color.rgb * exposure;
     const vec3 tonemapped_color = agx_tonemapping(exposed_color);
-
-    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(tonemapped_color.rgb, color.a));
+    const vec3 gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
+    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, color.a));
 }
