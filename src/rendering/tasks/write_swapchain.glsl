@@ -11,7 +11,7 @@ vec3 index_to_color(uint index)
     return vec3(cos(index), cos(index * 2 + 1), cos(index * 3 + 2)) * 0.5 + 0.5;
 }
 // TODO(msakmary) Move into globals.postprocess_settings
-const float exposure_bias      = 5.0;
+const float exposure_bias      = 2.0;
 const float calibration       = 12.5;  // Light meter calibration
 const float sensor_sensitivity = 100.0; // Sensor sensitivity
 
