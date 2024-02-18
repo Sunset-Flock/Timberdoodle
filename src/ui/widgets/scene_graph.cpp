@@ -8,16 +8,15 @@ namespace tido
     {
         static constexpr u32 stylevar_change_count = 4;
 
-        SceneGraph::SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler) : 
-            icon_size{16.0f},
-            icon_text_spacing{3.0f},
-            indent{16.0f},
-            renderer{renderer},
-            icons{icons},
-            linear_sampler(linear_sampler)
+        SceneGraph::SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler)
+            : icon_size{16.0f},
+              icon_text_spacing{3.0f},
+              indent{16.0f},
+              renderer{renderer},
+              icons{icons},
+              linear_sampler(linear_sampler)
         {
         }
-
 
         void SceneGraph::begin()
         {
@@ -29,18 +28,26 @@ namespace tido
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
             ImGui::Begin("Scene Hierarchy", nullptr, ImGuiWindowFlags_NoCollapse);
-
-            static ImGuiTableFlags flags = 
+            static ImGuiTableFlags flags =
                 ImGuiTableFlags_BordersOuterV |
                 ImGuiTableFlags_BordersOuterH |
                 ImGuiTableFlags_Resizable |
-                ImGuiTableFlags_RowBg | 
+                ImGuiTableFlags_RowBg |
                 ImGuiTableFlags_NoBordersInBody;
             ImGui::BeginTable("Scene Hierarchy", 1, flags);
             context = ImGui::GetCurrentContext();
             table = context->CurrentTable;
             window = context->CurrentWindow;
+            ImGui::TableSetupScrollFreeze(0, 1); // Make top row always visible
             ImGui::TableSetupColumn("Name");
+
+            f32 const icon_y_size = icon_size + context->Style.CellPadding.y * 2.0f;
+            f32 const label_y_size = ImGui::CalcTextSize("x").y + context->Style.CellPadding.y * 2.0f;
+            f32 const real_cell_max_y = std::max(icon_y_size, label_y_size);
+            row_min_height = real_cell_max_y;
+            clipper.Begin(current_row ? current_row : INT_MAX, real_cell_max_y);
+            current_row = {};
+            clipper_ret = clipper.Step();
         }
 
         auto SceneGraph::get_cell_bounds() -> ImRect
@@ -49,17 +56,14 @@ namespace tido
             ImRect cell_row_bb = ImGui::TableGetCellBgRect(table, 0);
             f32 label_height = std::max(
                 ImGui::CalcTextSize("x").y,
-                table->RowMinHeight
-            );
+                table->RowMinHeight);
             return ImRect(
                 cell_row_bb.Min.x,
                 cell_row_bb.Min.y,
                 cell_row_bb.Max.x,
                 std::max(
                     cell_row_bb.Max.y,
-                    cell_row_bb.Min.y + label_height + context->Style.CellPadding.y * 2.0f 
-                )
-            );
+                    cell_row_bb.Min.y + label_height + context->Style.CellPadding.y * 2.0f));
         }
 
         void SceneGraph::end()
@@ -82,140 +86,135 @@ namespace tido
             window->DC.TreeDepth--;
         }
 
-        auto SceneGraph::add_leaf_node(std::string uuid, ICONS icon) -> RetNodeState
+        auto SceneGraph::add_leaf_node(std::string uuid, ICONS icon, bool no_draw) -> RetNodeState
         {
-            ImGui::TableNextRow();
+            current_row += 1;
+            if (no_draw) return RetNodeState::CLOSED;
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, row_min_height);
             ImGui::TableNextColumn();
 
             ImRect cell_bounds = get_cell_bounds();
             f32 const real_cell_max_y = std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size + context->Style.CellPadding.y * 2.0f);
-            ImRect real_cell_bounds = ImRect(cell_bounds.Min, ImVec2(cell_bounds.Max.x,real_cell_max_y));
+            ImRect real_cell_bounds = ImRect(cell_bounds.Min, ImVec2(cell_bounds.Max.x, real_cell_max_y));
 
             ImVec2 font_size = ImGui::CalcTextSize("x");
             ImGuiID const elem_id = window->GetID(fmt::format("bounds_elem_{}", uuid).c_str());
 
             State const elem_state = button_like_behavior(real_cell_bounds, elem_id);
-            if(elem_state.pressed)
+            if (elem_state.pressed)
             {
                 DEBUG_MSG(fmt::format("elem pressed {}", uuid));
                 selected_id = elem_id;
             }
-            const bool selected = selected_id == elem_id;
-            const bool hovered = elem_state.hovered;
-            if(hovered || selected) 
+            bool const selected = selected_id == elem_id;
+            bool const hovered = elem_state.hovered;
+            if (hovered || selected)
             {
                 ImGuiCol_ new_color = selected ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered;
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(ImGuiCol(new_color)), table->CurrentColumn);
             }
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + icon_size);
-            ImGui::Image(renderer->create_texture_id({
-                    .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
-                    .sampler_id = linear_sampler
-                }), 
+            ImGui::Image(renderer->create_texture_id({.image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
+                             .sampler_id = linear_sampler}),
                 ImVec2(icon_size, icon_size),
                 ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
-                icon_to_color(icon)
-            );
-            const f32 prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
+                icon_to_color(icon));
+            f32 const prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
             ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
             ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return RetNodeState::CLOSED;
         }
 
-        auto SceneGraph::add_inner_node(std::string uuid, ICONS icon) -> RetNodeState
+        auto SceneGraph::add_inner_node(std::string uuid, bool no_draw, ICONS icon) -> RetNodeState
         {
-            ImGui::TableNextRow();
+            current_row += 1;
+            ImGuiID const elem_id = window->GetID(fmt::format("be{}", uuid).c_str());
+            bool component_state = window->DC.StateStorage->GetBool(elem_id);
+            if (no_draw) return component_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
+
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, row_min_height);
             ImGui::TableNextColumn();
 
             ImRect cell_bounds = get_cell_bounds();
 
             ImVec2 font_size = ImGui::CalcTextSize("x");
             ImRect icon_bounds = ImRect(
-                ImVec2( window->DC.CursorPos.x, cell_bounds.Min.y),
-                ImVec2( 
-                    window->DC.CursorPos.x + icon_size, 
-                    std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size)
-                )
-            );
+                ImVec2(window->DC.CursorPos.x, cell_bounds.Min.y),
+                ImVec2(
+                    window->DC.CursorPos.x + icon_size,
+                    std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size)));
             ImRect elem_bounds = ImRect(
                 ImVec2(icon_bounds.Max.x, cell_bounds.Min.y),
-                cell_bounds.Max
-            );
+                cell_bounds.Max);
+
             ImGuiID const icon_id = window->GetID(fmt::format("bounds_icon_{}", uuid).c_str());
-            ImGuiID const elem_id = window->GetID(fmt::format("bounds_elem_{}", uuid).c_str());
 
             State const icon_state = button_like_behavior(icon_bounds, icon_id);
             State const elem_state = button_like_behavior(elem_bounds, elem_id);
-            bool component_state = window->DC.StateStorage->GetBool(elem_id);
-            if(icon_state.pressed)
+
+            if (icon_state.pressed)
             {
                 window->DC.StateStorage->SetBool(elem_id, !component_state);
                 DEBUG_MSG(fmt::format("icon pressed {}", uuid));
                 component_state = !component_state;
             }
-            if(elem_state.pressed)
+            if (elem_state.pressed)
             {
                 DEBUG_MSG(fmt::format("elem pressed {}", uuid));
                 selected_id = elem_id;
             }
-            const bool selected = selected_id == elem_id;
-            const bool hovered = icon_state.hovered || elem_state.hovered;
-            if(hovered || selected) 
+            bool const selected = selected_id == elem_id;
+            bool const hovered = icon_state.hovered || elem_state.hovered;
+            if (hovered || selected)
             {
                 ImGuiCol_ new_color = selected ? ImGuiCol_ButtonActive : ImGuiCol_ButtonHovered;
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(ImGuiCol(new_color)), table->CurrentColumn);
             }
             ICONS arrow_icon = component_state ? ICONS::CHEVRON_UP : ICONS::CHEVRON_DOWN;
-            ImGui::Image(renderer->create_texture_id({
-                    .image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
-                    .sampler_id = linear_sampler
-                }), 
+            ImGui::Image(renderer->create_texture_id({.image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
+                             .sampler_id = linear_sampler}),
                 ImVec2(icon_size, icon_size),
                 ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
-                icon_to_color(arrow_icon)
-            );
-            if(icon != ICONS::SIZE)
+                icon_to_color(arrow_icon));
+            if (icon != ICONS::SIZE)
             {
                 ImGui::SameLine();
-                ImGui::Image(renderer->create_texture_id({
-                        .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
-                        .sampler_id = linear_sampler
-                    }), 
+                ImGui::Image(renderer->create_texture_id({.image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
+                                 .sampler_id = linear_sampler}),
                     ImVec2(icon_size, icon_size),
                     ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
-                    icon_to_color(icon)
-                );
+                    icon_to_color(icon));
             }
-            const f32 prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
+            f32 const prev_line_window_rel_pos_x = window->DC.CursorPosPrevLine.x - window->Pos.x + window->Scroll.x;
             ImGui::SameLine(prev_line_window_rel_pos_x + icon_text_spacing);
             ImGui::TextUnformatted(fmt::format("{}", uuid).c_str());
             return component_state ? RetNodeState::OPEN : RetNodeState::CLOSED;
         }
 
-        auto SceneGraph::add_meshgroup_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState
+        auto SceneGraph::add_meshgroup_node(RenderEntity const & entity, Scene const & scene, bool no_draw) -> RetNodeState
         {
             std::string const meshgroup_uuid = fmt::format("{}", entity.name);
-            RetNodeState state = add_inner_node(meshgroup_uuid, ICONS::MESHGROUP);
-            if(state != RetNodeState::OPEN) { return RetNodeState::CLOSED; }
+            RetNodeState state = add_inner_node(meshgroup_uuid, no_draw, ICONS::MESHGROUP);
+            if (state != RetNodeState::OPEN) { return RetNodeState::CLOSED; }
             MeshGroupManifestEntry const & meshgroup_manifest_entry = scene._mesh_group_manifest.at(entity.mesh_group_manifest_index.value());
 
             add_level();
-            for(u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
+            for (u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
             {
                 std::string const mesh_uuid = fmt::format("{} - mesh {}", entity.name, mesh_idx);
-                RetNodeState inner_node_state = add_inner_node(mesh_uuid, ICONS::MESH);
-                MeshManifestEntry const & mesh_manifest_entry = 
+                RetNodeState inner_node_state = add_inner_node(mesh_uuid, no_draw, ICONS::MESH);
+                MeshManifestEntry const & mesh_manifest_entry =
                     scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
                 ImGui::SameLine();
-                const u32 meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
-                const char plural_ending = meshlet_count > 1 ? 's' : ' ';
+                u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
+                char const plural_ending = meshlet_count > 1 ? 's' : ' ';
                 ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
-                if(inner_node_state == RetNodeState::OPEN)
+                if (inner_node_state == RetNodeState::OPEN)
                 {
                     MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
                     std::string const material_uuid = fmt::format("{}", material_manifest_entry.name);
                     add_level();
-                    add_leaf_node(material_uuid, ICONS::MATERIAL);
+                    add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
                     remove_level();
                 }
             }
@@ -225,22 +224,34 @@ namespace tido
 
         auto SceneGraph::add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState
         {
-
             std::string const uuid = fmt::format("{}", entity.name);
-            switch(entity.type)
+            bool no_draw = {};
+            bool const is_after_end = current_row >= clipper.DisplayEnd;
+            if (is_after_end)
+            {
+                if(clipper_ret) clipper_ret = clipper.Step();
+            }
+            bool const is_unconditional_first_elem = (clipper.DisplayStart == 0 && clipper.DisplayEnd == 1);
+            bool const is_before_start = current_row < clipper.DisplayStart;
+            bool const is_after_end_final = is_after_end && !clipper_ret;
+            if(is_before_start || is_after_end_final)
+            {
+                no_draw = true;
+            } 
+            switch (entity.type)
             {
                 case EntityType::ROOT: [[fallthrough]];
                 case EntityType::TRANSFORM:
-                    return add_inner_node(uuid, ICONS::COLLECTION);
-                case EntityType::MESHGROUP: 
-                    return add_meshgroup_node(entity, scene);
+                    return add_inner_node(uuid, no_draw, ICONS::COLLECTION);
+                case EntityType::MESHGROUP:
+                    return add_meshgroup_node(entity, scene, no_draw);
                 case EntityType::CAMERA:
-                    return add_leaf_node(uuid, ICONS::CAMERA);
+                    return add_leaf_node(uuid, ICONS::CAMERA, no_draw);
                 case EntityType::LIGHT:
-                    return add_leaf_node(uuid, ICONS::LIGHT);
+                    return add_leaf_node(uuid, ICONS::LIGHT, no_draw);
                 default:
                     return RetNodeState::ERROR;
             }
         }
-    }
-}
+    } // namespace ui
+} // namespace tido
