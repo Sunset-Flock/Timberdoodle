@@ -13,5 +13,6 @@ enum struct ICONS
     LIGHT,
     MATERIAL,
     COLLECTION,
+    SUN,
     SIZE, 
 };

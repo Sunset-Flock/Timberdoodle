@@ -171,8 +171,11 @@ namespace tido
                 ImGui::TableSetBgColor(ImGuiTableBgTarget_CellBg, ImGui::GetColorU32(ImGuiCol(new_color)), table->CurrentColumn);
             }
             ICONS arrow_icon = component_state ? ICONS::CHEVRON_UP : ICONS::CHEVRON_DOWN;
-            ImGui::Image(renderer->create_texture_id({.image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
-                             .sampler_id = linear_sampler}),
+            ImGui::Image(
+                renderer->create_texture_id({
+                    .image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
+                    .sampler_id = linear_sampler,
+                }),
                 ImVec2(icon_size, icon_size),
                 ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
                 icon_to_color(arrow_icon));
@@ -227,15 +230,15 @@ namespace tido
             bool const is_after_end = current_row >= clipper.DisplayEnd;
             if (is_after_end)
             {
-                if(clipper_ret) clipper_ret = clipper.Step();
+                if (clipper_ret) clipper_ret = clipper.Step();
             }
             bool const is_unconditional_first_elem = (clipper.DisplayStart == 0 && clipper.DisplayEnd == 1);
             bool const is_before_start = current_row < clipper.DisplayStart;
             bool const is_after_end_final = is_after_end && !clipper_ret;
-            if(is_before_start || is_after_end_final)
+            if (is_before_start || is_after_end_final)
             {
                 no_draw = true;
-            } 
+            }
             switch (entity.type)
             {
                 case EntityType::ROOT: [[fallthrough]];

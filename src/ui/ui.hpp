@@ -22,12 +22,13 @@ struct UIEngine
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_scene_hierarchy = false;
+        bool widget_property_viewer = true;
         bool camera_settings = false;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;
-        tido::ui::SceneGraph scene_graph{};
         daxa::ImGuiRenderer imgui_renderer = {};
+        tido::ui::SceneGraph scene_graph = {};
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
@@ -47,9 +48,11 @@ struct UIEngine
             "deps\\timberdoodle_assets\\ui\\icons\\light.png",
             "deps\\timberdoodle_assets\\ui\\icons\\material.png",
             "deps\\timberdoodle_assets\\ui\\icons\\collection.png",
+            "deps\\timberdoodle_assets\\ui\\icons\\sun.png",
         };
         GPUContext * context;
         f32 text_font_size = 15.0f;
+        int selected = {};
 
         std::vector<daxa::ImageId> icons = {};
         void draw_scenegraph(Scene const & scene);
