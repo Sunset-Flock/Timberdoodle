@@ -129,42 +129,42 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
         {
             ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
             {
-                ImGui::Dummy({2, 1});
-                {
-                    ImGui::Dummy({2, 1});
-                    ImGui::SameLine();
-                    auto const start_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                    auto const pos_x = ImGui::GetCursorPosX();
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
-                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
-                    if (ImGui::TreeNode("Settings"))
-                    {
-                        ImGui::Text("text 1");
-                        ImGui::Text("text 2");
-                        ImGui::Text("text 3");
-                        ImGui::Text("text 4");
-                        ImGui::TreePop();
-                    }
-                    auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                    auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
-                    auto draw_list = ImGui::GetWindowDrawList();
-                    draw_list->AddRectFilled(
-                        start_pos,
-                        {start_pos.x + size.x, start_pos.y + size.y},
-                        ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
-                        3.0f
-                    );
-                    ImGui::SetCursorScreenPos(start_pos);
-                    if (ImGui::TreeNode("Settings"))
-                    {
-                        ImGui::Text("text 1");
-                        ImGui::Text("text 2");
-                        ImGui::Text("text 3");
-                        ImGui::Text("text 4");
-                        ImGui::TreePop();
-                    }
-                    ImGui::PopStyleColor(2);
-                }
+                // ImGui::Dummy({2, 1});
+                // {
+                //     ImGui::Dummy({2, 1});
+                //     ImGui::SameLine();
+                //     auto const start_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
+                //     auto const pos_x = ImGui::GetCursorPosX();
+                //     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
+                //     ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
+                //     if (ImGui::TreeNode("Settings"))
+                //     {
+                //         ImGui::Text("text 1");
+                //         ImGui::Text("text 2");
+                //         ImGui::Text("text 3");
+                //         ImGui::Text("text 4");
+                //         ImGui::TreePop();
+                //     }
+                //     auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
+                //     auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
+                //     auto draw_list = ImGui::GetWindowDrawList();
+                //     draw_list->AddRectFilled(
+                //         start_pos,
+                //         {start_pos.x + size.x, start_pos.y + size.y},
+                //         ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
+                //         3.0f
+                //     );
+                //     ImGui::SetCursorScreenPos(start_pos);
+                //     if (ImGui::TreeNode("Settings"))
+                //     {
+                //         ImGui::Text("text 1");
+                //         ImGui::Text("text 2");
+                //         ImGui::Text("text 3");
+                //         ImGui::Text("text 4");
+                //         ImGui::TreePop();
+                //     }
+                //     ImGui::PopStyleColor(2);
+                // }
 
                 ImGui::Dummy({2, 1});
                 {
@@ -174,23 +174,9 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
                     auto const pos_x = ImGui::GetCursorPosX();
                     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
                     ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
-                    if (ImGui::TreeNode("Sun Settings"))
-                    {
-                        float dummy;
-                        ImGui::SliderFloat("Angle X", &dummy, 0.0f, 360.0f, "%.1f°");
-                        ImGui::SliderFloat("Angle Y", &dummy, 0.0f, 180.0f, "%.1f°");
-                        ImGui::TreePop();
-                    }
-                    auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                    auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
-                    auto draw_list = ImGui::GetWindowDrawList();
-                    draw_list->AddRectFilled(
-                        start_pos,
-                        {start_pos.x + size.x, start_pos.y + size.y},
-                        ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
-                        3.0f
-                    );
-                    ImGui::SetCursorScreenPos(start_pos);
+
+                    auto * draw_list = ImGui::GetWindowDrawList();
+                    auto const idx_start_count = draw_list->IdxBuffer.size();
                     if (ImGui::TreeNode("Sun Settings"))
                     {
                         auto & sky_settings = context->shader_globals.sky_settings;
@@ -208,6 +194,27 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
                             };
                         ImGui::TreePop();
                     }
+                    auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
+                    auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
+                    auto const idx_end_count = draw_list->IdxBuffer.size();
+                    draw_list->AddRectFilled(
+                        start_pos,
+                        {start_pos.x + size.x, start_pos.y + size.y},
+                        ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
+                        3.0f
+                    );
+                    auto const idx_rect_end_count = draw_list->IdxBuffer.size();
+
+                    ImVector<ImDrawIdx> new_indices = {};
+                    auto const prefix_idx_count = idx_start_count;
+                    auto const context_idx_count = idx_end_count - idx_start_count;
+                    auto const rect_idx_count = idx_rect_end_count - idx_end_count;
+                    new_indices.resize(idx_rect_end_count);
+                    std::memcpy(new_indices.Data, draw_list->IdxBuffer.Data, sizeof(ImDrawIdx) * prefix_idx_count);
+                    std::memcpy(new_indices.Data + prefix_idx_count, draw_list->IdxBuffer.Data + idx_end_count, sizeof(ImDrawIdx) * rect_idx_count);
+                    std::memcpy(new_indices.Data + prefix_idx_count + rect_idx_count, draw_list->IdxBuffer.Data + prefix_idx_count, sizeof(ImDrawIdx) * context_idx_count);
+                    draw_list->IdxBuffer = new_indices;
+                    draw_list->_IdxWritePtr = draw_list->IdxBuffer.end();
                     ImGui::PopStyleColor(2);
                 }
             }
