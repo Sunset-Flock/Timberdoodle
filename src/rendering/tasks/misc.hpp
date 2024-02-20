@@ -37,7 +37,7 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
 
 #define CLEAR_REST -1
 
-inline void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, u32 value, i32 range = CLEAR_REST)
+inline void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, u32 value, i32 range = CLEAR_REST, u32 offset = 0)
 {
     tg.add_task({
         .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, buffer)},
@@ -45,7 +45,7 @@ inline void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer,
         {
             ti.recorder.clear_buffer({
                 .buffer = ti.get(buffer).ids[0],
-                .offset = 0,
+                .offset = offset,
                 .size = (range == CLEAR_REST) ? ti.device.info_buffer(ti.get(buffer).ids[0]).value().size : static_cast<daxa_u32>(range),
                 .clear_value = value,
             });
@@ -97,5 +97,26 @@ void task_clear_image(daxa::TaskGraph & tg, daxa::TaskImageView image, daxa::Cle
             });
         },
         .name = "clear image",
+    });
+}
+
+template<typename T>
+void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, T clear_value)
+{
+    tg.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, buffer),
+        },
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto alloc = ti.allocator->allocate_fill(clear_value).value();
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = ti.allocator->buffer(),
+                .dst_buffer = ti.get(buffer).ids[0],
+                .src_offset = alloc.buffer_offset,
+                .size = sizeof(T),
+            });
+        },
+        .name = "fill buffer",
     });
 }

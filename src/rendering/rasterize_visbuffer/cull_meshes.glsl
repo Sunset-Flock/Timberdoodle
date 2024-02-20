@@ -9,32 +9,15 @@
 #extension GL_EXT_debug_printf : enable
 
 #if defined(CullMeshesCommand_COMMAND)
-layout(local_size_x = 32) in;
+layout(local_size_x = 1) in;
 DAXA_DECL_PUSH_CONSTANT(CullMeshesCommandPush, push)
 void main()
 {
-    if (gl_GlobalInvocationID.x == 0)
-    {
-        const uint entity_count = deref(push.uses.entity_meta).entity_count;
-        const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
-        deref(push.uses.command).x = dispatch_x;
-        deref(push.uses.command).y = 1;
-        deref(push.uses.command).z = 1;
-    }
-    const uint index = gl_GlobalInvocationID.x;
-    uint64_t sizeof_arg_table = my_sizeof(MeshletCullIndirectArgTable);
-    uint64_t sizeof_arg = my_sizeof(MeshletCullIndirectArg);
-    // Each table is half the size of the previous one.
-    // Table power 0 is the size of MAX_MESHLET_INSTANCES.
-    // index 0 starts at sizeof_arg_table + sizeof_arg * MAX_MESHLET_INSTANCES,
-    // indes 1 starts at sizeof_arg_table + sizeof_arg * MAX_MESHLET_INSTANCES * 1/2,
-    // index 2 ...
-    daxa_u64 addr = daxa_u64(push.uses.meshlet_cull_indirect_args) + sizeof_arg_table + (sizeof_arg * MAX_MESHLET_INSTANCES >> index);
-    deref(push.uses.meshlet_cull_indirect_args).indirect_arg_ptrs[index] = daxa_RWBufferPtr(MeshletCullIndirectArg)(addr);
-    deref(push.uses.meshlet_cull_indirect_args).indirect_arg_counts[index] = 0;
-    deref(push.uses.cull_meshlets_commands[index]).x = 0;
-    deref(push.uses.cull_meshlets_commands[index]).y = 1;
-    deref(push.uses.cull_meshlets_commands[index]).z = 1;
+    const uint entity_count = deref(push.uses.entity_meta).entity_count;
+    const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
+    deref(push.uses.command).x = dispatch_x;
+    deref(push.uses.command).y = 1;
+    deref(push.uses.command).z = 1;
 }
 #else
 DAXA_DECL_PUSH_CONSTANT(CullMeshesPush, push)
@@ -90,23 +73,6 @@ void main()
     }
     // Now bit by bit, do one writeout of an indirect command:
     uint bucket_bit_mask = clipped_bits_meshlet_count;
-#if DEBUG_MESH_CULL
-    if (bitCount(meshlet_count) >= MAX_BITS || clipped_bits_meshlet_count != meshlet_count)
-    {
-        const float wasted = (1.0f - float(meshlet_count) / float(clipped_bits_meshlet_count)) * 100.0f;
-        debugPrintfEXT("cull mesh index %u for entity %u:\n in mesh group index: %u\n  meshletcount: (%u)->(%u)\n  bitCount: (%u)->(%u)\n  new bitCount <= old bitCount? %u\n  new meshletcount >= old meshletcount?: %u\n  wasted: %f%%\n\n",
-                       mesh_index,
-                       entity_index,
-                       in_meshgroup_index,
-                       meshlet_count,
-                       clipped_bits_meshlet_count,
-                       bitCount(meshlet_count),
-                       bitCount(clipped_bits_meshlet_count),
-                       ((bitCount(clipped_bits_meshlet_count) <= bitCount(meshlet_count)) ? 1 : 0),
-                       ((clipped_bits_meshlet_count >= meshlet_count) ? 1 : 0),
-                       wasted);
-    }
-#endif
     // Each time we write out a command we add on the number of meshlets processed by that arg.
     uint meshlet_offset = 0;
     while (bucket_bit_mask != 0)
@@ -115,7 +81,7 @@ void main()
         const uint indirect_arg_meshlet_count = 1 << (bucket_index);
         // Mask out bit.
         bucket_bit_mask &= ~indirect_arg_meshlet_count;
-        const uint arg_array_offset = atomicAdd(deref(push.uses.meshlet_cull_indirect_args).indirect_arg_counts[bucket_index], 1);
+        const uint arg_array_offset = atomicAdd(deref(push.uses.meshlet_cull_arg_buckets_opaque).indirect_arg_counts[bucket_index], 1);
         // Update indirect args for meshlet cull
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
@@ -131,7 +97,7 @@ void main()
             const bool update_cull_meshlets_dispatch = prev_needed_workgroups != cur_needed_workgroups;
             if (update_cull_meshlets_dispatch)
             {
-                atomicMax(deref(push.uses.cull_meshlets_commands[bucket_index]).x, cur_needed_workgroups);
+                atomicMax(deref(push.uses.meshlet_cull_arg_buckets_opaque).commands[bucket_index].x, cur_needed_workgroups);
             }
         }
         MeshletCullIndirectArg arg;
@@ -140,32 +106,8 @@ void main()
         arg.material_index = material_index;
         arg.in_meshgroup_index = in_meshgroup_index;
         arg.meshlet_indices_offset = meshlet_offset;
-        deref(deref(push.uses.meshlet_cull_indirect_args).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
+        deref(deref(push.uses.meshlet_cull_arg_buckets_opaque).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }
-#if DEBUG_MESH_CULL1
-    if (meshlet_count > 33)
-    {
-        uint meshlet_offset = 0;
-        uint bucket_bit_mask = clipped_bits_meshlet_count;
-        uint powers[5] = {33, 33, 33, 33, 33};
-        uint counts[5] = {0, 0, 0, 0, 0};
-        uint index = 0;
-        while (bucket_bit_mask != 0)
-        {
-            const uint bucket_index = findMSB(bucket_bit_mask);
-            const uint indirect_arg_meshlet_count = 1 << (bucket_index);
-            // Mask out bit.
-            bucket_bit_mask &= ~indirect_arg_meshlet_count;
-            powers[index] = bucket_index;
-            counts[index] = indirect_arg_meshlet_count;
-            ++index;
-        }
-        debugPrintfEXT("wrote out %u work units for %u meshlets,\n  meshlet count rounded up to fit 4 consequtive bits in uint (%u)->(%u),\n  power[0]: %u, meshlets: %u\n  power[1]: %u, meshlets: %u\n  power[2]: %u, meshlets: %u\n  power[3]: %u, meshlets: %u\n  power[4]: %u, meshlets: %u\n",
-                       meshlet_offset, meshlet_count,
-                       meshlet_count, clipped_bits_meshlet_count,
-                       powers[0], counts[0], powers[1], counts[1], powers[2], counts[2], powers[3], counts[3], powers[4], counts[4]);
-    }
-#endif
 }
 #endif

@@ -15,12 +15,8 @@ DAXA_DECL_PUSH_CONSTANT(CullMeshletsPush,push)
 layout(local_size_x = CULL_MESHLETS_WORKGROUP_X) in;
 void main()
 {
-    if (gl_GlobalInvocationID.x == 0)
-    {
-        deref(push.uses.draw_command).vertex_count = 3 * MAX_TRIANGLES_PER_MESHLET;
-    }
     MeshletInstance instanced_meshlet;
-    const bool valid_meshlet = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.indirect_args_table_id, push.uses.meshlet_cull_indirect_args, instanced_meshlet);
+    const bool valid_meshlet = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.indirect_args_table_id, push.uses.meshlets_cull_arg_buckets_buffer, instanced_meshlet);
     if (!valid_meshlet)
     {
         return;
@@ -39,9 +35,15 @@ void main()
 #endif
     if (!occluded)
     {
-        const uint out_index = atomicAdd(deref(push.uses.instantiated_meshlets).second_count, 1);
-        const uint offset = deref(push.uses.instantiated_meshlets).first_count;
-        deref(push.uses.instantiated_meshlets).meshlets[out_index + offset] = pack_meshlet_instance(instanced_meshlet);
-        atomicAdd(deref(push.uses.draw_command).instance_count, 1);
+        const uint out_index = atomicAdd(deref(push.uses.meshlet_instances).second_count, 1);
+        const uint offset = deref(push.uses.meshlet_instances).first_count;
+        const uint meshlet_instance_idx = out_index + offset;
+        deref(push.uses.meshlet_instances).meshlets[meshlet_instance_idx] = pack_meshlet_instance(instanced_meshlet);
+        atomicAdd(deref(push.uses.draw_commands[push.opaque_or_discard]).instance_count, 1);
+        const uint draw_list_element_offset = 
+            deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].first_count;
+        const uint draw_list_element_index = draw_list_element_offset +
+            atomicAdd(deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].second_count, 1);
+        deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].instances[draw_list_element_index] = meshlet_instance_idx;
     }
 }

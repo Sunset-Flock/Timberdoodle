@@ -91,7 +91,7 @@ bool is_meshlet_occluded(
             circle.radius = scaled_radius;
             circle.color = vec3(1,1,0);
             circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.shader_debug_context, circle);
+            debug_draw_circle(GLOBALS.debug, circle);
         #endif
         return true;
     }
@@ -163,7 +163,7 @@ bool is_meshlet_occluded(
         aabb1.size = (model_matrix * vec4(meshlet_aabb.size,0)).xyz;
         aabb1.color = vec3(0.1, 0.5, 1);
         aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.shader_debug_context, aabb1);
+        debug_draw_aabb(GLOBALS.debug, aabb1);
         {
             ShaderDebugRectangleDraw rectangle;
             const vec3 rec_size = (ndc_max - ndc_min);
@@ -171,7 +171,7 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(0, 1, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).shader_debug_context, rectangle);
+            debug_draw_rectangle(deref(push.uses.globals).debug, rectangle);
         }
         {
             const vec2 min_r = quad_corner_texel << imip;
@@ -186,7 +186,7 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(1, 0, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).shader_debug_context, rectangle);
+            debug_draw_rectangle(deref(push.uses.globals).debug, rectangle);
         }
     }
     #endif
@@ -194,7 +194,8 @@ bool is_meshlet_occluded(
     return depth_cull;
 }
 
-bool get_meshlet_instance_from_arg(uint thread_id, uint arg_bucket_index, daxa_BufferPtr(MeshletCullIndirectArgTable) meshlet_cull_indirect_args, out MeshletInstance meshlet_inst)
+// TODO: Must check if meshlet index is smaller then meshlet count of mesh!
+bool get_meshlet_instance_from_arg(uint thread_id, uint arg_bucket_index, daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args, out MeshletInstance meshlet_inst)
 {
     const uint indirect_arg_index = thread_id >> arg_bucket_index;
     const uint valid_arg_count = deref(meshlet_cull_indirect_args).indirect_arg_counts[arg_bucket_index];

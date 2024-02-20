@@ -135,7 +135,8 @@ Renderer::~Renderer()
 void Renderer::compile_pipelines()
 {
     std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
-        {draw_visbuffer_no_mesh_shader_pipeline_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_compile_info()},
+        {draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info()},
+        {draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info()},
         {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info().name, draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info().name, draw_shader_debug_aabb_pipeline_compile_info()},
@@ -456,7 +457,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .context = context,
         .tg = task_list,
         .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
-        .pass = DRAW_VISBUFFER_PASS_ONE,
+        .pass = PASS0_DRAW_VISIBLE_LAST_FRAME,
         .meshlet_instances = meshlet_instances,
         .meshes = scene->_gpu_mesh_manifest,
         .combined_transforms = scene->_gpu_entity_combined_transforms,
@@ -465,37 +466,26 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .depth_image = depth,
     });
     auto hiz = task_gen_hiz_single_pass(context, task_list, depth, context->tshader_globals_buffer);
-    auto meshlet_cull_indirect_args = task_list.create_transient_buffer({
-        .size = sizeof(MeshletCullIndirectArgTable) + sizeof(MeshletCullIndirectArg) * MAX_MESHLET_INSTANCES * 2,
-        .name = "meshlet_cull_indirect_args",
-    });
-    auto cull_meshlets_commands = task_list.create_transient_buffer({
-        .size = sizeof(DispatchIndirectStruct) * 32,
-        .name = "CullMeshletsCommands",
-    });
-    auto cull_meshes_task = CullMeshesTask{
-        .views = std::array{
-            daxa::attachment_view(CullMeshesTask::globals, context->tshader_globals_buffer),
-            daxa::attachment_view(CullMeshesTask::command, daxa::TaskBufferView{}),
-            daxa::attachment_view(CullMeshesTask::meshes, scene->_gpu_mesh_manifest),
-            daxa::attachment_view(CullMeshesTask::entity_meta, scene->_gpu_entity_meta),
-            daxa::attachment_view(CullMeshesTask::entity_meshgroup_indices, scene->_gpu_entity_mesh_groups),
-            daxa::attachment_view(CullMeshesTask::meshgroups, scene->_gpu_mesh_group_manifest),
-            daxa::attachment_view(CullMeshesTask::entity_transforms, scene->_gpu_entity_transforms),
-            daxa::attachment_view(CullMeshesTask::entity_combined_transforms, scene->_gpu_entity_combined_transforms),
-            daxa::attachment_view(CullMeshesTask::hiz, hiz),
-            daxa::attachment_view(CullMeshesTask::meshlet_cull_indirect_args, meshlet_cull_indirect_args),
-            daxa::attachment_view(CullMeshesTask::cull_meshlets_commands, cull_meshlets_commands),
-        },
-        .context = context,
-    };
-    tasks_cull_meshes(context, task_list, cull_meshes_task);
+    auto [meshlets_cull_arg_buckets_buffer_opaque, meshlets_cull_arg_buckets_buffer_discard] = tasks_cull_meshes(
+        TaskCullMeshesInfo{
+            .context = context,
+            .task_list = task_list,
+            .globals = context->tshader_globals_buffer,
+            .meshes = scene->_gpu_mesh_manifest,
+            .entity_meta = scene->_gpu_entity_meta,
+            .entity_meshgroup_indices = scene->_gpu_entity_mesh_groups,
+            .meshgroups = scene->_gpu_mesh_group_manifest,
+            .entity_transforms = scene->_gpu_entity_transforms,
+            .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
+            .hiz = hiz,
+        }
+    );
     task_cull_and_draw_visbuffer({
         .context = context,
         .tg = task_list,
         .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
-        .cull_meshlets_commands = cull_meshlets_commands,
-        .meshlet_cull_indirect_args = meshlet_cull_indirect_args,
+        .meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque,
+        .meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard,
         .entity_meta_data = scene->_gpu_entity_meta,
         .entity_meshgroups = scene->_gpu_entity_mesh_groups,
         .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
@@ -532,7 +522,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .context = context,
             .tg = task_list,
             .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
-            .pass = DRAW_VISBUFFER_PASS_OBSERVER,
+            .pass = PASS4_OBSERVER_DRAW_ALL,
             .meshlet_instances = meshlet_instances,
             .meshes = scene->_gpu_mesh_manifest,
             .combined_transforms = scene->_gpu_entity_combined_transforms,

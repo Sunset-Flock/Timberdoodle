@@ -17,17 +17,15 @@
 #define CULL_MESHES_WORKGROUP_X 8
 #define CULL_MESHES_WORKGROUP_Y (MAX_MESHES_PER_MESHGROUP)
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 5)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(MeshletCullIndirectArgTable), meshlet_cull_indirect_args)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 11)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
@@ -35,8 +33,14 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletCullIndirectArgTable), meshlet_cull_indirect_args)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), cull_meshlets_commands)
+DAXA_TH_BUFFER_PTR(
+    COMPUTE_SHADER_READ_WRITE, 
+    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead), 
+    meshlet_cull_arg_buckets_opaque)
+DAXA_TH_BUFFER_PTR(
+    COMPUTE_SHADER_READ_WRITE, 
+    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead), 
+    meshlet_cull_arg_buckets_discard)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshesCommandPush
@@ -74,7 +78,7 @@ inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
 
 struct CullMeshesTask : CullMeshes
 {
-    CullMeshes::AttachmentViews views = {};
+    AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
@@ -83,30 +87,98 @@ struct CullMeshesTask : CullMeshes
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
         });
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(CullMeshes::command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
     }
 };
 
-void tasks_cull_meshes(GPUContext * context, daxa::TaskGraph & task_list, CullMeshesTask task)
+struct TaskCullMeshesInfo
 {
-    auto command_buffer = task_list.create_transient_buffer({
+    GPUContext * context = {};
+    daxa::TaskGraph & task_list;
+    daxa::TaskBufferView globals = {};
+    daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView entity_meta = {};
+    daxa::TaskBufferView entity_meshgroup_indices = {};
+    daxa::TaskBufferView meshgroups = {};
+    daxa::TaskBufferView entity_transforms = {};
+    daxa::TaskBufferView entity_combined_transforms = {};
+    daxa::TaskImageView hiz = {};
+};
+auto tasks_cull_meshes(TaskCullMeshesInfo const & info) -> std::pair<daxa::TaskBufferView, daxa::TaskBufferView>
+{
+    auto meshlets_cull_arg_buckets_buffer_opaque = info.task_list.create_transient_buffer({
+        .size = meshlet_cull_arg_buckets_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
+        .name = "meshlet_cull_arg_buckets_buffer_opaque",
+    });
+    auto meshlets_cull_arg_buckets_buffer_discard = info.task_list.create_transient_buffer({
+        .size = meshlet_cull_arg_buckets_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
+        .name = "meshlet_cull_arg_buckets_buffer_discard",
+    });
+
+    info.task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffer_opaque),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffer_discard),
+        },
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto alloc0 = ti.allocator->allocate_fill(
+                meshlet_cull_arg_buckets_buffer_make_head(
+                    MAX_MESH_INSTANCES, 
+                    MAX_MESHLET_INSTANCES, 
+                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffer_opaque).ids[0]).value())).value();
+            auto alloc1 = ti.allocator->allocate_fill(
+                meshlet_cull_arg_buckets_buffer_make_head(
+                    MAX_MESH_INSTANCES, 
+                    MAX_MESHLET_INSTANCES, 
+                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffer_discard).ids[0]).value())).value();
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = ti.allocator->buffer(),
+                .dst_buffer = ti.get(meshlets_cull_arg_buckets_buffer_opaque).ids[0],
+                .src_offset = alloc0.buffer_offset,
+                .size = sizeof(MeshletCullArgBucketsBufferHead),
+            });            
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = ti.allocator->buffer(),
+                .dst_buffer = ti.get(meshlets_cull_arg_buckets_buffer_discard).ids[0],
+                .src_offset = alloc1.buffer_offset,
+                .size = sizeof(MeshletCullArgBucketsBufferHead),
+            });
+        },
+        .name = "init meshlet cull arg buckets buffer",
+    });
+
+    auto command_buffer = info.task_list.create_transient_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "CullMeshesCommand",
     });
 
-    task_list.add_task(CullMeshesCommandWriteTask{
+    info.task_list.add_task(CullMeshesCommandWriteTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::globals, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::globals.value))}},
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::entity_meta.value))}},
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::globals, info.globals}},
+            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, info.entity_meta}},
             daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::command, command_buffer}},
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::cull_meshlets_commands, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::cull_meshlets_commands.value))}},
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::meshlet_cull_indirect_args, daxa::get<daxa::TaskBufferView>(task.views.views.at(CullMeshesTask::meshlet_cull_indirect_args.value))}},
         },
-        .context = context,
+        .context = info.context,
     });
 
-    task.views.views.at(CullMeshesTask::command.value) = command_buffer;
-    task_list.add_task(task);
+    info.task_list.add_task(CullMeshesTask{
+        .views = std::array{
+            daxa::attachment_view(CullMeshesTask::globals, info.globals),
+            daxa::attachment_view(CullMeshesTask::command, command_buffer),
+            daxa::attachment_view(CullMeshesTask::meshes, info.meshes),
+            daxa::attachment_view(CullMeshesTask::entity_meta, info.entity_meta),
+            daxa::attachment_view(CullMeshesTask::entity_meshgroup_indices, info.entity_meshgroup_indices),
+            daxa::attachment_view(CullMeshesTask::meshgroups, info.meshgroups),
+            daxa::attachment_view(CullMeshesTask::entity_transforms, info.entity_transforms),
+            daxa::attachment_view(CullMeshesTask::entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(CullMeshesTask::hiz, info.hiz),
+            daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_opaque, meshlets_cull_arg_buckets_buffer_opaque),
+            daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
+        },
+        .context = info.context,
+    });
+    return {meshlets_cull_arg_buckets_buffer_opaque, meshlets_cull_arg_buckets_buffer_discard};
 }
 
 #endif

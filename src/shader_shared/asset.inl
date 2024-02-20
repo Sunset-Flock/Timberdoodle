@@ -33,21 +33,54 @@ uint triangle_mask_bit_from_triangle_index(uint triangle_index)
 // Used to tell threads in the meshlet cull dispatch what to work on.
 struct MeshletCullIndirectArg
 {
+    daxa_u32 meshlet_indices_offset;
     daxa_u32 entity_index;
     daxa_u32 material_index;
-    daxa_u32 meshlet_indices_offset;
     daxa_u32 mesh_index;
     daxa_u32 in_meshgroup_index; 
 };
 DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArg)
 
 // Table is set up in write command of cull_meshes.glsl.
-struct MeshletCullIndirectArgTable
+struct MeshletCullArgBucketsBufferHead
 {
+    DispatchIndirectStruct commands[32];
     daxa_RWBufferPtr(MeshletCullIndirectArg) indirect_arg_ptrs[32];
     daxa_u32 indirect_arg_counts[32];
 };
-DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArgTable)
+DAXA_DECL_BUFFER_PTR(MeshletCullArgBucketsBufferHead)
+
+#if __cplusplus
+inline auto meshlet_cull_arg_bucket_size(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u32 bucket) -> daxa_u32
+{
+    // round_up(div(max_meshlets,pow(2,i)))
+    daxa_u32 const args_needed_for_max_meshlets_this_bucket = (max_meshlets + ((1 << bucket) - 1) ) >> bucket;
+    // Min with max_meshes, as each mesh can write up most one arg into each bucket!
+    return std::min(max_meshes, args_needed_for_max_meshlets_this_bucket) * static_cast<daxa_u32>(sizeof(MeshletCullIndirectArg));
+}
+
+inline auto meshlet_cull_arg_buckets_buffer_size(daxa_u32 max_meshes, daxa_u32 max_meshlets) -> daxa_u32
+{
+    daxa_u32 worst_case_size = {};
+    for (daxa_u32 i = 0; i < 32; ++i)
+    {
+        worst_case_size += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+    }
+    return worst_case_size + static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
+}
+inline auto meshlet_cull_arg_buckets_buffer_make_head(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u64 address) -> MeshletCullArgBucketsBufferHead
+{
+    MeshletCullArgBucketsBufferHead ret = {};
+    daxa_u32 current_buffer_offset = static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
+    for (daxa_u32 i = 0; i < 32; ++i)
+    {
+        ret.commands[i] = { 0, 1, 1 };
+        ret.indirect_arg_ptrs[i] = static_cast<daxa_u64>(current_buffer_offset) + address;
+        current_buffer_offset += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+    }
+    return ret;
+}
+#endif
 
 // !!NEEDS TO BE ABI COMPATIBLE WITH meshopt_Meshlet!!
 struct Meshlet
@@ -180,11 +213,19 @@ struct GPUMeshGroup
 };
 DAXA_DECL_BUFFER_PTR(GPUMeshGroup)
 
+struct MeshletDrawList
+{
+    daxa_u32 first_count;
+    daxa_u32 second_count;
+    daxa_u32 instances[MAX_MESHLET_INSTANCES];
+};
+
 struct MeshletInstances
 {
     daxa_u32 first_count;
     daxa_u32 second_count;
     PackedMeshletInstance meshlets[MAX_MESHLET_INSTANCES];
+    MeshletDrawList draw_lists[2]; // 0 = opaque, 1 = discard
 };
 DAXA_DECL_BUFFER_PTR(MeshletInstances)
 

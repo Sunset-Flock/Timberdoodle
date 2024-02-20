@@ -98,6 +98,7 @@ void main()
     if (gl_LocalInvocationID.x == 0)
     {
         s_out_offset = atomicAdd(deref(push.uses.instantiated_meshlets).first_count, s_out_count);
+        atomicAdd(deref(push.uses.instantiated_meshlets).draw_lists[0].first_count, s_out_count);
     }
     memoryBarrierShared();
     barrier();
@@ -106,6 +107,7 @@ void main()
         const uint meshlet_instance_index = s_out_offset + local_offset;
         // Write out meshlet instance to the meshlet instance list of the first pass:
         deref(push.uses.instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(inst_meshlet);
+        deref(push.uses.instantiated_meshlets).draw_lists[0].instances[meshlet_instance_index] = meshlet_instance_index;
     }
 }
 #endif
