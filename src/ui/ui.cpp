@@ -1,15 +1,104 @@
 #include "ui.hpp"
 #include <filesystem>
 #include <imgui.h>
+#include <implot.h>
 #include "widgets/helpers.hpp"
+
+void setup_colors()
+{
+    ImVec4 * colors = ImGui::GetStyle().Colors;
+    ImGuiStyle & style = ImGui::GetStyle();
+    // clang-format off
+    colors[ImGuiCol_Text]                   = ImVec4(1.00f, 1.00f, 1.00f, 1.00f);
+    colors[ImGuiCol_TextDisabled]           = ImVec4(0.50f, 0.50f, 0.50f, 1.00f);
+    colors[ImGuiCol_WindowBg]               = bg_0;
+    colors[ImGuiCol_ChildBg]                = bg_0;
+    colors[ImGuiCol_PopupBg]                = bg_1;
+    colors[ImGuiCol_Border]                 = {alt_2.x, alt_2.y, alt_2.z, 0.5};
+    colors[ImGuiCol_BorderShadow]           = bg_1;
+    colors[ImGuiCol_FrameBg]                = bg_2;
+    colors[ImGuiCol_FrameBgHovered]         = hovered_1;
+    colors[ImGuiCol_FrameBgActive]          = hovered_1;
+    colors[ImGuiCol_TitleBg]                = bg_0;
+    colors[ImGuiCol_TitleBgActive]          = bg_0;
+    colors[ImGuiCol_TitleBgCollapsed]       = bg_0;
+    colors[ImGuiCol_MenuBarBg]              = bg_0;
+    colors[ImGuiCol_ScrollbarBg]            = bg_0;
+    colors[ImGuiCol_ScrollbarGrab]          = bg_2;
+    colors[ImGuiCol_ScrollbarGrabHovered]   = hovered_1;
+    colors[ImGuiCol_ScrollbarGrabActive]    = select_blue_1;
+    colors[ImGuiCol_CheckMark]              = select_blue_1;
+    colors[ImGuiCol_SliderGrab]             = alt_1;
+    colors[ImGuiCol_SliderGrabActive]       = select_blue_1;
+    colors[ImGuiCol_Button]                 = bg_2;
+    colors[ImGuiCol_ButtonHovered]          = hovered_1;
+    colors[ImGuiCol_ButtonActive]           = select_blue_1;
+    colors[ImGuiCol_Header]                 = bg_2;
+    colors[ImGuiCol_HeaderHovered]          = hovered_1;
+    colors[ImGuiCol_HeaderActive]           = select_blue_1;
+    colors[ImGuiCol_Separator]              = alt_1;
+    colors[ImGuiCol_SeparatorHovered]       = hovered_1;
+    colors[ImGuiCol_SeparatorActive]        = select_blue_1;
+    colors[ImGuiCol_ResizeGrip]             = ImVec4(0.28f, 0.28f, 0.28f, 0.29f);
+    colors[ImGuiCol_ResizeGripHovered]      = ImVec4(0.44f, 0.44f, 0.44f, 0.29f);
+    colors[ImGuiCol_ResizeGripActive]       = ImVec4(0.40f, 0.44f, 0.47f, 1.00f);
+    colors[ImGuiCol_Tab]                    = bg_1;
+    colors[ImGuiCol_TabHovered]             = hovered_1;
+    colors[ImGuiCol_TabActive]              = alt_1;
+    colors[ImGuiCol_TabUnfocused]           = bg_1;
+    colors[ImGuiCol_TabUnfocusedActive]     = bg_1;
+    colors[ImGuiCol_PlotLines]              = select_blue_1;
+    colors[ImGuiCol_PlotLinesHovered]       = select_blue_1;
+    colors[ImGuiCol_PlotHistogram]          = select_blue_1;
+    colors[ImGuiCol_PlotHistogramHovered]   = select_blue_1;
+    colors[ImGuiCol_TableHeaderBg]          = bg_0;
+    colors[ImGuiCol_TableBorderStrong]      = {alt_1.x, alt_1.y, alt_1.z, 0.5};
+    colors[ImGuiCol_TableBorderLight]       = {alt_2.x, alt_2.y, alt_2.z, 0.5};
+    colors[ImGuiCol_TableRowBg]             = bg_0;
+    colors[ImGuiCol_TableRowBgAlt]          = bg_1;
+    colors[ImGuiCol_TextSelectedBg]         = bg_3;
+    colors[ImGuiCol_DragDropTarget]         = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
+    colors[ImGuiCol_NavHighlight]           = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
+    colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 0.00f, 0.00f, 0.70f);
+    colors[ImGuiCol_NavWindowingDimBg]      = ImVec4(1.00f, 0.00f, 0.00f, 0.20f);
+    colors[ImGuiCol_ModalWindowDimBg]       = ImVec4(1.00f, 0.00f, 0.00f, 0.35f);
+
+    style.WindowPadding                     = ImVec2(8.00f, 8.00f);
+    style.FramePadding                      = ImVec2(5.00f, 2.00f);
+    style.CellPadding                       = ImVec2(6.00f, 6.00f);
+    style.ItemSpacing                       = ImVec2(6.00f, 6.00f);
+    style.ItemInnerSpacing                  = ImVec2(6.00f, 6.00f);
+    style.TouchExtraPadding                 = ImVec2(0.00f, 0.00f);
+    style.IndentSpacing                     = 25;
+    style.ScrollbarSize                     = 15;
+    style.GrabMinSize                       = 10;
+    style.WindowBorderSize                  = 1;
+    style.ChildBorderSize                   = 0;
+    style.PopupBorderSize                   = 1;
+    style.FrameBorderSize                   = 0;
+    style.TabBorderSize                     = 0;
+    style.WindowRounding                    = 5;
+    style.ChildRounding                     = 4;
+    style.FrameRounding                     = 3;
+    style.PopupRounding                     = 4;
+    style.ScrollbarRounding                 = 2;
+    style.GrabRounding                      = 3;
+    style.LogSliderDeadzone                 = 4;
+    style.TabRounding                       = 4;
+    style.WindowMenuButtonPosition = ImGuiDir_None;
+    // clang-format on
+};
 
 UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * context)
     : scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp)),
+      property_viewer(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp)),
       context{context}
 {
     auto * imgui_context = ImGui::CreateContext();
+    auto * implot_context = ImPlot::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO & io = ImGui::GetIO();
+    io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
 
     icons.reserve(s_cast<u32>(ICONS::SIZE));
     for (u32 icon_idx = 0; icon_idx < s_cast<u32>(ICONS::SIZE); icon_idx++)
@@ -29,13 +118,35 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context});
+    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context, false});
+    setup_colors();
 }
 
 void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scene const & scene)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+
+    ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
+    ImGuiWindowFlags window_flags = 
+        ImGuiWindowFlags_NoDocking  | ImGuiWindowFlags_NoBackground |
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse   |
+        ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove       |
+        ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBringToFrontOnFocus;
+    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(viewport->WorkPos);
+    ImGui::SetNextWindowSize(viewport->WorkSize);
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(0.0f, 0.0f));
+    ImGuiID dockspace_id = ImGui::GetID("MyDockSpace");
+
+    ImGui::Begin("DockSpace Demo", nullptr, window_flags);
+    ImGui::PopStyleVar(3);
+    ImGui::DockSpace(dockspace_id, ImVec2(0.0f, 0.0f), dockspace_flags);
+    ImGui::End();
+
     if (ImGui::BeginMainMenuBar())
     {
         if (ImGui::BeginMenu("Widgets"))
@@ -77,154 +188,13 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     }
     if (widget_property_viewer)
     {
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
-        ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {0, 6});
-        ImGui::Begin("Selector widget", nullptr, ImGuiWindowFlags_NoCollapse);
-        auto flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-        ImGui::BeginChild("property selector", ImVec2(26, 0), false, flags);
-
-        auto * window = ImGui::GetCurrentWindow();
-        ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2, 2});
-        ImGui::PushID("Selector Icons");
-        ImGui::Dummy({0, 3});
-        std::array const selector_icons = {ICONS::SUN, ICONS::CAMERA, ICONS::MESH};
-        for (i32 i = 0; i < selector_icons.size(); i++)
-        {
-            if (i == selected)
-            {
-                ImGui::PushStyleColor(ImGuiCol_Button, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-                ImGui::PushStyleColor(ImGuiCol_ButtonHovered, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-                ImGui::PushStyleColor(ImGuiCol_ButtonActive, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-            }
-            else { ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.0f, 0.0f, 0.0f, 0.0f)); }
-            bool got_selected = {};
-            if (ImGui::ImageButton(
-                    std::to_string(i).c_str(),
-                    imgui_renderer.create_texture_id({
-                        .image_view_id = icons.at(s_cast<u32>(selector_icons.at(i))).default_view(),
-                        .sampler_id = std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp),
-                    }),
-                    ImVec2(26.0f, 22.0f),
-                    ImVec2(0.0f, 1.0f),
-                    ImVec2(1.2f, 0.0f),
-                    ImVec4(0.0f, 0.0f, 0.0f, 0.0f)))
-            {
-                got_selected = true;
-            };
-            ImGui::PopStyleColor(selected == i ? 3 : 1);
-            selected = got_selected ? i : selected;
-        }
-        ImGui::PopID();
-        ImGui::PopStyleVar();
-        ImGui::EndChild();
-        ImGui::SameLine();
-
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 0.5f);
-        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, {2, 2});
-        ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, {2, 6});
-        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetStyleColorVec4(ImGuiCol_FrameBgHovered));
-        // Sun settings
-        if (selected == 0)
-        {
-            ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
-            {
-                // ImGui::Dummy({2, 1});
-                // {
-                //     ImGui::Dummy({2, 1});
-                //     ImGui::SameLine();
-                //     auto const start_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                //     auto const pos_x = ImGui::GetCursorPosX();
-                //     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
-                //     ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
-                //     if (ImGui::TreeNode("Settings"))
-                //     {
-                //         ImGui::Text("text 1");
-                //         ImGui::Text("text 2");
-                //         ImGui::Text("text 3");
-                //         ImGui::Text("text 4");
-                //         ImGui::TreePop();
-                //     }
-                //     auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                //     auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
-                //     auto draw_list = ImGui::GetWindowDrawList();
-                //     draw_list->AddRectFilled(
-                //         start_pos,
-                //         {start_pos.x + size.x, start_pos.y + size.y},
-                //         ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
-                //         3.0f
-                //     );
-                //     ImGui::SetCursorScreenPos(start_pos);
-                //     if (ImGui::TreeNode("Settings"))
-                //     {
-                //         ImGui::Text("text 1");
-                //         ImGui::Text("text 2");
-                //         ImGui::Text("text 3");
-                //         ImGui::Text("text 4");
-                //         ImGui::TreePop();
-                //     }
-                //     ImGui::PopStyleColor(2);
-                // }
-
-                ImGui::Dummy({2, 1});
-                {
-                    ImGui::Dummy({2, 1});
-                    ImGui::SameLine();
-                    auto const start_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                    auto const pos_x = ImGui::GetCursorPosX();
-                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
-                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
-
-                    auto * draw_list = ImGui::GetWindowDrawList();
-                    auto const idx_start_count = draw_list->IdxBuffer.size();
-                    if (ImGui::TreeNode("Sun Settings"))
-                    {
-                        auto & sky_settings = context->shader_globals.sky_settings;
-                        f32 const angle_y_rad = glm::acos(sky_settings.sun_direction.z);
-                        f32 const angle_x_rad = glm::acos(sky_settings.sun_direction.x / sin(angle_y_rad));
-                        f32 angle_y_deg = glm::degrees(angle_y_rad);
-                        f32 angle_x_deg = glm::degrees(angle_x_rad);
-                        ImGui::SliderFloat("Angle X", &angle_x_deg, 0.0f, 360.0f, "%.1f°");
-                        ImGui::SliderFloat("Angle Y", &angle_y_deg, 0.0f, 180.0f, "%.1f°");
-                        sky_settings.sun_direction =
-                            {
-                                daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
-                                daxa_f32(glm::sin(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
-                                daxa_f32(glm::cos(glm::radians(angle_y_deg))),
-                            };
-                        ImGui::TreePop();
-                    }
-                    auto const end_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-                    auto const size = ImVec2(ImGui::GetContentRegionAvail().x - pos_x - 5, end_pos.y - start_pos.y);
-                    auto const idx_end_count = draw_list->IdxBuffer.size();
-                    draw_list->AddRectFilled(
-                        start_pos,
-                        {start_pos.x + size.x, start_pos.y + size.y},
-                        ImGui::GetColorU32(ImGui::GetStyleColorVec4(ImGuiCol_FrameBgActive)),
-                        3.0f
-                    );
-                    auto const idx_rect_end_count = draw_list->IdxBuffer.size();
-
-                    ImVector<ImDrawIdx> new_indices = {};
-                    auto const prefix_idx_count = idx_start_count;
-                    auto const context_idx_count = idx_end_count - idx_start_count;
-                    auto const rect_idx_count = idx_rect_end_count - idx_end_count;
-                    new_indices.resize(idx_rect_end_count);
-                    std::memcpy(new_indices.Data, draw_list->IdxBuffer.Data, sizeof(ImDrawIdx) * prefix_idx_count);
-                    std::memcpy(new_indices.Data + prefix_idx_count, draw_list->IdxBuffer.Data + idx_end_count, sizeof(ImDrawIdx) * rect_idx_count);
-                    std::memcpy(new_indices.Data + prefix_idx_count + rect_idx_count, draw_list->IdxBuffer.Data + prefix_idx_count, sizeof(ImDrawIdx) * context_idx_count);
-                    draw_list->IdxBuffer = new_indices;
-                    draw_list->_IdxWritePtr = draw_list->IdxBuffer.end();
-                    ImGui::PopStyleColor(2);
-                }
-            }
-            ImGui::EndChild();
-        }
-        ImGui::PopStyleColor();
-        ImGui::PopStyleVar(3);
-
-        ImGui::End();
-        ImGui::PopStyleVar(3);
+        property_viewer.render({
+            .sky_settings = &context->sky_settings,
+        });
+    }
+    if(demo_window)
+    {
+        ImGui::ShowDemoWindow();
     }
 }
 
@@ -307,7 +277,6 @@ void UIEngine::draw_scenegraph(Scene const & scene)
 
     scene_graph.end();
 
-    ImGui::ShowDemoWindow();
 }
 
 UIEngine::~UIEngine()
@@ -319,4 +288,5 @@ UIEngine::~UIEngine()
             context->device.destroy_image(icons.at(icon_idx));
         }
     }
+    ImPlot::DestroyContext();
 }

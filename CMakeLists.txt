@@ -21,6 +21,7 @@ add_executable(${PROJECT_NAME}
     "src/gpu_context.cpp"
     "src/ui/ui.cpp"
     "src/ui/widgets/scene_graph.cpp"
+    "src/ui/widgets/property_viewer.cpp"
     "src/rendering/renderer.cpp"
     "src/multithreading/thread_pool.cpp"
     "src/scene/scene.cpp"
@@ -33,6 +34,7 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(meshoptimizer CONFIG REQUIRED)
 find_package(freeimage CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(implot CONFIG REQUIRED)
 
 # FreeImage links OpenEXR, which adds /EHsc for its targets, even if we're using Clang
 function(FIXUP_TARGET TGT_NAME)
@@ -69,6 +71,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     KTX::ktx
     freeimage::FreeImage
     nlohmann_json::nlohmann_json
+    implot::implot
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")

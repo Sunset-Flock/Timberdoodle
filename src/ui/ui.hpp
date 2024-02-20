@@ -13,6 +13,7 @@
 #include "ui_shared.hpp"
 
 #include "widgets/scene_graph.hpp"
+#include "widgets/property_viewer.hpp"
 using namespace tido::types;
 using namespace tido::ui;
 
@@ -21,14 +22,16 @@ struct UIEngine
     public:
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
-        bool widget_scene_hierarchy = false;
+        bool widget_scene_hierarchy = true;
         bool widget_property_viewer = true;
         bool camera_settings = false;
+        bool demo_window = false;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;
         daxa::ImGuiRenderer imgui_renderer = {};
-        tido::ui::SceneGraph scene_graph = {};
+        SceneGraph scene_graph = {};
+        PropertyViewer property_viewer = {};
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();

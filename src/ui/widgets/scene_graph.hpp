@@ -20,45 +20,46 @@ namespace tido
 
         struct SceneGraph
         {
-            public:
-                f32 icon_text_spacing = {};
-                f32 icon_size = {};
-                f32 indent = {};
-                SceneGraph() = default;
-                SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
-                SceneGraph(SceneGraph const &) = delete;
-                SceneGraph(SceneGraph const &&) = delete;
-                void begin();
-                void end();
-                auto add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState;
-                void add_level();
-                void remove_level();
+          public:
+            f32 icon_text_spacing = {};
+            f32 icon_size = {};
+            f32 indent = {};
+            SceneGraph() = default;
+            SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
+            SceneGraph(SceneGraph const &) = delete;
+            SceneGraph(SceneGraph const &&) = delete;
+            void begin();
+            void end();
+            auto add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState;
+            void add_level();
+            void remove_level();
 
-            private:
-                enum struct LeafType
-                {
-                    MATERIAL,
-                    MESH,
-                    CAMERA,
-                    LIGHT
-                };
-                ImGuiContext *context = {};
-                ImGuiTable *table = {};
-                ImGuiWindow *window = {};
-                ImGuiListClipper clipper = {};
-                daxa::ImGuiRenderer * renderer = {};
-                daxa::SamplerId linear_sampler = {};
-                std::vector<daxa::ImageId> const * icons = {};
-                int current_row = {};
-                bool clipper_ret = {};
-                float row_min_height = {};
+          private:
+            enum struct LeafType
+            {
+                MATERIAL,
+                MESH,
+                CAMERA,
+                LIGHT
+            };
+            ImGuiContext * context = {};
+            ImGuiTable * table = {};
+            ImGuiWindow * window = {};
+            daxa::ImGuiRenderer * renderer = {};
+            daxa::SamplerId linear_sampler = {};
+            std::vector<daxa::ImageId> const * icons = {};
+            int current_row = {};
+            bool clipper_ret = {};
+            float row_min_height = {};
 
-                ImGuiID selected_id = {};
+            ImGuiID selected_id = {};
 
-                auto get_cell_bounds() -> ImRect;
-                auto add_meshgroup_node(RenderEntity const & entity, Scene const & scene, bool no_draw) -> RetNodeState;
-                auto add_leaf_node(std::string uuid, ICONS icon, bool no_draw) -> RetNodeState;
-                auto add_inner_node(void const * uuid, std::string const & name, bool no_draw, ICONS icon = ICONS::SIZE) -> RetNodeState;
+            ImGuiListClipper clipper = {};
+
+            auto get_cell_bounds() -> ImRect;
+            auto add_meshgroup_node(RenderEntity const & entity, Scene const & scene, bool no_draw) -> RetNodeState;
+            auto add_leaf_node(std::string uuid, ICONS icon, bool no_draw) -> RetNodeState;
+            auto add_inner_node(void const * uuid, std::string const & name, bool no_draw, ICONS icon = ICONS::SIZE) -> RetNodeState;
         };
-    }
-}
+    } // namespace ui
+} // namespace tido
