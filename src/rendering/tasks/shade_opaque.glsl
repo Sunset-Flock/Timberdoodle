@@ -49,10 +49,11 @@ vec3 get_atmosphere_illuminance_along_ray(vec3 ray, vec3 world_camera_position, 
     const vec3 world_up = normalize(world_camera_position);
 
     const float view_zenith_angle = acos(dot(ray, world_up));
-    const float light_view_angle = acos(dot(
+    const float light_view_angle = acos(clamp(dot(
         normalize(vec3(sun_direction.xy, 0.0)),
         normalize(vec3(ray.xy, 0.0))
-    ));
+        ),-1.0, 1.0)
+    );
 
     const float atmosphere_intersection_distance = ray_sphere_intersect_nearest(
         world_camera_position,

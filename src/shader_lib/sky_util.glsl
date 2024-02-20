@@ -204,8 +204,11 @@ bool move_to_top_atmosphere(inout vec3 world_position, vec3 world_direction,
         if (dist_to_top_atmo_intersection == -1.0) { return false; }
         else
         {
+            // bias the world position to be slightly inside the sphere
+            const float BIAS = uintBitsToFloat(0x3f800040); // uintBitsToFloat(0x3f800040) == 1.00000762939453125
+            world_position += world_direction * (dist_to_top_atmo_intersection * BIAS);
             vec3 up_offset = normalize(world_position) * -PLANET_RADIUS_OFFSET;
-            world_position += world_direction * dist_to_top_atmo_intersection + up_offset;
+            world_position += up_offset;
         }
     }
     /* Position is in or at the top of the atmosphere */
