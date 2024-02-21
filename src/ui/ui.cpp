@@ -190,6 +190,7 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     {
         property_viewer.render({
             .sky_settings = &context->sky_settings,
+            .post_settings = &context->shader_globals.postprocess_settings,
         });
     }
     if(demo_window)

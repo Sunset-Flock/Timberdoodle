@@ -430,9 +430,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
     auto entity_meshlet_visibility_bitfield_arena =
         task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
-    auto sky = task_list.create_transient_image({.format = daxa::Format::R16G16B16A16_SFLOAT,
+    auto sky = task_list.create_transient_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {context->sky_settings.sky_dimensions.x, context->sky_settings.sky_dimensions.y, 1},
-        .name = "sky look up table"});
+        .name = "sky look up table",
+    });
     auto luminance_histogram = task_list.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
 
     task_list.add_task(ComputeSkyTask{
@@ -481,8 +483,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .entity_transforms = scene->_gpu_entity_transforms,
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .hiz = hiz,
-        }
-    );
+        });
     task_cull_and_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -549,6 +550,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
             daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
             daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
+            daxa::attachment_view(ShadeOpaqueTask::luminance_average, luminance_average),
         },
         .context = context,
     });
@@ -558,6 +560,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .views = std::array{
             daxa::attachment_view(GenLuminanceHistogramTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(GenLuminanceHistogramTask::histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceHistogramTask::luminance_average, luminance_average),
             daxa::attachment_view(GenLuminanceHistogramTask::color_image, color_image),
         },
         .context = context,
@@ -575,7 +578,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(WriteSwapchainTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(WriteSwapchainTask::swapchain, swapchain_image),
             daxa::attachment_view(WriteSwapchainTask::color_image, color_image),
-            daxa::attachment_view(WriteSwapchainTask::luminance_average, luminance_average),
         },
         .context = context,
     });

@@ -16,6 +16,7 @@ namespace tido
         struct RenderInfo
         {
             SkySettings * sky_settings;
+            PostprocessSettings * post_settings;
         };
         struct PropertyViewer
         {
