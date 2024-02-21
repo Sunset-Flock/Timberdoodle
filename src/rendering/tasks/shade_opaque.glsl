@@ -175,13 +175,15 @@ void main()
             push.attachments.instantiated_meshlets,
             push.attachments.meshes,
             push.attachments.combined_transforms);
+        vec3 normal = tri_data.world_normal;
 
-        vec4 debug_value = vec4(tri_data.world_normal * 0.5f + 0.5f, 1);
+        vec4 debug_value = vec4(normal * 0.5f + 0.5f, 1);
 
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
+        vec3 albedo = (0.5f).xxx;
         if(material.diffuse_texture_id.value != 0)
         {
-            // color = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_uv.uv);
+            albedo = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
         }
 
         if(material.normal_texture_id.value != 0)
@@ -189,11 +191,19 @@ void main()
             vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
             normal_map = normal_map * 2.0f - 1.0f;
             mat3 tbn = mat3(tri_data.world_tangent, cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
-            vec3 normal = tbn * normal_map;
+            normal = tbn * normal_map;
             debug_value = vec4(normal * 0.5f + 0.5f, 1);   
         }
         
         output_value = debug_value;
+#if 1
+        const vec3 light_position = vec3(-5,-5,15);
+        const vec3 light_power = vec3(1,1,1) * 100;
+        const float light_distance = length(tri_data.world_position - light_position);
+        const vec3 to_light_dir = normalize(light_position - tri_data.world_position);
+        vec3 color = (albedo.rgb * light_power) * (max(0, dot(to_light_dir, normal)) * 1/(light_distance*light_distance));
+        output_value.rgb = color;
+#endif
 
         uvec2 detector_window_index;
         debug_write_detector_image(
