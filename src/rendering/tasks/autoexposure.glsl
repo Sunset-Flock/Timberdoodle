@@ -8,6 +8,17 @@ const vec3 PERCEIVED_LUMINANCE_WEIGHTS = vec3(0.2127, 0.7152, 0.0722);
 const float MIN_LUMINANCE_THRESHOLD = 2e-10;
 
 DAXA_DECL_PUSH_CONSTANT(GenLuminanceHistogram, push)
+
+float compute_exposure(float average_luminance) 
+{
+    const float exposure_bias = deref(push.globals).postprocess_settings.exposure_bias;
+    const float calibration = deref(push.globals).postprocess_settings.calibration;
+    const float sensor_sensitivity = deref(push.globals).postprocess_settings.sensor_sensitivity;
+    const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
+	const float exposure = 1.0 / (1.2 * exp2(ev100));
+	return exposure;
+}
+
 layout(local_size_x = COMPUTE_HISTOGRAM_WG_X, local_size_y = COMPUTE_HISTOGRAM_WG_Y) in;
 void main()
 {
@@ -17,7 +28,8 @@ void main()
 
     if(all(lessThan(gl_GlobalInvocationID.xy, deref(push.globals).settings.render_target_size)))
     {
-        const vec3 color_value = imageLoad(daxa_image2D(push.color_image), daxa_i32vec2(gl_GlobalInvocationID.xy)).rgb;
+        const float exposure = compute_exposure(deref(push.luminance_average));
+        const vec3 color_value = imageLoad(daxa_image2D(push.color_image), daxa_i32vec2(gl_GlobalInvocationID.xy)).rgb / exposure;
 
         float luminance = dot(color_value, PERCEIVED_LUMINANCE_WEIGHTS);
 
@@ -75,7 +87,7 @@ void main()
         // to the 0th bin. We don't want to count totally black pixels in the average luminance computation, so we reject them here
         // Also note that because we weigh the bin count by the thread index, the black pixels do not contribute to the overall 
         // computed value
-        const int valid_pixel_count = max(total_pixel_count - int(bin_entry_count), 1);
+        const int valid_pixel_count = max(total_pixel_count /*- int(bin_entry_count)*/, 1);
         const float weighed_average_log2 = shared_histogram[0] / valid_pixel_count;
         const float remapped_log2_average = 
             ((weighed_average_log2 / 254.0) * deref(push.globals).postprocess_settings.luminance_log2_range)

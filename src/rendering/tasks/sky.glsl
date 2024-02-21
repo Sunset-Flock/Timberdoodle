@@ -468,8 +468,10 @@ void main()
             imageStore(daxa_image2D(push.uses.sky), ivec2(gl_GlobalInvocationID.xy), vec4(0.0, 0.0, 0.0, 1.0));
             return;
         }
-        vec3 luminance = integrate_scattered_luminance(world_position, world_direction, local_sun_direction, 50);
-        imageStore(daxa_image2D(push.uses.sky), ivec2(gl_GlobalInvocationID.xy), vec4(luminance, 1.0));
+        const vec3 luminance = integrate_scattered_luminance(world_position, world_direction, local_sun_direction, 50);
+        const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
+        const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
+        imageStore(daxa_image2D(push.uses.sky), ivec2(gl_GlobalInvocationID.xy), vec4(luminance * inv_mult, 1.0/inv_mult));
     }
 }
 #endif // SKY

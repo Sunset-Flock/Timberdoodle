@@ -141,16 +141,22 @@ struct PostprocessSettings
 {
     daxa_f32 min_luminance_log2;
     daxa_f32 max_luminance_log2;
+    daxa_f32 luminance_adaption_tau;
+    daxa_f32 exposure_bias;
+    daxa_f32 calibration;
+    daxa_f32 sensor_sensitivity;
     daxa_f32 luminance_log2_range;
     daxa_f32 inv_luminance_log2_range;
-    daxa_f32 luminance_adaption_tau;
 #if __cplusplus
     PostprocessSettings()
-        : min_luminance_log2{std::log2(0.01f)},
-          max_luminance_log2{std::log2(10.0f)},
+        : min_luminance_log2{std::log2(0.0002f)},
+          max_luminance_log2{std::log2(4096.0f)},
+          luminance_adaption_tau{1.0f},
+          exposure_bias{1.0f},
+          calibration{12.5f},
+          sensor_sensitivity{100.0f},
           luminance_log2_range{max_luminance_log2 - min_luminance_log2},
-          inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)},
-          luminance_adaption_tau{1.0f}
+          inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)}
     {
     }
 #endif

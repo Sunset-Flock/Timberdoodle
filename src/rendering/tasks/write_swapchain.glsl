@@ -10,17 +10,6 @@ vec3 index_to_color(uint index)
 {
     return vec3(cos(index), cos(index * 2 + 1), cos(index * 3 + 2)) * 0.5 + 0.5;
 }
-// TODO(msakmary) Move into globals.postprocess_settings
-const float exposure_bias      = 2.0;
-const float calibration       = 12.5;  // Light meter calibration
-const float sensor_sensitivity = 100.0; // Sensor sensitivity
-
-float compute_exposure(float average_luminance) 
-{
-    const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
-	const float exposure = 1.0 / (1.2 * exp2(ev100));
-	return exposure;
-}
 
 const float SRGB_ALPHA = 0.055;
 
@@ -114,11 +103,9 @@ void main()
     {
         return;
     }
-    vec4 color = imageLoad(daxa_image2D(push.attachments.color_image), index);
+    const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index);
 
-    const float exposure = compute_exposure(deref(push.attachments.luminance_average));
-    const vec3 exposed_color = color.rgb * exposure;
-    const vec3 tonemapped_color = agx_tonemapping(exposed_color);
+    const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
     const vec3 gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
-    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, color.a));
+    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, exposed_color.a));
 }
