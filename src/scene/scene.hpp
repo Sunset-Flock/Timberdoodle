@@ -3,7 +3,6 @@
 #include <optional>
 #include <variant>
 
-#include <fastgltf/parser.hpp>
 #include <fastgltf/types.hpp>
 #include "../timberdoodle.hpp"
 

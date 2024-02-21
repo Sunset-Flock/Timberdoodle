@@ -112,7 +112,7 @@ void CameraController::update_matrices(Window & window)
 
 Application::Application()
 {
-    _threadpool = std::make_unique<ThreadPool>(7);
+    _threadpool = std::make_unique<ThreadPool>(16);
     _window = std::make_unique<Window>(1024, 1024, "Sandbox");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _scene = std::make_unique<Scene>(_gpu_context->device);
@@ -151,7 +151,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({

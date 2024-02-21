@@ -1,9 +1,11 @@
 #include "scene.hpp"
 
-#include <fastgltf/parser.hpp>
 #include <fstream>
 
+#include <fastgltf/core.hpp>
+
 #include <fmt/format.h>
+#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 #include <thread>
 #include <chrono>
@@ -100,7 +102,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 #pragma region SETUP
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{};
+    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_mesh_quantization};
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -121,7 +123,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     {
         case fastgltf::GltfType::glTF:
         {
-            fastgltf::Expected<fastgltf::Asset> result = parser.loadGLTF(&data, file_path.parent_path(), gltf_options);
+            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltf(&data, file_path.parent_path(), gltf_options);
             if (result.error() != fastgltf::Error::None)
             {
                 return LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
@@ -131,7 +133,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         }
         case fastgltf::GltfType::GLB:
         {
-            fastgltf::Expected<fastgltf::Asset> result = parser.loadBinaryGLTF(&data, file_path.parent_path(), gltf_options);
+            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltfBinary(&data, file_path.parent_path(), gltf_options);
             if (result.error() != fastgltf::Error::None)
             {
                 return LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
@@ -175,14 +177,17 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     //        the texture indices into image indeces and store that
     auto gltf_texture_to_manifest_texture_index = [&](u32 const texture_index) -> std::optional<u32>
     {
-        const bool gltf_texture_has_image_index = asset.textures.at(texture_index).imageIndex.has_value();
-        if (!gltf_texture_has_image_index)
+        if (asset.textures.at(texture_index).basisuImageIndex.has_value())
         {
-            return std::nullopt;
+            return s_cast<u32>(asset.textures.at(texture_index).basisuImageIndex.value()) + texture_manifest_offset;
+        }
+        else if (asset.textures.at(texture_index).imageIndex.has_value())
+        {
+            return s_cast<u32>(asset.textures.at(texture_index).imageIndex.value()) + texture_manifest_offset;
         }
         else
         {
-            return s_cast<u32>(asset.textures.at(texture_index).imageIndex.value()) + texture_manifest_offset;
+            return std::nullopt;
         }
     };
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
@@ -264,7 +269,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         auto const & mesh_group = asset.meshes.at(mesh_group_index);
         u32 const mesh_group_manifest_index = s_cast<u32>(_mesh_group_manifest.size());
         /// NOTE: fastgltf::Primitive is Mesh
-        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(mesh_group.primitives.size()); mesh_index++)
+        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(mesh_group.primitives.size()) && mesh_index < 30; mesh_index++)
         {
             u32 const mesh_manifest_entry = _mesh_manifest.size();
             auto const & mesh = mesh_group.primitives.at(mesh_index);
@@ -305,10 +310,10 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
     {
         // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
-        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::Node::TRS, fastgltf::Node::TransformMatrix> const & trans) -> glm::mat4x3
+        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::Node::TransformMatrix> const & trans) -> glm::mat4x3
         {
             glm::mat4x3 ret_trans;
-            if (auto const * trs = std::get_if<fastgltf::Node::TRS>(&trans))
+            if (auto const * trs = std::get_if<fastgltf::TRS>(&trans))
             {
                 auto const scale = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
                 auto const rotation = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));

@@ -200,6 +200,10 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
 
 void UIEngine::draw_scenegraph(Scene const & scene)
 {
+    if (scene._gltf_asset_manifest.empty())
+    {
+        return;
+    }
     scene_graph.begin();
 
     struct StackEntry

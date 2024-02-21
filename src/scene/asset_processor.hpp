@@ -42,6 +42,7 @@ struct AssetProcessor
         ERROR_FAULTY_GLTF_VERTEX_NORMALS,
         ERROR_MISSING_VERTEX_TANGENTS,
         ERROR_FAULTY_GLTF_VERTEX_TANGENTS,
+        ERROR_FAILED_TO_PROCESS_KTX,
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
@@ -87,7 +88,8 @@ struct AssetProcessor
     {
         daxa::BufferId staging_buffer = {};
         daxa::ImageId dst_image = {};
-
+        u32 mips_to_copy = {};
+        std::array<u32, 16> mip_copy_offsets = {};
         u32 texture_manifest_index = {};
     };
     struct LoadTextureInfo

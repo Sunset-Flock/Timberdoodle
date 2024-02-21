@@ -7,6 +7,8 @@
 #include <FreeImage.h>
 #include <variant>
 
+#include <ktx.h>
+
 #pragma region IMAGE_RAW_DATA_LOADING_HELPERS
 struct RawImageData
 {
@@ -70,6 +72,11 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const & info) -> Raw
     }
     RawImageData & raw_data = std::get<RawImageData>(raw_image_data_ret);
     raw_data.mime_type = info.uri.mimeType;
+    if (info.uri.uri.string().ends_with(".ktx2"))
+    {
+        raw_data.mime_type = fastgltf::MimeType::KTX2;
+    }
+
     return raw_data;
 }
 
@@ -118,8 +125,10 @@ static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const
 #pragma region IMAGE_RAW_DATA_PARSING_HELPERS
 struct ParsedImageData
 {
-    daxa::BufferId src_buffer;
-    daxa::ImageId dst_image;
+    daxa::BufferId src_buffer = {};
+    daxa::ImageId dst_image = {};
+    u32 mips_to_copy = {};
+    std::array<u32,16> mip_copy_offsets = {};
 };
 
 using ParsedImageRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ParsedImageData>;
@@ -133,8 +142,8 @@ enum struct ChannelDataType
 
 struct ChannelInfo
 {
-    u8 byte_size;
-    ChannelDataType data_type;
+    u8 byte_size = {};
+    ChannelDataType data_type = {};
 };
 using ParsedChannel = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ChannelInfo>;
 
@@ -390,6 +399,7 @@ static auto free_image_parse_raw_image_data(RawImageData && raw_data, bool load_
     std::byte * staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
     memcpy(staging_dst_ptr, r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
 
+    ret.mips_to_copy = 1;
     ret.dst_image = device.create_image({
         .dimensions = 2,
         .format = daxa_image_format,
@@ -404,6 +414,82 @@ static auto free_image_parse_raw_image_data(RawImageData && raw_data, bool load_
             daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = raw_data.image_path.filename().string(),
     });
+    return ret;
+}
+
+static auto ktx_parse_raw_image_data(RawImageData && raw_data, bool load_as_srgb, daxa::Device & device) -> ParsedImageRet
+{
+    // KTX handles image. Mister sexy. We load now. loading
+    ktxTexture2* texture;
+    KTX_error_code result;
+    ktx_size_t offset;
+    
+    result = ktxTexture2_CreateFromNamedFile(
+        raw_data.image_path.string().c_str(),
+        KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
+        &texture);     
+    if (result != KTX_SUCCESS)
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
+    }
+    defer{ktxTexture_Destroy(ktxTexture(texture));};
+
+    result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, KTX_TF_HIGH_QUALITY);
+    if (result != KTX_SUCCESS)
+    {
+        return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
+    }
+    
+    // Retrieve information about the texture from fields in the ktxTexture
+    // such as:
+    u32 const numLevels = texture->numLevels;
+    u32 const numLayers = texture->numLayers;
+    u32 const baseWidth = texture->baseWidth;
+    u32 const baseHeight = texture->baseHeight;
+    u32 const baseDepth = texture->baseDepth;
+    u32 const mips = static_cast<u32>(floor(std::log2(std::min(baseWidth, baseHeight)))) + 1;
+    bool const isArray = texture->isArray;
+
+    ParsedImageData ret = {};
+    daxa::BufferId staging = device.create_buffer({
+        .size = texture->dataSize,
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,  // Host local memory.
+        .name = raw_data.image_path.string() + " staging",
+    });
+    std::byte* staging_ptr = device.get_host_address(staging).value();
+    ktx_uint8_t* image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
+    daxa::Format const format = std::bit_cast<daxa::Format>(texture->vkFormat);
+    daxa::ImageId image_id = device.create_image({
+        .flags = {},
+        .dimensions = 2,
+        .format = format,
+        .size = {baseWidth, baseHeight, baseDepth},
+        .mip_level_count = numLevels,
+        .array_layer_count = numLayers,
+        .sample_count = 1,
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
+        .allocate_info = {},
+        .name = raw_data.image_path.filename().string(),
+    });
+    ret.dst_image = image_id;
+    ret.src_buffer = staging;
+
+    ret.mips_to_copy = texture->numLevels;
+    for (u32 mip = 0; mip < texture->numLevels; ++mip)
+    {
+        u32 const layer = 0;
+        u32 const faceSlice = 0;
+        usize offset = {};
+        result = ktxTexture_GetImageOffset(ktxTexture(texture), mip, layer, faceSlice, &offset);
+        if (result != KTX_SUCCESS)
+        {
+            return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
+        }
+        usize size = ktxTexture_GetImageSize(ktxTexture(texture), mip);
+        std::memcpy(staging_ptr + offset, image_ktx_data + offset, size);
+        ret.mip_copy_offsets[mip] = offset;
+    }
+
     return ret;
 }
 
@@ -506,7 +592,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     ParsedImageRet parsed_data_ret;
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
-        // KTX handles image loading
+        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), info.load_as_srgb, _device);
     }
     else
     {
@@ -524,6 +610,8 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
         _upload_texture_queue.push_back(TextureUploadInfo{
             .staging_buffer = parsed_data.src_buffer,
             .dst_image = parsed_data.dst_image,
+            .mips_to_copy = parsed_data.mips_to_copy,
+            .mip_copy_offsets = parsed_data.mip_copy_offsets,
             .texture_manifest_index = info.texture_manifest_index});
     }
     return AssetLoadResultCode::SUCCESS;
@@ -922,21 +1010,34 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
     }
     for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)
     {
+        daxa::ImageViewInfo image_view_info = _device.info_image_view(texture_upload.dst_image.default_view()).value();
         /// TODO: If we are generating mips this will need to change
         recorder.pipeline_barrier_image_transition({
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
             .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .image_slice = image_view_info.slice,
             .image_id = texture_upload.dst_image,
         });
     }
     for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)
     {
-        recorder.copy_buffer_to_image({
-            .buffer = texture_upload.staging_buffer,
-            .image = texture_upload.dst_image,
-            .image_offset = {0, 0, 0},
-            .image_extent = _device.info_image(texture_upload.dst_image).value().size,
-        });
+        daxa::ImageInfo image_info = _device.info_image(texture_upload.dst_image).value();
+        for (u32 mip = 0; mip < texture_upload.mips_to_copy; ++mip)
+        {
+            u32 width = std::max(1u, image_info.size.x >> mip);
+            u32 height = std::max(1u, image_info.size.y >> mip);
+            u32 depth = std::max(1u, image_info.size.z >> mip);
+            recorder.copy_buffer_to_image({
+                .buffer = texture_upload.staging_buffer,
+                .buffer_offset = texture_upload.mip_copy_offsets[mip],
+                .image = texture_upload.dst_image,
+                .image_slice = {
+                    .mip_level = mip,
+                },
+                .image_offset = {0, 0, 0},
+                .image_extent = {width,height,depth},
+            });
+        }
         recorder.destroy_buffer_deferred(texture_upload.staging_buffer);
     }
     for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)

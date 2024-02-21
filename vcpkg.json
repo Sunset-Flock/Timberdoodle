@@ -27,7 +27,7 @@
     "nlohmann-json",
     "implot"
   ],
-  "builtin-baseline": "f5c5b8ddbb88dec7eed4a5ac54c36d1c64d2d29d",
+  "builtin-baseline": "e56312cb3d33be09ec550ade6ffbb8dc18d23cfd",
   "vcpkg-configuration": {
     "overlay-ports": [
       "deps/daxa"
