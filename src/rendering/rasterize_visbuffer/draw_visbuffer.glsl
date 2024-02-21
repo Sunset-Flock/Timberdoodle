@@ -62,7 +62,10 @@ void main()
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX || DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT
 layout(location = 0) flat VERTEX_OUT uint vout_triange_id;
+#if defined(DISCARD)
 layout(location = 1) VERTEX_OUT vec2 vout_uv;
+layout(location = 2) flat VERTEX_OUT uint vout_material_index;
+#endif // #if defined(DISCARD)
 #endif
 
 #if defined(OPAQUE)
@@ -125,27 +128,41 @@ void main()
     const vec4 vertex_position = vec4(mesh.vertex_positions[vertex_index].value, 1);
     const mat4x4 view_proj = (push.pass > PASS1_DRAW_POST_CULL) ? deref(push.uses.globals).observer_camera.view_proj : deref(push.uses.globals).camera.view_proj;
     const vec4 pos = view_proj * mat_4x3_to_4x4(deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index])) * vertex_position;
+
+
+    uint triangle_id;
+    encode_triangle_id(inst_meshlet_index, triangle_index, triangle_id);
+    vout_triange_id = triangle_id;
+#if defined(DISCARD)
+    vout_material_index = meshlet_inst.material_index;    
     vec2 uv = vec2(0,0);
     if (daxa_u64(mesh.vertex_uvs) != 0)
     {
         uv = deref(mesh.vertex_uvs[vertex_index]);
     }
-
-    uint triangle_id;
-    encode_triangle_id(inst_meshlet_index, triangle_index, triangle_id);
-    vout_triange_id = triangle_id;
     vout_uv = uv;
+#endif // #if defined(DISCARD)
     gl_Position = pos.xyzw;
 }
 #endif
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || !defined(DAXA_SHADER)
 layout(location = 0) out uint visibility_id;
-layout(location = 1) out vec4 debug_image;
+//layout(location = 1) out vec4 debug_image;
 void main()
 {
+#if defined(DISCARD)
+    GPUMaterial material = deref(push.uses.material_manifest + vout_material_index);
+    if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+    {
+        float alpha = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.uses.globals).samplers.linear_clamp), vout_uv).a; 
+        if (alpha < 0.5f)
+        {
+            discard;
+        }
+    }
+#endif // #if defined(DISCARD)
     visibility_id = vout_triange_id;
-    debug_image = vec4(vout_uv.rg,0,1);
 }
 #endif
 

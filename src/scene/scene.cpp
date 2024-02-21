@@ -249,6 +249,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             .roughness_metalness_info = roughnes_metalness_info,
             .gltf_asset_manifest_index = gltf_asset_manifest_index,
             .asset_local_index = material_index,
+            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask || material.alphaMode == fastgltf::AlphaMode::Blend,
             .name = material.name.c_str(),
         });
         _new_material_manifest_entries += 1;
@@ -797,6 +798,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
                 staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
                 staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
+                staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
 
                 daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
                 recorder.copy_buffer_to_buffer({

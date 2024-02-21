@@ -50,8 +50,10 @@ void main()
     }
 }
 #else
-shared uint s_out_count;
-shared uint s_out_offset;
+shared uint s_meshlet_out_count;
+shared uint s_meshlet_out_offset;
+shared uint s_drawlist_out_count[2];
+shared uint s_drawlist_out_offset[2];
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
@@ -60,6 +62,7 @@ void main()
     // TODO: check if entity, its mesh id and meshlets are valid
     uint inst_meshlet_index_prev = 0;
     MeshletInstance inst_meshlet;
+    uint opaque_or_discard = 0;
     if (thread_active)
     {
         inst_meshlet_index_prev = deref(push.uses.visible_meshlets_prev).meshlet_ids[gl_GlobalInvocationID.x];
@@ -80,34 +83,48 @@ void main()
                 atomicExchange(push.uses.entity_meshlet_visibility_bitfield_offsets.entity_offsets[inst_meshlet.entity_index].mesh_bitfield_offset[inst_meshlet.in_meshgroup_index], bitfield_arena_offset);
             }
         }
+        GPUMaterial material = deref(push.uses.materials + inst_meshlet.material_index);
+        opaque_or_discard = material.alpha_discard_enabled ? 1 : 0;
     }
 
     if (gl_LocalInvocationID.x == 0)
     {
-        s_out_count = 0;
+        s_meshlet_out_count = 0;
+        s_drawlist_out_count[0] = 0;
+        s_drawlist_out_count[1] = 0;
     }
     memoryBarrierShared();
     barrier();
     uint local_offset = 0;
+    uint local_draw_list_offset = 0;
     if (thread_active)
     {
-        local_offset = atomicAdd(s_out_count, 1);
+        local_offset = atomicAdd(s_meshlet_out_count, 1);
+        local_draw_list_offset = atomicAdd(s_drawlist_out_count[opaque_or_discard], 1);
     }
     memoryBarrierShared();
     barrier();
     if (gl_LocalInvocationID.x == 0)
     {
-        s_out_offset = atomicAdd(deref(push.uses.instantiated_meshlets).first_count, s_out_count);
-        atomicAdd(deref(push.uses.instantiated_meshlets).draw_lists[0].first_count, s_out_count);
+        s_meshlet_out_offset = atomicAdd(deref(push.uses.instantiated_meshlets).first_count, s_meshlet_out_count);
+    }
+    if (gl_LocalInvocationID.x == 1)
+    {
+        s_drawlist_out_offset[0] = atomicAdd(deref(push.uses.instantiated_meshlets).draw_lists[0].first_count, s_drawlist_out_count[0]);
+    }
+    if (gl_LocalInvocationID.x == 2)
+    {
+        s_drawlist_out_offset[1] = atomicAdd(deref(push.uses.instantiated_meshlets).draw_lists[1].first_count, s_drawlist_out_count[1]);
     }
     memoryBarrierShared();
     barrier();
     if (thread_active)
     {
-        const uint meshlet_instance_index = s_out_offset + local_offset;
+        const uint meshlet_instance_index = s_meshlet_out_offset + local_offset;
         // Write out meshlet instance to the meshlet instance list of the first pass:
         deref(push.uses.instantiated_meshlets).meshlets[meshlet_instance_index] = pack_meshlet_instance(inst_meshlet);
-        deref(push.uses.instantiated_meshlets).draw_lists[0].instances[meshlet_instance_index] = meshlet_instance_index;
+        const uint draw_list_index = s_drawlist_out_offset[opaque_or_discard] + local_draw_list_offset;
+        deref(push.uses.instantiated_meshlets).draw_lists[opaque_or_discard].instances[draw_list_index] = meshlet_instance_index;
     }
 }
 #endif
@@ -124,8 +141,4 @@ void main()
 // Raw draw prep: 53 mics
 // Raw Draw: 450mics
 // TOTAL: 503
-// 
-// 
-// 
-// 
 // 

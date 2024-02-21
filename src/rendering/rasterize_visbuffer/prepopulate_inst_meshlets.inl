@@ -16,12 +16,13 @@ DAXA_DECL_TASK_HEAD_END
 
 // In the future we should check if the entity slot is actually valid here.
 // To do that we need a version in the entity id and a version table we can compare to
-DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets, 7)
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopulateInstMeshlets, 8)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), instantiated_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_DECL_TASK_HEAD_END
@@ -120,6 +121,7 @@ struct SetEntityMeshletVisibilityBitMasksTask : SetEntityMeshletVisibilityBitMas
 struct PrepopInfo
 {
     daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView materials = {};
     daxa::TaskBufferView visible_meshlets_prev = {};
     daxa::TaskBufferView meshlet_instances_last_frame = {};
     daxa::TaskBufferView meshlet_instances = {};
@@ -161,6 +163,7 @@ inline void task_prepopulate_instantiated_meshlets(GPUContext * context, daxa::T
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::visible_meshlets_prev, info.visible_meshlets_prev),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::instantiated_meshlets_prev, info.meshlet_instances_last_frame),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::meshes, info.meshes),
+            daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::materials, info.materials),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::instantiated_meshlets, info.meshlet_instances),
             daxa::attachment_view(PrepopulateInstantiatedMeshletsTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets),
         },

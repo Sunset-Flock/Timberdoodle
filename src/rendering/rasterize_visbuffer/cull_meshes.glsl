@@ -42,7 +42,6 @@ void main()
     }
     const uint mesh_index = mesh_group.mesh_manifest_indices[in_meshgroup_index];
     const uint meshlet_count = deref(push.uses.meshes[mesh_index]).meshlet_count;
-    const uint material_index = deref(push.uses.meshes[mesh_index]).material_index;
     if (meshlet_count == 0)
     {
         return;
@@ -61,6 +60,13 @@ void main()
     //   - A strong compromise is to round up invocation count from meshletcount in such a way that the round up value only has 4 bits set at most.
     //   - as we do one writeout per bit set in meshlet count, this limits the writeout to 5.
     // - in worst case this can go down from thousands of divergent writeouts down to 5 while only wasting < 5% of invocations.
+    const uint material_index = deref(push.uses.meshes[mesh_index]).material_index;
+    GPUMaterial material = deref(push.uses.materials[material_index]);
+    uint opaque_or_discard = material.alpha_discard_enabled ? 1 : 0;
+    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead) cull_buckets = 
+        opaque_or_discard == 0 ? 
+        push.uses.meshlet_cull_arg_buckets_opaque :
+        push.uses.meshlet_cull_arg_buckets_discard;
     const uint MAX_BITS = 5;
     uint meshlet_count_msb = findMSB(meshlet_count);
     const uint shift = uint(max(0, int(meshlet_count_msb) + 1 - int(MAX_BITS)));
@@ -81,7 +87,7 @@ void main()
         const uint indirect_arg_meshlet_count = 1 << (bucket_index);
         // Mask out bit.
         bucket_bit_mask &= ~indirect_arg_meshlet_count;
-        const uint arg_array_offset = atomicAdd(deref(push.uses.meshlet_cull_arg_buckets_opaque).indirect_arg_counts[bucket_index], 1);
+        const uint arg_array_offset = atomicAdd(deref(cull_buckets).indirect_arg_counts[bucket_index], 1);
         // Update indirect args for meshlet cull
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
@@ -97,7 +103,7 @@ void main()
             const bool update_cull_meshlets_dispatch = prev_needed_workgroups != cur_needed_workgroups;
             if (update_cull_meshlets_dispatch)
             {
-                atomicMax(deref(push.uses.meshlet_cull_arg_buckets_opaque).commands[bucket_index].x, cur_needed_workgroups);
+                atomicMax(deref(cull_buckets).commands[bucket_index].x, cur_needed_workgroups);
             }
         }
         MeshletCullIndirectArg arg;
@@ -106,7 +112,7 @@ void main()
         arg.material_index = material_index;
         arg.in_meshgroup_index = in_meshgroup_index;
         arg.meshlet_indices_offset = meshlet_offset;
-        deref(deref(push.uses.meshlet_cull_arg_buckets_opaque).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
+        deref(deref(cull_buckets).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }
 }

@@ -16,12 +16,13 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 9)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstances), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -82,9 +83,9 @@ static inline std::vector<daxa::RenderAttachment> DRAW_VISBUFFER_RENDER_ATTACHME
     daxa::RenderAttachment{
         .format = daxa::Format::R32_UINT,
     },
-    daxa::RenderAttachment{
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
-    },
+    //daxa::RenderAttachment{
+    //    .format = daxa::Format::R16G16B16A16_SFLOAT,
+    //},
 };
 
 using DrawVisbuffer_WriteCommandTask =
@@ -198,13 +199,13 @@ struct DrawVisbufferTask : DrawVisbuffer
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
             },
-            daxa::RenderAttachmentInfo{
-                .image_view = ti.get(DrawVisbuffer::debug_image).ids[0].default_view(),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                .load_op = load_op,
-                .store_op = daxa::AttachmentStoreOp::STORE,
-                .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
-            },
+            //daxa::RenderAttachmentInfo{
+            //    .image_view = ti.get(DrawVisbuffer::debug_image).ids[0].default_view(),
+            //    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+            //    .load_op = load_op,
+            //    .store_op = daxa::AttachmentStoreOp::STORE,
+            //    .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
+            //},
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         for (u32 opaque_or_discard = 0; opaque_or_discard < 2; ++opaque_or_discard)
@@ -324,6 +325,7 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView entity_combined_transforms = {};
     daxa::TaskBufferView mesh_groups = {};
     daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView entity_meshlet_visibility_bitfield_offsets = {};
     daxa::TaskBufferView entity_meshlet_visibility_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
@@ -428,6 +430,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(DrawVisbufferTask::vis_image, info.vis_image),
                 daxa::attachment_view(DrawVisbufferTask::debug_image, info.debug_image),
                 daxa::attachment_view(DrawVisbufferTask::depth_image, info.depth_image),
+                daxa::attachment_view(DrawVisbufferTask::material_manifest, info.material_manifest),
             },
             .context = info.context,
             .pass = PASS1_DRAW_POST_CULL,
@@ -445,6 +448,7 @@ struct TaskDrawVisbufferInfo
     u32 const pass = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView combined_transforms = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
@@ -475,6 +479,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             daxa::attachment_view(DrawVisbufferTask::draw_commands, draw_commands_array),
             daxa::attachment_view(DrawVisbufferTask::meshlet_instances, info.meshlet_instances),
             daxa::attachment_view(DrawVisbufferTask::meshes, info.meshes),
+            daxa::attachment_view(DrawVisbufferTask::material_manifest, info.material_manifest),
             daxa::attachment_view(DrawVisbufferTask::entity_combined_transforms, info.combined_transforms),
             daxa::attachment_view(DrawVisbufferTask::vis_image, info.vis_image),
             daxa::attachment_view(DrawVisbufferTask::debug_image, info.debug_image),

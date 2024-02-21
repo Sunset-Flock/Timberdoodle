@@ -55,6 +55,7 @@ struct MaterialManifestEntry
     std::optional<TextureInfo> roughness_metalness_info = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
+    bool alpha_discard_enabled = {};
     std::string name = {};
 };
 

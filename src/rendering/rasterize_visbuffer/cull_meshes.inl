@@ -23,10 +23,11 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entit
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 11)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
@@ -97,6 +98,7 @@ struct TaskCullMeshesInfo
     daxa::TaskGraph & task_list;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView materials = {};
     daxa::TaskBufferView entity_meta = {};
     daxa::TaskBufferView entity_meshgroup_indices = {};
     daxa::TaskBufferView meshgroups = {};
@@ -167,6 +169,7 @@ auto tasks_cull_meshes(TaskCullMeshesInfo const & info) -> std::pair<daxa::TaskB
             daxa::attachment_view(CullMeshesTask::globals, info.globals),
             daxa::attachment_view(CullMeshesTask::command, command_buffer),
             daxa::attachment_view(CullMeshesTask::meshes, info.meshes),
+            daxa::attachment_view(CullMeshesTask::materials, info.materials),
             daxa::attachment_view(CullMeshesTask::entity_meta, info.entity_meta),
             daxa::attachment_view(CullMeshesTask::entity_meshgroup_indices, info.entity_meshgroup_indices),
             daxa::attachment_view(CullMeshesTask::meshgroups, info.meshgroups),
