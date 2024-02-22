@@ -439,6 +439,7 @@ void main()
     {
         vec3 world_position = deref(push.uses.globals).camera.position * M_TO_KM_SCALE;
         world_position.z += deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET;
+        const float camera_height = length(world_position);
 
         vec2 uv = vec2(gl_GlobalInvocationID.xy) / vec2(deref(settings).sky_dimensions.xy);
         SkyviewParams skyview_params = uv_to_skyview_lut_params(
@@ -446,9 +447,15 @@ void main()
             deref(settings).atmosphere_bottom,
             deref(settings).atmosphere_top,
             deref(settings).sky_dimensions,
-            length(world_position));
+            camera_height);
+        vec3 ray_direction = vec3( cos(skyview_params.light_view_angle) * sin(skyview_params.view_zenith_angle),
+                sin(skyview_params.light_view_angle) * sin(skyview_params.view_zenith_angle),
+                cos(skyview_params.view_zenith_angle));
 
-        float sun_zenith_cos_angle = dot(normalize(world_position), deref(settings).sun_direction);
+        const mat3 camera_basis = build_orthonormal_basis(world_position / camera_height);
+        world_position = vec3(0, 0, camera_height);
+
+        float sun_zenith_cos_angle = dot(vec3(0, 0, 1), deref(settings).sun_direction * camera_basis);
         // sin^2 + cos^2 = 1 -> sqrt(1 - cos^2) = sin
         // rotate the sun direction so that we are aligned with the y = 0 axis
         vec3 local_sun_direction = normalize(vec3(
@@ -460,8 +467,6 @@ void main()
             cos(skyview_params.light_view_angle) * sin(skyview_params.view_zenith_angle),
             sin(skyview_params.light_view_angle) * sin(skyview_params.view_zenith_angle),
             cos(skyview_params.view_zenith_angle));
-
-        world_position = vec3(0, 0, length(world_position));
 
         if (!move_to_top_atmosphere(world_position, world_direction, deref(settings).atmosphere_bottom, deref(settings).atmosphere_top))
         {

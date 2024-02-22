@@ -8,6 +8,27 @@ const float BASE_HEIGHT_OFFSET = 3.0;
 const float PI = 3.1415926535897932384626433832795;
 const float M_TO_KM_SCALE = 0.001;
 
+// Building an Orthonormal Basis, Revisited
+// http://jcgt.org/published/0006/01/01/
+mat3 build_orthonormal_basis(vec3 n) {
+    vec3 b1;
+    vec3 b2;
+
+    if (n.z < 0.0) {
+        const float a = 1.0 / (1.0 - n.z);
+        const float b = n.x * n.y * a;
+        b1 = vec3(1.0 - n.x * n.x * a, -b, n.x);
+        b2 = vec3(b, n.y * n.y * a - 1.0, -n.y);
+    } else {
+        const float a = 1.0 / (1.0 + n.z);
+        const float b = -n.x * n.y * a;
+        b1 = vec3(1.0 - n.x * n.x * a, b, -n.x);
+        b2 = vec3(b, 1.0 - n.y * n.y * a, -n.y);
+    }
+
+    return mat3(b1, b2, n);
+}
+
 /* Return sqrt clamped to 0 */
 float safe_sqrt(float x)
 {
@@ -94,19 +115,28 @@ struct SkyviewParams
 vec2 skyview_lut_params_to_uv(bool intersects_ground, SkyviewParams params, float atmosphere_bottom, float atmosphere_top, vec2 skyview_dimensions, float view_height)
 {
     vec2 uv;
-    float beta = asin(atmosphere_bottom / view_height);
-    float zenith_horizon_angle = PI - beta;
+    if(view_height < atmosphere_top)
+    {
+        float beta = asin(atmosphere_bottom / view_height);
+        float zenith_horizon_angle = PI - beta;
 
-    if (!intersects_ground)
-    {
-        float coord = params.view_zenith_angle / zenith_horizon_angle;
-        coord = (1.0 - safe_sqrt(1.0 - coord)) / 2.0;
-        uv.y = coord;
-    }
-    else
-    {
+        if (!intersects_ground)
+        {
+            float coord = params.view_zenith_angle / zenith_horizon_angle;
+            coord = (1.0 - safe_sqrt(1.0 - coord)) / 2.0;
+            uv.y = coord;
+        }
+        else
+        {
+            float coord = (params.view_zenith_angle - zenith_horizon_angle) / beta;
+            coord = (safe_sqrt(coord) + 1.0) / 2.0;
+            uv.y = coord;
+        }
+    } else {
+        float beta = asin(atmosphere_top / view_height);
+        float zenith_horizon_angle = PI - beta;
         float coord = (params.view_zenith_angle - zenith_horizon_angle) / beta;
-        coord = (safe_sqrt(coord) + 1.0) / 2.0;
+        coord = safe_sqrt(coord);
         uv.y = coord;
     }
     uv.x = safe_sqrt(params.light_view_angle / PI);
@@ -122,27 +152,35 @@ vec2 skyview_lut_params_to_uv(bool intersects_ground, SkyviewParams params, floa
 /// @param skyview dimensions
 /// @param view_height - view_height in world coordinates -> distance from planet center
 /// @return - SkyviewParams structure
-SkyviewParams uv_to_skyview_lut_params(vec2 uv, float atmosphere_bottom, float atmosphere_top, vec2 skyview_dimensions, float view_height)
+SkyviewParams uv_to_skyview_lut_params(vec2 uv, float atmosphere_bottom, float atmosphere_top, vec2 skyview_dimensions, float view_height) 
 {
     /* Constrain uvs to valid sub texel range
     (avoid zenith derivative issue making LUT usage visible) */
     uv = vec2(from_subuv_to_unit(uv.x, skyview_dimensions.x),
         from_subuv_to_unit(uv.y, skyview_dimensions.y));
 
-    float beta = asin(atmosphere_bottom / view_height);
-    float zenith_horizon_angle = PI - beta;
-
     float view_zenith_angle;
     float light_view_angle;
-    /* Nonuniform mapping near the horizon to avoid artefacts */
-    if (uv.y < 0.5)
+    if(view_height < atmosphere_top)
     {
-        float coord = 1.0 - (1.0 - 2.0 * uv.y) * (1.0 - 2.0 * uv.y);
-        view_zenith_angle = zenith_horizon_angle * coord;
-    }
-    else
-    {
-        float coord = (uv.y * 2.0 - 1.0) * (uv.y * 2.0 - 1.0);
+        float beta = asin(atmosphere_bottom / view_height);
+        float zenith_horizon_angle = PI - beta;
+
+        /* Nonuniform mapping near the horizon to avoid artefacts */
+        if (uv.y < 0.5)
+        {
+            float coord = 1.0 - (1.0 - 2.0 * uv.y) * (1.0 - 2.0 * uv.y);
+            view_zenith_angle = zenith_horizon_angle * coord;
+        }
+        else
+        {
+            float coord = (uv.y * 2.0 - 1.0) * (uv.y * 2.0 - 1.0);
+            view_zenith_angle = zenith_horizon_angle + beta * coord;
+        }
+    } else {
+        float beta = asin(atmosphere_top / view_height);
+        float zenith_horizon_angle = PI - beta;
+        float coord = uv.y * uv.y;
         view_zenith_angle = zenith_horizon_angle + beta * coord;
     }
     light_view_angle = (uv.x * uv.x) * PI;

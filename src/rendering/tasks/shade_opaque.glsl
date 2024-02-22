@@ -52,31 +52,10 @@ vec3 get_sun_illuminance(vec3 view_direction, float height, float zenith_cos_ang
     return vec3(0.0);
 }
 
-// Building an Orthonormal Basis, Revisited
-// http://jcgt.org/published/0006/01/01/
-mat3 build_orthonormal_basis(vec3 n) {
-    vec3 b1;
-    vec3 b2;
-
-    if (n.z < 0.0) {
-        const float a = 1.0 / (1.0 - n.z);
-        const float b = n.x * n.y * a;
-        b1 = vec3(1.0 - n.x * n.x * a, -b, n.x);
-        b2 = vec3(b, n.y * n.y * a - 1.0, -n.y);
-    } else {
-        const float a = 1.0 / (1.0 + n.z);
-        const float b = -n.x * n.y * a;
-        b1 = vec3(1.0 - n.x * n.x * a, b, -n.x);
-        b2 = vec3(b, 1.0 - n.y * n.y * a, -n.y);
-    }
-
-    return mat3(b1, b2, n);
-}
-
-vec3 get_atmosphere_illuminance_along_ray(vec3 ray, vec3 world_camera_position, vec3 sun_direction, out bool intersects_ground)
+vec3 get_atmosphere_illuminance_along_ray(vec3 ray, float height, vec3 sun_direction, out bool intersects_ground)
 {
     daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
-    const vec3 world_up = normalize(world_camera_position);
+    const vec3 world_up = vec3(0.0, 0.0, 1.0);
 
     const float view_zenith_angle = acos(dot(ray, world_up));
     const float light_view_angle = acos(clamp(dot(
@@ -86,50 +65,53 @@ vec3 get_atmosphere_illuminance_along_ray(vec3 ray, vec3 world_camera_position, 
     );
 
     const float bottom_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
-        world_camera_position,
+        vec3(0.0, 0.0, height),
         ray,
         vec3(0.0),
         deref(settings).atmosphere_bottom
     );
 
     const float top_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
-        world_camera_position,
+        vec3(0.0, 0.0, height),
         ray,
-        vec3(0.0, 0.0, 0.0),
-        deref(settings).atmosphere_bottom
+        vec3(0.0),
+        deref(settings).atmosphere_top
     );
 
     intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
     const bool intersects_sky = top_atmosphere_intersection_distance >= 0.0;
-    const float camera_height = length(world_camera_position);
 
-    vec2 sky_uv = skyview_lut_params_to_uv(
-        intersects_ground,
-        SkyviewParams(view_zenith_angle, light_view_angle),
-        deref(settings).atmosphere_bottom,
-        deref(settings).atmosphere_top,
-        vec2(deref(settings).sky_dimensions),
-        camera_height
-    );
+    vec3 atmosphere_transmittance = vec3(1.0);
+    vec3 atmosphere_scattering_illuminance = vec3(0.0);
+    if(intersects_sky)
+    {
+        vec2 sky_uv = skyview_lut_params_to_uv(
+            intersects_ground,
+            SkyviewParams(view_zenith_angle, light_view_angle),
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top,
+            vec2(deref(settings).sky_dimensions),
+            height
+        );
 
-    const vec4 unitless_atmosphere_illuminance_mult = texture(daxa_sampler2D(push.attachments.sky, deref(push.attachments.globals).samplers.linear_clamp) , sky_uv).rgba;
-    const vec3 unitless_atmosphere_illuminance = unitless_atmosphere_illuminance_mult.rgb * unitless_atmosphere_illuminance_mult.a;
-    const vec3 sun_color_weighed_atmosphere_illuminance = sun_color.rgb * unitless_atmosphere_illuminance;
-    const vec3 atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * deref(settings).sun_brightness;
+        const vec4 unitless_atmosphere_illuminance_mult = texture(daxa_sampler2D(push.attachments.sky, deref(push.attachments.globals).samplers.linear_clamp) , sky_uv).rgba;
+        const vec3 unitless_atmosphere_illuminance = unitless_atmosphere_illuminance_mult.rgb * unitless_atmosphere_illuminance_mult.a;
+        const vec3 sun_color_weighed_atmosphere_illuminance = sun_color.rgb * unitless_atmosphere_illuminance;
+        atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * deref(settings).sun_brightness;
 
-    TransmittanceParams transmittance_lut_params = TransmittanceParams(camera_height, dot(ray, world_up));
-    vec2 transmittance_texture_uv = transmittance_lut_to_uv(
-        transmittance_lut_params,
-        deref(settings).atmosphere_bottom,
-        deref(settings).atmosphere_top
-    );
+        TransmittanceParams transmittance_lut_params = TransmittanceParams(height, dot(ray, world_up));
+        vec2 transmittance_texture_uv = transmittance_lut_to_uv(
+            transmittance_lut_params,
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top
+        );
 
-    vec3 atmosphere_transmittance = texture(
-        daxa_sampler2D(push.attachments.transmittance, deref(push.attachments.globals).samplers.linear_clamp),
-        transmittance_texture_uv
-    ).rgb;
+        atmosphere_transmittance = texture(
+            daxa_sampler2D(push.attachments.transmittance, deref(push.attachments.globals).samplers.linear_clamp),
+            transmittance_texture_uv
+        ).rgb;
+    }
 
-    if (!intersects_sky) { atmosphere_transmittance = vec3(1); }
     const mat3 sun_basis = build_orthonormal_basis(normalize(sun_direction));
     const vec3 stars_color = atmosphere_transmittance * get_star_radiance(ray * sun_basis) * float(!intersects_ground);
 
@@ -152,21 +134,27 @@ AtmosphereLightingInfo get_atmosphere_lighting(vec3 view_direction, vec3 normal)
     // Because the atmosphere is using km as it's default units and we want one unit in world
     // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
     const vec3 camera_position = deref(push.attachments.globals).camera.position * M_TO_KM_SCALE;
-    const vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET);
+    vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET);
 
-    const vec3 sun_direction = deref(settings).sun_direction;
+    const float height = length(world_camera_position);
+    const mat3 basis = build_orthonormal_basis(world_camera_position / height);
+    vec3 sun_direction = deref(settings).sun_direction;
+
+    world_camera_position = vec3(0, 0, height);
+    view_direction = view_direction * basis;
+    sun_direction = sun_direction * basis;
 
     bool normal_ray_intersects_ground;
     bool view_ray_intersects_ground;
     const vec3 atmosphere_normal_illuminance = get_atmosphere_illuminance_along_ray(
         normal,
-        world_camera_position,
+        height,
         sun_direction,
         normal_ray_intersects_ground
     );
     const vec3 atmosphere_view_illuminance = get_atmosphere_illuminance_along_ray(
         view_direction,
-        world_camera_position,
+        height,
         sun_direction,
         view_ray_intersects_ground
     );
