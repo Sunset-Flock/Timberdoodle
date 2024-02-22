@@ -215,72 +215,53 @@ bool move_to_top_atmosphere(inout vec3 world_position, vec3 world_direction,
     return true;
 }
 
-/// @param params - buffer reference to the atmosphere parameters buffer
-/// @param position - position in the world where the sample is to be taken
-/// @return atmosphere extinction at the desired point
-vec3 sample_medium_extinction(daxa_BufferPtr(SkySettings) params, vec3 position)
+// float sample_profile_density(const daxa_BufferPtr(DensityProfileLayer) profile, float above_surface_height)
+float sample_profile_density(inout DensityProfileLayer[PROFILE_LAYER_COUNT] profile, float above_surface_height)
 {
-    const float height = length(position) - deref(params).atmosphere_bottom;
-
-    const float density_mie = exp(deref(params).mie_density[1].exp_scale * height);
-    const float density_ray = exp(deref(params).rayleigh_density[1].exp_scale * height);
-    // const float density_ozo = clamp(height < deref(params).absorption_density[0].layer_width ?
-    //     deref(params).absorption_density[0].lin_term * height + deref(params).absorption_density[0].const_term :
-    //     deref(params).absorption_density[1].lin_term * height + deref(params).absorption_density[1].const_term,
-    //     0.0, 1.0);
-    const float density_ozo = exp(-max(0.0, 35.0 - height) * (1.0 / 5.0)) * exp(-max(0.0, height - 35.0) * (1.0 / 15.0)) * 2;
-    vec3 mie_extinction = deref(params).mie_extinction * density_mie;
-    vec3 ray_extinction = deref(params).rayleigh_scattering * density_ray;
-    vec3 ozo_extinction = deref(params).absorption_extinction * density_ozo;
-
-    return mie_extinction + ray_extinction + ozo_extinction;
+    int layer_index = -1;
+    float curr_layer_end = 0.0;
+    for(int i = 0; i < PROFILE_LAYER_COUNT; i++)
+    {
+        curr_layer_end += profile[i].layer_width;
+        if(above_surface_height < curr_layer_end)
+        {
+            layer_index = i;
+            break;
+        }
+    }
+    // Not in any layer
+    if(layer_index == -1) { return 0.0; }
+    return profile[layer_index].exp_term * exp(profile[layer_index].exp_scale * above_surface_height) +
+           profile[layer_index].lin_term * above_surface_height +
+           profile[layer_index].const_term;
 }
 
-/// @param params - buffer reference to the atmosphere parameters buffer
-/// @param position - position in the world where the sample is to be taken
-/// @return atmosphere scattering at the desired point
-vec3 sample_medium_scattering(daxa_BufferPtr(SkySettings) params, vec3 position)
+struct MediumSample
 {
-    const float height = length(position) - deref(params).atmosphere_bottom;
-
-    const float density_mie = exp(deref(params).mie_density[1].exp_scale * height);
-    const float density_ray = exp(deref(params).rayleigh_density[1].exp_scale * height);
-
-    vec3 mie_scattering = deref(params).mie_scattering * density_mie;
-    vec3 ray_scattering = deref(params).rayleigh_scattering * density_ray;
-    /* Not considering ozon scattering in current version of this model */
-    vec3 ozo_scattering = vec3(0.0, 0.0, 0.0);
-
-    return mie_scattering + ray_scattering + ozo_scattering;
-}
-
-struct ScatteringSample
-{
-    vec3 mie;
-    vec3 ray;
+    vec3 mie_scattering;
+    vec3 rayleigh_scattering;
+    vec3 medium_extinction;
 };
 /// @param params - buffer reference to the atmosphere parameters buffer
 /// @param position - position in the world where the sample is to be taken
-/// @return Scattering sample struct
-// TODO(msakmary) Fix this!!
-ScatteringSample sample_medium_scattering_detailed(daxa_BufferPtr(SkySettings) params, vec3 position)
+/// @return atmosphere extinction at the desired point
+MediumSample sample_medium(daxa_BufferPtr(SkySettings) params, vec3 position)
 {
-    const float height = length(position) - deref(params).atmosphere_bottom;
+    const float above_surface_height = length(position) - deref(params).atmosphere_bottom;
 
-    const float density_mie = exp(deref(params).mie_density[1].exp_scale * height);
-    const float density_ray = exp(deref(params).rayleigh_density[1].exp_scale * height);
-    // const float density_ozo = clamp(height < deref(params).absorption_density[0].layer_width ?
-    //     deref(params).absorption_density[0].lin_term * height + deref(params).absorption_density[0].const_term :
-    //     deref(params).absorption_density[1].lin_term * height + deref(params).absorption_density[1].const_term,
-    //     0.0, 1.0);
-    // const float density_ozo = exp(-max(0.0, 35.0 - height) * (1.0/5.0)) * exp(-max(0.0, height - 35.0) * (1.0/15.0)) * 2;
+    const float density_mie = sample_profile_density(deref(params).mie_density, above_surface_height);
+    const float density_ray = sample_profile_density(deref(params).rayleigh_density, above_surface_height);
+    const float density_ozo = sample_profile_density(deref(params).absorption_density, above_surface_height);
+    // const float density_ozo = exp(-max(0.0, 35.0 - height) * (1.0 / 5.0)) * exp(-max(0.0, height - 35.0) * (1.0 / 15.0)) * 2;
+    const vec3 mie_extinction = deref(params).mie_extinction * density_mie;
+    const vec3 ray_extinction = deref(params).rayleigh_scattering * density_ray;
+    const vec3 ozo_extinction = deref(params).absorption_extinction * density_ozo;
+    const vec3 medium_extinction = mie_extinction + ray_extinction + ozo_extinction;
 
-    vec3 mie_scattering = deref(params).mie_scattering * density_mie;
-    vec3 ray_scattering = deref(params).rayleigh_scattering * density_ray;
-    /* Not considering ozon scattering in current version of this model */
-    vec3 ozo_scattering = vec3(0.0, 0.0, 0.0);
+    const vec3 mie_scattering = deref(params).mie_scattering * density_mie;
+    const vec3 ray_scattering = deref(params).rayleigh_scattering * density_ray;
 
-    return ScatteringSample(mie_scattering, ray_scattering);
+    return MediumSample(mie_scattering, ray_scattering, medium_extinction);
 }
 
 #define LAYERS 5.0

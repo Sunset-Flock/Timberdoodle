@@ -112,7 +112,7 @@ void CameraController::update_matrices(Window & window)
 
 Application::Application()
 {
-    _threadpool = std::make_unique<ThreadPool>(16);
+    _threadpool = std::make_unique<ThreadPool>(7);
     _window = std::make_unique<Window>(1024, 1024, "Sandbox");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _scene = std::make_unique<Scene>(_gpu_context->device);
@@ -155,25 +155,25 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
 
-    auto const result = _scene->load_manifest_from_gltf({
-        .root_path = DEFAULT_HARDCODED_PATH,
-        .asset_name = DEFAULT_HARDCODED_FILE,
-        .thread_pool = _threadpool,
-        .asset_processor = _asset_manager,
-    });
+    // auto const result = _scene->load_manifest_from_gltf({
+    //     .root_path = DEFAULT_HARDCODED_PATH,
+    //     .asset_name = DEFAULT_HARDCODED_FILE,
+    //     .thread_pool = _threadpool,
+    //     .asset_processor = _asset_manager,
+    // });
 
-    if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
-    {
-        DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), Scene::to_string(*err)));
-    }
-    else
-    {
-        auto const r_id = std::get<RenderEntityId>(result);
-        RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
-        DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
-    }
+    // if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
+    // {
+    //     DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
+    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), Scene::to_string(*err)));
+    // }
+    // else
+    // {
+    //     auto const r_id = std::get<RenderEntityId>(result);
+    //     RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
+    //     DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
+    //         (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
+    // }
 
     last_time_point = std::chrono::steady_clock::now();
 }

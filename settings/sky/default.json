@@ -12,7 +12,7 @@
             "const_term": 2.6666600704193115,
             "exp_scale": 0.0,
             "exp_term": 0.0,
-            "layer_width": 0.0,
+            "layer_width": 75.0,
             "lin_term": -0.06666599959135056
         }
     ],
@@ -26,15 +26,15 @@
     "mie_density": [
         {
             "const_term": 0.0,
-            "exp_scale": 0.0,
-            "exp_term": 0.0,
-            "layer_width": 0.0,
+            "exp_scale": -0.8333333134651184,
+            "exp_term": 1.0,
+            "layer_width": 100.0,
             "lin_term": 0.0
         },
         {
             "const_term": 0.0,
-            "exp_scale": -0.8333333134651184,
-            "exp_term": 1.0,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
             "layer_width": 0.0,
             "lin_term": 0.0
         }
@@ -58,15 +58,15 @@
     "rayleigh_density": [
         {
             "const_term": 0.0,
-            "exp_scale": 0.0,
-            "exp_term": 0.0,
-            "layer_width": 0.0,
+            "exp_scale": -0.125,
+            "exp_term": 1.0,
+            "layer_width": 100.0,
             "lin_term": 0.0
         },
         {
             "const_term": 0.0,
-            "exp_scale": -0.125,
-            "exp_term": 1.0,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
             "layer_width": 0.0,
             "lin_term": 0.0
         }

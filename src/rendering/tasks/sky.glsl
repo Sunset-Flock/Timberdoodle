@@ -25,7 +25,7 @@ vec3 integrate_transmittance(vec3 world_position, vec3 world_direction, uint sam
     {
         /* Move along the world direction ray to new position */
         vec3 new_pos = world_position + i * integration_step * world_direction;
-        vec3 atmosphere_extinction = sample_medium_extinction(settings, new_pos);
+        vec3 atmosphere_extinction = sample_medium(settings, new_pos).medium_extinction;
         optical_depth += atmosphere_extinction * integration_step;
     }
     return optical_depth;
@@ -129,8 +129,9 @@ RaymarchResult integrate_scattered_luminance(vec3 world_position, vec3 world_dir
 
         vec3 transmittance_to_sun = texture(daxa_sampler2D(push.uses.transmittance, push.sampler_id), trans_texture_uv).rgb;
 
-        vec3 medium_scattering = sample_medium_scattering(settings, new_position);
-        vec3 medium_extinction = sample_medium_extinction(settings, new_position);
+        MediumSample m_sample = sample_medium(settings, new_position);
+        vec3 medium_scattering = m_sample.mie_scattering + m_sample.rayleigh_scattering;
+        vec3 medium_extinction = m_sample.medium_extinction;
 
         /* TODO: This probably should be a texture lookup altho might be slow*/
         vec3 trans_increase_over_integration_step = exp(-(medium_extinction * integration_step));
@@ -392,8 +393,8 @@ vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, ve
 
         /* Position shift */
         vec3 new_position = world_position + integration_step * world_direction;
-        ScatteringSample medium_scattering = sample_medium_scattering_detailed(settings, new_position);
-        vec3 medium_extinction = sample_medium_extinction(settings, new_position);
+        MediumSample m_sample = sample_medium(settings, new_position);
+        vec3 medium_extinction = m_sample.medium_extinction;
 
         vec3 up_vector = normalize(new_position);
         TransmittanceParams transmittance_lut_params = TransmittanceParams(length(new_position), dot(sun_direction, up_vector));
@@ -402,7 +403,7 @@ vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, ve
         vec2 trans_texture_uv = transmittance_lut_to_uv(transmittance_lut_params, deref(settings).atmosphere_bottom, deref(settings).atmosphere_top);
         vec3 transmittance_to_sun = texture(daxa_sampler2D(push.uses.transmittance, push.sampler_id), trans_texture_uv).rgb;
 
-        vec3 phase_times_scattering = medium_scattering.mie * mie_phase_value + medium_scattering.ray * rayleigh_phase_value;
+        vec3 phase_times_scattering = m_sample.mie_scattering * mie_phase_value + m_sample.rayleigh_scattering * rayleigh_phase_value;
 
         float earth_intersection_distance = ray_sphere_intersect_nearest(
             new_position, sun_direction, planet_zero, deref(settings).atmosphere_bottom);
@@ -413,7 +414,7 @@ vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, ve
         /* Light arriving from the sun to this point */
         vec3 sun_light =
             ((in_earth_shadow * transmittance_to_sun * phase_times_scattering) +
-                (multiscattered_luminance * (medium_scattering.ray + medium_scattering.mie))); // * deref(settings).sun_brightness;
+                (multiscattered_luminance * (m_sample.rayleigh_scattering + m_sample.mie_scattering))); // * deref(settings).sun_brightness;
 
         /* TODO: This probably should be a texture lookup*/
         vec3 trans_increase_over_integration_step = exp(-(medium_extinction * d_int_step));
