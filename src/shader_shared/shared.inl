@@ -53,7 +53,7 @@ struct DensityProfileLayer
     daxa_f32 lin_term;
     daxa_f32 const_term;
 };
-// DAXA_DECL_BUFFER_PTR(DensityProfileLayer)
+DAXA_DECL_BUFFER_PTR(DensityProfileLayer)
 
 struct SkySettings
 {
@@ -73,13 +73,16 @@ struct SkySettings
     daxa_f32 mie_scale_height;
     daxa_f32 mie_phase_function_g;
     DensityProfileLayer mie_density[PROFILE_LAYER_COUNT];
+    daxa_BufferPtr(DensityProfileLayer) mie_density_ptr; 
 
     daxa_f32vec3 rayleigh_scattering;
     daxa_f32 rayleigh_scale_height;
     DensityProfileLayer rayleigh_density[PROFILE_LAYER_COUNT];
+    daxa_BufferPtr(DensityProfileLayer) rayleigh_density_ptr; 
 
     daxa_f32vec3 absorption_extinction;
     DensityProfileLayer absorption_density[PROFILE_LAYER_COUNT];
+    daxa_BufferPtr(DensityProfileLayer) absorption_density_ptr;
 #if __cplusplus
     auto operator==(SkySettings const & other) const -> bool
     {
@@ -110,7 +113,7 @@ struct SkySettings
     }
 #endif
 };
-DAXA_DECL_BUFFER_PTR(SkySettings)
+DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 
 struct Settings
 {

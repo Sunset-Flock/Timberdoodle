@@ -215,14 +215,13 @@ bool move_to_top_atmosphere(inout vec3 world_position, vec3 world_direction,
     return true;
 }
 
-// float sample_profile_density(const daxa_BufferPtr(DensityProfileLayer) profile, float above_surface_height)
-float sample_profile_density(inout DensityProfileLayer[PROFILE_LAYER_COUNT] profile, float above_surface_height)
+float sample_profile_density(daxa_BufferPtr(DensityProfileLayer) profile, float above_surface_height)
 {
     int layer_index = -1;
     float curr_layer_end = 0.0;
     for(int i = 0; i < PROFILE_LAYER_COUNT; i++)
     {
-        curr_layer_end += profile[i].layer_width;
+        curr_layer_end += deref(profile[i]).layer_width;
         if(above_surface_height < curr_layer_end)
         {
             layer_index = i;
@@ -231,9 +230,10 @@ float sample_profile_density(inout DensityProfileLayer[PROFILE_LAYER_COUNT] prof
     }
     // Not in any layer
     if(layer_index == -1) { return 0.0; }
-    return profile[layer_index].exp_term * exp(profile[layer_index].exp_scale * above_surface_height) +
-           profile[layer_index].lin_term * above_surface_height +
-           profile[layer_index].const_term;
+    return deref(profile[layer_index]).exp_term * exp(deref(profile[layer_index]).exp_scale * above_surface_height) +
+           deref(profile[layer_index]).lin_term * above_surface_height +
+           deref(profile[layer_index]).const_term;
+    return 0.0;
 }
 
 struct MediumSample
@@ -249,10 +249,13 @@ MediumSample sample_medium(daxa_BufferPtr(SkySettings) params, vec3 position)
 {
     const float above_surface_height = length(position) - deref(params).atmosphere_bottom;
 
-    const float density_mie = sample_profile_density(deref(params).mie_density, above_surface_height);
-    const float density_ray = sample_profile_density(deref(params).rayleigh_density, above_surface_height);
-    const float density_ozo = sample_profile_density(deref(params).absorption_density, above_surface_height);
-    // const float density_ozo = exp(-max(0.0, 35.0 - height) * (1.0 / 5.0)) * exp(-max(0.0, height - 35.0) * (1.0 / 15.0)) * 2;
+    daxa_BufferPtr(DensityProfileLayer) mie_density_ptr = deref(params).mie_density_ptr;
+    daxa_BufferPtr(DensityProfileLayer) rayleigh_density_ptr = deref(params).rayleigh_density_ptr;
+    daxa_BufferPtr(DensityProfileLayer) absorption_density_ptr = deref(params).absorption_density_ptr;
+    const float density_mie = max(0.0,sample_profile_density(mie_density_ptr, above_surface_height));
+    const float density_ray = max(0.0,sample_profile_density(rayleigh_density_ptr, above_surface_height));
+    const float density_ozo = max(0.0,sample_profile_density(absorption_density_ptr, above_surface_height));
+
     const vec3 mie_extinction = deref(params).mie_extinction * density_mie;
     const vec3 ray_extinction = deref(params).rayleigh_scattering * density_ray;
     const vec3 ozo_extinction = deref(params).absorption_extinction * density_ozo;

@@ -2,18 +2,18 @@
     "_version": 1,
     "absorption_density": [
         {
-            "const_term": -0.6666600108146667,
-            "exp_scale": 0.0,
-            "exp_term": 0.0,
-            "layer_width": 25.0,
-            "lin_term": 0.06666599959135056
+            "const_term": 0.0,
+            "exp_scale": 0.2,
+            "exp_term": 0.00182376393,
+            "layer_width": 35.0,
+            "lin_term": 0.0
         },
         {
-            "const_term": 2.6666600704193115,
-            "exp_scale": 0.0,
-            "exp_term": 0.0,
-            "layer_width": 75.0,
-            "lin_term": -0.06666599959135056
+            "const_term": 0.0,
+            "exp_scale": -0.06666666666,
+            "exp_term": 20.6245170027,
+            "layer_width": 65.0,
+            "lin_term": 0.0
         }
     ],
     "absorption_extinction": {

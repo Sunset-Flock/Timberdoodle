@@ -648,7 +648,16 @@ void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & o
             recreate_sky_luts();
         }
         // Whenever the settings change we need to recalculate the transmittance and multiscattering look up textures
-        context->shader_globals.sky_settings_ptr = context->shader_globals_address + offsetof(ShaderGlobals, sky_settings);
+        const auto sky_settings_offset = offsetof(ShaderGlobals, sky_settings);
+        context->shader_globals.sky_settings_ptr = context->shader_globals_address + sky_settings_offset;
+
+        const auto mie_density_offset =  sky_settings_offset + offsetof(SkySettings, mie_density);
+        context->sky_settings.mie_density_ptr = context->shader_globals_address + mie_density_offset;
+        const auto rayleigh_density_offset =  sky_settings_offset + offsetof(SkySettings, rayleigh_density);
+        context->sky_settings.rayleigh_density_ptr = context->shader_globals_address + rayleigh_density_offset;
+        const auto absoprtion_density_offset =  sky_settings_offset + offsetof(SkySettings, absorption_density);
+        context->sky_settings.absorption_density_ptr = context->shader_globals_address + absoprtion_density_offset;
+
         context->shader_globals.sky_settings = context->sky_settings;
         sky_task_graph.execute({});
     }

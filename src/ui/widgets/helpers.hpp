@@ -39,7 +39,7 @@ namespace tido
             ImGui::EndChild();
             ImGui::SameLine();
             ImGui::SetNextItemWidth(info.left_offset);
-            ImGuiSliderFlags flags = info.clip ? ImGuiSliderFlags_None : ImGuiSliderFlags_AlwaysClamp;
+            ImGuiSliderFlags flags = info.clip ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
             ImGui::DragFloat("##", info.value, info.speed, info.min, info.max, info.format.c_str(), flags);
             ImGui::PopID();
         };

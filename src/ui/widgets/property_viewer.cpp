@@ -151,7 +151,7 @@ namespace tido
                                     for (i32 i = 0; i < x_values.size(); i++)
                                     {
                                         auto const h = layer_offset + (s_cast<f32>(i) / samples) * layer.layer_width;
-                                        auto const val = layer.exp_term * std::exp(layer.exp_scale * h) + layer.lin_term * h + layer.const_term;
+                                        auto const val = glm::max(layer.exp_term * std::exp(layer.exp_scale * h) + layer.lin_term * h + layer.const_term, 0.0f);
                                         x_values[i] = val;
                                         y_values[i] = h;
                                     }
