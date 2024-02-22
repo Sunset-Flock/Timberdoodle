@@ -660,9 +660,9 @@ auto load_accessor_data_from_file(
     /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
     ifs.seekg(gltf_buffer_view.byteOffset + accesor.byteOffset + uri.fileByteOffset);
     std::vector<u16> raw = {};
-    raw.resize(gltf_buffer_view.byteLength / 2);
-    /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
     auto const elem_byte_size = fastgltf::getElementByteSize(accesor.type, accesor.componentType);
+    raw.resize((accesor.count * elem_byte_size) / 2);
+    /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
     if (!ifs.read(r_cast<char *>(raw.data()), accesor.count * elem_byte_size))
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
@@ -698,10 +698,8 @@ auto load_accessor_data_from_file(
     {
         fastgltf::copyFromAccessor<ElemT>(gltf_asset, accesor, ret.data(), buffer_adapter);
     }
-    return {std::move(ret)};
+    return ret;
 }
-
-static std::mutex REMOVE_ME_m = {};
 
 auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
 {

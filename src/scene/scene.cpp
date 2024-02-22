@@ -102,7 +102,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 #pragma region SETUP
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu | fastgltf::Extensions::KHR_mesh_quantization};
+    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu};
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -269,7 +269,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         auto const & mesh_group = asset.meshes.at(mesh_group_index);
         u32 const mesh_group_manifest_index = s_cast<u32>(_mesh_group_manifest.size());
         /// NOTE: fastgltf::Primitive is Mesh
-        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(mesh_group.primitives.size()) && mesh_index < 30; mesh_index++)
+        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(mesh_group.primitives.size()); mesh_index++)
         {
             u32 const mesh_manifest_entry = _mesh_manifest.size();
             auto const & mesh = mesh_group.primitives.at(mesh_index);
@@ -405,7 +405,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             root_r_ent_prev_child = r_ent_id;
         }
     }
-
 #pragma endregion
 
     _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
@@ -437,7 +436,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
-            // std::this_thread::sleep_for(std::chrono::milliseconds(100));
             auto const ret_status = info.asset_processor->load_mesh(info.load_info);
             if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
             {
@@ -522,7 +520,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         }
         if (!texture_manifest_entry.material_manifest_indices.empty())
         {
-            // Launch loading of this mesh
+            // Launch loading of this texture
             info.thread_pool->async_dispatch(
                 std::make_shared<LoadTextureTask>(LoadTextureTask::TaskInfo{
                     .load_info = {

@@ -252,7 +252,7 @@ void main()
         output_value = debug_value;
 #if 1
         const vec3 light_position = vec3(-5,-5,15);
-        const vec3 light_power = vec3(1,1,1) * 100000;
+        const vec3 light_power = vec3(1,1,1) * 100;
         const float light_distance = length(tri_data.world_position - light_position);
         const vec3 to_light_dir = normalize(light_position - tri_data.world_position);
         vec3 color = (albedo.rgb * light_power) * (max(0.0, dot(to_light_dir, normal)) * 1/(light_distance*light_distance));
