@@ -207,22 +207,22 @@ namespace tido
             add_level();
             for (u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
             {
-                std::string const mesh_name = std::string(entity.name).append("- mesh ").append(std::to_string(mesh_idx));
-                MeshManifestEntry const & mesh_manifest_entry =
-                    scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
-                RetNodeState inner_node_state = add_inner_node(&mesh_manifest_entry, mesh_name, no_draw, ICONS::MESH);
-                ImGui::SameLine();
-                u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
-                char const plural_ending = meshlet_count > 1 ? 's' : ' ';
-                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
-                if (inner_node_state == RetNodeState::OPEN)
-                {
-                    MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
-                    std::string const material_uuid = material_manifest_entry.name;
-                    add_level();
-                    add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
-                    remove_level();
-                }
+                // std::string const mesh_name = std::string(entity.name).append("- mesh ").append(std::to_string(mesh_idx));
+                // MeshManifestEntry const & mesh_manifest_entry =
+                //     scene._mesh_manifest.at(meshgroup_manifest_entry.mesh_manifest_indices.at(mesh_idx));
+                // RetNodeState inner_node_state = add_inner_node(&mesh_manifest_entry, mesh_name, no_draw, ICONS::MESH);
+                // ImGui::SameLine();
+                // u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
+                // char const plural_ending = meshlet_count > 1 ? 's' : ' ';
+                // ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
+                // if (inner_node_state == RetNodeState::OPEN)
+                // {
+                //     MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
+                //     std::string const material_uuid = material_manifest_entry.name;
+                //     add_level();
+                //     add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
+                //     remove_level();
+                // }
             }
             remove_level();
             return RetNodeState::CLOSED;

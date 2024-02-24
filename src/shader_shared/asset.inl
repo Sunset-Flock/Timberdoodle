@@ -210,7 +210,7 @@ uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offs
 
 struct GPUMeshGroup
 {
-    daxa_u32 mesh_manifest_indices[MAX_MESHES_PER_MESHGROUP];
+    daxa_BufferPtr(daxa_u32) mesh_indices;
     daxa_u32 count;
 };
 DAXA_DECL_BUFFER_PTR(GPUMeshGroup)

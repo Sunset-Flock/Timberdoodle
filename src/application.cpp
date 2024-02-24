@@ -151,8 +151,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
@@ -196,7 +196,11 @@ auto Application::run() -> i32
             _renderer->window_resized();
         }
         update();
-        _renderer->render_frame(this->camera_controller.cam_info, this->observer_camera_controller.cam_info, delta_time);
+        _renderer->render_frame(
+            this->camera_controller.cam_info, 
+            this->observer_camera_controller.cam_info, 
+            delta_time,
+            this->_scene->scene_renderer_context);
     }
     return 0;
 }

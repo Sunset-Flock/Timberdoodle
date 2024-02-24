@@ -168,7 +168,7 @@ void Renderer::compile_pipelines()
         {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
         {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
         {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
-        {CullMeshesCommandWriteTask{}.name(), cull_meshes_write_command_pipeline_compile_info()},
+        // {CullMeshesCommandWriteTask{}.name(), cull_meshes_write_command_pipeline_compile_info()},
         {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
         {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},
         {PrefixSumUpsweepTask{}.name(), prefix_sum_upsweep_pipeline_compile_info()},
@@ -395,6 +395,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(context->tshader_globals_buffer);
+    task_list.use_persistent_buffer(scene_context.opaque_draw_list_buffer);
     auto detector_image = context->shader_debug_context.tdetector_image;
     task_list.use_persistent_image(detector_image);
     for (auto const & timage : images)
@@ -473,8 +474,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto [meshlets_cull_arg_buckets_buffer_opaque, meshlets_cull_arg_buckets_buffer_discard] = tasks_cull_meshes(
         TaskCullMeshesInfo{
             .context = context,
+            .scene_context = &scene_context,
             .task_list = task_list,
             .globals = context->tshader_globals_buffer,
+            .opaque_draw_lists = scene_context.opaque_draw_list_buffer,
             .meshes = scene->_gpu_mesh_manifest,
             .materials = scene->_gpu_material_manifest,
             .entity_meta = scene->_gpu_entity_meta,
@@ -618,8 +621,13 @@ void Renderer::update_settings()
         1.0f / context->settings.render_target_size.x, 1.0f / context->settings.render_target_size.y};
 }
 
-void Renderer::render_frame(CameraInfo const & camera_info, CameraInfo const & observer_camera_info, f32 const delta_time)
+void Renderer::render_frame(
+    CameraInfo const & camera_info, 
+    CameraInfo const & observer_camera_info,
+    f32 const delta_time,
+    SceneRendererContext scene_context)
 {
+    this->scene_context = scene_context;
     if (window->size.x == 0 || window->size.y == 0) { return; }
 
     auto reloaded_result = context->pipeline_manager.reload_all();

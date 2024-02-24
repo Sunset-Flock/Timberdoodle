@@ -7,6 +7,7 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/scene.inl"
+#include "../../shader_shared/geometry_pipeline.inl"
 
 ///
 /// CullMeshesTask goes through all entities and their meshlists.
@@ -14,18 +15,19 @@
 /// It also generates a list of meshlet counts for each mesh, that the following meshlet culling uses.
 ///
 
-#define CULL_MESHES_WORKGROUP_X 8
-#define CULL_MESHES_WORKGROUP_Y (MAX_MESHES_PER_MESHGROUP)
+#define CULL_MESHES_WORKGROUP_X 128
+#define CULL_MESHES_WORKGROUP_Y 1
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 3)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
-DAXA_DECL_TASK_HEAD_END
+// DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesCommand, 3)
+// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
+// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
+// DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
+// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
@@ -44,11 +46,11 @@ DAXA_TH_BUFFER_PTR(
     meshlet_cull_arg_buckets_discard)
 DAXA_DECL_TASK_HEAD_END
 
-struct CullMeshesCommandPush
-{
-    DAXA_TH_BLOB(CullMeshesCommand, uses)
-    daxa_u32 dummy;
-};
+// struct CullMeshesCommandPush
+// {
+//     DAXA_TH_BLOB(CullMeshesCommand, uses)
+//     daxa_u32 dummy;
+// };
 
 struct CullMeshesPush
 {
@@ -58,15 +60,16 @@ struct CullMeshesPush
 
 #if __cplusplus
 #include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
 
-using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
-auto cull_meshes_write_command_pipeline_compile_info()
-{
-    return write_indirect_dispatch_args_base_compile_pipeline_info<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>();
-}
+// using CullMeshesCommandWriteTask = WriteIndirectDispatchArgsPushBaseTask<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>;
+// auto cull_meshes_write_command_pipeline_compile_info()
+// {
+//     return write_indirect_dispatch_args_base_compile_pipeline_info<CullMeshesCommand, CULL_MESHES_SHADER_PATH, CullMeshesCommandPush>();
+// }
 
 inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
 {
@@ -81,6 +84,7 @@ struct CullMeshesTask : CullMeshes
 {
     AttachmentViews views = {};
     GPUContext * context = {};
+    SceneRendererContext* scene_context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
@@ -88,15 +92,22 @@ struct CullMeshesTask : CullMeshes
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
         });
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
+        auto const total_mesh_draws = scene_context->opaque_draw_lists[0].size() + scene_context->opaque_draw_lists[1].size();
+        ti.recorder.dispatch(daxa::DispatchInfo{
+            round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X),
+            1,
+            1,
+        });
     }
 };
 
 struct TaskCullMeshesInfo
 {
     GPUContext * context = {};
+    SceneRendererContext * scene_context = {};
     daxa::TaskGraph & task_list;
     daxa::TaskBufferView globals = {};
+    daxa::TaskBufferView opaque_draw_lists = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView materials = {};
     daxa::TaskBufferView entity_meta = {};
@@ -150,24 +161,25 @@ auto tasks_cull_meshes(TaskCullMeshesInfo const & info) -> std::pair<daxa::TaskB
         .name = "init meshlet cull arg buckets buffer",
     });
 
-    auto command_buffer = info.task_list.create_transient_buffer({
-        .size = sizeof(DispatchIndirectStruct),
-        .name = "CullMeshesCommand",
-    });
+    // auto command_buffer = info.task_list.create_transient_buffer({
+    //     .size = sizeof(DispatchIndirectStruct),
+    //     .name = "CullMeshesCommand",
+    // });
 
-    info.task_list.add_task(CullMeshesCommandWriteTask{
-        .views = std::array{
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::globals, info.globals}},
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, info.entity_meta}},
-            daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::command, command_buffer}},
-        },
-        .context = info.context,
-    });
+    // info.task_list.add_task(CullMeshesCommandWriteTask{
+    //     .views = std::array{
+    //         daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::globals, info.globals}},
+    //         daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::entity_meta, info.entity_meta}},
+    //         daxa::TaskViewVariant{std::pair{CullMeshesCommandWriteTask::command, command_buffer}},
+    //     },
+    //     .context = info.context,
+    // });
 
     info.task_list.add_task(CullMeshesTask{
         .views = std::array{
             daxa::attachment_view(CullMeshesTask::globals, info.globals),
-            daxa::attachment_view(CullMeshesTask::command, command_buffer),
+            daxa::attachment_view(CullMeshesTask::opaque_mesh_draw_lists, info.opaque_draw_lists),
+            // daxa::attachment_view(CullMeshesTask::command, command_buffer),
             daxa::attachment_view(CullMeshesTask::meshes, info.meshes),
             daxa::attachment_view(CullMeshesTask::materials, info.materials),
             daxa::attachment_view(CullMeshesTask::entity_meta, info.entity_meta),
@@ -180,6 +192,7 @@ auto tasks_cull_meshes(TaskCullMeshesInfo const & info) -> std::pair<daxa::TaskB
             daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
         },
         .context = info.context,
+        .scene_context = info.scene_context,
     });
     return {meshlets_cull_arg_buckets_buffer_opaque, meshlets_cull_arg_buckets_buffer_discard};
 }

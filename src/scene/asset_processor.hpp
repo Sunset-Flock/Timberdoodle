@@ -119,6 +119,9 @@ struct AssetProcessor
         u32 gltf_primitive_index = {};
         u32 global_material_manifest_offset = {};
         u32 manifest_index = {};
+        // MUST BE VALID MATERIAL INDEX
+        // REPLACE WITH DEFAULT MATERIAL BEFORE PASSING INDEX HERE!
+        u32 material_manifest_index = {};
     };
     /**
      * THREADSAFETY:

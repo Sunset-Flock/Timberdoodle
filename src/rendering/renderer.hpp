@@ -9,6 +9,7 @@
 #include "../scene/asset_processor.hpp"
 
 #include "../gpu_context.hpp"
+#include "scene_renderer_context.hpp"
 
 // Renderer struct.
 // This should idealy handle all rendering related information and functionality.
@@ -25,7 +26,11 @@ struct Renderer
     auto create_sky_lut_task_graph() -> daxa::TaskGraph;
     void recreate_sky_luts();
     void update_settings();
-    void render_frame(CameraInfo const &camera_info, CameraInfo const &observer_camera_info, f32 const delta_time);
+    void render_frame(
+        CameraInfo const &camera_info, 
+        CameraInfo const &observer_camera_info, 
+        f32 const delta_time,
+        SceneRendererContext scene_context);
 
     daxa::TaskBuffer zero_buffer = {};
 
@@ -52,6 +57,7 @@ struct Renderer
 
     Window *window = {};
     GPUContext *context = {};
+    SceneRendererContext scene_context = {};
     Scene *scene = {};
     AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;

@@ -68,6 +68,14 @@ Scene::Scene(daxa::Device device)
                 .name = "_gpu_material_manifest"}),
         },
     });
+    scene_renderer_context.opaque_draw_list_buffer.set_buffers(daxa::TrackedBuffers{
+        .buffers = std::array{
+            _device.create_buffer({
+                .size = get_opaque_draw_list_buffer_size(),
+                .name = "opaque draw list buffer",
+            }),
+        },
+    });
 }
 
 Scene::~Scene()
@@ -79,6 +87,8 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_mesh_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
+    _device.destroy_buffer(scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0]);
+    _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
 
     for (auto & mesh : _mesh_manifest)
     {
@@ -263,37 +273,44 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
 #pragma region POPULATE_MESHGROUP_AND_MESH_MANIFEST
     /// NOTE: fastgltf::Mesh is a MeshGroup
-    std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
+    // std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); mesh_group_index++)
     {
-        auto const & mesh_group = asset.meshes.at(mesh_group_index);
+        auto const & gltf_mesh = asset.meshes.at(mesh_group_index);
+        // Linearly allocate chunk from indices array:
+        u32 const mesh_manifest_indices_array_offset = static_cast<u32>(mesh_manifest_indices_new.size());
+        mesh_manifest_indices_new.resize(mesh_manifest_indices_new.size() + gltf_mesh.primitives.size());
+
         u32 const mesh_group_manifest_index = s_cast<u32>(_mesh_group_manifest.size());
         /// NOTE: fastgltf::Primitive is Mesh
-        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(mesh_group.primitives.size()); mesh_index++)
+        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(gltf_mesh.primitives.size()); mesh_index++)
         {
             u32 const mesh_manifest_entry = _mesh_manifest.size();
-            auto const & mesh = mesh_group.primitives.at(mesh_index);
-            mesh_manifest_indices.at(mesh_index) = mesh_manifest_entry;
-            std::optional<u32> material_manifest_index = mesh.materialIndex.has_value() ? std::optional{s_cast<u32>(mesh.materialIndex.value()) + material_manifest_offset} : std::nullopt;
+            auto const & gltf_primitive = gltf_mesh.primitives.at(mesh_index);
+            mesh_manifest_indices_new.at(mesh_manifest_indices_array_offset + mesh_index) = mesh_manifest_entry;
+            std::optional<u32> material_manifest_index = 
+                gltf_primitive.materialIndex.has_value() ? 
+                std::optional{s_cast<u32>(gltf_primitive.materialIndex.value()) + material_manifest_offset} : 
+                std::nullopt;
             _mesh_manifest.push_back(MeshManifestEntry{
                 .gltf_asset_manifest_index = gltf_asset_manifest_index,
                 // Gltf calls a meshgroup a mesh because these local indices are only used for loading we use the gltf naming
                 .asset_local_mesh_index = mesh_group_index,
                 // Same as above Gltf calls a mesh a primitive
                 .asset_local_primitive_index = mesh_index,
+                .material_index = material_manifest_index,
             });
             _new_mesh_manifest_entries += 1;
         }
 
         _mesh_group_manifest.push_back(MeshGroupManifestEntry{
-            .mesh_manifest_indices = std::move(mesh_manifest_indices),
-            .mesh_count = s_cast<u32>(mesh_group.primitives.size()),
+            .mesh_manifest_indices_array_offset = mesh_manifest_indices_array_offset,
+            .mesh_count = s_cast<u32>(gltf_mesh.primitives.size()),
             .gltf_asset_manifest_index = gltf_asset_manifest_index,
             .asset_local_index = mesh_group_index,
-            .name = mesh_group.name.c_str(),
+            .name = gltf_mesh.name.c_str(),
         });
         _new_mesh_group_manifest_entries += 1;
-        mesh_manifest_indices.fill(0u);
     }
 #pragma endregion
 
@@ -407,6 +424,40 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
     }
 #pragma endregion
 
+#pragma region TEMP_CREATE_MESH_DRAW_LISTS
+    for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
+    {
+        RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
+        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
+        {
+            MeshGroupManifestEntry const & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
+            for (u32 in_meshgroup_mesh_i = 0; in_meshgroup_mesh_i < mesh_group.mesh_count; ++in_meshgroup_mesh_i)
+            {
+                u32 const mesh_index = mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_meshgroup_mesh_i);
+                MeshManifestEntry const & mesh = _mesh_manifest.at(mesh_index);
+                // TODO: add dummy material!
+                if (mesh.material_index.has_value())
+                {
+                    MaterialManifestEntry const & material = _material_manifest.at(mesh.material_index.value());
+                    auto mesh_draw = MeshDrawTuple{
+                        .entity_index = entity_i, 
+                        .mesh_index = mesh_index, 
+                        .in_mesh_group_index = in_meshgroup_mesh_i,
+                    };
+                    if (material.alpha_discard_enabled)
+                    {
+                        scene_renderer_context.opaque_draw_lists[OPAQUE_DRAW_LIST_MASKED].push_back(mesh_draw);
+                    }
+                    else
+                    {
+                        scene_renderer_context.opaque_draw_lists[OPAQUE_DRAW_LIST_SOLID].push_back(mesh_draw);
+                    }
+                }
+            }
+        }
+    }
+#pragma endregion
+
     _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
         .path = file_path,
         .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(asset)),
@@ -455,6 +506,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         auto const & curr_asset = _gltf_asset_manifest.back();
         auto const & mesh_manifest_entry = _mesh_manifest.at(curr_asset.mesh_manifest_offset + mesh_manifest_index);
         // Launch loading of this mesh
+        // TODO: ADD REAL DUMMY MATERIAL INDEX!
+        u32 const dummy_material_index = 0;
         info.thread_pool->async_dispatch(
             std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
                 .load_info = {
@@ -464,6 +517,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
                     .gltf_primitive_index = mesh_manifest_entry.asset_local_primitive_index,
                     .global_material_manifest_offset = curr_asset.material_manifest_offset,
                     .manifest_index = mesh_manifest_index,
+                    .material_manifest_index = mesh_manifest_entry.material_index.value_or(dummy_material_index),
                 },
                 .asset_processor = info.asset_processor.get(),
             }),
@@ -642,10 +696,78 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .size = sizeof(u32),
         });
     }
+#pragma region TEMP_UPLOAD_OPAQUE_DRAW_LISTS
+    if (!_dirty_render_entities.empty())
+    {
+        auto opaque_draw_list_buffer_head = make_opaque_draw_list_buffer_head(
+            _device.get_device_address(scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0]).value(),
+            std::array{
+                std::span{scene_renderer_context.opaque_draw_lists[0]},
+                std::span{scene_renderer_context.opaque_draw_lists[1]},
+            }
+        );
+        auto staging = _device.create_buffer({
+            .size = 
+                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
+                    scene_renderer_context.opaque_draw_lists[0].size() + 
+                    scene_renderer_context.opaque_draw_lists[1].size()
+                ),
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "opaque draw lists buffer upload",
+        });
+        recorder.destroy_buffer_deferred(staging);
+        auto staging_ptr = _device.get_host_address(staging).value();
+        *reinterpret_cast<OpaqueMeshDrawListBufferHead*>(staging_ptr) = opaque_draw_list_buffer_head;
+        std::memcpy(
+            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead), 
+            scene_renderer_context.opaque_draw_lists[0].data(), 
+            scene_renderer_context.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple)
+        );
+        std::memcpy(
+            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead) + 
+            scene_renderer_context.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple), 
+            scene_renderer_context.opaque_draw_lists[1].data(), 
+            scene_renderer_context.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple)
+        );
+        recorder.copy_buffer_to_buffer({
+            .src_buffer = staging,
+            .dst_buffer = scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0],
+            .size = 
+                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
+                scene_renderer_context.opaque_draw_lists[0].size() +
+                scene_renderer_context.opaque_draw_lists[1].size()),
+        });
+    }
+
+#pragma endregion
     _dirty_render_entities.clear();
 
     if (_new_mesh_group_manifest_entries > 0)
     {
+        if (!_gpu_mesh_group_indices_array_buffer.is_empty())
+        {
+            recorder.destroy_buffer_deferred(_gpu_mesh_group_indices_array_buffer);
+        }
+        usize mesh_group_indices_mem_size = sizeof(daxa_u32) * mesh_manifest_indices_new.size();
+        _gpu_mesh_group_indices_array_buffer = _device.create_buffer({
+            .size = mesh_group_indices_mem_size,
+            .name = "_gpu_mesh_group_indices_array_buffer",
+        });
+        daxa::BufferId mesh_groups_indices_staging = _device.create_buffer({
+            .size = mesh_group_indices_mem_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "mesh group update staging buffer",
+        });
+        recorder.destroy_buffer_deferred(mesh_groups_indices_staging);
+        u32 * indices_staging_ptr = _device.get_host_address_as<u32>(mesh_groups_indices_staging).value();
+        std::memcpy(indices_staging_ptr, mesh_manifest_indices_new.data(), mesh_manifest_indices_new.size());
+        recorder.copy_buffer_to_buffer({
+            .src_buffer = mesh_groups_indices_staging,
+            .dst_buffer = _gpu_mesh_group_indices_array_buffer,
+            .size = mesh_group_indices_mem_size,
+        });
+        auto mesh_group_indices_array_addr = _device.get_device_address(_gpu_mesh_group_indices_array_buffer).value();
+
         u32 const mesh_group_staging_buffer_size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries;
         daxa::BufferId mesh_group_staging_buffer = _device.create_buffer({
             .size = mesh_group_staging_buffer_size,
@@ -658,11 +780,10 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         for (u32 new_mesh_group_idx = 0; new_mesh_group_idx < _new_mesh_group_manifest_entries; new_mesh_group_idx++)
         {
             u32 const mesh_group_manifest_idx = mesh_group_manifest_offset + new_mesh_group_idx;
+            staging_ptr[new_mesh_group_idx].mesh_indices = 
+                mesh_group_indices_array_addr + 
+                sizeof(daxa_u32) * _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_manifest_indices_array_offset;
             staging_ptr[new_mesh_group_idx].count = _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_count;
-            std::memcpy(
-                &staging_ptr[new_mesh_group_idx].mesh_manifest_indices,
-                _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_manifest_indices.data(),
-                sizeof(_mesh_group_manifest.at(mesh_group_manifest_idx).mesh_manifest_indices));
         }
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_group_staging_buffer,

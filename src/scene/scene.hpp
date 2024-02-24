@@ -10,6 +10,7 @@
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "../multithreading/thread_pool.hpp"
+#include "../rendering/scene_renderer_context.hpp"
 #include "asset_processor.hpp"
 using namespace tido::types;
 /**
@@ -63,12 +64,13 @@ struct MeshManifestEntry
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_mesh_index = {};
     u32 asset_local_primitive_index = {};
+    std::optional<u32> material_index = {};
     std::optional<GPUMesh> runtime = {};
 };
 
 struct MeshGroupManifestEntry
 {
-    std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices = {}; 
+    u32 mesh_manifest_indices_array_offset = {};
     u32 mesh_count = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
@@ -154,11 +156,13 @@ struct Scene
      * */
     daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};
     daxa::TaskBuffer _gpu_mesh_group_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_group_manifest"};
+    daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
     daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshManifestEntry> _mesh_manifest = {};
+    std::vector<u32> mesh_manifest_indices_new = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
@@ -166,6 +170,8 @@ struct Scene
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
+
+    SceneRendererContext scene_renderer_context = {};
 
     Scene(daxa::Device device);
     ~Scene();

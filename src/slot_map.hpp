@@ -56,6 +56,14 @@ namespace tido
                 }
                 return false;
             }
+            auto slot_by_index(size_t index) -> T *
+            {
+                if (index < this->_slots.size())
+                {
+                    return &_slots[index].value();
+                }
+                return nullptr;
+            }
             auto slot(Id id) -> T *
             {
                 if (this->is_id_valid(id))

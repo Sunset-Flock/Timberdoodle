@@ -957,8 +957,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         vert_normals.size() * sizeof(daxa_f32vec3));
     accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
     // ---
-    /// TODO: If there is no material index add default debug material?
-    mesh.material_index = info.global_material_manifest_offset + gltf_prim.materialIndex.value();
+    mesh.material_index = info.material_manifest_index;
     mesh.meshlet_count = meshlet_count;
     mesh.vertex_count = vertex_count;
 

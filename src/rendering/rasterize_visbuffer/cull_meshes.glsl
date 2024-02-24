@@ -8,40 +8,44 @@
 
 #extension GL_EXT_debug_printf : enable
 
-#if defined(CullMeshesCommand_COMMAND)
-layout(local_size_x = 1) in;
-DAXA_DECL_PUSH_CONSTANT(CullMeshesCommandPush, push)
-void main()
-{
-    const uint entity_count = deref(push.uses.entity_meta).entity_count;
-    const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
-    deref(push.uses.command).x = dispatch_x;
-    deref(push.uses.command).y = 1;
-    deref(push.uses.command).z = 1;
-}
-#else
+// #if defined(CullMeshesCommand_COMMAND)
+// layout(local_size_x = 1) in;
+// DAXA_DECL_PUSH_CONSTANT(CullMeshesCommandPush, push)
+// void main()
+// {
+//     const uint entity_count = deref(push.uses.entity_meta).entity_count;
+//     const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
+//     deref(push.uses.command).x = dispatch_x;
+//     deref(push.uses.command).y = 1;
+//     deref(push.uses.command).z = 1;
+// }
+// #else
 DAXA_DECL_PUSH_CONSTANT(CullMeshesPush, push)
 layout(local_size_x = CULL_MESHES_WORKGROUP_X, local_size_y = CULL_MESHES_WORKGROUP_Y) in;
 void main()
 {
-    const uint entity_index = gl_GlobalInvocationID.x;
-    const uint in_meshgroup_index = gl_LocalInvocationID.y;
-    if (entity_index >= deref(push.uses.entity_meta).entity_count)
+    uint mesh_draw_index = gl_GlobalInvocationID.x;
+    uint opaque_draw_list_index = 0;
+    // We do a single dispatch to cull both lists, the shader threads simply check if their id overruns the first list,
+    // then assign themselves to an element in the second list.
+    if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[0])
     {
+        mesh_draw_index -= deref(push.uses.opaque_mesh_draw_lists).list_sizes[0];
+        opaque_draw_list_index = 1;
+    }
+    else
+    {
+    }
+    // As the dispatch thread count is a multiple of CULL_MESHES_WORKGROUP_X, there will also be threads overstepping
+    // the second draw list.
+    if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[1])
+    {
+        // debugPrintfEXT("out mesh_draw_index > list1 count: %i > %i\n", mesh_draw_index, deref(push.uses.opaque_mesh_draw_lists).list_sizes[1]);
         return;
     }
-    const uint meshgroup_index = deref(push.uses.entity_meshgroup_indices[entity_index]);
-    if (meshgroup_index == INVALID_MANIFEST_INDEX)
-    {
-        return;
-    }
-    const GPUMeshGroup mesh_group = deref(push.uses.meshgroups + meshgroup_index);
-    if (in_meshgroup_index >= mesh_group.count)
-    {
-        return;
-    }
-    const uint mesh_index = mesh_group.mesh_manifest_indices[in_meshgroup_index];
-    const uint meshlet_count = deref(push.uses.meshes[mesh_index]).meshlet_count;
+
+    const MeshDrawTuple mesh_draw = deref(deref(push.uses.opaque_mesh_draw_lists).mesh_draw_tuples[opaque_draw_list_index][mesh_draw_index]);
+    const uint meshlet_count = deref(push.uses.meshes[mesh_draw.mesh_index]).meshlet_count;
     if (meshlet_count == 0)
     {
         return;
@@ -60,13 +64,13 @@ void main()
     //   - A strong compromise is to round up invocation count from meshletcount in such a way that the round up value only has 4 bits set at most.
     //   - as we do one writeout per bit set in meshlet count, this limits the writeout to 5.
     // - in worst case this can go down from thousands of divergent writeouts down to 5 while only wasting < 5% of invocations.
-    const uint material_index = deref(push.uses.meshes[mesh_index]).material_index;
+    const uint material_index = deref(push.uses.meshes[mesh_draw.mesh_index]).material_index;
     GPUMaterial material = deref(push.uses.materials[material_index]);
-    uint opaque_or_discard = material.alpha_discard_enabled ? 1 : 0;
     daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead) cull_buckets = 
-        opaque_or_discard == 0 ? 
+        opaque_draw_list_index == 0 ? 
         push.uses.meshlet_cull_arg_buckets_opaque :
         push.uses.meshlet_cull_arg_buckets_discard;
+        
     const uint MAX_BITS = 5;
     uint meshlet_count_msb = findMSB(meshlet_count);
     const uint shift = uint(max(0, int(meshlet_count_msb) + 1 - int(MAX_BITS)));
@@ -107,13 +111,13 @@ void main()
             }
         }
         MeshletCullIndirectArg arg;
-        arg.entity_index = entity_index;
-        arg.mesh_index = mesh_index;
+        arg.entity_index = mesh_draw.entity_index;
+        arg.mesh_index = mesh_draw.mesh_index;
         arg.material_index = material_index;
-        arg.in_meshgroup_index = in_meshgroup_index;
+        arg.in_meshgroup_index = mesh_draw.in_mesh_group_index;
         arg.meshlet_indices_offset = meshlet_offset;
         deref(deref(cull_buckets).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }
 }
-#endif
+//#endif
