@@ -392,3 +392,113 @@ vec3 get_star_radiance(vec3 view_direction) {
 
     return stars(ro, view_direction, sp, sf) * 0.001;
 }
+
+const vec4 sun_color = vec4(255.0, 240.0, 233.0, 255.0)/255.0; // 5800K
+vec3 get_sun_illuminance(
+    daxa_BufferPtr(SkySettings) settings,
+    daxa_ImageViewId transmittance,
+    daxa_SamplerId lin_sampler,
+    vec3 view_direction,
+    float height,
+    float zenith_cos_angle
+    )
+{
+    const float sun_solid_angle = 0.25 * PI / 180.0;
+    const float min_sun_cos_theta = cos(sun_solid_angle);
+
+    const vec3 sun_direction = deref(settings).sun_direction;
+    const float cos_theta = dot(view_direction, sun_direction);
+    if(cos_theta >= min_sun_cos_theta) 
+    {
+        TransmittanceParams transmittance_lut_params = TransmittanceParams(height, zenith_cos_angle);
+        vec2 transmittance_texture_uv = transmittance_lut_to_uv(
+            transmittance_lut_params,
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top
+        );
+        
+        vec3 transmittance_to_sun = texture( 
+            daxa_sampler2D( transmittance, lin_sampler),
+            transmittance_texture_uv
+        ).rgb;
+
+        return transmittance_to_sun * sun_color.rgb * deref(settings).sun_brightness;
+    }
+    return vec3(0.0);
+}
+
+vec3 get_atmosphere_illuminance_along_ray(
+    daxa_BufferPtr(SkySettings) settings,
+    daxa_ImageViewId transmittance,
+    daxa_ImageViewId sky,
+    daxa_SamplerId lin_sampler,
+    vec3 ray,
+    vec3 world_position
+)
+{
+    const float height = length(world_position);
+    const mat3 basis = build_orthonormal_basis(world_position / height);
+    ray = ray * basis;
+    const vec3 sun_direction = deref(settings).sun_direction * basis;
+
+    const vec3 world_up = vec3(0.0, 0.0, 1.0);
+    const float view_zenith_angle = acos(dot(ray, world_up));
+    const float light_view_angle = acos(clamp(dot(
+        normalize(vec3(sun_direction.xy, 0.0)),
+        normalize(vec3(ray.xy, 0.0))
+        ),-1.0, 1.0)
+    );
+
+    const float bottom_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
+        vec3(0.0, 0.0, height),
+        ray,
+        vec3(0.0),
+        deref(settings).atmosphere_bottom
+    );
+
+    const float top_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
+        vec3(0.0, 0.0, height),
+        ray,
+        vec3(0.0),
+        deref(settings).atmosphere_top
+    );
+
+    const bool intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
+    const bool intersects_sky = top_atmosphere_intersection_distance >= 0.0;
+
+    vec3 atmosphere_transmittance = vec3(1.0);
+    vec3 atmosphere_scattering_illuminance = vec3(0.0);
+    if(intersects_sky)
+    {
+        vec2 sky_uv = skyview_lut_params_to_uv(
+            intersects_ground,
+            SkyviewParams(view_zenith_angle, light_view_angle),
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top,
+            vec2(deref(settings).sky_dimensions),
+            height
+        );
+
+        const vec4 unitless_atmosphere_illuminance_mult = texture(daxa_sampler2D(sky, lin_sampler) , sky_uv).rgba;
+        const vec3 unitless_atmosphere_illuminance = unitless_atmosphere_illuminance_mult.rgb * unitless_atmosphere_illuminance_mult.a;
+        const vec3 sun_color_weighed_atmosphere_illuminance = sun_color.rgb * unitless_atmosphere_illuminance;
+        atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * deref(settings).sun_brightness;
+
+        TransmittanceParams transmittance_lut_params = TransmittanceParams(height, dot(ray, world_up));
+        vec2 transmittance_texture_uv = transmittance_lut_to_uv(
+            transmittance_lut_params,
+            deref(settings).atmosphere_bottom,
+            deref(settings).atmosphere_top
+        );
+
+        atmosphere_transmittance = texture(
+            daxa_sampler2D(transmittance, lin_sampler),
+            transmittance_texture_uv
+        ).rgb;
+    }
+
+    const mat3 sun_basis = build_orthonormal_basis(normalize(sun_direction));
+    const vec3 stars_color = atmosphere_transmittance * get_star_radiance(ray * sun_basis) * float(!intersects_ground);
+
+    return atmosphere_scattering_illuminance + stars_color;
+}

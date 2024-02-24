@@ -55,6 +55,7 @@ Renderer::Renderer(
     color_image = daxa::TaskImage{{.name = "color_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
+    sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
 
     images = {
         debug_image,
@@ -63,6 +64,7 @@ Renderer::Renderer(
         color_image,
         transmittance,
         multiscattering,
+        sky_ibl_cube,
     };
 
     frame_buffer_images = {
@@ -177,6 +179,7 @@ void Renderer::compile_pipelines()
         {ComputeTransmittance{}.name(), compute_transmittance_pipeline_compile_info()},
         {ComputeMultiscattering{}.name(), compute_multiscattering_pipeline_compile_info()},
         {ComputeSky{}.name(), compute_sky_pipeline_compile_info()},
+        {SkyIntoCubemap{}.name(), sky_into_cubemap_pipeline_compile_info()},
         {GenLuminanceHistogram{}.name(), gen_luminace_histogram_pipeline_compile_info()},
         {GenLuminanceAverage{}.name(), gen_luminace_average_pipeline_compile_info()},
     };
@@ -217,6 +220,10 @@ void Renderer::recreate_sky_luts()
     {
         context->device.destroy_image(multiscattering.get_state().images[0]);
     }
+    if (!sky_ibl_cube.get_state().images.empty() && !sky_ibl_cube.get_state().images[0].is_empty())
+    {
+        context->device.destroy_image(sky_ibl_cube.get_state().images[0]);
+    }
     transmittance.set_images({
         .images = std::array{
             context->device.create_image({
@@ -235,6 +242,19 @@ void Renderer::recreate_sky_luts()
                 .size = {context->sky_settings.multiscattering_dimensions.x, context->sky_settings.multiscattering_dimensions.y, 1},
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
                 .name = "multiscattering look up table",
+            }),
+        },
+    });
+
+    sky_ibl_cube.set_images({
+        .images = std::array{
+            context->device.create_image({
+                .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
+                .format = daxa::Format::R16G16B16A16_SFLOAT,
+                .size = {IBL_CUBE_RES, IBL_CUBE_RES, 1},
+                .array_layer_count = 6,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+                .name = "ibl cube",
             }),
         },
     });
@@ -274,7 +294,11 @@ void Renderer::clear_select_buffers()
 
 void Renderer::window_resized()
 {
-    if (this->window->size.x == 0 || this->window->size.y == 0) { return; }
+    if (this->window->size.x == 0 || this->window->size.y == 0) 
+    { 
+        DEBUG_MSG("minimized");
+        return; 
+    }
     this->context->swapchain.resize();
     recreate_framebuffer();
 }
@@ -316,6 +340,7 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
         },
         .name = "update sky settings globals",
     });
+
     task_graph.add_task(ComputeTransmittanceTask{
         .views = std::array{
             daxa::TaskViewVariant{std::pair{ComputeTransmittanceTask::globals, context->tshader_globals_buffer}},
@@ -447,6 +472,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
+    task_list.add_task(SkyIntoCubemapTask{
+        .views = std::array{
+            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::globals, context->tshader_globals_buffer}},
+            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::transmittance, transmittance}},
+            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::sky, sky}},
+            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::ibl_cube, sky_ibl_cube.view().view({.layer_count = 6})}},
+        },
+        .context = context,
+    });
     task_prepopulate_instantiated_meshlets(context, task_list,
         PrepopInfo{
             .meshes = scene->_gpu_mesh_manifest,
@@ -549,6 +583,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
             daxa::attachment_view(ShadeOpaqueTask::transmittance, transmittance),
             daxa::attachment_view(ShadeOpaqueTask::sky, sky),
+            daxa::attachment_view(ShadeOpaqueTask::sky_ibl, sky_ibl_cube),
             daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
             daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
             daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
@@ -622,7 +657,7 @@ void Renderer::update_settings()
 }
 
 void Renderer::render_frame(
-    CameraInfo const & camera_info, 
+    CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
     f32 const delta_time,
     SceneRendererContext scene_context)
@@ -656,14 +691,14 @@ void Renderer::render_frame(
             recreate_sky_luts();
         }
         // Whenever the settings change we need to recalculate the transmittance and multiscattering look up textures
-        const auto sky_settings_offset = offsetof(ShaderGlobals, sky_settings);
+        auto const sky_settings_offset = offsetof(ShaderGlobals, sky_settings);
         context->shader_globals.sky_settings_ptr = context->shader_globals_address + sky_settings_offset;
 
-        const auto mie_density_offset =  sky_settings_offset + offsetof(SkySettings, mie_density);
+        auto const mie_density_offset = sky_settings_offset + offsetof(SkySettings, mie_density);
         context->sky_settings.mie_density_ptr = context->shader_globals_address + mie_density_offset;
-        const auto rayleigh_density_offset =  sky_settings_offset + offsetof(SkySettings, rayleigh_density);
+        auto const rayleigh_density_offset = sky_settings_offset + offsetof(SkySettings, rayleigh_density);
         context->sky_settings.rayleigh_density_ptr = context->shader_globals_address + rayleigh_density_offset;
-        const auto absoprtion_density_offset =  sky_settings_offset + offsetof(SkySettings, absorption_density);
+        auto const absoprtion_density_offset = sky_settings_offset + offsetof(SkySettings, absorption_density);
         context->sky_settings.absorption_density_ptr = context->shader_globals_address + absoprtion_density_offset;
 
         context->shader_globals.sky_settings = context->sky_settings;

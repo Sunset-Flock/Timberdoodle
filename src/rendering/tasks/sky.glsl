@@ -481,3 +481,107 @@ void main()
     }
 }
 #endif // SKY
+#if defined(CUBEMAP)
+DAXA_DECL_PUSH_CONSTANT(SkyIntoCubemap, push)
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+
+float radical_inverse_vdc(uint bits) 
+{
+    bits = (bits << 16u) | (bits >> 16u);
+    bits = ((bits & 0x55555555u) << 1u) | ((bits & 0xAAAAAAAAu) >> 1u);
+    bits = ((bits & 0x33333333u) << 2u) | ((bits & 0xCCCCCCCCu) >> 2u);
+    bits = ((bits & 0x0F0F0F0Fu) << 4u) | ((bits & 0xF0F0F0F0u) >> 4u);
+    bits = ((bits & 0x00FF00FFu) << 8u) | ((bits & 0xFF00FF00u) >> 8u);
+    return float(bits) * 2.3283064365386963e-10; // / 0x100000000
+}
+
+vec2 hammersley(uint i, uint n) {
+    return vec2(float(i + 1) / n, radical_inverse_vdc(i + 1));
+}
+
+mat3 CUBE_MAP_FACE_ROTATION(uint face) 
+{
+    switch (face) {
+    case 0: return mat3(+0, +0, -1, +0, -1, +0, -1, +0, +0);
+    case 1: return mat3(+0, +0, +1, +0, -1, +0, +1, +0, +0);
+    case 2: return mat3(+1, +0, +0, +0, +0, +1, +0, -1, +0);
+    case 3: return mat3(+1, +0, +0, +0, +0, -1, +0, +1, +0);
+    case 4: return mat3(+1, +0, +0, +0, -1, +0, +0, +0, -1);
+    default: return mat3(-1, +0, +0, +0, -1, +0, +0, +0, +1);
+    }
+}
+
+// Jenkins hash function
+uint good_rand_hash(uint x) 
+{
+    x += (x << 10u);
+    x ^= (x >> 6u);
+    x += (x << 3u);
+    x ^= (x >> 11u);
+    x += (x << 15u);
+    return x;
+}
+uint hash1(uint x) { return good_rand_hash(x); }
+
+uint hash_combine2(uint x, uint y) 
+{
+    const uint M = 1664525u, C = 1013904223u;
+    uint seed = (x * M + y + C) * M;
+    // Tempering (from Matsumoto)
+    seed ^= (seed >> 11u);
+    seed ^= (seed << 7u) & 0x9d2c5680u;
+    seed ^= (seed << 15u) & 0xefc60000u;
+    seed ^= (seed >> 18u);
+    return seed;
+}
+
+uint hash2(uvec2 v) { return hash_combine2(v.x, hash1(v.y)); }
+
+vec3 uniform_sample_cone(vec2 urand, float cos_theta_max) 
+{
+    float cos_theta = (1.0 - urand.x) + urand.x * cos_theta_max;
+    float sin_theta = sqrt(clamp(1.0 - cos_theta * cos_theta, 0.0, 1.0));
+    float phi = urand.y * (PI * 2.0);
+    return vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+}
+
+void main() {
+    uvec3 px = gl_GlobalInvocationID.xyz;
+    uint face = px.z;
+    vec2 uv = (px.xy + 0.5) / IBL_CUBE_RES;
+
+    vec3 output_dir = normalize(CUBE_MAP_FACE_ROTATION(face) * vec3(uv * 2 - 1, -1.0));
+    const mat3 basis = build_orthonormal_basis(output_dir);
+    const uint sample_count = 128;
+
+    daxa_BufferPtr(SkySettings) sky_settings_ptr = deref(push.globals).sky_settings_ptr;
+    // Because the atmosphere is using km as it's default units and we want one unit in world
+    // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
+    const vec3 camera_position = deref(push.globals).camera.position * M_TO_KM_SCALE;
+    vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(sky_settings_ptr).atmosphere_bottom + BASE_HEIGHT_OFFSET);
+    const float height = length(world_camera_position);
+
+    uint rng = hash2(px.xy);
+
+    vec3 result = vec3(0);
+    for (uint i = 0; i < sample_count; ++i) {
+        vec2 urand = hammersley(i, sample_count);
+        vec3 input_dir = basis * uniform_sample_cone(urand, 0.99);
+        // TODO: Now that we sample the atmosphere directly, computing this IBL is really slow.
+        // We should cache the IBL cubemap, and only re-render it when necessary.
+        result += get_atmosphere_illuminance_along_ray(
+            sky_settings_ptr,
+            push.transmittance,
+            push.sky,
+            deref(push.globals).samplers.linear_clamp,
+            input_dir,
+            world_camera_position
+        );
+    }
+
+    const vec3 luminance = result / sample_count;
+    const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
+    const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
+    imageStore(daxa_image2DArray(push.ibl_cube), ivec3(px), vec4(luminance * inv_mult, 1.0/inv_mult));
+}
+#endif //CUBEMAP

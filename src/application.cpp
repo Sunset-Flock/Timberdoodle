@@ -151,8 +151,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
@@ -194,6 +194,10 @@ auto Application::run() -> i32
         {
             this->_window->size = new_window_size;
             _renderer->window_resized();
+        }
+        if(_window->size.x == 0 || _window->size.y == 0) 
+        {
+             continue;
         }
         update();
         _renderer->render_frame(
