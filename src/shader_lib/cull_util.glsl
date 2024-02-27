@@ -1,9 +1,11 @@
 #pragma once
 
 #include <daxa/daxa.inl>
+#include "../shader_lib/debug.glsl"
 #include "../shader_shared/shared.inl"
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry_pipeline.inl"
 
 bool is_out_of_frustum(vec3 ws_center, float ws_radius)
 {
@@ -46,8 +48,8 @@ bool is_tri_out_of_frustum(vec3 tri[3])
 
 bool is_meshlet_occluded(
     MeshletInstance meshlet_inst,
-    EntityMeshletVisibilityBitfieldOffsetsView entity_meshlet_visibility_bitfield_offsets,
-    daxa_BufferPtr(daxa_u32) entity_meshlet_visibility_bitfield_arena,
+    daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
+    U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_ImageViewId hiz
@@ -58,18 +60,34 @@ bool is_meshlet_occluded(
     {
         return true;
     }
-    const uint bitfield_uint_offset = meshlet_inst.meshlet_index / 32;
-    const uint bitfield_uint_bit = 1u << (meshlet_inst.meshlet_index % 32);
-    const uint entity_arena_offset = entity_meshlet_visibility_bitfield_offsets.entity_offsets[meshlet_inst.entity_index].mesh_bitfield_offset[meshlet_inst.in_meshgroup_index];
-    if (entity_arena_offset != ENT_MESHLET_VIS_OFFSET_UNALLOCATED && entity_arena_offset != ENT_MESHLET_VIS_OFFSET_EMPTY)
+
+    const uint first_pass_meshgroup_bitfield_offset = deref(first_pass_meshlets_bitfield_offsets[meshlet_inst.entity_index]);
+    if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
+        (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
     {
-        const uint mask = deref(entity_meshlet_visibility_bitfield_arena[entity_arena_offset + bitfield_uint_offset]);
-        const bool visible_last_frame = (mask & bitfield_uint_bit) != 0;
-        if (visible_last_frame)
+        const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + meshlet_inst.in_mesh_group_index;
+        // Offset is valid, need to check if mesh instance offset is valid now.
+        const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
+        if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
+            (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
         {
-            return true;
+            // Offset is valid, must check bitfield now.
+            uint in_bitfield_u32_index = meshlet_inst.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
+            const uint in_u32_bit = meshlet_inst.meshlet_index % 32;
+            const uint in_u32_mask = 1u << in_u32_bit;
+            const uint bitfield_u32 = first_pass_meshlets_bitfield_arena.uints[in_bitfield_u32_index];
+            const bool meshlet_drawn_first_pass = (bitfield_u32 & in_u32_mask) != 0;
+            DEBUG_INDEX(
+                mesh_instance_bitfield_offset_offset,
+                0, 
+                first_pass_meshlets_bitfield_arena.offsets_section_size - 1);
+            if (meshlet_drawn_first_pass)
+            {
+                return true;
+            }
         }
     }
+
     // daxa_f32vec3 center;
     // daxa_f32 radius;
     mat4x4 model_matrix = mat_4x3_to_4x4(deref(entity_combined_transforms[meshlet_inst.entity_index]));
@@ -194,21 +212,28 @@ bool is_meshlet_occluded(
     return depth_cull;
 }
 
-// TODO: Must check if meshlet index is smaller then meshlet count of mesh!
 bool get_meshlet_instance_from_arg(uint thread_id, uint arg_bucket_index, daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args, out MeshletInstance meshlet_inst)
 {
     const uint indirect_arg_index = thread_id >> arg_bucket_index;
     const uint valid_arg_count = deref(meshlet_cull_indirect_args).indirect_arg_counts[arg_bucket_index];
+    // As work groups are launched in multiples of 128 (or 32 in the case of task shaders), 
+    // there may be threads with indices greater then the arg count for a bucket.
     if (indirect_arg_index >= valid_arg_count)
     {
         return false;
     }
-    const uint arg_work_offset = thread_id - (indirect_arg_index << arg_bucket_index);
+    const uint in_arg_meshlet_index = thread_id - (indirect_arg_index << arg_bucket_index);
     const MeshletCullIndirectArg arg = deref(deref(meshlet_cull_indirect_args).indirect_arg_ptrs[arg_bucket_index][indirect_arg_index]);
+    // Work argument may work on less then 1<<bucket_index meshlets.
+    // In this case we cull threads with an index over meshlet_count.
+    if (in_arg_meshlet_index >= arg.meshlet_count)
+    {
+        return false;
+    }
     meshlet_inst.entity_index = arg.entity_index;
     meshlet_inst.material_index = arg.material_index;
     meshlet_inst.mesh_index = arg.mesh_index;
-    meshlet_inst.meshlet_index = arg.meshlet_indices_offset + arg_work_offset;
-    meshlet_inst.in_meshgroup_index = arg.in_meshgroup_index;
+    meshlet_inst.meshlet_index = arg.meshlet_indices_offset + in_arg_meshlet_index;
+    meshlet_inst.in_mesh_group_index = arg.in_mesh_group_index;
     return true;
 }

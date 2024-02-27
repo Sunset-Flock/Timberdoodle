@@ -40,8 +40,23 @@ inline auto make_opaque_draw_list_buffer_head(daxa::DeviceAddress address, std::
 }
 inline auto get_opaque_draw_list_buffer_size() -> daxa::usize
 {
-    return sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * MAX_MESH_INSTANCES;
+    return sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * MAX_MESH_INSTANCES * 2;
 }
-#endif
+#endif // #if defined(__cplusplus)
 
 /// NOTE: In the future we want a TransparentMeshDrawListBufferHead, that has a much larger array for custom material permutations.
+
+#if !defined(__cplusplus)
+DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) U32ArenaBufferRef
+{
+    daxa_u32 offsets_section_size;
+    daxa_u32 bitfield_section_size;
+    daxa_u32 uints[];
+};
+#endif // #if !defined(__cplusplus)
+
+#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID (~0u)
+#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED (~0u ^ 1u)
+#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_DEBUG (~0u ^ 2u)
+
+#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<20u)

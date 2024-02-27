@@ -5,7 +5,7 @@
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/asset.inl"
 
-uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstances) meshlet_instances)
+uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances)
 {
     switch (deref(push.uses.globals).settings.observer_show_pass)
     {
@@ -16,7 +16,7 @@ uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstances) m
     }
 }
 
-uint observer_get_meshlet_instance_draw_offset(daxa_BufferPtr(MeshletInstances) meshlet_instances)
+uint observer_get_meshlet_instance_draw_offset(daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances)
 {
     switch (deref(push.uses.globals).settings.observer_show_pass)
     {
@@ -29,7 +29,7 @@ uint observer_get_meshlet_instance_draw_offset(daxa_BufferPtr(MeshletInstances) 
 
 uint get_meshlet_draw_count(
     daxa_BufferPtr(ShaderGlobals) globals,
-    daxa_BufferPtr(MeshletInstances) meshlet_instances, 
+    daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances, 
     uint pass, 
     uint opaque_or_discard)
 {
@@ -52,7 +52,7 @@ uint get_meshlet_draw_count(
 
 uint get_meshlet_instance_index(
     daxa_BufferPtr(ShaderGlobals) globals,
-    daxa_BufferPtr(MeshletInstances) meshlet_instances, 
+    daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances, 
     uint pass, 
     uint opaque_or_discard, 
     uint draw_instance_index)
@@ -79,6 +79,6 @@ uint get_meshlet_instance_index(
     }
     
     const uint draw_list_index = draw_list_offset + draw_instance_index;
-    const uint meshlet_instance_index = deref(meshlet_instances).draw_lists[opaque_or_discard].instances[draw_list_index];
+    const uint meshlet_instance_index = deref(deref(meshlet_instances).draw_lists[opaque_or_discard].instances[draw_list_index]);
     return meshlet_instance_index;
 }

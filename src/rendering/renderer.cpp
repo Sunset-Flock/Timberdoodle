@@ -8,7 +8,7 @@
 #include "rasterize_visbuffer/cull_meshes.inl"
 #include "rasterize_visbuffer/analyze_visbuffer.inl"
 #include "rasterize_visbuffer/gen_hiz.inl"
-#include "rasterize_visbuffer/prepopulate_inst_meshlets.inl"
+#include "rasterize_visbuffer/prepopulate_meshlets.inl"
 
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -41,8 +41,8 @@ Renderer::Renderer(
     : window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
-    meshlet_instances = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances", "meshlet_instances_a");
-    meshlet_instances_last_frame = create_task_buffer(context, sizeof(MeshletInstances), "meshlet_instances_last_frame", "meshlet_instances_b");
+    meshlet_instances = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
+    meshlet_instances_last_frame = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
     luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
 
@@ -160,15 +160,16 @@ void Renderer::compile_pipelines()
         this->context->raster_pipelines[name] = compilation_result.value();
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {SetEntityMeshletVisibilityBitMasksTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
-        {PrepopulateInstantiatedMeshletsTask{}.name(), prepopulate_inst_meshlets_pipeline_compile_info()},
-        {PrepopulateInstantiatedMeshletsCommandWriteTask{}.name(), prepopulate_instantiated_meshlets_command_write_pipeline_compile_info()},
+        {AllocEntToMeshInstOffsetsOffsets{}.name(), alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
+        {WriteFirstPassMeshletBitfieldsTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
+        {PrepopulateMeshletInstancesCommandWriteTask{}.name(), prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
+        {PrepopulateMeshletInstancesTask{}.name(), prepopulate_meshlet_instances_pipeline_compile_info()},
+        {IndirectMemsetBuffer{}.name(), indirect_memset_buffer_pipeline_compile_info()},
         {AnalyzeVisBufferTask2{}.name(), analyze_visbufer_pipeline_compile_info()},
         {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
         {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
         {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
         {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
-        // {CullMeshesCommandWriteTask{}.name(), cull_meshes_write_command_pipeline_compile_info()},
         {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
         {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},
         {PrefixSumUpsweepTask{}.name(), prefix_sum_upsweep_pipeline_compile_info()},
@@ -263,7 +264,23 @@ void Renderer::clear_select_buffers()
         .name = "clear task list",
     }};
     list.use_persistent_buffer(meshlet_instances);
-    task_clear_buffer(list, meshlet_instances, 0, sizeof(u32));
+    list.use_persistent_buffer(meshlet_instances_last_frame);
+    list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlet_instances),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlet_instances_last_frame),
+        },
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto mesh_instances_address = ti.device.get_device_address(ti.get(meshlet_instances).ids[0]).value();
+            MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
+            allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
+            auto mesh_instances_prev_address = ti.device.get_device_address(ti.get(meshlet_instances_last_frame).ids[0]).value();
+            MeshletInstancesBufferHead mesh_instances_prev_reset = make_meshlet_instance_buffer_head(mesh_instances_prev_address);
+            allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
+        },
+        .name = "clear meshlet instance buffers",
+    });
     list.use_persistent_buffer(visible_meshlet_instances);
     task_clear_buffer(list, visible_meshlet_instances, 0, sizeof(u32));
     task_clear_buffer(list, luminance_average, 0, sizeof(f32));
@@ -427,10 +444,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "update global buffers",
     });
 
-    auto entity_meshlet_visibility_bitfield_offsets = task_list.create_transient_buffer(
-        {sizeof(EntityMeshletVisibilityBitfieldOffsets) * MAX_ENTITY_COUNT + sizeof(u32), "meshlet_visibility_bitfield_offsets"});
-    auto entity_meshlet_visibility_bitfield_arena =
-        task_list.create_transient_buffer({ENTITY_MESHLET_VISIBILITY_ARENA_SIZE, "meshlet_visibility_bitfield_arena"});
     auto sky = task_list.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {context->sky_settings.sky_dimensions.x, context->sky_settings.sky_dimensions.y, 1},
@@ -447,16 +460,36 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-    task_prepopulate_instantiated_meshlets(context, task_list,
+    
+    // Clear out counters for current meshlet instance lists.
+    task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlet_instances),
+        },
+        .task = [=](daxa::TaskInterface ti)
+        {
+            auto mesh_instances_address = ti.device.get_device_address(ti.get(meshlet_instances).ids[0]).value();
+            MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
+            allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
+        },
+        .name = "clear meshlet instance buffer",
+    });
+
+    daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
+    daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
+    task_prepopulate_meshlet_instances(context, &scene_context, task_list,
         PrepopInfo{
             .meshes = scene->_gpu_mesh_manifest,
             .materials = scene->_gpu_material_manifest,
+            .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
+            .mesh_group_manifest = scene->_gpu_mesh_group_manifest,
             .visible_meshlets_prev = visible_meshlet_instances,
             .meshlet_instances_last_frame = meshlet_instances_last_frame,
             .meshlet_instances = meshlet_instances,
-            .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
-            .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
+            .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
+            .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         });
+    task_clear_buffer(task_list, visible_meshlet_instances, 0);
     task_draw_visbuffer({
         .context = context,
         .tg = task_list,
@@ -466,6 +499,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .meshes = scene->_gpu_mesh_manifest,
         .material_manifest = scene->_gpu_material_manifest,
         .combined_transforms = scene->_gpu_entity_combined_transforms,
+        .visible_meshlet_instances = visible_meshlet_instances,
         .vis_image = visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
@@ -499,9 +533,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .mesh_groups = scene->_gpu_mesh_group_manifest,
         .meshes = scene->_gpu_mesh_manifest,
         .material_manifest = scene->_gpu_material_manifest,
-        .entity_meshlet_visibility_bitfield_offsets = entity_meshlet_visibility_bitfield_offsets,
-        .entity_meshlet_visibility_bitfield_arena = entity_meshlet_visibility_bitfield_arena,
+        .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
+        .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         .hiz = hiz,
+        .visible_meshlet_instances = visible_meshlet_instances,
         .meshlet_instances = meshlet_instances,
         .vis_image = visbuffer,
         .debug_image = debug_image,
@@ -509,9 +544,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     auto visible_meshlets_bitfield =
         task_list.create_transient_buffer({sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, "visible meshlets bitfield"});
-    task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
-    task_clear_buffer(task_list, entity_meshlet_visibility_bitfield_arena, 0);
 
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
@@ -535,6 +568,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .meshes = scene->_gpu_mesh_manifest,
             .material_manifest = scene->_gpu_material_manifest,
             .combined_transforms = scene->_gpu_entity_combined_transforms,
+            .visible_meshlet_instances = visible_meshlet_instances,
             .vis_image = visbuffer,
             .debug_image = debug_image,
             .depth_image = depth,

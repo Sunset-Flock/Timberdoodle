@@ -8,6 +8,7 @@
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/asset.inl"
 #include "../../shader_shared/cull_util.inl"
+#include "../../shader_shared/geometry_pipeline.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
@@ -18,9 +19,9 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgro
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(MeshletInstances), meshlet_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 

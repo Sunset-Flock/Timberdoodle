@@ -114,8 +114,9 @@ void main()
         arg.entity_index = mesh_draw.entity_index;
         arg.mesh_index = mesh_draw.mesh_index;
         arg.material_index = material_index;
-        arg.in_meshgroup_index = mesh_draw.in_mesh_group_index;
+        arg.in_mesh_group_index = mesh_draw.in_mesh_group_index;
         arg.meshlet_indices_offset = meshlet_offset;
+        arg.meshlet_count = min(meshlet_count - meshlet_offset, indirect_arg_meshlet_count);
         deref(deref(cull_buckets).indirect_arg_ptrs[bucket_index][arg_array_offset]) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }

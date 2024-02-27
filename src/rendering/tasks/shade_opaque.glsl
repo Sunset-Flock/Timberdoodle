@@ -257,6 +257,8 @@ void main()
         {
             output_value = debug_value;
         }
+        float combined_indices = tri_data.meshlet_instance.meshlet_index + tri_data.meshlet_instance.mesh_index * 10 + tri_data.meshlet_instance.entity_index;
+        output_value = vec4(cos(combined_indices), cos(1 + 1.1f * combined_indices), cos(2 + 1.2f * combined_indices), 1);
     } else {
         // scale uvs to be in the range [0, 1]
         const vec2 uv = vec2(gl_GlobalInvocationID.xy) * deref(push.attachments.globals).settings.render_target_size_inv;

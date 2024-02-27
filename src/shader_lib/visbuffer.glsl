@@ -153,14 +153,14 @@ VisbufferTriangleData visgeo_triangle_data(
     vec2 screen_size,
     vec2 inv_screen_size,
     mat4x4 view_proj, 
-    daxa_BufferPtr(MeshletInstances) meshlet_instances,
+    daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_BufferPtr(daxa_f32mat4x3) combined_transforms)
 {
     VisbufferTriangleData ret;
     decode_triangle_id(triangle_id, ret.meshlet_instance_index, ret.triangle_index);
 
-    ret.meshlet_instance = unpack_meshlet_instance(deref(meshlet_instances).meshlets[ret.meshlet_instance_index]);
+    ret.meshlet_instance = deref(deref(meshlet_instances).meshlets[ret.meshlet_instance_index]);
 
     GPUMesh mesh = deref(meshes + ret.meshlet_instance.mesh_index);
     Meshlet meshlet = deref(mesh.meshlets + ret.meshlet_instance.meshlet_index);

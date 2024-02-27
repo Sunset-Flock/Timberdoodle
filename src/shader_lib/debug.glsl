@@ -2,6 +2,8 @@
 
 #include "shader_shared/debug.inl"
 
+#extension GL_EXT_debug_printf : enable
+
 void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
 {
     const uint capacity = deref(debug_info).circle_draw_capacity;
@@ -104,3 +106,9 @@ void debug_write_detector_image(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_in
         }
     }
 }
+
+#define DEBUG_INDEX(INDEX, MIN_INDEX, MAX_INDEX)                                                   \
+    if (INDEX < MIN_INDEX || INDEX > MAX_INDEX)                                                    \
+    {                                                                                              \
+        debugPrintfEXT("index out of bounds: %i, range: [%i,%i]\n", INDEX, MIN_INDEX, MAX_INDEX);  \
+    }                                                                                              

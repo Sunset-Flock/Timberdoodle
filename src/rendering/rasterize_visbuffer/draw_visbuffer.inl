@@ -11,18 +11,19 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommand, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), meshlet_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 9)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 10)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
 DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstances), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlet_instances)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -39,7 +40,7 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, EntityMeshletVisibilityBitfieldOffsetsView, entity_meshlet_visibility_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstances), instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstancesBufferHead), instantiated_meshlets)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -326,9 +327,10 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView mesh_groups = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
-    daxa::TaskBufferView entity_meshlet_visibility_bitfield_offsets = {};
-    daxa::TaskBufferView entity_meshlet_visibility_bitfield_arena = {};
+    daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
+    daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
+    daxa::TaskBufferView visible_meshlet_instances = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
@@ -394,8 +396,8 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(CullMeshletsTask::meshgroups, info.mesh_groups),
                 daxa::attachment_view(CullMeshletsTask::entity_combined_transforms, info.entity_combined_transforms),
                 daxa::attachment_view(CullMeshletsTask::meshes, info.meshes),
-                daxa::attachment_view(CullMeshletsTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets),
-                daxa::attachment_view(CullMeshletsTask::entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena),
+                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
+                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
                 daxa::attachment_view(CullMeshletsTask::meshlet_instances, info.meshlet_instances),
                 daxa::attachment_view(CullMeshletsTask::draw_commands, draw_commands_array),
             },
@@ -412,8 +414,8 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(CullMeshletsTask::meshgroups, info.mesh_groups),
                 daxa::attachment_view(CullMeshletsTask::entity_combined_transforms, info.entity_combined_transforms),
                 daxa::attachment_view(CullMeshletsTask::meshes, info.meshes),
-                daxa::attachment_view(CullMeshletsTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets),
-                daxa::attachment_view(CullMeshletsTask::entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena),
+                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
+                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
                 daxa::attachment_view(CullMeshletsTask::meshlet_instances, info.meshlet_instances),
                 daxa::attachment_view(CullMeshletsTask::draw_commands, draw_commands_array),
             },
@@ -431,6 +433,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(DrawVisbufferTask::debug_image, info.debug_image),
                 daxa::attachment_view(DrawVisbufferTask::depth_image, info.depth_image),
                 daxa::attachment_view(DrawVisbufferTask::material_manifest, info.material_manifest),
+                daxa::attachment_view(DrawVisbufferTask::visible_meshlet_instances, info.visible_meshlet_instances),
             },
             .context = info.context,
             .pass = PASS1_DRAW_POST_CULL,
@@ -450,6 +453,7 @@ struct TaskDrawVisbufferInfo
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView combined_transforms = {};
+    daxa::TaskBufferView visible_meshlet_instances = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
@@ -484,6 +488,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             daxa::attachment_view(DrawVisbufferTask::vis_image, info.vis_image),
             daxa::attachment_view(DrawVisbufferTask::debug_image, info.debug_image),
             daxa::attachment_view(DrawVisbufferTask::depth_image, info.depth_image),
+            daxa::attachment_view(DrawVisbufferTask::visible_meshlet_instances, info.visible_meshlet_instances),
         },
         .context = info.context,
         .pass = info.pass,

@@ -24,8 +24,8 @@ void main()
 #if ENABLE_MESHLET_CULLING
     const bool occluded = is_meshlet_occluded(
         instanced_meshlet,
-        push.uses.entity_meshlet_visibility_bitfield_offsets,
-        push.uses.entity_meshlet_visibility_bitfield_arena,
+        push.uses.first_pass_meshlets_bitfield_offsets,
+        push.uses.first_pass_meshlets_bitfield_arena,
         push.uses.entity_combined_transforms,
         push.uses.meshes,
         push.uses.hiz);
@@ -38,12 +38,12 @@ void main()
         const uint out_index = atomicAdd(deref(push.uses.meshlet_instances).second_count, 1);
         const uint offset = deref(push.uses.meshlet_instances).first_count;
         const uint meshlet_instance_idx = out_index + offset;
-        deref(push.uses.meshlet_instances).meshlets[meshlet_instance_idx] = pack_meshlet_instance(instanced_meshlet);
+        deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_idx]) = instanced_meshlet;
         atomicAdd(deref(push.uses.draw_commands[push.opaque_or_discard]).instance_count, 1);
         const uint draw_list_element_offset = 
             deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].first_count;
         const uint draw_list_element_index = draw_list_element_offset +
             atomicAdd(deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].second_count, 1);
-        deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].instances[draw_list_element_index] = meshlet_instance_idx;
+        deref(deref(push.uses.meshlet_instances).draw_lists[push.opaque_or_discard].instances[draw_list_element_index]) = meshlet_instance_idx;
     }
 }

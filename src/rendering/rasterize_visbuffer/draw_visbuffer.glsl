@@ -91,8 +91,8 @@ void main()
     // daxa_u32 material_index;
     // daxa_u32 meshlet_index;
     // daxa_u32 mesh_index;
-    // daxa_u32 in_meshgroup_index; 
-    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(push.uses.meshlet_instances).meshlets[inst_meshlet_index]);
+    // daxa_u32 in_mesh_group_index; 
+    MeshletInstance meshlet_inst = deref(deref(push.uses.meshlet_instances).meshlets[inst_meshlet_index]);
 
     // GPUMesh:
     // daxa_BufferId mesh_buffer;
@@ -214,7 +214,7 @@ void main()
     if (active_thread)
     {
         const uint meshlet_instance_index = global_meshlet_instances_offset + local_meshlet_instances_offset;
-        deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index] = pack_meshlet_instance(meshlet_instance);
+        deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index] = meshlet_instance;
     }
     EmitMeshTasksEXT(local_surviving_meshlet_count, 1, 1);
 }
@@ -258,7 +258,7 @@ void main()
 #else
     const uint meshlet_offset = get_meshlet_draw_offset_from_pass(push.uses.meshlet_instances, push.pass);
     const uint meshlet_instance_index = gl_WorkGroupID.x + meshlet_offset;
-    MeshletInstance meshlet_inst = unpack_meshlet_instance(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]);
+    MeshletInstance meshlet_inst = deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index];
 #endif
 
     // GPUMesh:

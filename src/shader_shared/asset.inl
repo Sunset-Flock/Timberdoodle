@@ -37,7 +37,11 @@ struct MeshletCullIndirectArg
     daxa_u32 entity_index;
     daxa_u32 material_index;
     daxa_u32 mesh_index;
-    daxa_u32 in_meshgroup_index; 
+    daxa_u32 in_mesh_group_index; 
+    // Usually identical to buckets meshlet per arg count.
+    // Can be lower when a bigger bucket is used to cull the rest.
+    // For example bucket 1<<4 used to cull 10 meshlets.
+    daxa_u32 meshlet_count;
 };
 DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArg)
 
@@ -98,38 +102,12 @@ DAXA_DECL_BUFFER_PTR(Meshlet)
 struct MeshletInstance
 {
     daxa_u32 entity_index;
-    daxa_u32 material_index;        // Can pack more data into this
-    daxa_u32 meshlet_index;         // Can pack more data into this
+    daxa_u32 meshlet_index;
     daxa_u32 mesh_index;
-    daxa_u32 in_meshgroup_index; 
+    daxa_u32 material_index;
+    daxa_u32 in_mesh_group_index;
 };
-
-struct PackedMeshletInstance
-{
-    daxa_u32vec4 value;
-};
-DAXA_DECL_BUFFER_PTR_ALIGN(PackedMeshletInstance, 16) // Aligned for faster loads and stores.
-
-SHARED_FUNCTION PackedMeshletInstance pack_meshlet_instance(MeshletInstance meshlet_instance)
-{
-    PackedMeshletInstance ret;
-    ret.value.x = meshlet_instance.entity_index;
-    ret.value.y = meshlet_instance.material_index;
-    ret.value.z = meshlet_instance.meshlet_index; 
-    ret.value.w = (meshlet_instance.mesh_index << 3) | (meshlet_instance.in_meshgroup_index & 0x7);
-    return ret;
-}
-
-SHARED_FUNCTION MeshletInstance unpack_meshlet_instance(PackedMeshletInstance packed_meshlet_instance)
-{
-    MeshletInstance ret;
-    ret.entity_index = packed_meshlet_instance.value.x;
-    ret.material_index = packed_meshlet_instance.value.y;
-    ret.meshlet_index = packed_meshlet_instance.value.z;
-    ret.mesh_index = packed_meshlet_instance.value.w >> 3;
-    ret.in_meshgroup_index = packed_meshlet_instance.value.w & 0x7;
-    return ret;
-}
+DAXA_DECL_BUFFER_PTR(MeshletInstance)
 
 struct BoundingSphere
 {
@@ -196,7 +174,6 @@ struct GPUMaterial
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 
-
 #if DAXA_SHADER
 uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offset)
 {
@@ -212,25 +189,44 @@ struct GPUMeshGroup
 {
     daxa_BufferPtr(daxa_u32) mesh_indices;
     daxa_u32 count;
+    daxa_u32 padd;
 };
-DAXA_DECL_BUFFER_PTR(GPUMeshGroup)
+DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)
 
-struct MeshletDrawList
+struct MeshletDrawList2
 {
     daxa_u32 first_count;
     daxa_u32 second_count;
-    daxa_u32 instances[MAX_MESHLET_INSTANCES];
+    daxa_RWBufferPtr(daxa_u32) instances;
 };
 
-struct MeshletInstances
+struct MeshletInstancesBufferHead
 {
     daxa_u32 first_count;
     daxa_u32 second_count;
-    PackedMeshletInstance meshlets[MAX_MESHLET_INSTANCES];
-    MeshletDrawList draw_lists[2]; // 0 = opaque, 1 = discard
+    daxa_RWBufferPtr(MeshletInstance) meshlets;
+    MeshletDrawList2 draw_lists[2];
 };
-DAXA_DECL_BUFFER_PTR(MeshletInstances)
+DAXA_DECL_BUFFER_PTR(MeshletInstancesBufferHead)
 
+#if defined(__cplusplus)
+inline auto make_meshlet_instance_buffer_head(daxa::DeviceAddress address) -> MeshletInstancesBufferHead
+{
+    MeshletInstancesBufferHead ret = {};
+    address = ret.meshlets = address + sizeof(MeshletInstancesBufferHead);
+    address = ret.draw_lists[0].instances = address + sizeof(MeshletInstance) * MAX_MESHLET_INSTANCES;
+    address = ret.draw_lists[1].instances = address + sizeof(daxa_u32) * MAX_MESHLET_INSTANCES;
+    return ret;
+}
+inline auto size_of_meshlet_instance_buffer() -> daxa::usize
+{
+    return  sizeof(MeshletInstancesBufferHead) + 
+            sizeof(MeshletInstance) * MAX_MESHLET_INSTANCES + 
+            sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 2;
+}
+#endif
+
+// TODO: Convert into buffer head.
 struct VisibleMeshletList
 {
     daxa_u32 count;
@@ -238,6 +234,7 @@ struct VisibleMeshletList
 };
 DAXA_DECL_BUFFER_PTR(VisibleMeshletList)
 
+// TODO: Convert into buffer head.
 struct EntityMeshletVisibilityBitfieldOffsets
 {
     daxa_u32 mesh_bitfield_offset[MAX_MESHES_PER_MESHGROUP];

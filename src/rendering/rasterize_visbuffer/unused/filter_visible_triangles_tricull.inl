@@ -9,7 +9,7 @@
 
 #if __cplusplus || defined(FilterVisibleTrianglesWriteCommand_COMMAND)
 DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTrianglesWriteCommand, 2)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), u_command)
 DAXA_DECL_TASK_HEAD_END
 #endif
@@ -17,7 +17,7 @@ DAXA_DECL_TASK_HEAD_END
 #if __cplusplus || !defined(FilterVisibleTrianglesWriteCommand_COMMAND)
 DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTriangles, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), u_command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstances), u_instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32vec4), u_meshlet_visibility_bitfields)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(TriangleList), u_visible_triangles)
 DAXA_DECL_TASK_HEAD_END

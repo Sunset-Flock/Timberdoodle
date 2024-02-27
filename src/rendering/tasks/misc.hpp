@@ -46,7 +46,7 @@ inline void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer,
             ti.recorder.clear_buffer({
                 .buffer = ti.get(buffer).ids[0],
                 .offset = offset,
-                .size = (range == CLEAR_REST) ? ti.device.info_buffer(ti.get(buffer).ids[0]).value().size : static_cast<daxa_u32>(range),
+                .size = (range == CLEAR_REST) ? (ti.device.info_buffer(ti.get(buffer).ids[0]).value().size - offset) : static_cast<daxa_u32>(range),
                 .clear_value = value,
             });
         },
@@ -61,7 +61,7 @@ struct ClearRange
     i32 size = {};
 };
 template <size_t N>
-void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, std::array<ClearRange, N> clear_ranges)
+inline void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, std::array<ClearRange, N> clear_ranges)
 {
     tg.add_task({
         .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, buffer)},
@@ -83,7 +83,7 @@ void task_multi_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
     });
 }
 
-void task_clear_image(daxa::TaskGraph & tg, daxa::TaskImageView image, daxa::ClearValue clear_value)
+inline void task_clear_image(daxa::TaskGraph & tg, daxa::TaskImageView image, daxa::ClearValue clear_value)
 {
     tg.add_task({
         .attachments = { daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, image)},
@@ -101,7 +101,7 @@ void task_clear_image(daxa::TaskGraph & tg, daxa::TaskImageView image, daxa::Cle
 }
 
 template<typename T>
-void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, T clear_value)
+inline void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, T clear_value, u32 offset = 0)
 {
     tg.add_task({
         .attachments = {
@@ -114,9 +114,24 @@ void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, T clear
                 .src_buffer = ti.allocator->buffer(),
                 .dst_buffer = ti.get(buffer).ids[0],
                 .src_offset = alloc.buffer_offset,
+                .dst_offset = offset,
                 .size = sizeof(T),
             });
         },
         .name = "fill buffer",
+    });
+}
+
+template<typename T>
+inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBufferAttachmentInfo dst, u32 dst_offset = 0)
+{
+    auto address = ti.device.get_device_address(dst.ids[0]).value();
+    auto alloc = ti.allocator->allocate_fill(value).value();
+    ti.recorder.copy_buffer_to_buffer({
+        .src_buffer = ti.allocator->buffer(),
+        .dst_buffer = dst.ids[0],
+        .src_offset = alloc.buffer_offset,
+        .dst_offset = dst_offset,
+        .size = sizeof(T),
     });
 }

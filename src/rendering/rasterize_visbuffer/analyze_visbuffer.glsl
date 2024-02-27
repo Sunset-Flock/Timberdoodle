@@ -59,10 +59,10 @@ void main()
     const ivec2 index = ivec2(gl_GlobalInvocationID.xy);
     const ivec2 sampleIndex = min(index << 1, ivec2(push.size) - 1);
     uvec4 vis_ids = textureGather(daxa_usampler2D(push.uses.visbuffer, deref(push.uses.globals).samplers.linear_clamp), make_gather_uv(1.0f / push.size, sampleIndex), 0);
-    uint list_mask = (vis_ids[0] != INVALID_TRIANGLE_ID ? 1 : 0) |
-                     (vis_ids[1] != INVALID_TRIANGLE_ID ? 2 : 0) |
-                     (vis_ids[2] != INVALID_TRIANGLE_ID ? 4 : 0) |
-                     (vis_ids[3] != INVALID_TRIANGLE_ID ? 8 : 0);
+    uint list_mask = (vis_ids[0] != INVALID_TRIANGLE_ID ? (1u) : 0) |
+                     (vis_ids[1] != INVALID_TRIANGLE_ID ? (1u << 1u) : 0) |
+                     (vis_ids[2] != INVALID_TRIANGLE_ID ? (1u << 2u) : 0) |
+                     (vis_ids[3] != INVALID_TRIANGLE_ID ? (1u << 3u) : 0);
     uvec4 triangle_masks;
     uvec4 meshlet_instance_indices;
     [[unroll]] for (uint i = 0; i < 4; ++i)
@@ -78,6 +78,7 @@ void main()
         const bool lane_on = list_mask != 0;
         const uint voted_for_id = lane_on ? meshlet_instance_indices[findLSB(list_mask)] : ~0;
         const uint elected_meshlet_instance_index = subgroupBroadcast(voted_for_id, subgroupBallotFindLSB(subgroupBallot(lane_on)));
+        subgroupBarrier();
         // If we have the elected id in our list, remove it.
         uint triangle_mask_contribution = 0;
         [[unroll]] for (uint i = 0; i < 4; ++i)
@@ -88,6 +89,7 @@ void main()
                 list_mask &= ~(1u << i);
             }
         }
+        subgroupBarrier();
         const uint warp_merged_triangle_mask = subgroupOr(triangle_mask_contribution);
         if (assigned_meshlet_index_count == gl_SubgroupInvocationID.x)
         {
