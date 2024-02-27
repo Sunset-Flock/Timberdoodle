@@ -10,6 +10,8 @@
 #define SKY_X_DISPATCH 8
 #define SKY_Y_DISPATCH 8
 
+#define IBL_CUBE_RES 16
+
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeTransmittance, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
@@ -27,6 +29,13 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGl
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, multiscattering)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, sky)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(SkyIntoCubemap, 4)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D_ARRAY, ibl_cube)
 DAXA_DECL_TASK_HEAD_END
 
 struct ComputeMultiscatteringPush
@@ -76,6 +85,17 @@ inline daxa::ComputePipelineCompileInfo compute_sky_pipeline_compile_info()
         },
         .push_constant_size = static_cast<u32>(sizeof(ComputeSkyPush) + ComputeSky::attachment_shader_data_size()),
         .name = std::string{ComputeSky{}.name()},
+    };
+}
+inline daxa::ComputePipelineCompileInfo sky_into_cubemap_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{SKY_SHADER_PATH},
+            .compile_options = {.defines = {{"CUBEMAP", "1"}}},
+        },
+        .push_constant_size = static_cast<u32>(SkyIntoCubemap::attachment_shader_data_size()),
+        .name = std::string{SkyIntoCubemap{}.name()},
     };
 }
 
@@ -141,6 +161,22 @@ struct ComputeSkyTask : ComputeSky
             ComputeSkyPush{.sampler_id = context->shader_globals.samplers.linear_clamp},
             ComputeSky::attachment_shader_data_size());
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+    }
+};
+
+struct SkyIntoCubemapTask : SkyIntoCubemap
+{
+    SkyIntoCubemap::AttachmentViews views = {};
+    GPUContext * context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(SkyIntoCubemap{}.name()));
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+        });
+        ti.recorder.dispatch({(IBL_CUBE_RES + 7) / 8, (IBL_CUBE_RES + 7) / 8, 6});
     }
 };
 #endif //_cplusplus

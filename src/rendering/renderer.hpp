@@ -44,6 +44,7 @@ struct Renderer
     // Images:
     daxa::TaskImage transmittance = {};
     daxa::TaskImage multiscattering = {};
+    daxa::TaskImage sky_ibl_cube = {};
 
     // Render Targets:
     daxa::TaskImage swapchain_image = {};
