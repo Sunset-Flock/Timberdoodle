@@ -6,7 +6,7 @@
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/scene.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry.inl"
 #include "../../shader_shared/cull_util.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
 

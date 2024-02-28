@@ -334,12 +334,12 @@ void Application::update()
                 _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y, 
                 _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z, 
                 _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
-            auto detector_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
-                .image_view_id = _renderer->context->shader_debug_context.detector_image.default_view(),
+            auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
+                .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
                 .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->context->shader_globals.samplers.nearest_clamp),
             });
             auto const width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y) * 4 / 5;
-            ImGui::Image(detector_image_view_id, ImVec2(width,width));
+            ImGui::Image(debug_lens_image_view_id, ImVec2(width,width));
             ImGui::End();
         }
     }

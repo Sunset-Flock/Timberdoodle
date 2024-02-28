@@ -6,7 +6,7 @@
 #include <fastgltf/types.hpp>
 #include "../timberdoodle.hpp"
 
-#include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "../multithreading/thread_pool.hpp"

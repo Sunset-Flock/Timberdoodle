@@ -7,7 +7,7 @@
 
 #include "../timberdoodle.hpp"
 #include "../gpu_context.hpp"
-#include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry.inl"
 
 using namespace tido::types;
 

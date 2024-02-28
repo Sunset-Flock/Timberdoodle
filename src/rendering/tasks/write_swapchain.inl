@@ -5,7 +5,7 @@
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry.inl"
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 

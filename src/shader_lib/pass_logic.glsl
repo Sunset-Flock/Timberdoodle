@@ -3,7 +3,7 @@
 #include <daxa/daxa.inl>
 #include "../shader_shared/shared.inl"
 #include "../shader_shared/globals.inl"
-#include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry.inl"
 
 uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances)
 {

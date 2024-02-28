@@ -1,6 +1,6 @@
 #include "gpu_context.hpp"
 
-#include "shader_shared/asset.inl"
+#include "shader_shared/geometry.inl"
 #include "shader_shared/scene.inl"
 
 #if defined(_WIN32)
@@ -112,5 +112,5 @@ GPUContext::~GPUContext()
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.nearest_clamp));
     device.destroy_buffer(shader_debug_context.buffer);
     device.destroy_buffer(shader_debug_context.readback_queue);
-    device.destroy_image(shader_debug_context.detector_image);
+    device.destroy_image(shader_debug_context.debug_lens_image);
 }

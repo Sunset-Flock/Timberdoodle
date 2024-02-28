@@ -4,7 +4,7 @@
 #include "../shader_lib/debug.glsl"
 #include "../shader_shared/shared.inl"
 #include "../shader_shared/globals.inl"
-#include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
 
 bool is_out_of_frustum(vec3 ws_center, float ws_radius)

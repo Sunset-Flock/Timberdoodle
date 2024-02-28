@@ -5,7 +5,7 @@
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry.inl"
 
 #define GEN_HIZ_X 16
 #define GEN_HIZ_Y 16
@@ -65,13 +65,21 @@ struct GenHizTask : GenHizTH
     }
 };
 
-daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGraph & task_graph, daxa::TaskImageView src, daxa::TaskBufferView globals)
+struct TaskGenHizSinglePassInfo
+{
+    GPUContext * context = {};
+    daxa::TaskGraph & task_graph;
+    daxa::TaskImageView src = {};
+    daxa::TaskBufferView globals = {};
+    daxa::TaskImageView * hiz = {};
+};
+void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
 {
     daxa_u32vec2 const hiz_size =
-        daxa_u32vec2(context->settings.render_target_size.x / 2, context->settings.render_target_size.y / 2);
+        daxa_u32vec2(info.context->settings.render_target_size.x / 2, info.context->settings.render_target_size.y / 2);
     daxa_u32 mip_count = static_cast<daxa_u32>(std::ceil(std::log2(std::max(hiz_size.x, hiz_size.y))));
     mip_count = std::min(mip_count, u32(GEN_HIZ_LEVELS_PER_DISPATCH)) - 1;
-    daxa::TaskImageView hiz = task_graph.create_transient_image({
+    *info.hiz = info.task_graph.create_transient_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = {hiz_size.x, hiz_size.y, 1},
         .mip_level_count = mip_count,
@@ -79,15 +87,14 @@ daxa::TaskImageView task_gen_hiz_single_pass(GPUContext * context, daxa::TaskGra
         .sample_count = 1,
         .name = "hiz",
     });
-    task_graph.add_task(GenHizTask{
+    info.task_graph.add_task(GenHizTask{
         .views = std::array{
-            daxa::attachment_view(GenHizTask::globals, globals),
-            daxa::attachment_view(GenHizTask::src, src),
-            daxa::attachment_view(GenHizTask::mips, hiz),
+            daxa::attachment_view(GenHizTask::globals, info.globals),
+            daxa::attachment_view(GenHizTask::src, info.src),
+            daxa::attachment_view(GenHizTask::mips, *info.hiz),
         },
-        .context = context,
+        .context = info.context,
     });
-    return hiz.view({.level_count = mip_count});
 }
 
 #endif

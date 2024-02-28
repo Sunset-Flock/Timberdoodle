@@ -46,12 +46,7 @@ void debug_draw_aabb(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderD
     }
 }
 
-bool debug_detector(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy)
-{
-    return xy == deref(debug_info).cpu_input.texel_detector_pos;
-}
-
-void debug_detector_write_i32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, int value, int channel)
+void debug_write_i32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, int value, int channel)
 {
     if (xy == deref(debug_info).cpu_input.texel_detector_pos && channel >= 0 && channel <= 4)
     {
@@ -59,7 +54,7 @@ void debug_detector_write_i32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info
     }
 }
 
-void debug_detector_write_i32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, ivec4 value)
+void debug_write_i32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, ivec4 value)
 {
     if (xy == deref(debug_info).cpu_input.texel_detector_pos)
     {
@@ -67,7 +62,7 @@ void debug_detector_write_i32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_
     }
 }
 
-void debug_detector_write_f32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, float value, int channel)
+void debug_write_f32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, float value, int channel)
 {
     if (xy == deref(debug_info).cpu_input.texel_detector_pos && channel >= 0 && channel <= 4)
     {
@@ -75,7 +70,7 @@ void debug_detector_write_f32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info
     }
 }
 
-void debug_detector_write_f32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, vec4 value)
+void debug_write_f32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, vec4 value)
 {
     if (xy == deref(debug_info).cpu_input.texel_detector_pos)
     {
@@ -83,7 +78,7 @@ void debug_detector_write_f32vec4(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_
     }
 }
 
-bool debug_in_detector_window(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, out uvec2 window_index)
+bool debug_in_lens(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy, out uvec2 window_index)
 {
     ShaderDebugInput cpu_in = deref(debug_info).cpu_input;
     uvec2 window_top_left_corner = cpu_in.texel_detector_pos - cpu_in.texel_detector_window_half_size;
@@ -92,13 +87,18 @@ bool debug_in_detector_window(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info
     return (all(greaterThanEqual(xy, window_top_left_corner)) && all(lessThanEqual(xy, window_bottom_right_corner)));
 }
 
-void debug_write_detector_image(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, daxa_ImageViewId detector_image, uvec2 xy, vec4 value)
+bool debug_in_lens_center(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, uvec2 xy)
+{
+    return xy == deref(debug_info).cpu_input.texel_detector_pos;
+}
+
+void debug_write_lens(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, daxa_ImageViewId debug_lens_image, uvec2 xy, vec4 value)
 {
     ShaderDebugInput cpu_in = deref(debug_info).cpu_input;
     uvec2 window_index;
-    if (debug_in_detector_window(debug_info, xy, window_index))
+    if (debug_in_lens(debug_info, xy, window_index))
     {
-        imageStore(daxa_image2D(detector_image), ivec2(window_index), value);
+        imageStore(daxa_image2D(debug_lens_image), ivec2(window_index), value);
 
         if (xy == cpu_in.texel_detector_pos)
         {

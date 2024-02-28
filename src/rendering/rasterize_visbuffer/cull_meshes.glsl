@@ -8,20 +8,8 @@
 
 #extension GL_EXT_debug_printf : enable
 
-// #if defined(CullMeshesCommand_COMMAND)
-// layout(local_size_x = 1) in;
-// DAXA_DECL_PUSH_CONSTANT(CullMeshesCommandPush, push)
-// void main()
-// {
-//     const uint entity_count = deref(push.uses.entity_meta).entity_count;
-//     const uint dispatch_x = (entity_count + CULL_MESHES_WORKGROUP_X - 1) / CULL_MESHES_WORKGROUP_X;
-//     deref(push.uses.command).x = dispatch_x;
-//     deref(push.uses.command).y = 1;
-//     deref(push.uses.command).z = 1;
-// }
-// #else
 DAXA_DECL_PUSH_CONSTANT(CullMeshesPush, push)
-layout(local_size_x = CULL_MESHES_WORKGROUP_X, local_size_y = CULL_MESHES_WORKGROUP_Y) in;
+layout(local_size_x = CULL_MESHES_WORKGROUP_X) in;
 void main()
 {
     uint mesh_draw_index = gl_GlobalInvocationID.x;
@@ -121,4 +109,3 @@ void main()
         meshlet_offset += indirect_arg_meshlet_count;
     }
 }
-//#endif

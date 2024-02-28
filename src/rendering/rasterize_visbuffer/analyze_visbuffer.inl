@@ -5,7 +5,7 @@
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry_pipeline.inl"
 
 #define ANALYZE_VIS_BUFFER_WORKGROUP_X 8
 #define ANALYZE_VIS_BUFFER_WORKGROUP_Y 8

@@ -5,7 +5,7 @@
 
 #include "../../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry.inl"
 
 #if __cplusplus || defined(FilterVisibleTrianglesWriteCommand_COMMAND)
 DAXA_DECL_TASK_HEAD_BEGIN(FilterVisibleTrianglesWriteCommand, 2)

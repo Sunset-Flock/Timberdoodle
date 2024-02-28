@@ -6,35 +6,17 @@
 
 #if defined(PrepopMeshletInstancesCommW_COMMAND)
 DAXA_DECL_PUSH_CONSTANT(PrepopMeshletInstancesCommWPush, push)
-#elif defined(WriteFirstPassMeshletBitfields_SHADER)
-DAXA_DECL_PUSH_CONSTANT(WriteFirstPassMeshletBitfieldsPush, push)
+#elif defined(WriteFirstPassMeshletsAndBitfields_SHADER)
+DAXA_DECL_PUSH_CONSTANT(WriteFirstPassMeshletsAndBitfieldsPush, push)
 #elif defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
 DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
-#elif defined(IndirectMemsetBuffer_SHADER)
-DAXA_DECL_PUSH_CONSTANT(IndirectMemsetBufferPush, push)
-#elif defined(PrepopulateMeshletInstances_SHADER)
-DAXA_DECL_PUSH_CONSTANT(PrepopulateMeshletInstancesPush, push)
+#elif defined(AllocMeshletInstBitfields_SHADER)
+DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 #endif
 
-#if !defined(IndirectMemsetBuffer_SHADER)
 #include "shader_lib/cull_util.glsl"
-#endif // #if !defined(IndirectMemsetBuffer_SHADER)
 
 #define WORKGROUP_SIZE PREPOPULATE_MESHLET_INSTANCES_X
-
-#if defined(IndirectMemsetBuffer_SHADER)
-layout(local_size_x = INDIRECT_MEMSET_BUFFER_X) in;
-void main()
-{
-    uint index = gl_GlobalInvocationID.x;
-    IndirectMemsetBufferCommand command = deref(push.uses.command);
-    if (index > command.size)
-    {
-        return;
-    }
-    deref(push.uses.dst[index + command.offset]) = command.value;
-}
-#endif // #if defined(Memset_buffer_SHADER)
 
 #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
 layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
@@ -118,7 +100,7 @@ void main()
 }
 #endif
 
-#if defined(WriteFirstPassMeshletBitfields_SHADER)
+#if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {    
@@ -180,7 +162,7 @@ void main()
 }
 #endif
 
-#if defined(PrepopulateMeshletInstances_SHADER)
+#if defined(AllocMeshletInstBitfields_SHADER)
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../shader_shared/visbuffer.inl"
-#include "../shader_shared/asset.inl"
+#include "../shader_shared/geometry.inl"
 
 /**
  * DESCRIPTION:

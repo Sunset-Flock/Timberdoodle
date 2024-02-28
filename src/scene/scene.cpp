@@ -456,6 +456,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             }
         }
     }
+    scene_renderer_context.max_entity_index = static_cast<u32>(_render_entities.capacity());
 #pragma endregion
 
     _gltf_asset_manifest.push_back(GltfAssetManifestEntry{

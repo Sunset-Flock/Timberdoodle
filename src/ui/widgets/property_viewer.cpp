@@ -279,6 +279,57 @@ namespace tido
                 }
                 ImGui::EndChild();
             }
+            if (selected == 2)
+            {
+                ImGui::BeginChild("Rendering Statistics", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
+                {
+                    auto camera_settings = [&info]()
+                    {
+                        if (ImGui::CollapsingHeader("Camera"))
+                        {
+                            ImGui::Indent(12);
+                            auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
+                            auto & post = info.post_settings;
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
+                            better_drag_float({"exposure bias", &post->exposure_bias, 0.1f, 0.01f, 10.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"sensor sensitivity", &post->sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
+                            better_drag_float({"calibration", &post->calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"adaption speed", &post->luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
+                            ImGui::PopStyleColor();
+                            ImGui::Unindent(12);
+                        }
+                    };
+                    auto histogram_settings = [&info]()
+                    {
+                        if (ImGui::CollapsingHeader("Histogram"))
+                        {
+                            ImGui::Indent(12);
+                            auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
+                            auto & post = info.post_settings;
+                            ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
+                            better_drag_float({"min lum log2", &post->min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"max lum log2", &post->max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            post->max_luminance_log2 = glm::max(post->max_luminance_log2, post->min_luminance_log2 + 0.1f);
+                            ImGui::PopStyleColor();
+                            ImGui::Unindent(12);
+                        }
+                    };
+                    ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
+                    ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
+                    ImGui::PushStyleColor(ImGuiCol_Header, {0.0, 0.0, 0.0, 0.0});
+                    ImGui::Dummy({0, 1});
+                    ImGui::Dummy({2, 0});
+                    ImGui::SameLine();
+                    draw_with_bg_rect(camera_settings, 8, bg_3);
+
+                    ImGui::Dummy({0, 1});
+                    ImGui::Dummy({2, 0});
+                    ImGui::SameLine();
+                    draw_with_bg_rect(histogram_settings, 8, bg_3);
+                    ImGui::PopStyleColor(3);
+                }
+                ImGui::EndChild();
+            }
             ImGui::PopStyleColor();
             ImGui::PopStyleVar(3);
 

@@ -38,8 +38,10 @@
 
 #if __cplusplus
 #define SHADER_ONLY(x)
+#define HOST_ONLY(x) x
 #else
 #define SHADER_ONLY(x) x
+#define HOST_ONLY(x)
 #endif
 
 #define PROFILE_LAYER_COUNT 2

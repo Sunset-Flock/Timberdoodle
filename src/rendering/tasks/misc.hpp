@@ -135,3 +135,64 @@ inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBuffer
         .size = sizeof(T),
     });
 }
+
+template<typename HeadT, typename PushT, daxa::StringLiteral shader_path>
+struct SimpleIndirectComputeTask : HeadT
+{
+    HeadT::AttachmentViews views = {};
+    GPUContext * context = {};
+    PushT push = {};
+    static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
+        return daxa::ComputePipelineCompileInfo{
+            .shader_info = daxa::ShaderCompileInfo{
+                daxa::ShaderFile{ std::string_view{shader_path.value, shader_path.SIZE}},
+                {
+                    .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
+                },
+            },
+            .push_constant_size =
+                s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
+            .name = std::string(HeadT::name()),
+        };
+    }
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(HeadT::name()));
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+        });
+        ti.recorder.push_constant(push, ti.attachment_shader_data.size());
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.get(this->command).ids[0],
+        });
+    }
+};
+
+template<typename HeadT, typename PushT, daxa::StringLiteral shader_path>
+struct SimpleComputeTask : HeadT
+{
+    HeadT::AttachmentViews views = {};
+    GPUContext * context = {};
+    std::function<daxa::DispatchInfo(void)> dispatch_callback = {};
+    PushT push = {};
+    static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
+        return {
+            .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{shader_path.c_str()},
+                {.defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}}}},
+            .push_constant_size =
+                s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
+            .name = HeadT::name(),
+        };
+    }
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(HeadT::name()));
+        ti.recorder.push_constant_vptr({
+            .data = ti.attachment_shader_data.data(),
+            .size = ti.attachment_shader_data.size(),
+        });
+        ti.recorder.push_constant(push, ti.attachment_shader_data.size());
+        ti.recorder.dispatch(dispatch_callback());
+    }
+};

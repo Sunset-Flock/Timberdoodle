@@ -5,7 +5,7 @@
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/asset.inl"
+#include "../../shader_shared/geometry.inl"
 
 #define PREFIX_SUM_BLOCK_SIZE 1024
 #define PREFIX_SUM_WORKGROUP_SIZE PREFIX_SUM_BLOCK_SIZE

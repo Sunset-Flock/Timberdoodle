@@ -10,6 +10,7 @@
 #include "rasterize_visbuffer/gen_hiz.inl"
 #include "rasterize_visbuffer/prepopulate_meshlets.inl"
 
+#include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
 #include "tasks/shade_opaque.inl"
@@ -163,10 +164,10 @@ void Renderer::compile_pipelines()
     }
     std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
         {AllocEntToMeshInstOffsetsOffsets{}.name(), alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
-        {WriteFirstPassMeshletBitfieldsTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
-        {PrepopulateMeshletInstancesCommandWriteTask{}.name(), prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
-        {PrepopulateMeshletInstancesTask{}.name(), prepopulate_meshlet_instances_pipeline_compile_info()},
-        {IndirectMemsetBuffer{}.name(), indirect_memset_buffer_pipeline_compile_info()},
+        {WriteFirstPassMeshletsAndBitfieldsTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
+        {AllocMeshletInstBitfieldsCommandWriteTask{}.name(), prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
+        {AllocMeshletInstBitfieldsTask{}.name(), prepopulate_meshlet_instances_pipeline_compile_info()},
+        {IndirectMemsetBufferTask::name(), IndirectMemsetBufferTask::pipeline_compile_info()},
         {AnalyzeVisBufferTask2{}.name(), analyze_visbufer_pipeline_compile_info()},
         {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
         {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
@@ -326,6 +327,8 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
         .device = context->device,
         .name = "Calculate sky luts task graph",
     }};
+    // TODO:    Do not use globals here, make a new buffer.
+    //          Globals should only be used within the main task graph.
     task_graph.use_persistent_buffer(context->tshader_globals_buffer);
     task_graph.use_persistent_image(transmittance);
     task_graph.use_persistent_image(multiscattering);
@@ -334,26 +337,16 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
         .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, context->tshader_globals_buffer)},
         .task = [&](daxa::TaskInterface ti)
         {
-            {
-                auto const alloc = ti.allocator->allocate_fill(context->shader_globals.sky_settings).value();
-                ti.recorder.copy_buffer_to_buffer({
-                    .src_buffer = ti.allocator->buffer(),
-                    .dst_buffer = ti.get(context->tshader_globals_buffer).ids[0],
-                    .src_offset = alloc.buffer_offset,
-                    .dst_offset = offsetof(ShaderGlobals, sky_settings),
-                    .size = alloc.size,
-                });
-            }
-            {
-                auto const alloc = ti.allocator->allocate_fill(context->shader_globals.sky_settings_ptr).value();
-                ti.recorder.copy_buffer_to_buffer({
-                    .src_buffer = ti.allocator->buffer(),
-                    .dst_buffer = ti.get(context->tshader_globals_buffer).ids[0],
-                    .src_offset = alloc.buffer_offset,
-                    .dst_offset = offsetof(ShaderGlobals, sky_settings_ptr),
-                    .size = alloc.size,
-                });
-            }
+            allocate_fill_copy(
+                ti,
+                context->shader_globals.sky_settings, 
+                ti.get(context->tshader_globals_buffer),
+                offsetof(ShaderGlobals, sky_settings));
+            allocate_fill_copy(
+                ti,
+                context->shader_globals.sky_settings_ptr, 
+                ti.get(context->tshader_globals_buffer),
+                offsetof(ShaderGlobals, sky_settings_ptr));
         },
         .name = "update sky settings globals",
     });
@@ -438,15 +431,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(context->tshader_globals_buffer);
     task_list.use_persistent_buffer(scene_context.opaque_draw_list_buffer);
-    auto detector_image = context->shader_debug_context.tdetector_image;
-    task_list.use_persistent_image(detector_image);
+    auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
+    task_list.use_persistent_image(debug_lens_image);
     for (auto const & timage : images)
     {
         task_list.use_persistent_image(timage);
     }
     task_list.use_persistent_image(swapchain_image);
 
-    task_clear_image(task_list, detector_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
+    task_clear_image(task_list, debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
     task_list.add_task(ShaderDebugDrawContext::ReadbackTask{
         .views = std::array{daxa::attachment_view(ShaderDebugDrawContext::ReadbackTask::globals, context->tshader_globals_buffer)},
@@ -456,14 +449,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, context->tshader_globals_buffer)},
         .task = [&](daxa::TaskInterface ti)
         {
-            auto const alloc = ti.allocator->allocate_fill(context->shader_globals).value();
-            ti.recorder.copy_buffer_to_buffer({
-                .src_buffer = ti.allocator->buffer(),
-                .dst_buffer = ti.get(context->tshader_globals_buffer).ids[0],
-                .src_offset = alloc.buffer_offset,
-                .dst_offset = 0,
-                .size = alloc.size,
-            });
+            allocate_fill_copy(ti, context->shader_globals, ti.get(context->tshader_globals_buffer));
             context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
         },
         .name = "update global buffers",
@@ -476,21 +462,22 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     auto luminance_histogram = task_list.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
 
+    daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
     task_list.add_task(ComputeSkyTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{ComputeSkyTask::globals, context->tshader_globals_buffer}},
-            daxa::TaskViewVariant{std::pair{ComputeSkyTask::transmittance, transmittance}},
-            daxa::TaskViewVariant{std::pair{ComputeSkyTask::multiscattering, multiscattering}},
-            daxa::TaskViewVariant{std::pair{ComputeSkyTask::sky, sky}},
+            daxa::attachment_view(ComputeSkyTask::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(ComputeSkyTask::transmittance, transmittance),
+            daxa::attachment_view(ComputeSkyTask::multiscattering, multiscattering),
+            daxa::attachment_view(ComputeSkyTask::sky, sky),
         },
         .context = context,
     });
     task_list.add_task(SkyIntoCubemapTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::globals, context->tshader_globals_buffer}},
-            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::transmittance, transmittance}},
-            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::sky, sky}},
-            daxa::TaskViewVariant{std::pair{SkyIntoCubemap::ibl_cube, sky_ibl_cube.view().view({.layer_count = 6})}},
+            daxa::attachment_view(SkyIntoCubemap::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(SkyIntoCubemap::transmittance, transmittance),
+            daxa::attachment_view(SkyIntoCubemap::sky, sky),
+            daxa::attachment_view(SkyIntoCubemap::ibl_cube, sky_ibl_view),
         },
         .context = context,
     });
@@ -511,8 +498,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
-    task_prepopulate_meshlet_instances(context, &scene_context, task_list,
-        PrepopInfo{
+    task_prepopulate_meshlet_instances({
+            .context = context,
+            .scene_context = &scene_context,
+            .task_graph = task_list,
             .meshes = scene->_gpu_mesh_manifest,
             .materials = scene->_gpu_material_manifest,
             .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
@@ -523,10 +512,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
             .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         });
-    task_clear_buffer(task_list, visible_meshlet_instances, 0);
+
     task_draw_visbuffer({
         .context = context,
-        .tg = task_list,
+        .task_graph = task_list,
         .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
         .pass = PASS0_DRAW_VISIBLE_LAST_FRAME,
         .meshlet_instances = meshlet_instances,
@@ -538,26 +527,33 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .debug_image = debug_image,
         .depth_image = depth,
     });
-    auto hiz = task_gen_hiz_single_pass(context, task_list, depth, context->tshader_globals_buffer);
-    auto [meshlets_cull_arg_buckets_buffer_opaque, meshlets_cull_arg_buckets_buffer_discard] = tasks_cull_meshes(
-        TaskCullMeshesInfo{
-            .context = context,
-            .scene_context = &scene_context,
-            .task_list = task_list,
-            .globals = context->tshader_globals_buffer,
-            .opaque_draw_lists = scene_context.opaque_draw_list_buffer,
-            .meshes = scene->_gpu_mesh_manifest,
-            .materials = scene->_gpu_material_manifest,
-            .entity_meta = scene->_gpu_entity_meta,
-            .entity_meshgroup_indices = scene->_gpu_entity_mesh_groups,
-            .meshgroups = scene->_gpu_mesh_group_manifest,
-            .entity_transforms = scene->_gpu_entity_transforms,
-            .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
-            .hiz = hiz,
-        });
+
+    daxa::TaskImageView hiz = {};
+    task_gen_hiz_single_pass({context, task_list, depth, context->tshader_globals_buffer, &hiz});
+
+    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_opaque = {};
+    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_discard = {};
+    tasks_cull_meshes({
+        .context = context,
+        .scene_context = &scene_context,
+        .task_list = task_list,
+        .globals = context->tshader_globals_buffer,
+        .opaque_draw_lists = scene_context.opaque_draw_list_buffer,
+        .meshes = scene->_gpu_mesh_manifest,
+        .materials = scene->_gpu_material_manifest,
+        .entity_meta = scene->_gpu_entity_meta,
+        .entity_meshgroup_indices = scene->_gpu_entity_mesh_groups,
+        .meshgroups = scene->_gpu_mesh_group_manifest,
+        .entity_transforms = scene->_gpu_entity_transforms,
+        .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
+        .hiz = hiz,
+        .meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque,
+        .meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard,
+    });
+
     task_cull_and_draw_visbuffer({
         .context = context,
-        .tg = task_list,
+        .task_graph = task_list,
         .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
         .meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque,
         .meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard,
@@ -576,17 +572,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .debug_image = debug_image,
         .depth_image = depth,
     });
-    auto visible_meshlets_bitfield =
-        task_list.create_transient_buffer({sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, "visible meshlets bitfield"});
-    task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
 
+    auto visible_meshlets_bitfield = task_list.create_transient_buffer({
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, 
+        "visible meshlets bitfield",
+    });
+    task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
+    task_clear_buffer(task_list, visible_meshlet_instances, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::globals, context->tshader_globals_buffer}},
-            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::visbuffer, visbuffer}},
-            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::instantiated_meshlets, meshlet_instances}},
-            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::meshlet_visibility_bitfield, visible_meshlets_bitfield}},
-            daxa::TaskViewVariant{std::pair{AnalyzeVisBufferTask2::visible_meshlets, visible_meshlet_instances}},
+            daxa::attachment_view(AnalyzeVisBufferTask2::globals, context->tshader_globals_buffer),
+            daxa::attachment_view(AnalyzeVisBufferTask2::visbuffer, visbuffer),
+            daxa::attachment_view(AnalyzeVisBufferTask2::instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(AnalyzeVisBufferTask2::meshlet_visibility_bitfield, visible_meshlets_bitfield),
+            daxa::attachment_view(AnalyzeVisBufferTask2::visible_meshlets, visible_meshlet_instances),
         },
         .context = context,
     });
@@ -595,7 +594,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         task_draw_visbuffer({
             .context = context,
-            .tg = task_list,
+            .task_graph = task_list,
             .enable_mesh_shader = context->settings.enable_mesh_shader != 0,
             .pass = PASS4_OBSERVER_DRAW_ALL,
             .meshlet_instances = meshlet_instances,
@@ -611,13 +610,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.submit({});
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
-            daxa::attachment_view(ShadeOpaqueTask::detector_image, detector_image),
+            daxa::attachment_view(ShadeOpaqueTask::debug_lens_image, debug_lens_image),
             daxa::attachment_view(ShadeOpaqueTask::globals, context->tshader_globals_buffer),
             daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
             daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
             daxa::attachment_view(ShadeOpaqueTask::transmittance, transmittance),
             daxa::attachment_view(ShadeOpaqueTask::sky, sky),
-            daxa::attachment_view(ShadeOpaqueTask::sky_ibl, sky_ibl_cube),
+            daxa::attachment_view(ShadeOpaqueTask::sky_ibl, sky_ibl_view),
             daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
             daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
             daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
@@ -665,7 +664,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image),
-            daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, detector_image),
+            daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, debug_lens_image),
         },
         .task = [=, this](daxa::TaskInterface ti)
         {

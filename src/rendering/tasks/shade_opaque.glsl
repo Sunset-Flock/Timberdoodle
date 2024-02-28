@@ -73,6 +73,11 @@ layout(local_size_x = SHADE_OPAQUE_WG_X, local_size_y = SHADE_OPAQUE_WG_Y) in;
 void main()
 {
     const ivec2 index = ivec2(gl_GlobalInvocationID.xy);
+    if ( all(equal(index, ivec2(0,0))) )
+    {
+        deref(deref(push.attachments.globals).debug).gpu_output.debug_ivec4.x = int(deref(push.attachments.instantiated_meshlets).first_count);
+        deref(deref(push.attachments.globals).debug).gpu_output.debug_ivec4.y = int(deref(push.attachments.instantiated_meshlets).second_count);
+    }
     const uint triangle_id = imageLoad(daxa_uimage2D(push.attachments.vis_image), index).x;
     vec4 output_value = vec4(0,0,0,0);
     if (triangle_id != INVALID_TRIANGLE_ID)
@@ -144,17 +149,17 @@ void main()
         output_value.rgb = albedo.rgb * lighting;
 #endif
         uvec2 detector_window_index;
-        debug_write_detector_image(
+        debug_write_lens(
             deref(push.attachments.globals).debug, 
-            push.attachments.detector_image, 
+            push.attachments.debug_lens_image, 
             index, 
             debug_value);
-        if (debug_in_detector_window(deref(push.attachments.globals).debug, index, detector_window_index))
+        if (debug_in_lens(deref(push.attachments.globals).debug, index, detector_window_index))
         {
             output_value = debug_value;
         }
-        float combined_indices = tri_data.meshlet_instance.meshlet_index + tri_data.meshlet_instance.mesh_index * 10 + tri_data.meshlet_instance.entity_index;
-        output_value = vec4(cos(combined_indices), cos(1 + 1.1f * combined_indices), cos(2 + 1.2f * combined_indices), 1);
+        float combined_indices = tri_data.meshlet_instance.meshlet_index + tri_data.meshlet_instance.mesh_index * 100 + tri_data.meshlet_instance.entity_index * 1000;
+        //output_value = vec4(vec3(cos(combined_indices), cos(1 + 2.53252343422 * combined_indices), cos(2 + 3.3111223232 * combined_indices)) * 0.5f + 0.5f, 1);
     } else {
         // scale uvs to be in the range [0, 1]
         const vec2 uv = vec2(gl_GlobalInvocationID.xy) * deref(push.attachments.globals).settings.render_target_size_inv;

@@ -20,15 +20,15 @@ struct ShaderDebugDrawContext
     i32 old_detector_window_size = 0;
     bool draw_magnified_area_rect = true;
     
-    daxa::ImageInfo detector_image_create_info = { 
+    daxa::ImageInfo debug_lens_image_create_info = { 
         .format = daxa::Format::R16G16B16A16_SFLOAT, 
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | 
             daxa::ImageUsageFlagBits::SHADER_STORAGE | 
             daxa::ImageUsageFlagBits::TRANSFER_DST,
         .name = "debug detector image",
     };
-    daxa::ImageId detector_image = {};
-    daxa::TaskImage tdetector_image = {};
+    daxa::ImageId debug_lens_image = {};
+    daxa::TaskImage tdebug_lens_image = {};
     daxa::BufferId readback_queue = {};
 
     std::vector<ShaderDebugCircleDraw> cpu_debug_circle_draws = {};
@@ -47,10 +47,10 @@ struct ShaderDebugDrawContext
             .size = size,
             .name = "shader debug buffer",
         });
-        detector_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
-        detector_image = device.create_image(detector_image_create_info);
-        tdetector_image = daxa::TaskImage({
-            .initial_images = {.images = std::array{detector_image}}, 
+        debug_lens_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
+        debug_lens_image = device.create_image(debug_lens_image_create_info);
+        tdebug_lens_image = daxa::TaskImage({
+            .initial_images = {.images = std::array{debug_lens_image}}, 
             .name = "debug detector image",
         });
         readback_queue = device.create_buffer({
@@ -64,13 +64,13 @@ struct ShaderDebugDrawContext
     {
         if (detector_window_size != old_detector_window_size)
         {
-            if (device.is_id_valid(detector_image))
+            if (device.is_id_valid(debug_lens_image))
             {
-                device.destroy_image(detector_image);
+                device.destroy_image(debug_lens_image);
             }
-            detector_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
-            detector_image = device.create_image(detector_image_create_info);
-            tdetector_image.set_images({.images=std::array{detector_image}});
+            debug_lens_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
+            debug_lens_image = device.create_image(debug_lens_image_create_info);
+            tdebug_lens_image.set_images({.images=std::array{debug_lens_image}});
             old_detector_window_size = detector_window_size;
         }
         if (draw_magnified_area_rect)

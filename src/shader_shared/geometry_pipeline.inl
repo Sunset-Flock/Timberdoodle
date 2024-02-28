@@ -7,7 +7,9 @@
 #include <daxa/daxa.inl>
 
 #include "shared.inl"
-#include "asset.inl"
+#include "geometry.inl"
+
+/// --- Mesh Instance Draw List Begin ---
 
 #define OPAQUE_DRAW_LIST_SOLID 0
 #define OPAQUE_DRAW_LIST_MASKED 1
@@ -60,3 +62,77 @@ DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) U32ArenaBufferRef
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_DEBUG (~0u ^ 2u)
 
 #define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<20u)
+
+/// --- Mesh Instance Draw List End ---
+
+
+/// --- Culling Arguments ---
+
+struct MeshletCullIndirectArg
+{
+    daxa_u32 meshlet_indices_offset;
+    daxa_u32 entity_index;
+    daxa_u32 material_index;
+    daxa_u32 mesh_index;
+    daxa_u32 in_mesh_group_index; 
+    // Usually identical to buckets meshlet per arg count.
+    // Can be lower when a bigger bucket is used to cull the rest.
+    // For example bucket 1<<4 used to cull 10 meshlets.
+    daxa_u32 meshlet_count;
+};
+DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArg)
+
+// Table is set up in write command of cull_meshes.glsl.
+struct MeshletCullArgBucketsBufferHead
+{
+    DispatchIndirectStruct commands[32];
+    daxa_RWBufferPtr(MeshletCullIndirectArg) indirect_arg_ptrs[32];
+    daxa_u32 indirect_arg_counts[32];
+};
+DAXA_DECL_BUFFER_PTR(MeshletCullArgBucketsBufferHead)
+
+#if __cplusplus
+inline auto meshlet_cull_arg_bucket_size(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u32 bucket) -> daxa_u32
+{
+    // round_up(div(max_meshlets,pow(2,i)))
+    daxa_u32 const args_needed_for_max_meshlets_this_bucket = (max_meshlets + ((1 << bucket) - 1) ) >> bucket;
+    // Min with max_meshes, as each mesh can write up most one arg into each bucket!
+    return std::min(max_meshes, args_needed_for_max_meshlets_this_bucket) * static_cast<daxa_u32>(sizeof(MeshletCullIndirectArg));
+}
+
+inline auto meshlet_cull_arg_buckets_buffer_size(daxa_u32 max_meshes, daxa_u32 max_meshlets) -> daxa_u32
+{
+    daxa_u32 worst_case_size = {};
+    for (daxa_u32 i = 0; i < 32; ++i)
+    {
+        worst_case_size += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+    }
+    return worst_case_size + static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
+}
+inline auto meshlet_cull_arg_buckets_buffer_make_head(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u64 address) -> MeshletCullArgBucketsBufferHead
+{
+    MeshletCullArgBucketsBufferHead ret = {};
+    daxa_u32 current_buffer_offset = static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
+    for (daxa_u32 i = 0; i < 32; ++i)
+    {
+        ret.commands[i] = { 0, 1, 1 };
+        ret.indirect_arg_ptrs[i] = static_cast<daxa_u64>(current_buffer_offset) + address;
+        current_buffer_offset += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+    }
+    return ret;
+}
+#endif
+
+/// --- End Culling Arguments ---
+
+/// --- Analyze Visbuffer Results Begin ---
+
+// TODO: Convert into buffer head.
+struct VisibleMeshletList
+{
+    daxa_u32 count;
+    daxa_u32 meshlet_ids[MAX_MESHLET_INSTANCES];
+};
+DAXA_DECL_BUFFER_PTR(VisibleMeshletList)
+
+/// --- Analyze Visbuffer Results End ---
