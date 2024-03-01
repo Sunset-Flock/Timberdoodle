@@ -560,7 +560,7 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
 auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode
 {
     fastgltf::Asset const & gltf_asset = *info.asset;
-    fastgltf::Image const & image = gltf_asset.images.at(info.gltf_texture_index);
+    fastgltf::Image const & image = gltf_asset.images.at(info.gltf_image_index);
     std::vector<std::byte> raw_data = {};
 
     RawDataRet ret = {};
