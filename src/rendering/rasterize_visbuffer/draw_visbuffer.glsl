@@ -62,9 +62,9 @@ void main()
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX || DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT
 layout(location = 0) flat VERTEX_OUT uint vout_triange_id;
-#if defined(DISCARD)
 layout(location = 1) VERTEX_OUT vec2 vout_uv;
 layout(location = 2) flat VERTEX_OUT uint vout_material_index;
+#if defined(DISCARD)
 #endif // #if defined(DISCARD)
 #endif
 
@@ -134,6 +134,7 @@ void main()
     encode_triangle_id(inst_meshlet_index, triangle_index, triangle_id);
     vout_triange_id = triangle_id;
 #if defined(DISCARD)
+#endif // #if defined(DISCARD)
     vout_material_index = meshlet_inst.material_index;    
     vec2 uv = vec2(0,0);
     if (daxa_u64(mesh.vertex_uvs) != 0)
@@ -141,14 +142,13 @@ void main()
         uv = deref(mesh.vertex_uvs[vertex_index]);
     }
     vout_uv = uv;
-#endif // #if defined(DISCARD)
     gl_Position = pos.xyzw;
 }
 #endif
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || !defined(DAXA_SHADER)
 layout(location = 0) out uint visibility_id;
-//layout(location = 1) out vec4 debug_image;
+layout(location = 1) out vec4 debug_image;
 void main()
 {
 #if defined(DISCARD)
@@ -163,6 +163,7 @@ void main()
     }
 #endif // #if defined(DISCARD)
     visibility_id = vout_triange_id;
+    debug_image = vec4(dFdx(vout_uv), dFdy(vout_uv));
 }
 #endif
 

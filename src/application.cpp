@@ -195,16 +195,16 @@ auto Application::run() -> i32
             this->_window->size = new_window_size;
             _renderer->window_resized();
         }
-        if(_window->size.x == 0 || _window->size.y == 0) 
+        if(_window->size.x != 0 && _window->size.y != 0) 
         {
-             continue;
+            update();
+            _renderer->render_frame(
+                this->camera_controller.cam_info, 
+                this->observer_camera_controller.cam_info, 
+                delta_time,
+                this->_scene->_scene_renderer_context);
         }
-        update();
-        _renderer->render_frame(
-            this->camera_controller.cam_info, 
-            this->observer_camera_controller.cam_info, 
-            delta_time,
-            this->_scene->scene_renderer_context);
+        _gpu_context->device.collect_garbage();
     }
     return 0;
 }

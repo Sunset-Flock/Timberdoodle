@@ -522,7 +522,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .meshes = scene->_gpu_mesh_manifest,
         .material_manifest = scene->_gpu_material_manifest,
         .combined_transforms = scene->_gpu_entity_combined_transforms,
-        .visible_meshlet_instances = visible_meshlet_instances,
         .vis_image = visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
@@ -566,7 +565,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         .hiz = hiz,
-        .visible_meshlet_instances = visible_meshlet_instances,
         .meshlet_instances = meshlet_instances,
         .vis_image = visbuffer,
         .debug_image = debug_image,
@@ -601,7 +599,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .meshes = scene->_gpu_mesh_manifest,
             .material_manifest = scene->_gpu_material_manifest,
             .combined_transforms = scene->_gpu_entity_combined_transforms,
-            .visible_meshlet_instances = visible_meshlet_instances,
             .vis_image = visbuffer,
             .debug_image = debug_image,
             .depth_image = depth,
@@ -622,6 +619,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
             daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
             daxa::attachment_view(ShadeOpaqueTask::luminance_average, luminance_average),
+            daxa::attachment_view(ShadeOpaqueTask::debug_image, debug_image),
         },
         .context = context,
     });
@@ -766,5 +764,4 @@ void Renderer::render_frame(
     submit_info.signal_timeline_semaphores = t_semas;
     context->shader_debug_context.update(context->device, window->size.x, window->size.y);
     main_task_graph.execute({});
-    context->device.collect_garbage();
 }

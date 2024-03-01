@@ -47,8 +47,8 @@ struct MaterialManifestEntry
 {
     struct TextureInfo
     {
-        u32 tex_manifest_index;
-        u32 sampler_index;
+        u32 tex_manifest_index = {};
+        u32 sampler_index = {};
     };
     std::optional<TextureInfo> diffuse_info = {};
     std::optional<TextureInfo> normal_info = {};
@@ -133,13 +133,13 @@ struct Scene
      * - TODO: Make the task buffers real buffers grow with time, unfix their size!
      * - TODO: Combine all into one task buffer when task graph gets array uses.
      */
-    daxa::TaskBuffer _gpu_entity_meta = daxa::TaskBufferInfo{.name = "_gpu_entity_meta"};
-    daxa::TaskBuffer _gpu_entity_transforms = daxa::TaskBufferInfo{.name = "_gpu_entity_transforms"};
-    daxa::TaskBuffer _gpu_entity_combined_transforms = daxa::TaskBufferInfo{.name = "_gpu_entity_combined_transforms"};
+    daxa::TaskBuffer _gpu_entity_meta = {};
+    daxa::TaskBuffer _gpu_entity_transforms = {};
+    daxa::TaskBuffer _gpu_entity_combined_transforms = {};
     // UNUSED, but later we wanna do
     // the compined transform calculation on the gpu!
-    daxa::TaskBuffer _gpu_entity_parents = daxa::TaskBufferInfo{.name = "_gpu_entity_parents"};
-    daxa::TaskBuffer _gpu_entity_mesh_groups = daxa::TaskBufferInfo{.name = "_gpu_entity_mesh_groups"};
+    daxa::TaskBuffer _gpu_entity_parents = {};
+    daxa::TaskBuffer _gpu_entity_mesh_groups = {};
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
 
@@ -154,15 +154,15 @@ struct Scene
      * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
      * - TODO: Make the task buffers real buffers grow with time, unfix their size!
      * */
-    daxa::TaskBuffer _gpu_mesh_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_manifest"};
-    daxa::TaskBuffer _gpu_mesh_group_manifest = daxa::TaskBufferInfo{.name = "_gpu_mesh_group_manifest"};
+    daxa::TaskBuffer _gpu_mesh_manifest = {};
+    daxa::TaskBuffer _gpu_mesh_group_manifest = {};
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
-    daxa::TaskBuffer _gpu_material_manifest = daxa::TaskBufferInfo{.name = "_gpu_material_manifest"};
+    daxa::TaskBuffer _gpu_material_manifest = {};
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshManifestEntry> _mesh_manifest = {};
-    std::vector<u32> mesh_manifest_indices_new = {};
+    std::vector<u32> _mesh_manifest_indices_new = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
@@ -171,7 +171,7 @@ struct Scene
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
 
-    SceneRendererContext scene_renderer_context = {};
+    SceneRendererContext _scene_renderer_context = {};
 
     Scene(daxa::Device device);
     ~Scene();

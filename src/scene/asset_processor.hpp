@@ -8,6 +8,7 @@
 #include "../timberdoodle.hpp"
 #include "../gpu_context.hpp"
 #include "../shader_shared/geometry.inl"
+#include <ktx.h>
 
 using namespace tido::types;
 
@@ -97,8 +98,10 @@ struct AssetProcessor
         std::filesystem::path asset_path = {};
         fastgltf::Asset * asset;
         u32 gltf_texture_index = {};
+        u32 gltf_image_index = {};
         u32 texture_manifest_index = {};
         bool load_as_srgb = {};
+        ktx_transcode_fmt_e gpu_compression_format = {};
     };
     auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
 

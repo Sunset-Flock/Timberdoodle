@@ -94,6 +94,15 @@ GPUContext::GPUContext(Window const & window)
             .minification_filter = daxa::Filter::NEAREST,
             .mipmap_filter = daxa::Filter::NEAREST,
             .name = "nearest clamp sampler",
+        }),
+        .linear_repeat_ani = this->device.create_sampler({
+            .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+            .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+            .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+            .mip_lod_bias = 0.0f,
+            .enable_anisotropy = true,
+            .max_anisotropy = 16.0f,
+            .name = "nearest clamp sampler",
         })};
     shader_debug_context.init(device);
     shader_globals.debug = device.get_device_address(shader_debug_context.buffer).value();
@@ -110,6 +119,7 @@ GPUContext::~GPUContext()
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_clamp));
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_repeat));
     device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.nearest_clamp));
+    device.destroy_sampler(std::bit_cast<daxa::SamplerId>(shader_globals.samplers.linear_repeat_ani));
     device.destroy_buffer(shader_debug_context.buffer);
     device.destroy_buffer(shader_debug_context.readback_queue);
     device.destroy_image(shader_debug_context.debug_lens_image);

@@ -69,6 +69,18 @@ vec3 get_view_direction(vec2 ndc_xy)
     return world_direction;
 }
 
+float mip_map_level(vec2 ddx, vec2 ddy)
+{
+    float delta_max_sqr = max(dot(ddx, ddx), dot(ddy, ddy));
+    return 0.5 * log2(delta_max_sqr);
+}
+
+vec3 hsv2rgb(vec3 c) {
+    vec4 k = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    return c.z * mix(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
+}
+
 layout(local_size_x = SHADE_OPAQUE_WG_X, local_size_y = SHADE_OPAQUE_WG_Y) in;
 void main()
 {
@@ -105,18 +117,24 @@ void main()
             push.attachments.combined_transforms);
         vec3 normal = tri_data.world_normal;
 
-        vec4 debug_value = vec4(normal * 0.5f + 0.5f, 1);
+        vec4 debug_value = vec4(0, 0, 0, 0);
+
+        vec4 debug_tex_value = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
 
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
+
+        ivec2 diffuse_size = textureSize(daxa_texture2D(material.diffuse_texture_id), 0);
+        const float manually_calc_mip = mip_map_level(tri_data.uv_ddx * diffuse_size, tri_data.uv_ddy * diffuse_size);
+
         vec3 albedo = (0.5f).xxx;
         if(material.diffuse_texture_id.value != 0)
         {
-            albedo = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
+            albedo = textureGrad(daxa_sampler2D(material.diffuse_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy).rgb;
         }
 
         if(material.normal_texture_id.value != 0)
         {
-            vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat), tri_data.uv).rgb;
+            vec3 normal_map = textureGrad(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy).rgb;
             normal_map = normal_map * 2.0f - 1.0f;
             mat3 tbn = mat3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
             normal = tbn * normal_map;
@@ -148,16 +166,11 @@ void main()
         const vec3 lighting = direct_lighting + indirect_ligting;
         output_value.rgb = albedo.rgb * lighting;
 #endif
-        uvec2 detector_window_index;
-        debug_write_lens(
-            deref(push.attachments.globals).debug, 
-            push.attachments.debug_lens_image, 
-            index, 
-            debug_value);
-        if (debug_in_lens(deref(push.attachments.globals).debug, index, detector_window_index))
-        {
-            output_value = debug_value;
-        }
+
+#if 0
+        output_value.rgb = hsv2rgb(vec3(floor(manually_calc_mip) * 0.1, 1, 0.5));
+#endif
+
         float combined_indices = tri_data.meshlet_instance.meshlet_index + tri_data.meshlet_instance.mesh_index * 100 + tri_data.meshlet_instance.entity_index * 1000;
         //output_value = vec4(vec3(cos(combined_indices), cos(1 + 2.53252343422 * combined_indices), cos(2 + 3.3111223232 * combined_indices)) * 0.5f + 0.5f, 1);
     } else {
@@ -188,5 +201,11 @@ void main()
 
     const float exposure = compute_exposure(deref(push.attachments.luminance_average));
     const vec3 exposed_color = output_value.rgb * exposure;
+    uvec2 detector_window_index;
+    debug_write_lens(
+        deref(push.attachments.globals).debug, 
+        push.attachments.debug_lens_image, 
+        index, 
+        vec4(exposed_color,1));
     imageStore(daxa_image2D(push.attachments.color_image), index, vec4(exposed_color, output_value.a));
 }

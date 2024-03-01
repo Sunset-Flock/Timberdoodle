@@ -10,14 +10,15 @@
 #include <ktx.h>
 
 #pragma region IMAGE_RAW_DATA_LOADING_HELPERS
-struct RawImageData
+struct ImageFromRawInfo
 {
     std::vector<std::byte> raw_data;
     std::filesystem::path image_path;
     fastgltf::MimeType mime_type;
+    int ktx_compression = KTX_TTF_BC7_RGBA;
 };
 
-using RawDataRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, RawImageData>;
+using RawDataRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ImageFromRawInfo>;
 
 struct RawImageDataFromURIInfo
 {
@@ -42,7 +43,7 @@ static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDat
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE;
     }
-    return RawImageData{
+    return ImageFromRawInfo{
         .raw_data = std::move(raw),
         .image_path = image_path,
         .mime_type = {}};
@@ -70,7 +71,7 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const & info) -> Raw
     {
         return raw_image_data_ret;
     }
-    RawImageData & raw_data = std::get<RawImageData>(raw_image_data_ret);
+    ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_image_data_ret);
     raw_data.mime_type = info.uri.mimeType;
     if (info.uri.uri.string().ends_with(".ktx2"))
     {
@@ -115,7 +116,7 @@ static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
     }
-    return RawImageData{
+    return ImageFromRawInfo{
         .raw_data = std::move(raw),
         .image_path = full_buffer_path,
         .mime_type = uri.mimeType};
@@ -306,7 +307,7 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
     return format;
 };
 
-static auto free_image_parse_raw_image_data(RawImageData && raw_data, bool load_as_srgb, daxa::Device & device) -> ParsedImageRet
+static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, bool load_as_srgb, daxa::Device & device) -> ParsedImageRet
 {
     /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
     //        wrapper so that it can internally process the data
@@ -417,7 +418,7 @@ static auto free_image_parse_raw_image_data(RawImageData && raw_data, bool load_
     return ret;
 }
 
-static auto ktx_parse_raw_image_data(RawImageData && raw_data, bool load_as_srgb, daxa::Device & device) -> ParsedImageRet
+static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, bool load_as_srgb, daxa::Device & device, ktx_transcode_fmt_e compression_format) -> ParsedImageRet
 {
     // KTX handles image. Mister sexy. We load now. loading
     ktxTexture2* texture;
@@ -434,7 +435,7 @@ static auto ktx_parse_raw_image_data(RawImageData && raw_data, bool load_as_srgb
     }
     defer{ktxTexture_Destroy(ktxTexture(texture));};
 
-    result = ktxTexture2_TranscodeBasis(texture, KTX_TTF_BC7_RGBA, KTX_TF_HIGH_QUALITY);
+    result = ktxTexture2_TranscodeBasis(texture, compression_format, KTX_TF_HIGH_QUALITY);
     if (result != KTX_SUCCESS)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
@@ -519,7 +520,7 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
     {
         return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
     }
-    RawImageData & raw_data = std::get<RawImageData>(raw_data_ret);
+    ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
     ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), load_as_srgb, _device);
     if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
@@ -588,11 +589,11 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     {
         return *error;
     }
-    RawImageData & raw_image_data = std::get<RawImageData>(ret);
+    ImageFromRawInfo & raw_image_data = std::get<ImageFromRawInfo>(ret);
     ParsedImageRet parsed_data_ret;
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
-        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), info.load_as_srgb, _device);
+        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), info.load_as_srgb, _device, info.gpu_compression_format);
     }
     else
     {
