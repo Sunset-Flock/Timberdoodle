@@ -186,7 +186,7 @@ layout(local_size_x = TASK_SHADER_WORKGROUP_X) in;
 void main()
 {
     MeshletInstance meshlet_instance;
-    bool active_thread = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_instance);
+    bool active_thread = get_meshlet_instance_from_arg_buckets(gl_GlobalInvocationID.x, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_instance);
 #if ENABLE_MESHLET_CULLING
     if (active_thread)
     {
@@ -255,7 +255,7 @@ void main()
     const uint arg_index = tps.global_meshlet_args_offset + s_local_meshlet_arg_offset;
     const uint meshlet_instance_index = tps.global_meshlet_instances_offset + local_meshlet_instances_offset;
     MeshletInstance meshlet_inst;
-    bool active_thread = get_meshlet_instance_from_arg(arg_index, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_inst);
+    bool active_thread = get_meshlet_instance_from_arg_buckets(arg_index, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_inst);
 #else
     const uint meshlet_offset = get_meshlet_draw_offset_from_pass(push.uses.meshlet_instances, push.pass);
     const uint meshlet_instance_index = gl_WorkGroupID.x + meshlet_offset;

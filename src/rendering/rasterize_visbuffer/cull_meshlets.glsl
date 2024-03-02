@@ -16,7 +16,7 @@ layout(local_size_x = CULL_MESHLETS_WORKGROUP_X) in;
 void main()
 {
     MeshletInstance instanced_meshlet;
-    const bool valid_meshlet = get_meshlet_instance_from_arg(gl_GlobalInvocationID.x, push.indirect_args_table_id, push.uses.meshlets_cull_arg_buckets_buffer, instanced_meshlet);
+    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(gl_GlobalInvocationID.x, push.indirect_args_table_id, push.uses.meshlets_cull_arg_buckets_buffer, instanced_meshlet);
     if (!valid_meshlet)
     {
         return;
