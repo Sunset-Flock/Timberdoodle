@@ -136,20 +136,28 @@ inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBuffer
     });
 }
 
-template<typename HeadT, typename PushT, daxa::StringLiteral shader_path>
+template<typename HeadT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry>
 struct SimpleIndirectComputeTask : HeadT
 {
     HeadT::AttachmentViews views = {};
     GPUContext * context = {};
     PushT push = {};
     static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
-        return daxa::ComputePipelineCompileInfo{
-            .shader_info = daxa::ShaderCompileInfo{
-                daxa::ShaderFile{ std::string_view{shader_path.value, shader_path.SIZE}},
-                {
-                    .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
-                },
+        auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
+        daxa::ShaderLanguage lang = 
+            shader_path_sv.ends_with(".glsl") ? 
+            daxa::ShaderLanguage::GLSL : 
+            daxa::ShaderLanguage::SLANG;
+        auto shader_comp_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{ std::filesystem::path(shader_path_sv) },
+            .compile_options = {
+                .entry_point = std::string(entry.value, entry.SIZE),
+                .language = lang,
+                .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
             },
+        };
+        return daxa::ComputePipelineCompileInfo{
+            .shader_info = shader_comp_info,
             .push_constant_size =
                 s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
             .name = std::string(HeadT::name()),
@@ -169,7 +177,7 @@ struct SimpleIndirectComputeTask : HeadT
     }
 };
 
-template<typename HeadT, typename PushT, daxa::StringLiteral shader_path>
+template<typename HeadT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry>
 struct SimpleComputeTask : HeadT
 {
     HeadT::AttachmentViews views = {};
@@ -177,12 +185,21 @@ struct SimpleComputeTask : HeadT
     std::function<daxa::DispatchInfo(void)> dispatch_callback = {};
     PushT push = {};
     static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
-        return {
-            .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{shader_path.c_str()},
-                {.defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}}}},
+        auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
+        daxa::ShaderLanguage lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
+        auto shader_comp_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{ std::filesystem::path(shader_path_sv) },
+            .compile_options = {
+                .entry_point = std::string(entry.value, entry.SIZE),
+                .language = lang,
+                .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
+            },
+        };
+        return daxa::ComputePipelineCompileInfo{
+            .shader_info = shader_comp_info,
             .push_constant_size =
                 s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
-            .name = HeadT::name(),
+            .name = std::string(HeadT::name()),
         };
     }
     void callback(daxa::TaskInterface ti)

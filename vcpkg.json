@@ -6,6 +6,7 @@
       "name": "daxa",
       "features": [
         "utils-pipeline-manager-glslang",
+        "utils-pipeline-manager-slang",
         "utils-task-graph",
         "utils-imgui"
       ]
@@ -30,7 +31,8 @@
   "builtin-baseline": "e56312cb3d33be09ec550ade6ffbb8dc18d23cfd",
   "vcpkg-configuration": {
     "overlay-ports": [
-      "deps/daxa"
+      "deps/daxa",
+      "deps/daxa/cmake/vcpkg-overlay-ports/shader-slang"
     ]
   }
 }

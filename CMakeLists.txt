@@ -37,6 +37,12 @@ find_package(freeimage CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(implot CONFIG REQUIRED)
 
+# NOTE(grundlett): Really hacky. It appears there's no way to create plugin dll dependencies...
+# see https://gitlab.kitware.com/cmake/cmake/-/issues/22993
+add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:slang::glslang> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+)
+
 # FreeImage links OpenEXR, which adds /EHsc for its targets, even if we're using Clang
 function(FIXUP_TARGET TGT_NAME)
     if(CMAKE_CXX_COMPILER_ID MATCHES Clang)

@@ -20,6 +20,7 @@ void main()
     // Make circle in world space.
     vec4 model_position = vec4(circle.radius * vec3(cos(rotation),sin(rotation), 0.0f), 1);
     vec4 out_position;
+    vtf_color = circle.color;
     if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
         mat4 view = deref(push.attachments.globals).camera.view;
@@ -33,15 +34,18 @@ void main()
         model_position = model_position + vec4(circle.position, 0);
         const vec4 clipspace_position = deref(push.attachments.globals).camera.view_proj * model_position;
 
-        vtf_color = circle.color;
         out_position = clipspace_position;
     }
     else if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
     {
-        vtf_color = circle.color;
         out_position = vec4(model_position.xyz,0) + vec4(circle.position, 1);
     }
-    if (push.draw_as_observer == 1)
+    else if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
+    {
+        out_position = vec4(model_position.xyz,0) + vec4(circle.position, 1);
+    }
+    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
+    if (push.draw_as_observer == 1 && circle.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
     {
         out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }
@@ -73,6 +77,7 @@ void main()
     const vec2 scaled_position = rectangle_pos[gl_VertexIndex] * rectangle.span;
 
     vec4 out_position;
+    vtf_color = rectangle.color;
     if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
         const mat4 view = deref(push.attachments.globals).camera.view;
@@ -80,15 +85,18 @@ void main()
         const vec3 view_center_position = (view * vec4(rectangle.center, 1.0)).xyz;
         const vec3 view_offset_position = vec3(view_center_position.xy + scaled_position, view_center_position.z);
         const vec4 clipspace_position = projection * vec4(view_offset_position, 1.0);
-        vtf_color = rectangle.color;
         out_position = clipspace_position;
     }
     else if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
     {
-        vtf_color = rectangle.color;
         out_position = vec4(rectangle.center.xyz, 0.0) + vec4(scaled_position, 0.0, 1.0);
     }
-    if (push.draw_as_observer == 1)
+    else if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
+    {
+        out_position = vec4(rectangle.center.xyz, 0.0) + vec4(scaled_position, 0.0, 1.0);
+    }
+    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
+    if (push.draw_as_observer == 1 && rectangle.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
     {
         out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }
@@ -139,7 +147,12 @@ void main()
     {
         out_position = vec4(model_position, 1);
     }
-    if (push.draw_as_observer == 1)
+    else if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
+    {
+        out_position = vec4(model_position, 1);
+    }
+    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
+    if (push.draw_as_observer == 1 && aabb.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
     {
         out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
     }

@@ -5,6 +5,7 @@
 
 #define DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE 0
 #define DEBUG_SHADER_DRAW_COORD_SPACE_NDC 1
+#define DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER 2
 
 struct ShaderDebugCircleDraw
 {
@@ -68,3 +69,4 @@ struct ShaderDebugBufferHead
     daxa_RWBufferPtr(ShaderDebugAABBDraw) aabb_draws;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)
+

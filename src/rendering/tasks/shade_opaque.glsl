@@ -119,7 +119,7 @@ void main()
 
         vec4 debug_value = vec4(0, 0, 0, 0);
 
-        vec4 debug_tex_value = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
+        // vec4 debug_tex_value = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
 
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
 
@@ -134,7 +134,7 @@ void main()
 
         if(material.normal_texture_id.value != 0)
         {
-            vec3 normal_map = textureGrad(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy).rgb;
+            vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rgb;
             normal_map = normal_map * 2.0f - 1.0f;
             mat3 tbn = mat3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
             normal = tbn * normal_map;
@@ -167,7 +167,7 @@ void main()
         output_value.rgb = albedo.rgb * lighting;
 #endif
 
-#if 0
+#if 1
         output_value.rgb = hsv2rgb(vec3(floor(manually_calc_mip) * 0.1, 1, 0.5));
 #endif
 

@@ -67,7 +67,6 @@ void main()
     const uint offsets_section_size = allocation_offset + mesh_group.count;
     if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - 2))
     {
-        //debugPrintfEXT("allocated %i uints for ent %i at offset %i\n", mesh_group.count, mesh_draw.entity_index, allocation_offset);
         atomicExchange(
             deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_draw.entity_index]),
             allocation_offset
@@ -148,15 +147,22 @@ void main()
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
             GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
+            // Scalarize appends to the draw lists.
+            // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
+            // This allows for scalar atomic ops and packed writeouts.
+            // Drawlist type count are low, scalarization will most likely always improve perf.
             const uint opaque_draw_list_type_index = material.alpha_discard_enabled ? OPAQUE_DRAW_LIST_MASKED : OPAQUE_DRAW_LIST_SOLID;
-            // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
-            const uint opaque_draw_list_index = atomicAdd(deref(push.uses.meshlet_instances).draw_lists[1].first_count, 1);
-            deref(deref(push.uses.meshlet_instances).draw_lists[1].instances[opaque_draw_list_index]) = meshlet_instance_index;
-
-            if (in_bitfield_u32_index >= push.uses.bitfield_arena.offsets_section_size + push.uses.bitfield_arena.bitfield_section_size)
+            [[unroll]]
+            for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
             {
-                debugPrintfEXT("prev_frame_vis_meshlet.meshlet_index: %i\n", prev_frame_vis_meshlet.meshlet_index);
-            }
+                if (opaque_draw_list_type_index != draw_list_type)
+                {
+                    continue;
+                }
+                // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
+                const uint opaque_draw_list_index = atomicAdd(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count, 1);
+                deref(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
+            } 
         }
     }
 }
@@ -233,17 +239,3 @@ void main()
     atomicMax(deref(push.uses.clear_arena_command).size, potentially_used_bitfield_size_section_local);
 }
 #endif
-
-// 
-// First Pass Preparation: 50 mics
-// First Pass Draw: 250 mics
-// Cull and prep second Pass: 70 mics
-// Draw Second pass: 110 mics
-// Post analyze: 44mics
-// TOTAL: 526
-// TOTAL FIRST PASS PREP: 95mics
-// 
-// Raw draw prep: 53 mics
-// Raw Draw: 450mics
-// TOTAL: 503
-// 

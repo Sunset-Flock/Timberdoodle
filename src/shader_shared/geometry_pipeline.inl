@@ -13,6 +13,7 @@
 
 #define OPAQUE_DRAW_LIST_SOLID 0
 #define OPAQUE_DRAW_LIST_MASKED 1
+#define OPAQUE_DRAW_LIST_COUNT 2
 
 struct MeshDrawTuple
 {

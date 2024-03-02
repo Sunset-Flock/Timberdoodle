@@ -84,7 +84,7 @@ struct ShaderDebugDrawContext
                 .position = {u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.5},
                 .size = {span_u * 2.0f, span_v * 2.0f, 0.99999999 },
                 .color = daxa_f32vec3(1,0,0),
-                .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
+                .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER,
             });
         }
         shader_debug_input.texel_detector_window_half_size = detector_window_size / 2;

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 
 #define SHADER_GLOBALS_SLOT 0
 
@@ -23,7 +23,7 @@
 #define COMPILE_IN_MESH_SHADER 0
 #define CULLING_DEBUG_DRAWS 0
 
-#if __cplusplus
+#if defined(__cplusplus)
 #include <glm/glm.hpp>
 #define glmsf32vec2 glm::vec2
 #define glmsf32vec3 glm::vec3
@@ -36,7 +36,7 @@
 #define glmsf32mat4 daxa_f32mat4x4
 #endif
 
-#if __cplusplus
+#if defined(__cplusplus)
 #define SHADER_ONLY(x)
 #define HOST_ONLY(x) x
 #else
@@ -85,7 +85,7 @@ struct SkySettings
     daxa_f32vec3 absorption_extinction;
     DensityProfileLayer absorption_density[PROFILE_LAYER_COUNT];
     daxa_BufferPtr(DensityProfileLayer) absorption_density_ptr;
-#if __cplusplus
+#if defined(__cplusplus)
     auto operator==(SkySettings const & other) const -> bool
     {
         return std::memcmp(this, &other, sizeof(SkySettings)) == 0;
@@ -124,7 +124,7 @@ struct Settings
     daxa_u32 enable_mesh_shader;
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
-#if __cplusplus
+#if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
         return std::memcmp(this, &other, sizeof(Settings)) == 0;
@@ -154,7 +154,7 @@ struct PostprocessSettings
     daxa_f32 sensor_sensitivity;
     daxa_f32 luminance_log2_range;
     daxa_f32 inv_luminance_log2_range;
-#if __cplusplus
+#if defined(__cplusplus)
     PostprocessSettings()
         : min_luminance_log2{std::log2(0.0002f)},
           max_luminance_log2{std::log2(4096.0f)},
@@ -201,13 +201,13 @@ struct CameraInfo
 #if DAXA_SHADER
 #define my_sizeof(T) uint64_t(daxa_BufferPtr(T)(daxa_u64(0)) + 1)
 
-mat4 mat_4x3_to_4x4(mat4x3 in_mat)
+daxa_f32mat4x4 mat_4x3_to_4x4(daxa_f32mat4x3 in_mat)
 {
-    return mat4(
-        vec4(in_mat[0], 0.0),
-        vec4(in_mat[1], 0.0),
-        vec4(in_mat[2], 0.0),
-        vec4(in_mat[3], 1.0));
+    return daxa_f32mat4x4(
+        daxa_f32vec4(in_mat[0], 0.0),
+        daxa_f32vec4(in_mat[1], 0.0),
+        daxa_f32vec4(in_mat[2], 0.0),
+        daxa_f32vec4(in_mat[3], 1.0));
 }
 #endif
 

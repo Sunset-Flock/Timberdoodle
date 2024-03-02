@@ -5,7 +5,7 @@
 #if defined(IndirectMemsetBuffer_SHADER)
 DAXA_DECL_PUSH_CONSTANT(IndirectMemsetBufferPush, push)
 layout(local_size_x = INDIRECT_MEMSET_BUFFER_X) in;
-void main()
+void entry_indmemset()
 {
     uint index = gl_GlobalInvocationID.x;
     IndirectMemsetBufferCommand command = deref(push.attachments.command);

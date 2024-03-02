@@ -1,11 +1,13 @@
 #pragma once
 
-#include <daxa/daxa.inl>
-#include <daxa/utils/task_graph.inl>
+#include "daxa/daxa.inl"
+#include "daxa/utils/task_graph.inl"
 
 #include "../../shader_shared/shared.inl"
 
 #define INDIRECT_MEMSET_BUFFER_X 128
+#define MEMCPY_BUFFER_X 128
+
 struct IndirectMemsetBufferCommand
 {
     DispatchIndirectStruct dispatch;
@@ -21,18 +23,16 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(IndirectMemsetBufferComma
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
 DAXA_DECL_TASK_HEAD_END
 
+DAXA_DECL_TASK_HEAD_BEGIN(MemcpyBuffer, 2)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_RWBufferPtr(daxa_u32), src)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
+DAXA_DECL_TASK_HEAD_END
+
 struct IndirectMemsetBufferPush
 {
     DAXA_TH_BLOB(IndirectMemsetBuffer, attachments)
     daxa_u32 dummy;
 };
-
-#define MEMCPY_BUFFER_X 128
-
-DAXA_DECL_TASK_HEAD_BEGIN(MemcpyBuffer, 2)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_RWBufferPtr(daxa_u32), src)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
-DAXA_DECL_TASK_HEAD_END
 
 struct MemcpyBufferPush
 {
@@ -45,9 +45,17 @@ struct MemcpyBufferPush
 
 #if defined(__cplusplus)
 
-using IndirectMemsetBufferTask = 
-    SimpleIndirectComputeTask<IndirectMemsetBuffer, IndirectMemsetBufferPush, "./src/rendering/tasks/memset.glsl">;
-using MemcpyBufferTask = 
-    SimpleComputeTask<MemcpyBuffer, MemcpyBufferPush, "./src/rendering/tasks/memset.glsl">;
+using IndirectMemsetBufferTask = SimpleIndirectComputeTask<
+    IndirectMemsetBuffer, 
+    IndirectMemsetBufferPush, 
+    "./src/rendering/tasks/memset.slang",
+    "entry_indmemset"
+>;
+using MemcpyBufferTask = SimpleComputeTask<
+    MemcpyBuffer, 
+    MemcpyBufferPush, 
+    "./src/rendering/tasks/memset.slang", 
+    "entry_memcpy"
+>;
 
 #endif // #if defined(__cplusplus)

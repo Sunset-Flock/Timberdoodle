@@ -752,6 +752,7 @@ void Renderer::render_frame(
 
     if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
+    // Draw Frustum Camera.
     context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
         .position = daxa_f32vec3(0, 0, 0.5),
         .size = daxa_f32vec3(2.01, 2.01, 0.999),

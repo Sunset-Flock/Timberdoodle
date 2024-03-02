@@ -7,31 +7,31 @@
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
 
-bool is_out_of_frustum(vec3 ws_center, float ws_radius)
+bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32vec3 ws_center, float ws_radius)
 {
-    const vec3 frustum_planes[5] = {
-        deref(push.uses.globals).camera.right_plane_normal,
-        deref(push.uses.globals).camera.left_plane_normal,
-        deref(push.uses.globals).camera.top_plane_normal,
-        deref(push.uses.globals).camera.bottom_plane_normal,
-        deref(push.uses.globals).camera.near_plane_normal,
+    const daxa_f32vec3 frustum_planes[5] = {
+        camera.right_plane_normal,
+        camera.left_plane_normal,
+        camera.top_plane_normal,
+        camera.bottom_plane_normal,
+        camera.near_plane_normal,
     };
     bool out_of_frustum = false;
     for (uint i = 0; i < 5; ++i)
     {
-        out_of_frustum = out_of_frustum || (dot((ws_center - deref(push.uses.globals).camera.position), frustum_planes[i]) - ws_radius) > 0.0f;
+        out_of_frustum = out_of_frustum || (dot((ws_center - camera.position), frustum_planes[i]) - ws_radius) > 0.0f;
     }
     return out_of_frustum;
 }
 
-bool is_tri_out_of_frustum(vec3 tri[3])
+bool is_tri_out_of_frustum(CameraInfo camera, vec3 tri[3])
 {
     const vec3 frustum_planes[5] = {
-        deref(push.uses.globals).camera.right_plane_normal,
-        deref(push.uses.globals).camera.left_plane_normal,
-        deref(push.uses.globals).camera.top_plane_normal,
-        deref(push.uses.globals).camera.bottom_plane_normal,
-        deref(push.uses.globals).camera.near_plane_normal,
+        camera.right_plane_normal,
+        camera.left_plane_normal,
+        camera.top_plane_normal,
+        camera.bottom_plane_normal,
+        camera.near_plane_normal,
     };
     bool out_of_frustum = false;
     for (uint i = 0; i < 5; ++i)
@@ -39,7 +39,7 @@ bool is_tri_out_of_frustum(vec3 tri[3])
         bool tri_out_of_plane = true;
         for (uint ti = 0; ti < 3; ++ti)
         {
-            tri_out_of_plane = tri_out_of_plane && dot((tri[ti] - deref(push.uses.globals).camera.position), frustum_planes[i]) > 0.0f;
+            tri_out_of_plane = tri_out_of_plane && dot((tri[ti] - camera.position), frustum_planes[i]) > 0.0f;
         }
         out_of_frustum = out_of_frustum || tri_out_of_plane;
     }
@@ -47,6 +47,7 @@ bool is_tri_out_of_frustum(vec3 tri[3])
 }
 
 bool is_meshlet_occluded(
+    CameraInfo camera,
     MeshletInstance meshlet_inst,
     daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
     U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
@@ -91,7 +92,7 @@ bool is_meshlet_occluded(
     // daxa_f32vec3 center;
     // daxa_f32 radius;
     mat4x4 model_matrix = mat_4x3_to_4x4(deref(entity_combined_transforms[meshlet_inst.entity_index]));
-    mat4x4 view_proj = deref(push.uses.globals).camera.view_proj;
+    mat4x4 view_proj = camera.view_proj;
     const float model_scaling_x_squared = dot(model_matrix[0],model_matrix[0]);
     const float model_scaling_y_squared = dot(model_matrix[1],model_matrix[1]);
     const float model_scaling_z_squared = dot(model_matrix[2],model_matrix[2]);
@@ -101,7 +102,7 @@ bool is_meshlet_occluded(
     const float scaled_radius = radius_scaling * bounds.radius;
     const vec3 ws_center = (model_matrix * vec4(bounds.center, 1)).xyz;
 
-    if (is_out_of_frustum(ws_center, scaled_radius))
+    if (is_sphere_out_of_frustum(camera, ws_center, scaled_radius))
     {
         #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
             ShaderDebugCircleDraw circle;
@@ -143,11 +144,11 @@ bool is_meshlet_occluded(
     ndc_max.x = min(ndc_max.x,  1.0f);
     ndc_max.y = min(ndc_max.y,  1.0f);
 
-    const vec2 f_hiz_resolution = vec2(deref(push.uses.globals).settings.render_target_size >> 1 /*hiz is half res*/);
+    const vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
     const vec2 min_uv = (ndc_min.xy + 1.0f) * 0.5f;
     const vec2 max_uv = (ndc_max.xy + 1.0f) * 0.5f;
-    const vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    const vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
     const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
 
@@ -156,24 +157,24 @@ bool is_meshlet_occluded(
     // We check if the quad at its current position within that mip level fits that quad and if not we move up one mip.
     // This will give us the tightest fit.
     int imip = int(mip);
-    const ivec2 min_corner_texel = ivec2(min_texel_i) >> imip;
-    const ivec2 max_corner_texel = ivec2(max_texel_i) >> imip;
-    if (any(greaterThan(max_corner_texel - min_corner_texel, ivec2(1)))) {
+    const ivec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+    const ivec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
+    if (any(greaterThan(max_corner_texel - min_corner_texel, daxa_i32vec2(1)))) {
         imip += 1;
     }
-    const ivec2 quad_corner_texel = ivec2(min_texel_i) >> imip;
-    const ivec2 texel_bounds = max(ivec2(0,0), (ivec2(f_hiz_resolution) >> imip) - 1);
+    const ivec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+    const ivec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
 
-    const vec4 fetch = vec4(
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,0), ivec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(0,1), ivec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,0), ivec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + ivec2(1,1), ivec2(0,0), texel_bounds), imip).x
+    const vec4 fetch = daxa_f32vec4(
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), imip).x
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = ndc_max.z < conservative_depth;
 
-    #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)) && false
     if (depth_cull)
     {
         ShaderDebugAABBDraw aabb1;
@@ -189,7 +190,7 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(0, 1, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).debug, rectangle);
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
         }
         {
             const vec2 min_r = quad_corner_texel << imip;
@@ -204,7 +205,7 @@ bool is_meshlet_occluded(
             rectangle.span = rec_size.xy;
             rectangle.color = vec3(1, 0, 1);
             rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(deref(push.uses.globals).debug, rectangle);
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
         }
     }
     #endif
