@@ -4,7 +4,7 @@
 /// - should contain anything needed only for forward drawing
 /// - should NOT contain things required for shading or post processing
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 
 #include "shared.inl"
 #include "geometry.inl"
@@ -49,13 +49,28 @@ inline auto get_opaque_draw_list_buffer_size() -> daxa::usize
 
 /// NOTE: In the future we want a TransparentMeshDrawListBufferHead, that has a much larger array for custom material permutations.
 
-#if !defined(__cplusplus)
+#if defined(DAXA_SHADER)
+#if (DAXA_SHADERLANG == DAXA_SHADERLANG_GLSL)
+
 DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) U32ArenaBufferRef
 {
     daxa_u32 offsets_section_size;
     daxa_u32 bitfield_section_size;
     daxa_u32 uints[];
 };
+
+#else
+
+#define U32ArenaBufferRef U32ArenaBuffer*
+
+struct U32ArenaBuffer
+{
+    daxa_u32 offsets_section_size;
+    daxa_u32 bitfield_section_size;
+    daxa_u32 uints[1];
+};
+
+#endif 
 #endif // #if !defined(__cplusplus)
 
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID (~0u)
@@ -92,7 +107,7 @@ struct MeshletCullArgBucketsBufferHead
 };
 DAXA_DECL_BUFFER_PTR(MeshletCullArgBucketsBufferHead)
 
-#if __cplusplus
+#if defined(__cplusplus)
 inline auto meshlet_cull_arg_bucket_size(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u32 bucket) -> daxa_u32
 {
     // round_up(div(max_meshlets,pow(2,i)))

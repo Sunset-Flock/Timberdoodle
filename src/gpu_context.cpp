@@ -56,6 +56,7 @@ GPUContext::GPUContext(Window const & window)
                           DAXA_SHADER_INCLUDE_DIR,
                       },
                   .write_out_preprocessed_code = "./preproc",
+                  .write_out_shader_binary = "./spv_raw",
                   .spirv_cache_folder = "spv",
                   .language = daxa::ShaderLanguage::GLSL,
                   .enable_debug_info = true,

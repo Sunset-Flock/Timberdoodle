@@ -1,6 +1,6 @@
 #pragma once
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 #include "shared.inl"
 
 #define INVALID_MESHLET_INDEX (~(0u))
@@ -96,7 +96,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offset)
 {
     uint pack_index = index_offset / 4;
-    uint index_pack = deref(micro_indices[pack_index]);
+    uint index_pack = deref_i(micro_indices, pack_index);
     uint in_pack_offset = index_offset % 4;
     uint in_pack_shift = in_pack_offset * 8;
     return (index_pack >> in_pack_shift) & 0xFF;

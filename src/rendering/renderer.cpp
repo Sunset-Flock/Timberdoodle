@@ -174,6 +174,7 @@ void Renderer::compile_pipelines()
         {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
         {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
         {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
+        {CullMeshletsTask2::name(), CullMeshletsTask2::pipeline_compile_info()},
         {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},
         {PrefixSumUpsweepTask{}.name(), prefix_sum_upsweep_pipeline_compile_info()},
         {PrefixSumDownsweepTask{}.name(), prefix_sum_downsweep_pipeline_compile_info()},

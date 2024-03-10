@@ -1,7 +1,7 @@
 #pragma once
 
-#include <daxa/daxa.inl>
-#include <daxa/utils/task_graph.inl>
+#include "daxa/daxa.inl"
+#include "daxa/utils/task_graph.inl"
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
@@ -39,7 +39,7 @@ struct CullMeshesPush
     daxa_u32 dummy;
 };
 
-#if __cplusplus
+#if defined(__cplusplus)
 #include "../../gpu_context.hpp"
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"

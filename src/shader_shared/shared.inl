@@ -21,7 +21,7 @@
 #define ENABLE_TRIANGLE_CULLING 1
 #define ENABLE_SHADER_PRINT_DEBUG 1
 #define COMPILE_IN_MESH_SHADER 0
-#define CULLING_DEBUG_DRAWS 0
+#define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
 #include <glm/glm.hpp>

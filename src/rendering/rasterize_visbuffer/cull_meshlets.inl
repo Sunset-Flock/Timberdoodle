@@ -1,7 +1,7 @@
 #pragma once
 
-#include <daxa/daxa.inl>
-#include <daxa/utils/task_graph.inl>
+#include "daxa/daxa.inl"
+#include "daxa/utils/task_graph.inl"
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
@@ -25,6 +25,21 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(Meshle
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets2, 12)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta_data)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroups)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
+DAXA_DECL_TASK_HEAD_END
+
 struct CullMeshletsPush
 {
     DAXA_TH_BLOB(CullMeshlets, uses)
@@ -33,9 +48,16 @@ struct CullMeshletsPush
     daxa_u32 opaque_or_discard;
 };
 
-#if __cplusplus
+#if defined(__cplusplus)
 #include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
+
+using CullMeshletsTask2 = SimpleComputeTask<
+    CullMeshlets2, 
+    CullMeshletsPush, 
+    "./src/rendering/rasterize_visbuffer/cull_meshlets.slang",
+    "entry_cull_meshlets"
+>;
 
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";
@@ -60,7 +82,7 @@ struct CullMeshletsTask : CullMeshlets
     u32 opaque_or_discard = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshlets{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask2::name()));
         for (u32 bucket = 0; bucket < 32; ++bucket)
         {
             ti.recorder.push_constant_vptr({

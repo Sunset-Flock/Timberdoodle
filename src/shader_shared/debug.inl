@@ -1,6 +1,6 @@
 #pragma once
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 #include "shared.inl"
 
 #define DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE 0

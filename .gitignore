@@ -7,3 +7,4 @@ preproc/*
 imgui.ini
 compile_commands.json
 spv/
+spv_raw/
