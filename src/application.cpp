@@ -270,6 +270,9 @@ void Application::update()
             
             std::array<char const * const, 3> modes = { "redraw meshlets visible last frame", "redraw meshlet post cull", "redraw all drawn meshlets" };
             ImGui::Combo("observer draw pass mode", &_renderer->context->settings.observer_show_pass, modes.data(), modes.size());
+            bool use_slang_for_culling = _renderer->context->settings.use_slang_for_culling;
+            ImGui::Checkbox("use slang for meshlet cull", &use_slang_for_culling);
+            _renderer->context->settings.use_slang_for_culling = use_slang_for_culling;
             ImGui::End();
         }
     }

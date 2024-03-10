@@ -1,9 +1,8 @@
 #pragma once
 
-/// --- glsl to slang begin ---
-
 #include "daxa/daxa.inl"
 
+#if !defined(__cplusplus)
 #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
 
 #define findMSB firstbithigh
@@ -23,17 +22,17 @@ void imageStore(RWTexture2D<float4> tex, int2 index, float4 value)
 
 uint _atomicAdd(uint * dst, uint value)
 {
-    uint out;
-    InterlockedAdd((*dst), value, out);
-    return out;
+    uint prev;
+    InterlockedAdd((*dst), value, prev);
+    return prev;
 }
 #define atomicAdd(DST_LVAL, VALUE) _atomicAdd(&(DST_LVAL), VALUE)
 
 uint _atomicMax(uint* dst, uint value)
 {
-    uint out;
-    InterlockedMax((*dst), value, out);
-    return out;
+    uint prev;
+    InterlockedMax((*dst), value, prev);
+    return prev;
 }
 #define atomicMax(DST_LVAL, VALUE) _atomicMax(&(DST_LVAL), VALUE)
 
@@ -48,5 +47,4 @@ uint _atomicMax(uint* dst, uint value)
 #define mul(M, V) (M * V)
 
 #endif // #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
-
-/// --- glsl to slang end ---
+#endif // #if !defined(__cplusplus)

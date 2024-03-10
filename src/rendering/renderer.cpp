@@ -172,7 +172,7 @@ void Renderer::compile_pipelines()
         {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
         {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
         {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
-        {DrawVisbuffer_WriteCommandTask{}.name(), draw_visbuffer_write_command_pipeline_compile_info()},
+        {DrawVisbuffer_WriteCommandTask2::name(), DrawVisbuffer_WriteCommandTask2::pipeline_compile_info()},
         {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
         {CullMeshletsTask2::name(), CullMeshletsTask2::pipeline_compile_info()},
         {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},

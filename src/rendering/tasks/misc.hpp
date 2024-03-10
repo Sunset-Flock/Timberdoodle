@@ -7,10 +7,16 @@
 template <typename T_USES_BASE, char const * T_FILE_PATH, typename T_PUSH>
 inline daxa::ComputePipelineCompileInfo write_indirect_dispatch_args_base_compile_pipeline_info()
 {
+    std::string_view shader_path_sv = {T_FILE_PATH};
+    daxa::ShaderLanguage lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
+    daxa::ShaderCompileOptions shader_compile_info = {
+        .language = lang,
+        .defines = {{std::string(T_USES_BASE{}.name()) + std::string("_COMMAND"), "1"}},
+    };
     return {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{T_FILE_PATH},
-            .compile_options = {.defines = {{std::string(T_USES_BASE{}.name()) + std::string("_COMMAND"), "1"}}},
+            .compile_options = shader_compile_info,
         },
         .push_constant_size = s_cast<u32>(sizeof(T_PUSH) + T_USES_BASE::attachment_shader_data_size()),
         .name = std::string{T_USES_BASE{}.name()},
@@ -182,8 +188,8 @@ struct SimpleComputeTask : HeadT
 {
     HeadT::AttachmentViews views = {};
     GPUContext * context = {};
-    std::function<daxa::DispatchInfo(void)> dispatch_callback = {};
     PushT push = {};
+    std::function<daxa::DispatchInfo(void)> dispatch_callback = {};
     static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
         auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
         daxa::ShaderLanguage lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;

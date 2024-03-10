@@ -1,12 +1,11 @@
 #include "daxa/daxa.inl"
 #include "cull_meshlets.inl"
-#include "shader_lib/cull_util.glsl"
 
 [[vk::push_constant]] CullMeshletsPush push;
 
-#include "shader_lib/debug.glsl"
-
-#define GLOBALS deref(push.uses.globals)
+//#include "shader_lib/debug.glsl"
+//#define GLOBALS deref(push.uses.globals)
+#include "shader_lib/cull_util.glsl"
 
 [shader("compute")]
 [numthreads(CULL_MESHLETS_WORKGROUP_X, 1, 1)]

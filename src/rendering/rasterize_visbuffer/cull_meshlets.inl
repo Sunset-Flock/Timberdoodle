@@ -82,7 +82,14 @@ struct CullMeshletsTask : CullMeshlets
     u32 opaque_or_discard = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask2::name()));
+        if (context->settings.use_slang_for_culling)
+        {
+            ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask2::name()));
+        }
+        else
+        {
+            ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask::name()));
+        }
         for (u32 bucket = 0; bucket < 32; ++bucket)
         {
             ti.recorder.push_constant_vptr({

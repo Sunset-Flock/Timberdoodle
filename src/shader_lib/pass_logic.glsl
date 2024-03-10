@@ -1,31 +1,9 @@
 #pragma once
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 #include "../shader_shared/shared.inl"
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/geometry.inl"
-
-uint observer_get_meshlet_instance_draw_count(daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances)
-{
-    switch (deref(push.uses.globals).settings.observer_show_pass)
-    {
-        case 0: return deref(meshlet_instances).first_count;
-        case 1: return deref(meshlet_instances).second_count;
-        case 2: return deref(meshlet_instances).first_count + deref(meshlet_instances).second_count;
-        default: return 0;
-    }
-}
-
-uint observer_get_meshlet_instance_draw_offset(daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances)
-{
-    switch (deref(push.uses.globals).settings.observer_show_pass)
-    {
-        case 0: return 0;
-        case 1: return deref(meshlet_instances).first_count;
-        case 2: return 0;
-        default: return 0;
-    }
-}
 
 uint get_meshlet_draw_count(
     daxa_BufferPtr(ShaderGlobals) globals,
@@ -79,6 +57,6 @@ uint get_meshlet_instance_index(
     }
     
     const uint draw_list_index = draw_list_offset + draw_instance_index;
-    const uint meshlet_instance_index = deref(deref(meshlet_instances).draw_lists[opaque_or_discard].instances[draw_list_index]);
+    const uint meshlet_instance_index = deref_i(deref(meshlet_instances).draw_lists[opaque_or_discard].instances, draw_list_index);
     return meshlet_instance_index;
 }

@@ -124,6 +124,7 @@ struct Settings
     daxa_u32 enable_mesh_shader;
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
+    daxa_i32 use_slang_for_culling;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -138,7 +139,8 @@ struct Settings
           render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
           enable_mesh_shader{0},
           draw_from_observer{0},
-          observer_show_pass{0}
+          observer_show_pass{0},
+          use_slang_for_culling{0}
     {
     }
 #endif
@@ -263,3 +265,5 @@ DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
 #define PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME 2
 #define PASS3_OBSERVER_DRAW_POST_CULLED 3
 #define PASS4_OBSERVER_DRAW_ALL 4
+
+#include "../shader_lib/glsl_to_slang.glsl"

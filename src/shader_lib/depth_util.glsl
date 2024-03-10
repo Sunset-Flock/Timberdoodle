@@ -1,16 +1,16 @@
 #pragma once
 
-#include <daxa/daxa.inl>
+#include "daxa/daxa.inl"
 
 // x: texel index x
 // y: texel index y
 // z: linearzed depth
 // return: dithered colored depth value that bands less
-vec3 unband_z_color(int x, int y, float z)
+daxa_f32vec3 unband_z_color(int x, int y, float z)
 {
     const float dither_increment = (1.0 / 256.0 * 0.25);
     float dither = dither_increment * 0.25 + dither_increment * ((int(x) % 2) + 2 * (int(y) % 2));
-    vec3 color = vec3(1,0.66666,0.33333) * z + dither;
+    daxa_f32vec3 color = daxa_f32vec3(1,0.66666,0.33333) * z + dither;
     return color;
 }
 
@@ -31,10 +31,10 @@ float linearise_depth(float depth, float near)
 // far: NOT far place, but the distance at which the red channel reaches 1.0
 // depth: non linear inverse depth
 // return: dithered colored depth value that bands less
-vec3 unband_depth_color(int x, int y, float depth, float near, float far)
+daxa_f32vec3 unband_depth_color(int x, int y, float depth, float near, float far)
 {
     const float dither_increment = (1.0 / 256.0) * 0.25;
     float dither = dither_increment * 0.25 + dither_increment * ((int(x) % 2) + 2 * (int(y) % 2));
-    vec3 color = vec3(1.0,0.66666,0.33333) * linearise_depth(depth, near) * 1.0 / (far) + dither;
+    daxa_f32vec3 color = daxa_f32vec3(1.0,0.66666,0.33333) * linearise_depth(depth, near) * 1.0 / (far) + dither;
     return color;
 }

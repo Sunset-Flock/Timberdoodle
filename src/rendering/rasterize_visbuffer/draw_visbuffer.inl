@@ -1,7 +1,7 @@
 #pragma once
 
-#include <daxa/daxa.inl>
-#include <daxa/utils/task_graph.inl>
+#include "daxa/daxa.inl"
+#include "daxa/utils/task_graph.inl"
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
@@ -63,12 +63,13 @@ struct DrawVisbufferPush_MeshShader
     daxa_u32 bucket_index;
 };
 
-#if __cplusplus
+#if defined(__cplusplus)
 #include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
 #include "cull_meshlets.inl"
 
 static constexpr inline char const DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.glsl";
+static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.slang";
 
 static inline daxa::DepthTestInfo DRAW_VISBUFFER_DEPTH_TEST_INFO = {
     .depth_attachment_format = daxa::Format::D32_SFLOAT,
@@ -87,13 +88,11 @@ static inline std::vector<daxa::RenderAttachment> DRAW_VISBUFFER_RENDER_ATTACHME
     //},
 };
 
-using DrawVisbuffer_WriteCommandTask =
-    WriteIndirectDispatchArgsPushBaseTask<DrawVisbuffer_WriteCommand, DRAW_VISBUFFER_SHADER_PATH, DrawVisbufferPush_WriteCommand>;
-auto draw_visbuffer_write_command_pipeline_compile_info()
-{
-    return write_indirect_dispatch_args_base_compile_pipeline_info<
-        DrawVisbuffer_WriteCommand, DRAW_VISBUFFER_SHADER_PATH, DrawVisbufferPush_WriteCommand>();
-}
+using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
+    DrawVisbuffer_WriteCommand,
+    DrawVisbufferPush_WriteCommand,
+    SLANG_DRAW_VISBUFFER_SHADER_PATH,
+    "entry_write_commands">;
 
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info()
 {
@@ -460,14 +459,15 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .name = std::string("draw visbuffer command buffer array") + info.context->dummy_string(),
     });
 
-    DrawVisbuffer_WriteCommandTask write_task = {
+    DrawVisbuffer_WriteCommandTask2 write_task = {
         .views = std::array{
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask::globals, info.context->tshader_globals_buffer),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask::meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask::draw_commands, draw_commands_array),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::globals, info.context->tshader_globals_buffer),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::draw_commands, draw_commands_array),
         },
         .context = info.context,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass, .mesh_shader = info.enable_mesh_shader ? 1u : 0u},
+        .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
     };
     info.task_graph.add_task(write_task);
 
@@ -488,4 +488,4 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     };
     info.task_graph.add_task(draw_task);
 }
-#endif
+#endif // #if defined(__cplusplus)

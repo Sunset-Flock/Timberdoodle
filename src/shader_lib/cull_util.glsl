@@ -7,7 +7,6 @@
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
-#include "../shader_lib/glsl_to_slang.glsl"
 
 bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32vec3 ws_center, float ws_radius)
 {
@@ -192,8 +191,8 @@ bool is_meshlet_occluded(
     if (depth_cull)
     {
         ShaderDebugAABBDraw aabb1;
-        aabb1.position = (model_matrix * daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = (model_matrix * daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
         aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
         aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
         debug_draw_aabb(GLOBALS.debug, aabb1);
