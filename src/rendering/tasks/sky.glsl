@@ -566,7 +566,7 @@ void main() {
     vec3 result = vec3(0);
     for (uint i = 0; i < sample_count; ++i) {
         vec2 urand = hammersley(i, sample_count);
-        vec3 input_dir = basis * uniform_sample_cone(urand, 0.99);
+        vec3 input_dir = basis * uniform_sample_cone(urand, 0.01);
         // TODO: Now that we sample the atmosphere directly, computing this IBL is really slow.
         // We should cache the IBL cubemap, and only re-render it when necessary.
         result += get_atmosphere_illuminance_along_ray(
