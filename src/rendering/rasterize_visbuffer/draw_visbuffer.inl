@@ -94,18 +94,42 @@ using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
     SLANG_DRAW_VISBUFFER_SHADER_PATH,
     "entry_write_commands">;
 
+#define USE_SLANG_SHADER 1
+
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
     ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        #if USE_SLANG_SHADER
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}}},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+        #endif
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        #if USE_SLANG_SHADER
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_vertex",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}}},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+        #endif
     };
     ret.name = "DrawVisbufferOpaque";
     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
@@ -118,12 +142,34 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_di
     ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
     ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        #if USE_SLANG_SHADER
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}}},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+        #endif
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        #if USE_SLANG_SHADER
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_vertex",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}}},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+        #endif
     };
     ret.name = "DrawVisbufferDiscard";
     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());

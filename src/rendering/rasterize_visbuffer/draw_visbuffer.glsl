@@ -127,8 +127,9 @@ void main()
     vertex_index = min(vertex_index, mesh.vertex_count - 1);
     const vec4 vertex_position = vec4(mesh.vertex_positions[vertex_index].value, 1);
     const mat4x4 view_proj = (push.pass > PASS1_DRAW_POST_CULL) ? deref(push.uses.globals).observer_camera.view_proj : deref(push.uses.globals).camera.view_proj;
-    const vec4 pos = view_proj * mat_4x3_to_4x4(deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index])) * vertex_position;
-
+    const mat4x3 model_mat4x3 = deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index]);
+    const mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
+    const vec4 pos = view_proj * (model_mat * vertex_position);
 
     uint triangle_id;
     encode_triangle_id(inst_meshlet_index, triangle_index, triangle_id);
@@ -148,7 +149,7 @@ void main()
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || !defined(DAXA_SHADER)
 layout(location = 0) out uint visibility_id;
-layout(location = 1) out vec4 debug_image;
+//layout(location = 1) out vec4 debug_image;
 void main()
 {
 #if defined(DISCARD)
@@ -163,7 +164,7 @@ void main()
     }
 #endif // #if defined(DISCARD)
     visibility_id = vout_triange_id;
-    debug_image = vec4(dFdx(vout_uv), dFdy(vout_uv));
+    //debug_image = vec4(dFdx(vout_uv), dFdy(vout_uv));
 }
 #endif
 

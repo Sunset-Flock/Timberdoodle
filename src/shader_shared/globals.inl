@@ -7,6 +7,7 @@
 
 struct ShaderGlobals
 {
+    daxa_f32mat4x3 test[2];
     CameraInfo camera;
     CameraInfo observer_camera;
     daxa_u32 frame_index;

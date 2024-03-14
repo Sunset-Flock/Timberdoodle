@@ -224,8 +224,6 @@ bool is_meshlet_occluded(
     #endif
 
     return depth_cull;
-
-    return false;
 }
 
 // How does this work?
@@ -312,16 +310,12 @@ bool get_meshlet_instance_from_arg_buckets(uint thread_id, uint arg_bucket_index
     daxa_RWBufferPtr(MeshletCullIndirectArg) args_ptr = (deref(meshlet_cull_indirect_args).indirect_arg_ptrs[arg_bucket_index]);
     const MeshletCullIndirectArg arg = deref_i(args_ptr, indirect_arg_index);
     
-    // Work argument may work on less then 1<<bucket_index meshlets.
-    // In this case we cull threads with an index over meshlet_count.
-    if (in_arg_meshlet_index >= arg.meshlet_count)
-    {
-        return false;
-    }
     meshlet_inst.entity_index = arg.entity_index;
     meshlet_inst.material_index = arg.material_index;
     meshlet_inst.mesh_index = arg.mesh_index;
     meshlet_inst.meshlet_index = arg.meshlet_indices_offset + in_arg_meshlet_index;
     meshlet_inst.in_mesh_group_index = arg.in_mesh_group_index;
-    return true;
+    // Work argument may work on less then 1<<bucket_index meshlets.
+    // In this case we cull threads with an index over meshlet_count.
+    return in_arg_meshlet_index < arg.meshlet_count;
 }

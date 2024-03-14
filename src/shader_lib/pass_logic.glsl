@@ -32,7 +32,7 @@ uint get_meshlet_instance_index(
     daxa_BufferPtr(ShaderGlobals) globals,
     daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances, 
     uint pass, 
-    uint opaque_or_discard, 
+    uint draw_list_type, 
     uint draw_instance_index)
 {
     uint draw_list_offset = 0;
@@ -42,13 +42,13 @@ uint get_meshlet_instance_index(
             draw_list_offset = 0;
             break;
         case PASS1_DRAW_POST_CULL: 
-            draw_list_offset = deref(meshlet_instances).draw_lists[opaque_or_discard].first_count;
+            draw_list_offset = deref(meshlet_instances).draw_lists[draw_list_type].first_count;
             break;
         case PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME: 
             draw_list_offset = 0;
             break;
         case PASS3_OBSERVER_DRAW_POST_CULLED: 
-            draw_list_offset = deref(meshlet_instances).draw_lists[opaque_or_discard].first_count;
+            draw_list_offset = deref(meshlet_instances).draw_lists[draw_list_type].first_count;
             break;
         case PASS4_OBSERVER_DRAW_ALL: 
             draw_list_offset = 0;
@@ -57,6 +57,6 @@ uint get_meshlet_instance_index(
     }
     
     const uint draw_list_index = draw_list_offset + draw_instance_index;
-    const uint meshlet_instance_index = deref_i(deref(meshlet_instances).draw_lists[opaque_or_discard].instances, draw_list_index);
+    const uint meshlet_instance_index = deref_i(deref(meshlet_instances).draw_lists[draw_list_type].instances, draw_list_index);
     return meshlet_instance_index;
 }

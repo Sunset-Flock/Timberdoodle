@@ -17,8 +17,8 @@
 #define MAX_ENTITY_COUNT (1u << 20u)
 #define MAX_MATERIAL_COUNT (1u << 8u)
 #define MESH_SHADER_WORKGROUP_X 32
-#define ENABLE_MESHLET_CULLING 1
-#define ENABLE_TRIANGLE_CULLING 1
+#define ENABLE_MESHLET_CULLING 0
+#define ENABLE_TRIANGLE_CULLING 0
 #define ENABLE_SHADER_PRINT_DEBUG 1
 #define COMPILE_IN_MESH_SHADER 0
 #define CULLING_DEBUG_DRAWS 1
@@ -205,11 +205,23 @@ struct CameraInfo
 
 daxa_f32mat4x4 mat_4x3_to_4x4(daxa_f32mat4x3 in_mat)
 {
-    return daxa_f32mat4x4(
+#if DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG
+    // In slang the indexing is row major!
+    // HLSL: RxCmat
+    // GLSL: CxRmat
+    daxa_f32mat4x4 ret = daxa_f32mat4x4(
+        daxa_f32vec4(in_mat[0]),
+        daxa_f32vec4(in_mat[1]),
+        daxa_f32vec4(in_mat[2]),
+        daxa_f32vec4(0.0f,0.0f,0.0f, 1.0f));
+#else
+    daxa_f32mat4x4 ret = daxa_f32mat4x4(
         daxa_f32vec4(in_mat[0], 0.0),
         daxa_f32vec4(in_mat[1], 0.0),
         daxa_f32vec4(in_mat[2], 0.0),
         daxa_f32vec4(in_mat[3], 1.0));
+#endif
+    return ret;
 }
 #endif
 

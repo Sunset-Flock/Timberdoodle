@@ -167,7 +167,7 @@ void main()
         output_value.rgb = albedo.rgb * lighting;
 #endif
 
-#if 1
+#if 0
         output_value.rgb = hsv2rgb(vec3(floor(manually_calc_mip) * 0.1, 1, 0.5));
 #endif
 

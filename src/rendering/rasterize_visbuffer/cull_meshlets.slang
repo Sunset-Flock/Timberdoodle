@@ -21,7 +21,7 @@ void entry_cull_meshlets(uint3 dtid : SV_DispatchThreadID)
     {
         return;
     }
-#if ENABLE_MESHLET_CULLING
+#if ENABLE_MESHLET_CULLING == 1
     const bool occluded = is_meshlet_occluded(
         deref(push.uses.globals).camera,
         instanced_meshlet,

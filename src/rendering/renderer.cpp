@@ -745,6 +745,20 @@ void Renderer::render_frame(
     context->shader_globals.settings = context->settings;
     context->shader_globals.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
     context->shader_globals.delta_time = delta_time;
+    context->shader_globals.test[0] = daxa_f32mat4x3{
+        // rc = row column
+        {11, 21, 31},   // col 1
+        {12, 22, 32},   // col 2
+        {13, 23, 33},   // col 3
+        {14, 24, 34},   // col 4
+    };    
+    context->shader_globals.test[1] = daxa_f32mat4x3{
+        // rc = row column
+        {11, 21, 31},   // col 1
+        {12, 22, 32},   // col 2
+        {13, 23, 33},   // col 3
+        {14, 24, 34},   // col 4
+    };
 
     auto new_swapchain_image = context->swapchain.acquire_next_image();
     if (new_swapchain_image.is_empty()) { return; }
