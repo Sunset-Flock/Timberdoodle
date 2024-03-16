@@ -55,10 +55,10 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
 struct VertexOut
 {
     float4 position : SV_Position;
-    [[vk::location(0)]] nointerpolation uint triangle_id : TRI_ID;
+    [[vk::location(0)]] nointerpolation uint triangle_id;
     #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
-        [[vk::location(1)]] float2 uv : UV;
-        [[vk::location(2)]] nointerpolation uint material_index : MATERIAL_ID;
+        [[vk::location(1)]] float2 uv;
+        [[vk::location(2)]] nointerpolation uint material_index;
     #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
 };
 
@@ -82,9 +82,9 @@ VertexOut entry_vertex(
     // Discard triangle indices that are out of bounds of the meshlets triangle list.
     if (triangle_index >= meshlet.triangle_count)
     {
-        VertexOut frag_in;
-        frag_in.position = float4(2, 2, 2, 1);
-        return frag_in;
+        VertexOut vertex;
+        vertex.position = float4(2, 2, 2, 1);
+        return vertex;
     }
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
     const uint micro_index = get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + triangle_corner_index);
@@ -97,19 +97,30 @@ VertexOut entry_vertex(
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
-    VertexOut frag_in;
-    frag_in.position = pos;
-    encode_triangle_id(inst_meshlet_index, triangle_index, frag_in.triangle_id);
+    VertexOut vertex;
+    vertex.position = pos;
+    encode_triangle_id(inst_meshlet_index, triangle_index, vertex.triangle_id);
     #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
-        frag_in.material_index = meshlet_inst.material_index;
-        frag_in.uv = float2(0,0);
+        vertex.material_index = meshlet_inst.material_index;
+        vertex.uv = float2(0,0);
         if (as_address(mesh.vertex_uvs) != 0)
         {
-            frag_in.uv = deref_i(mesh.vertex_uvs, vertex_index);
+            vertex.uv = deref_i(mesh.vertex_uvs, vertex_index);
         }
     #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
-    return frag_in;
+    return vertex;
 }
+
+/// NOTE: Does not directly match VertexOut in mesh shaders.
+struct FragmentIn
+{
+    float4 position : SV_Position;
+    [[vk::location(0)]] nointerpolation uint triangle_id;
+    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+        [[vk::location(1)]] float2 uv;
+        [[vk::location(2)]] nointerpolation uint material_index;
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+};
 
 struct FragmentOut
 {
@@ -117,7 +128,7 @@ struct FragmentOut
 };
 
 [shader("fragment")]
-FragmentOut entry_fragment(VertexOut frag_in)
+FragmentOut entry_fragment(FragmentIn frag_in)
 {
     FragmentOut frag_out;
     #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
@@ -150,16 +161,91 @@ void entry_task(
     
 }
 
+struct PrimitiveOut
+{
+    [[vk::location(0)]] uint triangle_index;
+};
+
+struct MeshShaderVertexOut
+{
+    float4 position : SV_Position;
+    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+        [[vk::location(1)]] float2 uv;
+        [[vk::location(2)]] nointerpolation uint material_index;
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+};
+
 [outputtopology("triangle")]
-[numthreads(1,1,1)]
+[numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 void entry_mesh(
-    in uint tid : SV_DispatchThreadID,
-    in uint tig : SV_GroupIndex,
-    out Vertices<VertexOut, MAX_VERTICES_PER_MESHLET> vertices,
-    out Indices<uint3, MAX_TRIANGLES_PER_MESHLET> triangles)
+    in uint svtid : SV_DispatchThreadID,
+    in uint svgid : SV_GroupIndex,
+    out vertices MeshShaderVertexOut out_vertices[MAX_VERTICES_PER_MESHLET],
+    out indices uint3 out_indices[MAX_TRIANGLES_PER_MESHLET],
+    out primitives PrimitiveOut out_primitives[MAX_TRIANGLES_PER_MESHLET])
 {
+    const uint inst_meshlet_index = get_meshlet_instance_index(
+        draw_p.uses.globals,
+        draw_p.uses.meshlet_instances, 
+        draw_p.pass, 
+        OPAQUE_DRAW_LIST_TYPE,
+        svgid);
+    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
+    const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
+    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
+    const daxa_f32mat4x4 view_proj = 
+        (draw_p.pass > PASS1_DRAW_POST_CULL) ? 
+        deref(draw_p.uses.globals).observer_camera.view_proj : 
+        deref(draw_p.uses.globals).camera.view_proj;
 
+    SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
+
+    for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
+    {
+        const uint in_meshlet_vertex_index = svtid + vertex_offset;
+        if (in_meshlet_vertex_index >= meshlet.vertex_count) break;
+
+        const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index);
+        if (in_mesh_vertex_index >= mesh.vertex_count)
+        {
+            /// TODO: ASSERT HERE. 
+            continue;
+        }
+        const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
+        const daxa_f32mat4x3 model_mat4x3 = deref_i(draw_p.uses.entity_combined_transforms, meshlet_inst.entity_index);
+        const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
+        const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
+
+        MeshShaderVertexOut vertex;
+        vertex.position = pos;
+        #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+            vertex.material_index = meshlet_inst.material_index;
+            vertex.uv = float2(0,0);
+            if (as_address(mesh.vertex_uvs) != 0)
+            {
+                vertex.uv = deref_i(mesh.vertex_uvs, in_mesh_vertex_index);
+            }
+        #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+        out_vertices[svtid + vertex_offset] = vertex;
+    }
+
+    for (uint triangle_offset = 0; triangle_offset < meshlet.triangle_count; triangle_offset += MESH_SHADER_WORKGROUP_X)
+    {
+        const uint in_meshlet_triangle_index = svtid + triangle_offset;
+        if (in_meshlet_triangle_index >= meshlet.triangle_count) break;
+
+        const uint3 tri_in_meshlet_vertex_indices = uint3(
+            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
+            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
+            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
+        
+        out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
+        uint triangle_id;
+        encode_triangle_id(inst_meshlet_index, in_meshlet_triangle_index, triangle_id);
+        out_primitives[in_meshlet_triangle_index] = {triangle_id};
+    }
 }
 
 struct Push
