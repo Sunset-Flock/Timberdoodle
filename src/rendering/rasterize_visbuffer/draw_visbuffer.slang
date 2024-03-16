@@ -137,6 +137,31 @@ FragmentOut entry_fragment(VertexOut frag_in)
     return frag_out;
 }
 
+struct MeshPayload
+{
+
+};
+
+[shader("amplification")]
+void entry_task(
+    in uint tid : SV_DispatchThreadID,
+    in uint tig : SV_GroupIndex)
+{
+    
+}
+
+[outputtopology("triangle")]
+[numthreads(1,1,1)]
+[shader("mesh")]
+void entry_mesh(
+    in uint tid : SV_DispatchThreadID,
+    in uint tig : SV_GroupIndex,
+    out Vertices<VertexOut, MAX_VERTICES_PER_MESHLET> vertices,
+    out Indices<uint3, MAX_TRIANGLES_PER_MESHLET> triangles)
+{
+
+}
+
 struct Push
 {
     float3x4* ptr;

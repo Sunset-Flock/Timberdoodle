@@ -21,9 +21,10 @@ using HWND = void *;
 
 GPUContext::GPUContext(Window const & window)
     : context{daxa::create_instance({})}, device{this->context.create_device({
-          .max_allowed_images = 100000, .max_allowed_buffers = 100000,
+          .flags = daxa::DeviceFlags2{.mesh_shader_bit = 1},
+          .max_allowed_images = 100000, 
+          .max_allowed_buffers = 100000,
 #if COMPILE_IN_MESH_SHADER
-          .enable_mesh_shader = true,
 #endif
           .name = "Sandbox Device"
       })},

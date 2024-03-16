@@ -176,22 +176,28 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_di
     return ret;
 };
 
-inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_solid_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
     ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"MESH_SHADER", "1"}}},
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
     };
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"MESH_SHADER", "1"}}},
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
     };
-    ret.name = "DrawVisbufferMeshShader";
-    // TODO(msakmary + pahrens) I have a very strong suspicion this is broken - why is mesh shader pipeline using the Draw Visbuffer push constant
-    // and not a Mesh shader version of the push constant???
+    ret.name = "DrawVisbufferMeshShaderSolid";
     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
     return ret;
 };
@@ -256,7 +262,7 @@ struct DrawVisbufferTask : DrawVisbuffer
         {
             if (mesh_shader)
             {
-                render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_mesh_shader_pipeline_compile_info().name));
+                render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name));
             }
             else
             {

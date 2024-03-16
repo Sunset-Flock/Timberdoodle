@@ -143,6 +143,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info().name, draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info().name, draw_shader_debug_aabb_pipeline_compile_info()},
+        {draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name, draw_visbuffer_mesh_shader_solid_pipeline_compile_info()},
 #if COMPILE_IN_MESH_SHADER
         {draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name, draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()},
         {draw_visbuffer_mesh_shader_pipeline_compile_info().name, draw_visbuffer_mesh_shader_pipeline_compile_info()},
