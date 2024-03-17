@@ -96,7 +96,7 @@ using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
 
 #define USE_SLANG_SHADER 1
 
-inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info()
+inline daxa::RasterPipelineCompileInfo draw_visbuffer_solid_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
@@ -136,7 +136,7 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_op
     return ret;
 };
 
-inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info()
+inline daxa::RasterPipelineCompileInfo draw_visbuffer_masked_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
@@ -176,6 +176,11 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_no_mesh_shader_pipeline_di
     return ret;
 };
 
+inline std::array<daxa::RasterPipelineCompileInfo, 2> draw_visbuffer_pipelines = {
+    draw_visbuffer_solid_pipeline_compile_info(),
+    draw_visbuffer_masked_pipeline_compile_info()
+};
+
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_solid_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
@@ -200,6 +205,37 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_solid_pipeline
     ret.name = "DrawVisbufferMeshShaderSolid";
     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
     return ret;
+};
+
+inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_masked_pipeline_compile_info()
+{
+    auto ret = daxa::RasterPipelineCompileInfo{};
+    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
+    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+    };
+    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
+        },
+    };
+    ret.name = "DrawVisbufferMeshShaderMasked";
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
+    return ret;
+};
+
+inline std::array<daxa::RasterPipelineCompileInfo, 2> draw_visbuffer_mesh_shader_pipelines = {
+    draw_visbuffer_mesh_shader_solid_pipeline_compile_info(),
+    draw_visbuffer_mesh_shader_masked_pipeline_compile_info()
 };
 
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()
@@ -258,24 +294,16 @@ struct DrawVisbufferTask : DrawVisbuffer
             //},
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        for (u32 opaque_or_discard = 0; opaque_or_discard < 2; ++opaque_or_discard)
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
             if (mesh_shader)
             {
-                render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name));
+                render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_mesh_shader_pipelines[opaque_draw_list_type].name));
             }
             else
             {
-                if (opaque_or_discard == 0)
-                {
-                    render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info().name));
-                }
-                else
-                {
-                    render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info().name));
-                }
+                render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_pipelines[opaque_draw_list_type].name));
             }
-
             render_cmd.push_constant_vptr({
                 .data = ti.attachment_shader_data.data(),
                 .size = ti.attachment_shader_data.size(),
@@ -285,7 +313,7 @@ struct DrawVisbufferTask : DrawVisbuffer
             {
                 render_cmd.draw_mesh_tasks_indirect({
                     .indirect_buffer = ti.get(DrawVisbuffer::draw_commands).ids[0],
-                    .offset = sizeof(DrawIndirectStruct) * opaque_or_discard,
+                    .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
                     .draw_count = 1,
                     .stride = sizeof(DispatchIndirectStruct),
                 });
@@ -294,7 +322,7 @@ struct DrawVisbufferTask : DrawVisbuffer
             {
                 render_cmd.draw_indirect({
                     .draw_command_buffer = ti.get(DrawVisbuffer::draw_commands).ids[0],
-                    .indirect_buffer_offset = sizeof(DrawIndirectStruct) * opaque_or_discard,
+                    .indirect_buffer_offset = sizeof(DrawIndirectStruct) * opaque_draw_list_type,
                     .draw_count = 1,
                     .draw_command_stride = sizeof(DrawIndirectStruct),
                 });
@@ -386,9 +414,9 @@ struct TaskCullAndDrawVisbufferInfo
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
+#if 0
     if (info.enable_mesh_shader)
     {
-#if 0
         info.task_graph.add_task(CullAndDrawVisbufferTask{
             .views = std::array{
                 daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::globals, info.context->tshader_globals_buffer}},
@@ -409,31 +437,44 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             },
             .context = info.context,
         });
-#endif
     }
     else
+#endif
     {
         auto draw_commands_array = info.task_graph.create_transient_buffer({
             .size = static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct)) * 2),
             .name = std::string("draw visbuffer command buffer array") + info.context->dummy_string(),
         });
-        task_fill_buffer(
-            info.task_graph, 
-            draw_commands_array,
-            std::array{
-                DrawIndirectStruct{
-                    .vertex_count = MAX_TRIANGLES_PER_MESHLET * 3,
-                    .instance_count = {},
-                    .first_vertex = {},
-                    .first_instance = {},
-                },
-                DrawIndirectStruct{
-                    .vertex_count = MAX_TRIANGLES_PER_MESHLET * 3,
-                    .instance_count = {},
-                    .first_vertex = {},
-                    .first_instance = {},
-                },
-            });
+        if (info.enable_mesh_shader)
+        {
+            task_fill_buffer(
+                info.task_graph, 
+                draw_commands_array,
+                std::array{
+                    DispatchIndirectStruct{ 1, 0, 1 },
+                    DispatchIndirectStruct{ 1, 0, 1 },
+                });
+        }
+        else
+        {
+            task_fill_buffer(
+                info.task_graph, 
+                draw_commands_array,
+                std::array{
+                    DrawIndirectStruct{
+                        .vertex_count = MAX_TRIANGLES_PER_MESHLET * 3,
+                        .instance_count = {},
+                        .first_vertex = {},
+                        .first_instance = {},
+                    },
+                    DrawIndirectStruct{
+                        .vertex_count = MAX_TRIANGLES_PER_MESHLET * 3,
+                        .instance_count = {},
+                        .first_vertex = {},
+                        .first_instance = {},
+                    },
+                });
+        }
         info.task_graph.add_task(CullMeshletsTask{
             .views = std::array{
                 daxa::attachment_view(CullMeshletsTask::globals, info.context->tshader_globals_buffer),
@@ -483,7 +524,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             },
             .context = info.context,
             .pass = PASS1_DRAW_POST_CULL,
-            .mesh_shader = false,
+            .mesh_shader = info.enable_mesh_shader,
         };
         info.task_graph.add_task(draw_task);
     }

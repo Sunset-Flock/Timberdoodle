@@ -138,16 +138,15 @@ Renderer::~Renderer()
 void Renderer::compile_pipelines()
 {
     std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
-        {draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_opaque_compile_info()},
-        {draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info().name, draw_visbuffer_no_mesh_shader_pipeline_discard_compile_info()},
+        {draw_visbuffer_solid_pipeline_compile_info().name, draw_visbuffer_solid_pipeline_compile_info()},
+        {draw_visbuffer_masked_pipeline_compile_info().name, draw_visbuffer_masked_pipeline_compile_info()},
+        #if COMPILE_IN_MESH_SHADER
+            {draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name, draw_visbuffer_mesh_shader_solid_pipeline_compile_info()},
+            {draw_visbuffer_mesh_shader_masked_pipeline_compile_info().name, draw_visbuffer_mesh_shader_masked_pipeline_compile_info()},
+        #endif // #if COMPILE_IN_MESH_SHADER
         {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info().name, draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info().name, draw_shader_debug_aabb_pipeline_compile_info()},
-        {draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name, draw_visbuffer_mesh_shader_solid_pipeline_compile_info()},
-#if COMPILE_IN_MESH_SHADER
-        {draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name, draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()},
-        {draw_visbuffer_mesh_shader_pipeline_compile_info().name, draw_visbuffer_mesh_shader_pipeline_compile_info()},
-#endif
     };
     for (auto [name, info] : rasters)
     {

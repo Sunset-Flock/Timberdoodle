@@ -21,11 +21,9 @@ using HWND = void *;
 
 GPUContext::GPUContext(Window const & window)
     : context{daxa::create_instance({})}, device{this->context.create_device({
-          .flags = daxa::DeviceFlags2{.mesh_shader_bit = 1},
+          .flags = daxa::DeviceFlags2{.mesh_shader_bit = COMPILE_IN_MESH_SHADER},
           .max_allowed_images = 100000, 
           .max_allowed_buffers = 100000,
-#if COMPILE_IN_MESH_SHADER
-#endif
           .name = "Sandbox Device"
       })},
       swapchain{this->device.create_swapchain({

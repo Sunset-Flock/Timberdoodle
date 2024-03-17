@@ -39,11 +39,20 @@ void entry_cull_meshlets(uint3 dtid : SV_DispatchThreadID)
         const uint offset = deref(push.uses.meshlet_instances).first_count;
         const uint meshlet_instance_idx = out_index + offset;
         deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
+        const bool mesh_shader_enable = deref(push.uses.globals).settings.enable_mesh_shader == 1;
         // Scalarize atomic appends.
         [[unroll]] for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
         {
             if (push.opaque_or_discard != draw_list_type) continue;
-            atomicAdd(deref_i(push.uses.draw_commands, draw_list_type).instance_count, 1);
+            if (mesh_shader_enable)
+            {
+                let dispatch = (DispatchIndirectStruct*)push.uses.draw_commands;
+                atomicAdd(dispatch.y, 1);
+            }
+            else
+            {
+                atomicAdd(deref_i(push.uses.draw_commands, draw_list_type).instance_count, 1);
+            }
             const uint draw_list_element_offset = 
                 deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count;
             const uint draw_list_element_index = draw_list_element_offset +

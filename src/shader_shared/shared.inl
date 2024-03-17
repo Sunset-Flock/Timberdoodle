@@ -20,7 +20,7 @@
 #define ENABLE_MESHLET_CULLING 0
 #define ENABLE_TRIANGLE_CULLING 0
 #define ENABLE_SHADER_PRINT_DEBUG 1
-#define COMPILE_IN_MESH_SHADER 0
+#define COMPILE_IN_MESH_SHADER 1
 #define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
@@ -140,7 +140,7 @@ struct Settings
           enable_mesh_shader{0},
           draw_from_observer{0},
           observer_show_pass{0},
-          use_slang_for_culling{0}
+          use_slang_for_culling{1}
     {
     }
 #endif
