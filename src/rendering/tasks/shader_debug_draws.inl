@@ -8,7 +8,7 @@
 #include "../../shader_shared/debug.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(DebugDraw, 3)
-DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
@@ -109,7 +109,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_i
 struct DebugDrawTask : DebugDraw
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * rctx = {};
     void callback(daxa::TaskInterface ti)
     {
         auto const colorImageSize = ti.device.info_image(ti.get(color_image).ids[0]).value().size;
@@ -135,7 +135,7 @@ struct DebugDrawTask : DebugDraw
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
 
-        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
         render_cmd.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
@@ -143,27 +143,27 @@ struct DebugDrawTask : DebugDraw
             .offset = 0,
         });
         render_cmd.push_constant(
-            DebugDrawPush{.draw_as_observer = context->settings.draw_from_observer},
+            DebugDrawPush{.draw_as_observer = rctx->render_data.settings.draw_from_observer},
             ti.attachment_shader_data.size());
 
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->shader_debug_context.buffer,
+            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->shader_debug_context.buffer,
+            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->shader_debug_context.buffer,
+            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),

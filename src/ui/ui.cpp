@@ -90,8 +90,8 @@ void setup_colors()
 };
 
 UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * context)
-    : scene_graph(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp)),
-      property_viewer(&imgui_renderer, &icons, std::bit_cast<daxa::SamplerId>(context->shader_globals.samplers.linear_clamp)),
+    : scene_graph(&imgui_renderer, &icons, context->device.create_sampler({})),
+      property_viewer(&imgui_renderer, &icons, context->device.create_sampler({})),
       context{context}
 {
     auto * imgui_context = ImGui::CreateContext();
@@ -122,7 +122,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scene const & scene)
+void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -151,10 +151,10 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     {
         if (ImGui::BeginMenu("Widgets"))
         {
-            ImGui::MenuItem("Settings", NULL, &widget_settings);
+            ImGui::MenuItem("Settings", NULL, &renderer_settings);
+            ImGui::MenuItem("Widget Settings", NULL, &widget_settings);
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_hierarchy);
-            ImGui::MenuItem("Camera Settings", NULL, &camera_settings);
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::EndMenu();
@@ -163,14 +163,14 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     }
     if (widget_settings)
     {
-        if (ImGui::Begin("Settings", nullptr, ImGuiWindowFlags_NoCollapse))
+        if (ImGui::Begin("Widget Settings", nullptr, ImGuiWindowFlags_NoCollapse))
         {
             ImGui::SeparatorText("Scene graph widget settings");
             ImGui::SliderFloat("icon size", &scene_graph.icon_size, 1.0f, 50.0f);
             ImGui::SliderFloat("spacing", &scene_graph.icon_text_spacing, 1.0f, 50.0f);
             ImGui::SliderFloat("indent", &scene_graph.indent, 1.0f, 50.0f);
             ImGui::Separator();
-            ImGui::InputScalarN("resolution", ImGuiDataType_U32, &settings.render_target_size, 2);
+            ImGui::InputScalarN("resolution", ImGuiDataType_U32, &render_ctx.render_data.settings.render_target_size, 2);
             ImGui::End();
         }
     }
@@ -184,13 +184,17 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     }
     if (widget_scene_hierarchy)
     {
-        draw_scenegraph(scene);
+        ui_scenegraph(scene);
+    }
+    if (renderer_settings)
+    {
+        ui_renderer_settings(scene, render_ctx.render_data.settings);
     }
     if (widget_property_viewer)
     {
         property_viewer.render({
-            .sky_settings = &context->sky_settings,
-            .post_settings = &context->shader_globals.postprocess_settings,
+            .sky_settings = &render_ctx.render_data.sky_settings,
+            .post_settings = &render_ctx.render_data.postprocess_settings,
         });
     }
     if(demo_window)
@@ -199,7 +203,7 @@ void UIEngine::main_update(Settings & settings, SkySettings & sky_settings, Scen
     }
 }
 
-void UIEngine::draw_scenegraph(Scene const & scene)
+void UIEngine::ui_scenegraph(Scene const & scene)
 {
     if (scene._gltf_asset_manifest.empty())
     {
@@ -281,7 +285,19 @@ void UIEngine::draw_scenegraph(Scene const & scene)
     }
 
     scene_graph.end();
+}
 
+void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
+{
+    if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::SeparatorText("General settings");
+        IMGUI_UINT_CHECKBOX(settings.enable_mesh_shader);
+        IMGUI_UINT_CHECKBOX(settings.draw_from_observer);
+        IMGUI_UINT_CHECKBOX(settings.observer_show_pass);
+        IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
+        ImGui::End();
+    }
 }
 
 UIEngine::~UIEngine()

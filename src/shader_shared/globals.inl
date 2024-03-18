@@ -5,7 +5,7 @@
 #include "shared.inl"
 #include "debug.inl"
 
-struct ShaderGlobals
+struct RenderGlobalData
 {
     daxa_f32mat4x3 test[2];
     CameraInfo camera;
@@ -19,4 +19,4 @@ struct ShaderGlobals
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
 };
-DAXA_DECL_BUFFER_PTR(ShaderGlobals)
+DAXA_DECL_BUFFER_PTR(RenderGlobalData)

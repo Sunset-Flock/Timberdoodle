@@ -212,24 +212,12 @@ struct GPUContext
     daxa::Device device = {};
     daxa::Swapchain swapchain = {};
     daxa::PipelineManager pipeline_manager = {};
-    daxa::TransferMemoryPool transient_mem;
-
-    ShaderGlobals shader_globals = {};
-    daxa::BufferId shader_globals_buffer = {};
-    daxa::TaskBuffer tshader_globals_buffer = {};
-    daxa::types::DeviceAddress shader_globals_address = {};
 
     ShaderDebugDrawContext shader_debug_context = {};
 
     // Pipelines:
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
     std::unordered_map<std::string_view, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
-
-    // Data
-    Settings prev_settings = {};
-    Settings settings = {};
-    SkySettings prev_sky_settings = {};
-    SkySettings sky_settings = {};
 
     u32 counter = {};
     auto dummy_string() -> std::string;

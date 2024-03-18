@@ -17,7 +17,7 @@
 #define MAX_ENTITY_COUNT (1u << 20u)
 #define MAX_MATERIAL_COUNT (1u << 8u)
 #define MESH_SHADER_WORKGROUP_X 32
-#define ENABLE_MESHLET_CULLING 0
+#define ENABLE_MESHLET_CULLING 1
 #define ENABLE_TRIANGLE_CULLING 0
 #define ENABLE_SHADER_PRINT_DEBUG 1
 #define COMPILE_IN_MESH_SHADER 1
@@ -38,7 +38,7 @@
 
 #if defined(__cplusplus)
 #define SHADER_ONLY(x)
-#define HOST_ONLY(x) x
+#define HOST_ONLY(...) __VA_ARGS__
 #else
 #define SHADER_ONLY(x) x
 #define HOST_ONLY(x)
@@ -86,6 +86,7 @@ struct SkySettings
     DensityProfileLayer absorption_density[PROFILE_LAYER_COUNT];
     daxa_BufferPtr(DensityProfileLayer) absorption_density_ptr;
 #if defined(__cplusplus)
+    SkySettings() : transmittance_dimensions{1,1}, multiscattering_dimensions{1,1}, sky_dimensions{1,1} {}
     auto operator==(SkySettings const & other) const -> bool
     {
         return std::memcmp(this, &other, sizeof(SkySettings)) == 0;

@@ -12,7 +12,7 @@
 #define CULL_MESHES_WORKGROUP_X 128
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 12)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
@@ -58,16 +58,15 @@ inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
 struct CullMeshesTask : CullMeshes
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
-    SceneRendererContext* scene_context = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshes{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshes{}.name()));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
         });
-        auto const total_mesh_draws = scene_context->opaque_draw_lists[0].size() + scene_context->opaque_draw_lists[1].size();
+        auto const total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
         ti.recorder.dispatch(daxa::DispatchInfo{
             round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X),
             1,
@@ -78,8 +77,7 @@ struct CullMeshesTask : CullMeshes
 
 struct TaskCullMeshesInfo
 {
-    GPUContext * context = {};
-    SceneRendererContext * scene_context = {};
+    RenderContext * render_context = {};
     daxa::TaskGraph & task_list;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView opaque_draw_lists = {};
@@ -141,8 +139,7 @@ void tasks_cull_meshes(TaskCullMeshesInfo const & info)
             daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_opaque, meshlets_cull_arg_buckets_buffer_opaque),
             daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
         },
-        .context = info.context,
-        .scene_context = info.scene_context,
+        .render_context = info.render_context,
     });
     info.meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque;
     info.meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard;

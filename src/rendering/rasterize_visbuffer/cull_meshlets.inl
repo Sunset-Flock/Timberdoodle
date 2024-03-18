@@ -11,7 +11,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 12)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta_data)
@@ -26,7 +26,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIn
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets2, 12)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta_data)
@@ -78,17 +78,17 @@ inline daxa::ComputePipelineCompileInfo cull_meshlets_pipeline_compile_info()
 struct CullMeshletsTask : CullMeshlets
 {
     CullMeshlets::AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
     u32 opaque_or_discard = {};
     void callback(daxa::TaskInterface ti)
     {
-        if (context->settings.use_slang_for_culling)
+        if (render_context->render_data.settings.use_slang_for_culling)
         {
-            ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask2::name()));
+            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask2::name()));
         }
         else
         {
-            ti.recorder.set_pipeline(*context->compute_pipelines.at(CullMeshletsTask::name()));
+            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask::name()));
         }
         for (u32 bucket = 0; bucket < 32; ++bucket)
         {

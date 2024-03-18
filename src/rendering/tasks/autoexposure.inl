@@ -5,14 +5,14 @@
 #include "../../shader_shared/globals.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceHistogram, 4)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_u32), histogram)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, color_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceAverage, 3)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), histogram)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), luminance_average)
 DAXA_DECL_TASK_HEAD_END
@@ -52,16 +52,16 @@ inline daxa::ComputePipelineCompileInfo gen_luminace_average_pipeline_compile_in
 struct GenLuminanceHistogramTask : GenLuminanceHistogram
 {
     GenLuminanceHistogram::AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const offscreen_resolution = context->shader_globals.settings.render_target_size;
+        auto const offscreen_resolution = render_context->render_data.settings.render_target_size;
         auto const dispatch_size = u32vec2{
             (offscreen_resolution.x + COMPUTE_HISTOGRAM_WG_X - 1) / COMPUTE_HISTOGRAM_WG_X,
             (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
         };
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(GenLuminanceHistogram{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(GenLuminanceHistogram{}.name()));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),

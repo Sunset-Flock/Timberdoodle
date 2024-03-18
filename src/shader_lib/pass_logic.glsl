@@ -6,7 +6,7 @@
 #include "../shader_shared/geometry.inl"
 
 uint get_meshlet_draw_count(
-    daxa_BufferPtr(ShaderGlobals) globals,
+    daxa_BufferPtr(RenderGlobalData) globals,
     daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances, 
     uint pass, 
     uint opaque_or_discard)
@@ -29,7 +29,7 @@ uint get_meshlet_draw_count(
 }
 
 uint get_meshlet_instance_index(
-    daxa_BufferPtr(ShaderGlobals) globals,
+    daxa_BufferPtr(RenderGlobalData) globals,
     daxa_BufferPtr(MeshletInstancesBufferHead) meshlet_instances, 
     uint pass, 
     uint draw_list_type, 

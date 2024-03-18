@@ -14,25 +14,25 @@
 
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeTransmittance, 2)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, transmittance)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeMultiscattering, 3)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, multiscattering)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeSky, 4)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, multiscattering)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, sky)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(SkyIntoCubemap, 4)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(ShaderGlobals), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, sky)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D_ARRAY, ibl_cube)
@@ -123,18 +123,18 @@ struct ComputeTransmittanceTask : ComputeTransmittance
 struct ComputeMultiscatteringTask : ComputeMultiscattering
 {
     ComputeMultiscattering::AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const multiscattering_size = context->device.info_image(ti.get(ComputeMultiscattering::multiscattering).ids[0]).value().size;
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(ComputeMultiscattering{}.name()));
+        auto const multiscattering_size = render_context->gpuctx->device.info_image(ti.get(ComputeMultiscattering::multiscattering).ids[0]).value().size;
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(ComputeMultiscattering{}.name()));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
         });
         ti.recorder.push_constant(
-            ComputeMultiscatteringPush{.sampler_id = context->shader_globals.samplers.linear_clamp},
+            ComputeMultiscatteringPush{.sampler_id = render_context->render_data.samplers.linear_clamp},
             ComputeMultiscattering::attachment_shader_data_size());
         ti.recorder.dispatch({.x = multiscattering_size.x, .y = multiscattering_size.y});
     }
@@ -143,22 +143,22 @@ struct ComputeMultiscatteringTask : ComputeMultiscattering
 struct ComputeSkyTask : ComputeSky
 {
     ComputeSky::AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const sky_size = context->device.info_image(ti.get(ComputeSky::sky).ids[0]).value().size;
+        auto const sky_size = render_context->gpuctx->device.info_image(ti.get(ComputeSky::sky).ids[0]).value().size;
         auto const dispatch_size = u32vec2{
             (sky_size.x + SKY_X_DISPATCH - 1) / SKY_X_DISPATCH,
             (sky_size.y + SKY_Y_DISPATCH - 1) / SKY_Y_DISPATCH,
         };
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(ComputeSky{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(ComputeSky{}.name()));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
         });
         ti.recorder.push_constant(
-            ComputeSkyPush{.sampler_id = context->shader_globals.samplers.linear_clamp},
+            ComputeSkyPush{.sampler_id = render_context->render_data.samplers.linear_clamp},
             ComputeSky::attachment_shader_data_size());
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
     }

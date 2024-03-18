@@ -171,7 +171,7 @@ struct Scene
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
 
-    SceneRendererContext _scene_renderer_context = {};
+    SceneDraw _scene_draw = {};
 
     Scene(daxa::Device device);
     ~Scene();

@@ -25,12 +25,11 @@ struct Renderer
     auto create_main_task_graph() -> daxa::TaskGraph;
     auto create_sky_lut_task_graph() -> daxa::TaskGraph;
     void recreate_sky_luts();
-    void update_settings();
     void render_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
         f32 const delta_time,
-        SceneRendererContext scene_context);
+        SceneDraw scene_draw);
 
     daxa::TaskBuffer zero_buffer = {};
 
@@ -48,17 +47,13 @@ struct Renderer
 
     // Render Targets:
     daxa::TaskImage swapchain_image = {};
-    daxa::TaskImage depth = {};
-    daxa::TaskImage visbuffer = {};
-    daxa::TaskImage debug_image = {};
-    daxa::TaskImage color_image = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
 
+    std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};
     GPUContext *context = {};
-    SceneRendererContext scene_context = {};
     Scene *scene = {};
     AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;

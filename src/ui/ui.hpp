@@ -17,14 +17,28 @@
 using namespace tido::types;
 using namespace tido::ui;
 
+#define IMGUI_UINT_CHECKBOX(VALUE) \
+{\
+    bool bvalue = VALUE != 0;\
+    ImGui::Checkbox(#VALUE, &bvalue);\
+    VALUE = bvalue ? 1 : 0;\
+}
+
+#define IMGUI_UINT_CHECKBOX2(NAME, VALUE) \
+{\
+    bool bvalue = VALUE != 0;\
+    ImGui::Checkbox(NAME, &bvalue);\
+    VALUE = bvalue ? 1 : 0;\
+}
+
 struct UIEngine
 {
     public:
+        bool renderer_settings = false;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_scene_hierarchy = true;
         bool widget_property_viewer = true;
-        bool camera_settings = false;
         bool demo_window = false;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
@@ -35,7 +49,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
-        void main_update(Settings &settings, SkySettings & sky_settings, Scene const & scene);
+        void main_update(RenderContext & render_ctx, Scene const & scene);
 
     private:
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH
@@ -58,5 +72,6 @@ struct UIEngine
         int selected = {};
 
         std::vector<daxa::ImageId> icons = {};
-        void draw_scenegraph(Scene const & scene);
+        void ui_scenegraph(Scene const & scene);
+        void ui_renderer_settings(Scene const & scene, Settings & settings);
 };

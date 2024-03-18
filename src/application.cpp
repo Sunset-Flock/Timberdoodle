@@ -119,14 +119,10 @@ Application::Application()
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
+    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
     // Renderer needs these to be loaded to know what size the look up tables have to be
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
-    load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _gpu_context->sky_settings);
-    // Avoid recreating all images and task graph in the first frame
-    _gpu_context->prev_sky_settings.transmittance_dimensions = _gpu_context->sky_settings.transmittance_dimensions;
-    _gpu_context->prev_sky_settings.multiscattering_dimensions = _gpu_context->sky_settings.multiscattering_dimensions;
-    _gpu_context->prev_sky_settings.sky_dimensions = _gpu_context->sky_settings.sky_dimensions;
-    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
+    load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _renderer->render_context->render_data.sky_settings);
 
     struct CompPipelinesTask : Task
     {
@@ -202,7 +198,7 @@ auto Application::run() -> i32
                 this->camera_controller.cam_info, 
                 this->observer_camera_controller.cam_info, 
                 delta_time,
-                this->_scene->_scene_renderer_context);
+                this->_scene->_scene_draw);
         }
         _gpu_context->device.collect_garbage();
     }
@@ -221,7 +217,7 @@ void Application::update()
 
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
-    _ui_engine->main_update(_gpu_context->settings, _gpu_context->sky_settings, *_scene);
+    _ui_engine->main_update(*_renderer->render_context, *_scene);
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);
@@ -232,124 +228,116 @@ void Application::update()
         camera_controller.process_input(*_window, this->delta_time);
         camera_controller.update_matrices(*_window);
     }
-    if (_window->key_just_pressed(GLFW_KEY_H))
-    {
-        _renderer->context->settings.draw_from_observer = !_renderer->context->settings.draw_from_observer;
-    }
-    if (_window->key_just_pressed(GLFW_KEY_J))
-    {
-        control_observer = !control_observer;
-    }
-    if (_window->key_just_pressed(GLFW_KEY_K))
-    {
-        reset_observer = true;
-    }
-#if COMPILE_IN_MESH_SHADER
-    if (_window->key_just_pressed(GLFW_KEY_M))
-    {
-        DEBUG_MSG(fmt::format("switched enable_mesh_shader from {} to {}", _renderer->context->settings.enable_mesh_shader,
-            !(_renderer->context->settings.enable_mesh_shader)));
-        _renderer->context->settings.enable_mesh_shader = !_renderer->context->settings.enable_mesh_shader;
-    }
-#endif
-    if (_window->key_just_pressed(GLFW_KEY_O))
-    {
-        DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->context->settings.observer_show_pass,
-            ((_renderer->context->settings.observer_show_pass + 1) % 3)));
-        _renderer->context->settings.observer_show_pass = (_renderer->context->settings.observer_show_pass + 1) % 3;
-    }
-    if (_ui_engine->camera_settings)
-    {
-        if (ImGui::Begin("camera settings", nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            bool draw_from_observer = static_cast<bool>(_renderer->context->settings.draw_from_observer);
-            ImGui::Checkbox("draw from observer (H)", &draw_from_observer);
-            _renderer->context->settings.draw_from_observer = static_cast<u32>(draw_from_observer);
-            ImGui::Checkbox("control observer   (J)", &control_observer);
-            reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
-            
-            std::array<char const * const, 3> modes = { "redraw meshlets visible last frame", "redraw meshlet post cull", "redraw all drawn meshlets" };
-            ImGui::Combo("observer draw pass mode", &_renderer->context->settings.observer_show_pass, modes.data(), modes.size());
-            bool use_slang_for_culling = _renderer->context->settings.use_slang_for_culling;
-            ImGui::Checkbox("use slang for meshlet cull", &use_slang_for_culling);
-            _renderer->context->settings.use_slang_for_culling = use_slang_for_culling;
-            ImGui::End();
-        }
-    }
     if (_ui_engine->shader_debug_menu)
     {
         if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
-            ImGui::DragFloat4(
-                "debug f32vec4", 
-                reinterpret_cast<f32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
-                _ui_engine->debug_f32vec4_drag_speed);
-            ImGui::DragInt4(
-                "debug i32vec4", 
-                reinterpret_cast<i32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
-            ImGui::Text(
-                "out debug f32vec4: (%f,%f,%f,%f)",
-                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.y,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.z,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.w);
-            ImGui::Text(
-                "out debug i32vec4: (%i,%i,%i,%i)",
-                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.x,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.y,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.z,
-                _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
-            ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
-            ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
-            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
+            ImGui::SeparatorText("Observer Camera");
             {
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos = {
-                    _window->get_cursor_x(),
-                    _window->get_cursor_y(),
+                IMGUI_UINT_CHECKBOX2("draw from observer (H)", _renderer->render_context->render_data.settings.draw_from_observer);
+                ImGui::Checkbox("control observer   (J)", &control_observer);
+                reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
+                std::array<char const * const, 3> modes = { 
+                    "redraw meshlets visible last frame",
+                    "redraw meshlet post cull", 
+                    "redraw all drawn meshlets",
                 };
+                ImGui::Combo("observer draw pass mode", &_renderer->render_context->render_data.settings.observer_show_pass, modes.data(), modes.size());
+                if (_window->key_just_pressed(GLFW_KEY_H))
+                {
+                    _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
+                }
+                if (_window->key_just_pressed(GLFW_KEY_J))
+                {
+                    control_observer = !control_observer;
+                }
+                if (_window->key_just_pressed(GLFW_KEY_K))
+                {
+                    reset_observer = true;
+                }
+                if (_window->key_just_pressed(GLFW_KEY_O))
+                {
+                    DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->render_context->render_data.settings.observer_show_pass,
+                        ((_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3)));
+                    _renderer->render_context->render_data.settings.observer_show_pass = (_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3;
+                }
             }
-            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
+            ImGui::SeparatorText("Debug Shader Interface");
             {
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x -= 1;
+                ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
+                ImGui::DragFloat4(
+                    "debug f32vec4", 
+                    reinterpret_cast<f32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
+                    _ui_engine->debug_f32vec4_drag_speed);
+                ImGui::DragInt4(
+                    "debug i32vec4", 
+                    reinterpret_cast<i32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
+                ImGui::Text(
+                    "out debug f32vec4: (%f,%f,%f,%f)",
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.y,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.z,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.w);
+                ImGui::Text(
+                    "out debug i32vec4: (%i,%i,%i,%i)",
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.x,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.y,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.z,
+                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
+                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
+                {
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos = {
+                        _window->get_cursor_x(),
+                        _window->get_cursor_y(),
+                    };
+                }
+                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
+                {
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x -= 1;
+                }
+                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
+                {
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x += 1;
+                }
+                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
+                {
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y -= 1;
+                }
+                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
+                {
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y += 1;
+                }
             }
-            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
+            ImGui::SeparatorText("Debug Shader Lens");
             {
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x += 1;
+                ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
+                ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
+                ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->shader_debug_context.draw_magnified_area_rect);
+                ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
+                ImGui::Text(
+                    "detector texel position: (%i,%i)",
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x, 
+                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y);
+                ImGui::Text(
+                    "detector center value: (%f,%f,%f,%f)",
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x, 
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y, 
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z, 
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
+                auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
+                    .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->render_context->render_data.samplers.nearest_clamp),
+                });
+                auto const width = ImGui::GetContentRegionMax().x;
+                ImGui::Image(debug_lens_image_view_id, ImVec2(width,width));
             }
-            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
-            {
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y -= 1;
-            }
-            if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
-            {
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y += 1;
-            }
-            ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->shader_debug_context.draw_magnified_area_rect);
-            ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
-            ImGui::Text(
-                "detector texel position: (%i,%i)",
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x, 
-                _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y);
-            ImGui::Text(
-                "detector center value: (%f,%f,%f,%f)",
-                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x, 
-                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y, 
-                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z, 
-                _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
-            auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
-                .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
-                .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->context->shader_globals.samplers.nearest_clamp),
-            });
-            auto const width = std::min(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().y) * 4 / 5;
-            ImGui::Image(debug_lens_image_view_id, ImVec2(width,width));
             ImGui::End();
         }
     }
     if (reset_observer)
     {
         control_observer = false;
-        _renderer->context->settings.draw_from_observer = static_cast<u32>(false);
+        _renderer->render_context->render_data.settings.draw_from_observer = static_cast<u32>(false);
         observer_camera_controller = camera_controller;
     }
     ImGui::Render();

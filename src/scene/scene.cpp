@@ -24,7 +24,7 @@ Scene::Scene(daxa::Device device)
     _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_ENTITY_COUNT, "_gpu_mesh_manifest");
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_ENTITY_COUNT, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIAL_COUNT, "_gpu_material_manifest");
-    _scene_renderer_context.opaque_draw_list_buffer = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
+    _scene_draw.opaque_draw_list_buffer = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
 }
 
 Scene::~Scene()
@@ -37,7 +37,7 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_mesh_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
-    _device.destroy_buffer(_scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0]);
+    _device.destroy_buffer(_scene_draw.opaque_draw_list_buffer.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
 
     for (auto & mesh : _mesh_manifest)
@@ -590,17 +590,17 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
                     };
                     if (material.alpha_discard_enabled)
                     {
-                        scene._scene_renderer_context.opaque_draw_lists[OPAQUE_DRAW_LIST_MASKED].push_back(mesh_draw);
+                        scene._scene_draw.opaque_draw_lists[OPAQUE_DRAW_LIST_MASKED].push_back(mesh_draw);
                     }
                     else
                     {
-                        scene._scene_renderer_context.opaque_draw_lists[OPAQUE_DRAW_LIST_SOLID].push_back(mesh_draw);
+                        scene._scene_draw.opaque_draw_lists[OPAQUE_DRAW_LIST_SOLID].push_back(mesh_draw);
                     }
                 }
             }
         }
     }
-    scene._scene_renderer_context.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
+    scene._scene_draw.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
 }
 
 auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
@@ -702,17 +702,17 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     if (!_dirty_render_entities.empty())
     {
         auto opaque_draw_list_buffer_head = make_opaque_draw_list_buffer_head(
-            _device.get_device_address(_scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0]).value(),
+            _device.get_device_address(_scene_draw.opaque_draw_list_buffer.get_state().buffers[0]).value(),
             std::array{
-                std::span{_scene_renderer_context.opaque_draw_lists[0]},
-                std::span{_scene_renderer_context.opaque_draw_lists[1]},
+                std::span{_scene_draw.opaque_draw_lists[0]},
+                std::span{_scene_draw.opaque_draw_lists[1]},
             }
         );
         auto staging = _device.create_buffer({
             .size = 
                 sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
-                    _scene_renderer_context.opaque_draw_lists[0].size() + 
-                    _scene_renderer_context.opaque_draw_lists[1].size()
+                    _scene_draw.opaque_draw_lists[0].size() + 
+                    _scene_draw.opaque_draw_lists[1].size()
                 ),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "opaque draw lists buffer upload",
@@ -722,22 +722,22 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         *reinterpret_cast<OpaqueMeshDrawListBufferHead*>(staging_ptr) = opaque_draw_list_buffer_head;
         std::memcpy(
             staging_ptr + sizeof(OpaqueMeshDrawListBufferHead), 
-            _scene_renderer_context.opaque_draw_lists[0].data(), 
-            _scene_renderer_context.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple)
+            _scene_draw.opaque_draw_lists[0].data(), 
+            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple)
         );
         std::memcpy(
             staging_ptr + sizeof(OpaqueMeshDrawListBufferHead) + 
-            _scene_renderer_context.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple), 
-            _scene_renderer_context.opaque_draw_lists[1].data(), 
-            _scene_renderer_context.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple)
+            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple), 
+            _scene_draw.opaque_draw_lists[1].data(), 
+            _scene_draw.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple)
         );
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging,
-            .dst_buffer = _scene_renderer_context.opaque_draw_list_buffer.get_state().buffers[0],
+            .dst_buffer = _scene_draw.opaque_draw_list_buffer.get_state().buffers[0],
             .size = 
                 sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
-                _scene_renderer_context.opaque_draw_lists[0].size() +
-                _scene_renderer_context.opaque_draw_lists[1].size()),
+                _scene_draw.opaque_draw_lists[0].size() +
+                _scene_draw.opaque_draw_lists[1].size()),
         });
     }
 
