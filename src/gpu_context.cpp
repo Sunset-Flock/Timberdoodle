@@ -63,7 +63,8 @@ GPUContext::GPUContext(Window const & window)
           }(),
           .register_null_pipelines_when_first_compile_fails = true,
           .name = "Sandbox PipelineCompiler",
-      }}}
+      }}},
+      lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})}
 {
     shader_debug_context.init(device);
 }
@@ -78,4 +79,5 @@ GPUContext::~GPUContext()
     device.destroy_buffer(shader_debug_context.buffer);
     device.destroy_buffer(shader_debug_context.readback_queue);
     device.destroy_image(shader_debug_context.debug_lens_image);
+    device.destroy_sampler(lin_clamp_sampler);
 }

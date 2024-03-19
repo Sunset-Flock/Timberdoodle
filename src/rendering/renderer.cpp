@@ -665,6 +665,7 @@ void Renderer::render_frame(
         1.0f / render_context->render_data.settings.render_target_size.x, 
         1.0f / render_context->render_data.settings.render_target_size.y,
     };
+    render_context->scene_draw = scene_draw;
 
     /// THIS SHOULD BE DONE SOMEWHERE ELSE!
     {

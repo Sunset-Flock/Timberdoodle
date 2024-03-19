@@ -90,8 +90,8 @@ void setup_colors()
 };
 
 UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * context)
-    : scene_graph(&imgui_renderer, &icons, context->device.create_sampler({})),
-      property_viewer(&imgui_renderer, &icons, context->device.create_sampler({})),
+    : scene_graph(&imgui_renderer, &icons, context->lin_clamp_sampler),
+      property_viewer(&imgui_renderer, &icons, context->lin_clamp_sampler),
       context{context}
 {
     auto * imgui_context = ImGui::CreateContext();
