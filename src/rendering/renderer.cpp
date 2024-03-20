@@ -99,6 +99,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
+        {draw_shader_debug_box_pipeline_compile_info()},
     };
     if (allow_mesh_shader && allow_slang)
     {
@@ -758,7 +759,7 @@ void Renderer::render_frame(
 
     auto const vsm_clip_projections = get_vsm_projections(GetVSMProjectionsInfo{
         .camera_info = &camera_info,
-        .sun_direction = std::bit_cast<f32vec3>(context->sky_settings.sun_direction),
+        .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = 10.0f,
         .clip_0_near = 1.0f,
         .clip_0_far = 100.0f,
@@ -769,7 +770,7 @@ void Renderer::render_frame(
         .clip_projections = std::span<const VSMClipProjection>(vsm_clip_projections.begin(), 1),
         .draw_individual_pages = true,
         .debug_context = &context->shader_debug_context,
-        .vsm_view_direction = -std::bit_cast<f32vec3>(context->sky_settings.sun_direction),
+        .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
     });
 
     auto new_swapchain_image = context->swapchain.acquire_next_image();

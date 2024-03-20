@@ -186,9 +186,9 @@ struct DebugDrawTask : DebugDraw
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_box_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_box_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = context->shader_debug_context.buffer,
+            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
