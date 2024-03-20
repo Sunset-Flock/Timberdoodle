@@ -5,6 +5,8 @@
 
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
+#include "virtual_shadow_maps/vsm.inl"
+
 #include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -673,6 +675,7 @@ void Renderer::render_frame(
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
 
+
     // Calculate frame relevant values.
     u32 const flight_frame_index = context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -752,6 +755,22 @@ void Renderer::render_frame(
         {13, 23, 33},   // col 3
         {14, 24, 34},   // col 4
     };
+
+    auto const vsm_clip_projections = get_vsm_projections(GetVSMProjectionsInfo{
+        .camera_info = &camera_info,
+        .sun_direction = std::bit_cast<f32vec3>(context->sky_settings.sun_direction),
+        .clip_0_scale = 10.0f,
+        .clip_0_near = 1.0f,
+        .clip_0_far = 100.0f,
+        .clip_0_height_offset = 50.0f,
+    });
+
+    debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
+        .clip_projections = std::span<const VSMClipProjection>(vsm_clip_projections.begin(), 1),
+        .draw_individual_pages = true,
+        .debug_context = &context->shader_debug_context,
+        .vsm_view_direction = -std::bit_cast<f32vec3>(context->sky_settings.sun_direction),
+    });
 
     auto new_swapchain_image = context->swapchain.acquire_next_image();
     if (new_swapchain_image.is_empty()) { return; }

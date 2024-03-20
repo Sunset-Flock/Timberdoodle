@@ -106,6 +106,23 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_i
     return ret;
 };
 
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_box_pipeline_compile_info()
+{
+    auto ret = draw_shader_debug_common_pipeline_compile_info();
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_BOX", "1"}}},
+    };
+    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_BOX", "1"}}},
+    };
+    ret.name = "DrawShaderDebugBox";
+    ret.push_constant_size = sizeof(DebugDrawPush) + DebugDraw::attachment_shader_data_size();
+    ret.raster.primitive_topology = daxa::PrimitiveTopology::LINE_LIST;
+    return ret;
+};
+
 struct DebugDrawTask : DebugDraw
 {
     AttachmentViews views = {};
@@ -165,6 +182,14 @@ struct DebugDrawTask : DebugDraw
         render_cmd.draw_indirect({
             .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draw_indirect_info),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_shader_debug_box_pipeline_compile_info().name));
+        render_cmd.draw_indirect({
+            .draw_command_buffer = context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
