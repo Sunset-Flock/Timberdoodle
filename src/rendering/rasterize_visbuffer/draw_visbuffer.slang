@@ -62,6 +62,7 @@ struct VertexOut
     #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
 };
 
+// used to make repro
 [shader("vertex")]
 VertexOut entry_vertex(
     uint sv_vertex_index : SV_VertexID,

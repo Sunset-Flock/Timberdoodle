@@ -111,7 +111,7 @@ struct AllocMeshletInstBitfieldsTask : AllocMeshletInstBitfields
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(AllocMeshletInstBitfields{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(prepopulate_meshlet_instances_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -138,7 +138,7 @@ struct WriteFirstPassMeshletsAndBitfieldsTask : WriteFirstPassMeshletsAndBitfiel
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(WriteFirstPassMeshletsAndBitfields{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -167,7 +167,7 @@ struct AllocEntToMeshInstOffsetsOffsetsTask : AllocEntToMeshInstOffsetsOffsets
         u32 const draw_list_total_count = 
             render_context->scene_draw.opaque_draw_lists[0].size() + 
             render_context->scene_draw.opaque_draw_lists[1].size();
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(AllocEntToMeshInstOffsetsOffsets{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),

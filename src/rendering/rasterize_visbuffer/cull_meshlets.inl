@@ -62,18 +62,17 @@ using CullMeshletsTask2 = SimpleComputeTask<
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";
 
-inline daxa::ComputePipelineCompileInfo cull_meshlets_pipeline_compile_info()
-{
-    return {
-        .shader_info =
-            daxa::ShaderCompileInfo{
-                .source = daxa::ShaderFile{CULL_MESHLETS_SHADER_PATH},
-                .compile_options = {.defines = {{"CullMeshlets_", "1"}}},
-            },
-        .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush) + CullMeshlets::attachment_shader_data_size()),
-        .name = std::string{CullMeshlets{}.name()},
-    };
+SANE_STATIC_BEGIN(cull_meshlets_pipeline_compile_info)
+daxa::ComputePipelineCompileInfo{
+    .shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{CULL_MESHLETS_SHADER_PATH},
+        .compile_options = {.defines = {{"CullMeshlets_", "1"}}},
+    },
+    .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush) + CullMeshlets::attachment_shader_data_size()),
+    .name = std::string{CullMeshlets::name()},
 };
+SANE_STATIC_END
+
 
 struct CullMeshletsTask : CullMeshlets
 {
@@ -84,11 +83,11 @@ struct CullMeshletsTask : CullMeshlets
     {
         if (render_context->render_data.settings.use_slang_for_culling)
         {
-            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask2::name()));
+            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask2::pipeline_compile_info().name));
         }
         else
         {
-            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask::name()));
+            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(cull_meshlets_pipeline_compile_info().name));
         }
         for (u32 bucket = 0; bucket < 32; ++bucket)
         {

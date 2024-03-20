@@ -111,7 +111,7 @@ struct ComputeTransmittanceTask : ComputeTransmittance
             (transmittance_size.x + TRANSMITTANCE_X_DISPATCH - 1) / TRANSMITTANCE_X_DISPATCH,
             (transmittance_size.y + TRANSMITTANCE_Y_DISPATCH - 1) / TRANSMITTANCE_Y_DISPATCH,
         };
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(ComputeTransmittance{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(compute_transmittance_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -128,7 +128,7 @@ struct ComputeMultiscatteringTask : ComputeMultiscattering
     void callback(daxa::TaskInterface ti)
     {
         auto const multiscattering_size = render_context->gpuctx->device.info_image(ti.get(ComputeMultiscattering::multiscattering).ids[0]).value().size;
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(ComputeMultiscattering{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -152,7 +152,7 @@ struct ComputeSkyTask : ComputeSky
             (sky_size.x + SKY_X_DISPATCH - 1) / SKY_X_DISPATCH,
             (sky_size.y + SKY_Y_DISPATCH - 1) / SKY_Y_DISPATCH,
         };
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(ComputeSky{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(compute_sky_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -171,7 +171,7 @@ struct SkyIntoCubemapTask : SkyIntoCubemap
 
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(SkyIntoCubemap{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(sky_into_cubemap_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),

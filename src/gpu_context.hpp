@@ -217,7 +217,7 @@ struct GPUContext
 
     // Pipelines:
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
-    std::unordered_map<std::string_view, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
+    std::unordered_map<std::string, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
 
     daxa::SamplerId lin_clamp_sampler = {};
 

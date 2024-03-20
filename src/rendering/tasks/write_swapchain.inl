@@ -42,7 +42,7 @@ struct WriteSwapchainTask : WriteSwapchain
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(WriteSwapchain{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(write_swapchain_pipeline_compile_info().name));
         u32 const dispatch_x = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
         u32 const dispatch_y = round_up_div(ti.device.info_image(ti.get(swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
         auto size = ti.device.info_image(ti.get(swapchain).ids[0]).value().size;

@@ -47,7 +47,7 @@ struct GenHizTask : GenHizTH
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(GenHizTH{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_hiz_pipeline_compile_info().name));
         auto const dispatch_x = round_up_div(render_context->render_data.settings.render_target_size.x, GEN_HIZ_WINDOW_X);
         auto const dispatch_y = round_up_div(render_context->render_data.settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
         ti.recorder.push_constant_vptr({

@@ -61,7 +61,7 @@ struct GenLuminanceHistogramTask : GenLuminanceHistogram
             (offscreen_resolution.x + COMPUTE_HISTOGRAM_WG_X - 1) / COMPUTE_HISTOGRAM_WG_X,
             (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
         };
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(GenLuminanceHistogram{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),
@@ -77,7 +77,7 @@ struct GenLuminanceAverageTask : GenLuminanceAverage
 
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(GenLuminanceAverage{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),

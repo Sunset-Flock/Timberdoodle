@@ -100,7 +100,7 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweep
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumUpsweep{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
         ti.recorder.push_constant(PrefixSumUpsweepPush{ .range = range });
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
@@ -131,7 +131,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweep
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(PrefixSumDownsweep{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
         ti.recorder.push_constant(PrefixSumDownsweepPush{ .range = range });
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),

@@ -61,7 +61,7 @@ struct CullMeshesTask : CullMeshes
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshes{}.name()));
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(cull_meshes_pipeline_compile_info().name));
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),
             .size = ti.attachment_shader_data.size(),

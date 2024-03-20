@@ -53,7 +53,7 @@ struct ShadeOpaqueTask : ShadeOpaque
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(ShadeOpaque{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
         auto const color_image_id = ti.get(color_image).ids[0];
         auto const color_image_info = ti.device.info_image(color_image_id).value();
         ti.recorder.push_constant_vptr({

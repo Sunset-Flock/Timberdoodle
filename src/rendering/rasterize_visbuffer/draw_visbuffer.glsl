@@ -4,9 +4,9 @@
 
 #include "draw_visbuffer.inl"
 
-#if defined(DrawVisbuffer_WriteCommand_COMMAND)
+#if defined(DrawVisbuffer_WriteCommand_SHADER)
 DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_WriteCommand, push)
-#endif // #if defined(DrawVisbuffer_WriteCommand_COMMAND)
+#endif // #if defined(DrawVisbuffer_WriteCommand_SHADER)
 
 #if NO_MESH_SHADER
 DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush, push)
@@ -23,7 +23,7 @@ DAXA_DECL_PUSH_CONSTANT(DrawVisbufferPush_MeshShader, push)
 #include "shader_lib/cull_util.glsl"
 #include "shader_lib/pass_logic.glsl"
 
-#if defined(DrawVisbuffer_WriteCommand_COMMAND)
+#if defined(DrawVisbuffer_WriteCommand_SHADER)
 layout(local_size_x = 2) in;
 void main()
 {

@@ -296,6 +296,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
         IMGUI_UINT_CHECKBOX(settings.draw_from_observer);
         IMGUI_UINT_CHECKBOX(settings.observer_show_pass);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
+        IMGUI_UINT_CHECKBOX(settings.use_slang_for_drawing);
         ImGui::End();
     }
 }

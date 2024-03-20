@@ -81,70 +81,89 @@ Renderer::~Renderer()
     this->context->device.collect_garbage();
 }
 
-void Renderer::compile_pipelines()
+void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
 {
-    std::vector<std::tuple<std::string, daxa::RasterPipelineCompileInfo>> rasters = {
-        {draw_visbuffer_solid_pipeline_compile_info().name, draw_visbuffer_solid_pipeline_compile_info()},
-        {draw_visbuffer_masked_pipeline_compile_info().name, draw_visbuffer_masked_pipeline_compile_info()},
-        #if COMPILE_IN_MESH_SHADER
-            {draw_visbuffer_mesh_shader_solid_pipeline_compile_info().name, draw_visbuffer_mesh_shader_solid_pipeline_compile_info()},
-            {draw_visbuffer_mesh_shader_masked_pipeline_compile_info().name, draw_visbuffer_mesh_shader_masked_pipeline_compile_info()},
-        #endif // #if COMPILE_IN_MESH_SHADER
-        {draw_shader_debug_circles_pipeline_compile_info().name, draw_shader_debug_circles_pipeline_compile_info()},
-        {draw_shader_debug_rectangles_pipeline_compile_info().name, draw_shader_debug_rectangles_pipeline_compile_info()},
-        {draw_shader_debug_aabb_pipeline_compile_info().name, draw_shader_debug_aabb_pipeline_compile_info()},
+    auto add_if_not_present = [&](auto & map, auto & list, auto compile_info)
+    {
+        if (!map.contains(compile_info.name))
+        {
+            list.push_back(compile_info);
+        }
     };
-    for (auto [name, info] : rasters)
+
+    std::vector<daxa::RasterPipelineCompileInfo> rasters = {
+        {draw_visbuffer_pipelines[0]},
+        {draw_visbuffer_pipelines[1]},
+        {draw_shader_debug_circles_pipeline_compile_info()},
+        {draw_shader_debug_rectangles_pipeline_compile_info()},
+        {draw_shader_debug_aabb_pipeline_compile_info()},
+    };
+    if (allow_mesh_shader && allow_slang)
+    {
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[0]);
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[1]);
+    }
+    if (allow_mesh_shader && allow_slang)
+    {
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[0]);
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[1]);
+    }
+    add_if_not_present(this->context->raster_pipelines, rasters, draw_visbuffer_solid_pipeline_compile_info());
+    for (auto info : rasters)
     {
         auto compilation_result = this->context->pipeline_manager.add_raster_pipeline(info);
         if (compilation_result.value()->is_valid())
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name,
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
                 compilation_result.message()));
         }
-        this->context->raster_pipelines[name] = compilation_result.value();
+        this->context->raster_pipelines[info.name] = compilation_result.value();
     }
-    std::vector<std::tuple<std::string_view, daxa::ComputePipelineCompileInfo>> computes = {
-        {AllocEntToMeshInstOffsetsOffsets{}.name(), alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
-        {WriteFirstPassMeshletsAndBitfieldsTask{}.name(), set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
-        {AllocMeshletInstBitfieldsCommandWriteTask{}.name(), prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
-        {AllocMeshletInstBitfieldsTask{}.name(), prepopulate_meshlet_instances_pipeline_compile_info()},
-        {IndirectMemsetBufferTask::name(), IndirectMemsetBufferTask::pipeline_compile_info()},
-        {AnalyzeVisBufferTask2{}.name(), analyze_visbufer_pipeline_compile_info()},
-        {GenHizTH{}.name(), gen_hiz_pipeline_compile_info()},
-        {WriteSwapchainTask{}.name(), write_swapchain_pipeline_compile_info()},
-        {ShadeOpaqueTask{}.name(), shade_opaque_pipeline_compile_info()},
-        {DrawVisbuffer_WriteCommandTask2::name(), DrawVisbuffer_WriteCommandTask2::pipeline_compile_info()},
-        {CullMeshesTask{}.name(), cull_meshes_pipeline_compile_info()},
-        {CullMeshletsTask2::name(), CullMeshletsTask2::pipeline_compile_info()},
-        {PrefixSumCommandWriteTask{}.name(), prefix_sum_write_command_pipeline_compile_info()},
-        {PrefixSumUpsweepTask{}.name(), prefix_sum_upsweep_pipeline_compile_info()},
-        {PrefixSumDownsweepTask{}.name(), prefix_sum_downsweep_pipeline_compile_info()},
-        {CullMeshletsTask{}.name(), cull_meshlets_pipeline_compile_info()},
-        {ComputeTransmittance{}.name(), compute_transmittance_pipeline_compile_info()},
-        {ComputeMultiscattering{}.name(), compute_multiscattering_pipeline_compile_info()},
-        {ComputeSky{}.name(), compute_sky_pipeline_compile_info()},
-        {SkyIntoCubemap{}.name(), sky_into_cubemap_pipeline_compile_info()},
-        {GenLuminanceHistogram{}.name(), gen_luminace_histogram_pipeline_compile_info()},
-        {GenLuminanceAverage{}.name(), gen_luminace_average_pipeline_compile_info()},
+    std::vector<daxa::ComputePipelineCompileInfo> computes = {
+        {alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
+        {set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
+        {prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
+        {prepopulate_meshlet_instances_pipeline_compile_info()},
+        {IndirectMemsetBufferTask::pipeline_compile_info()},
+        {analyze_visbufer_pipeline_compile_info()},
+        {gen_hiz_pipeline_compile_info()},
+        {write_swapchain_pipeline_compile_info()},
+        {shade_opaque_pipeline_compile_info()},
+        {DrawVisbuffer_WriteCommandTask::pipeline_compile_info()},
+        {cull_meshes_pipeline_compile_info()},
+        {cull_meshlets_pipeline_compile_info()},
+        {prefix_sum_write_command_pipeline_compile_info()},
+        {prefix_sum_upsweep_pipeline_compile_info()},
+        {prefix_sum_downsweep_pipeline_compile_info()},
+        {compute_transmittance_pipeline_compile_info()},
+        {compute_multiscattering_pipeline_compile_info()},
+        {compute_sky_pipeline_compile_info()},
+        {sky_into_cubemap_pipeline_compile_info()},
+        {gen_luminace_histogram_pipeline_compile_info()},
+        {gen_luminace_average_pipeline_compile_info()},
     };
-    for (auto [name, info] : computes)
+    if (allow_slang)
+    {
+        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info());
+        add_if_not_present(this->context->compute_pipelines, computes, CullMeshletsTask2::pipeline_compile_info());
+    }
+    for (auto const & info : computes)
     {
         auto compilation_result = this->context->pipeline_manager.add_compute_pipeline(info);
         if (compilation_result.value()->is_valid())
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", name));
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", name,
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
                 compilation_result.message()));
         }
-        this->context->compute_pipelines[name] = compilation_result.value();
+        this->context->compute_pipelines[info.name] = compilation_result.value();
     }
 
     while (!context->pipeline_manager.all_pipelines_valid())

@@ -43,7 +43,7 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer2{}.name()));
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
         auto [x, y, z] = ti.device.info_image(ti.get(AnalyzeVisbuffer2::visbuffer).ids[0]).value().size;
         ti.recorder.push_constant_vptr({
             .data = ti.attachment_shader_data.data(),

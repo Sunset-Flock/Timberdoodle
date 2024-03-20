@@ -132,7 +132,8 @@ Application::Application()
 
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
-            renderer->compile_pipelines();
+            // TODO: hook up parameters.
+            renderer->compile_pipelines(false, false);
         }
     };
 

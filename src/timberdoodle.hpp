@@ -128,3 +128,11 @@ template <class F> deferrer<F> operator*(defer_dummy, F f)
 #define DEFER(LINE) DEFER_(LINE)
 #define defer auto DEFER(__LINE__) = defer_dummy{} * [&]()
 #endif // defer
+
+// I write c++ to erode my sanity
+#define SANE_STATIC_BEGIN(NAME) \
+    inline static auto const & NAME() { \
+    static const auto value =
+
+#define SANE_STATIC_END \
+    return value; } 

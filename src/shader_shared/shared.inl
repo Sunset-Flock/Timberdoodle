@@ -20,7 +20,8 @@
 #define ENABLE_MESHLET_CULLING 1
 #define ENABLE_TRIANGLE_CULLING 0
 #define ENABLE_SHADER_PRINT_DEBUG 1
-#define COMPILE_IN_MESH_SHADER 1
+#define COMPILE_IN_MESH_SHADER 0
+#define COMPILE_IN_SLANG 0
 #define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
@@ -126,6 +127,7 @@ struct Settings
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
     daxa_i32 use_slang_for_culling;
+    daxa_i32 use_slang_for_drawing;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -141,7 +143,8 @@ struct Settings
           enable_mesh_shader{0},
           draw_from_observer{0},
           observer_show_pass{0},
-          use_slang_for_culling{1}
+          use_slang_for_culling{0},
+          use_slang_for_drawing{0}
     {
     }
 #endif
