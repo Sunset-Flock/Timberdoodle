@@ -59,13 +59,19 @@ vec3 get_sun_direct_lighting(daxa_BufferPtr(SkySettings) settings, vec3 view_dir
 vec3 get_view_direction(vec2 ndc_xy)
 {
     daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
-    const vec3 camera_position = deref(push.attachments.globals).camera.position;//* M_TO_KM_SCALE;
-
-    // Get the direction of ray contecting camera origin and current fragment on the near plane 
-    // in world coordinate system
-    const vec4 unprojected_pos = deref(push.attachments.globals).camera.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
-    const vec3 world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
-
+    vec3 world_direction; 
+    if(deref(push.attachments.globals).settings.draw_from_observer == 1)
+    {
+        const vec3 camera_position = deref(push.attachments.globals).observer_camera.position;
+        const vec4 unprojected_pos = deref(push.attachments.globals).observer_camera.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
+        world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
+    }
+    else 
+    {
+        const vec3 camera_position = deref(push.attachments.globals).camera.position;
+        const vec4 unprojected_pos = deref(push.attachments.globals).camera.inv_view_proj * vec4(ndc_xy, 1.0, 1.0);
+        world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
+    }
     return world_direction;
 }
 
@@ -182,7 +188,10 @@ void main()
         daxa_BufferPtr(SkySettings) settings = deref(push.attachments.globals).sky_settings_ptr;
         // Because the atmosphere is using km as it's default units and we want one unit in world
         // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
-        const vec3 camera_position = deref(push.attachments.globals).camera.position * M_TO_KM_SCALE;
+        const vec3 camera_position = deref(push.attachments.globals).settings.draw_from_observer == 1 ? 
+            deref(push.attachments.globals).observer_camera.position * M_TO_KM_SCALE :
+            deref(push.attachments.globals).camera.position * M_TO_KM_SCALE;
+
         vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET);
 
         const vec3 atmosphere_direct_illuminance = get_atmosphere_illuminance_along_ray(

@@ -5,6 +5,8 @@
 
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
+#include "virtual_shadow_maps/vsm.inl"
+
 #include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
@@ -97,6 +99,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
+        {draw_shader_debug_box_pipeline_compile_info()},
     };
     if (allow_mesh_shader && allow_slang)
     {
@@ -381,6 +384,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     TaskGraph task_list{{
         .device = this->context->device,
         .swapchain = this->context->swapchain,
+        .staging_memory_pool_size = 2'097'152, // 2MiB.
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
@@ -673,6 +677,7 @@ void Renderer::render_frame(
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
 
+
     // Calculate frame relevant values.
     u32 const flight_frame_index = context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -752,6 +757,23 @@ void Renderer::render_frame(
         {13, 23, 33},   // col 3
         {14, 24, 34},   // col 4
     };
+
+    auto const vsm_clip_projections = get_vsm_projections(GetVSMProjectionsInfo{
+        .camera_info = &camera_info,
+        .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
+        .clip_0_scale = 10.0f,
+        .clip_0_near = 1.0f,
+        .clip_0_far = 100.0f,
+        .clip_0_height_offset = 50.0f,
+        .debug_context = &context->shader_debug_context,
+    });
+
+    debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
+        .clip_projections = std::span<const VSMClipProjection>(vsm_clip_projections.begin(), 1),
+        .draw_individual_pages = true,
+        .debug_context = &context->shader_debug_context,
+        .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
+    });
 
     auto new_swapchain_image = context->swapchain.acquire_next_image();
     if (new_swapchain_image.is_empty()) { return; }
