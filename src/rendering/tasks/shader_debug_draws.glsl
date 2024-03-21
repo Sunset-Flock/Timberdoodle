@@ -168,7 +168,7 @@ layout(location = 0) out vec3 vtf_color;
 DAXA_DECL_PUSH_CONSTANT(DebugDrawPush, push)
 const uint box_vertex_indices[] = uint[](
     // Bottom rectangle
-    4, 5, 5, 6, 6, 7, 7, 8,
+    4, 5, 5, 6, 6, 7, 7, 4,
     // Top rectangle
     0, 1, 1, 2, 2, 3, 3, 0,
     // Connecting lines

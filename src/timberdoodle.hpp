@@ -1,7 +1,7 @@
 #pragma once
 
-#define GLM_DEPTH_ZERO_TO_ONEW
-#define GLM_ENABLE_EXPERIMENTAL
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE 1
+#define GLM_ENABLE_EXPERIMENTAL 1
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>

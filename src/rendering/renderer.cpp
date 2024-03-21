@@ -384,6 +384,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     TaskGraph task_list{{
         .device = this->context->device,
         .swapchain = this->context->swapchain,
+        .staging_memory_pool_size = 2'097'152, // 2MiB.
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
@@ -764,6 +765,7 @@ void Renderer::render_frame(
         .clip_0_near = 1.0f,
         .clip_0_far = 100.0f,
         .clip_0_height_offset = 50.0f,
+        .debug_context = &context->shader_debug_context,
     });
 
     debug_draw_clip_fusti(DebugDrawClipFrustiInfo{

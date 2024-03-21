@@ -25,6 +25,7 @@
 #define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE 1
 #include <glm/glm.hpp>
 #define glmsf32vec2 glm::vec2
 #define glmsf32vec3 glm::vec3

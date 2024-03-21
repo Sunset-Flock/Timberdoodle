@@ -16,6 +16,8 @@ struct GetVSMProjectionsInfo
     f32 clip_0_near = {};
     f32 clip_0_far = {};
     f32 clip_0_height_offset = {};
+
+    ShaderDebugDrawContext * debug_context = {};
 };
 
 static auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::array<VSMClipProjection, VSM_CLIP_LEVELS>
@@ -97,7 +99,16 @@ static auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const page_u_depth_offset = (clip_projection_view * glm::vec4(u_offset_vector, 1.0)).z - origin_shift;
         auto const page_v_depth_offset = (clip_projection_view * glm::vec4(v_offset_vector, 1.0)).z - origin_shift;
 
-        auto const final_clip_view = glm::lookAt(clip_position, clip_position + default_vsm_forward, default_vsm_up);
+        auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
+
+        ShaderDebugAABBDraw aabb_draw = {
+            .position = daxa_f32vec3{clip_position.x, clip_position.y, clip_position.z},
+            .size = daxa_f32vec3{0.1f, 0.1f, 0.1f},
+            .color = daxa_f32vec3{1.0f * (f32(clip + 1) / VSM_CLIP_LEVELS), 0.0f, 0.0f},
+            .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+        };
+        info.debug_context->cpu_debug_aabb_draws.push_back(aabb_draw);
+
         clip_projections.at(clip) = VSMClipProjection{
             .height_offset = view_offset_scale,
             .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
@@ -116,60 +127,58 @@ static auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
 struct DebugDrawClipFrustiInfo
 {
-    std::span<const VSMClipProjection> clip_projections;
+    std::span<VSMClipProjection const> clip_projections;
     bool draw_individual_pages = {};
     ShaderDebugDrawContext * debug_context = {};
     f32vec3 vsm_view_direction = {};
 };
 
 static void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
-{    
+{
     static constexpr std::array offsets = {
-        glm::ivec2(-1,  1), glm::ivec2(-1, -1), glm::ivec2( 1, -1), glm::ivec2( 1,  1),
-        glm::ivec2(-1,  1), glm::ivec2(-1, -1), glm::ivec2( 1, -1), glm::ivec2( 1,  1)
-    };
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
 
-    for(auto const & clip_projection : info.clip_projections)
+    for (auto const & clip_projection : info.clip_projections)
     {
         auto const left_right_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[0][0])) * 2.0f;
         auto const top_bottom_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[1][1])) * 2.0f;
         auto const near_far_size = (1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[2][2]) * 2.0f;
         auto const page_size = glm::vec2(left_right_size / VSM_PAGE_TABLE_RESOLUTION, top_bottom_size / VSM_PAGE_TABLE_RESOLUTION);
-                    
+
         auto const page_proj = glm::ortho(
             -page_size.x / 2.0f,
-            page_size.x / 2.0f, 
+            page_size.x / 2.0f,
             -page_size.y / 2.0f,
             page_size.y / 2.0f,
             1.0f,
-            100.0f
-        );
-        if(info.draw_individual_pages)
+            100.0f);
+        if (info.draw_individual_pages)
         {
             auto const uv_page_size = s_cast<f32>(VSM_PAGE_SIZE) / s_cast<f32>(VSM_TEXTURE_RESOLUTION);
-            for(i32 page_u_index = 0; page_u_index < VSM_PAGE_TABLE_RESOLUTION; page_u_index++)
+            for (i32 page_u_index = 0; page_u_index < VSM_PAGE_TABLE_RESOLUTION; page_u_index++)
             {
-                for(i32 page_v_index = 0; page_v_index < VSM_PAGE_TABLE_RESOLUTION; page_v_index++)
+                for (i32 page_v_index = 0; page_v_index < VSM_PAGE_TABLE_RESOLUTION; page_v_index++)
                 {
                     auto const corner_virtual_uv = uv_page_size * glm::vec2(page_u_index, page_v_index);
                     auto const page_center_virtual_uv_offset = glm::vec2(uv_page_size * 0.5f);
                     auto const virtual_uv = corner_virtual_uv + page_center_virtual_uv_offset;
 
                     auto const page_index = glm::ivec2(virtual_uv * s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION));
-                    f32 const depth = 0.0f;
-                        // ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.x) * clip_projection.depth_page_offset.x + 
-                        // ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset.y;
+                    f32 const depth =
+                        ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.x) * clip_projection.depth_page_offset.x +
+                        ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset.y;
                     auto const virtual_page_ndc = (virtual_uv * 2.0f) - glm::vec2(1.0f);
-
                     auto const page_ndc_position = glm::vec4(virtual_page_ndc, -depth, 1.0);
                     auto const new_position = std::bit_cast<glm::mat4x4>(clip_projection.inv_projection_view) * page_ndc_position;
+
                     auto const page_view = glm::lookAt(glm::vec3(new_position), glm::vec3(new_position) + info.vsm_view_direction, {0.0, 0.0, 1.0});
                     auto const page_inv_projection_view = glm::inverse(page_proj * page_view);
 
                     ShaderDebugBoxDraw box_draw = {};
                     box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
                     box_draw.color = daxa_f32vec3{0.0, 0.0, 1.0};
-                    for(i32 i = 0; i < 8; i++)
+                    for (i32 i = 0; i < 8; i++)
                     {
                         auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
                         auto const world_pos = page_inv_projection_view * ndc_pos;
@@ -178,6 +187,19 @@ static void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
                     info.debug_context->cpu_debug_box_draws.push_back(box_draw);
                 }
             }
+        }
+        else
+        {
+            ShaderDebugBoxDraw box_draw = {};
+            box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            box_draw.color = daxa_f32vec3{0.0, 0.0, 1.0};
+            for (i32 i = 0; i < 8; i++)
+            {
+                auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
+                auto const world_pos = std::bit_cast<glm::mat4x4>(clip_projection.inv_projection_view) * ndc_pos;
+                box_draw.vertices[i] = {world_pos.x, world_pos.y, world_pos.z};
+            }
+            info.debug_context->cpu_debug_box_draws.push_back(box_draw);
         }
     }
 }

@@ -5,7 +5,6 @@
 #include <fastgltf/core.hpp>
 
 #include <fmt/format.h>
-#define GLM_ENABLE_EXPERIMENTAL
 #include <glm/gtx/quaternion.hpp>
 #include <thread>
 #include <chrono>
