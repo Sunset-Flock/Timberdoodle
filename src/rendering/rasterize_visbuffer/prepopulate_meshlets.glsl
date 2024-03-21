@@ -4,7 +4,7 @@
 
 #include "prepopulate_meshlets.inl"
 
-#if defined(PrepopMeshletInstancesCommW_COMMAND)
+#if defined(PrepopMeshletInstancesCommWH_SHADER)
 DAXA_DECL_PUSH_CONSTANT(PrepopMeshletInstancesCommWPush, push)
 #elif defined(WriteFirstPassMeshletsAndBitfields_SHADER)
 DAXA_DECL_PUSH_CONSTANT(WriteFirstPassMeshletsAndBitfieldsPush, push)
@@ -85,7 +85,7 @@ void main()
 }
 #endif // #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
 
-#if defined(PrepopMeshletInstancesCommW_COMMAND)
+#if defined(PrepopMeshletInstancesCommWH_SHADER)
 layout(local_size_x = 1) in;
 void main()
 {

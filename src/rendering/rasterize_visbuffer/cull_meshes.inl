@@ -11,7 +11,7 @@
 
 #define CULL_MESHES_WORKGROUP_X 128
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshes, 12)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
@@ -35,7 +35,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshesPush
 {
-    DAXA_TH_BLOB(CullMeshes, uses)
+    DAXA_TH_BLOB(CullMeshesH, uses)
     daxa_u32 dummy;
 };
 
@@ -50,28 +50,23 @@ inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{.source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH}},
-        .push_constant_size = s_cast<u32>(sizeof(CullMeshesPush) + CullMeshes::attachment_shader_data_size()),
-        .name = std::string{CullMeshes{}.name()},
+        .push_constant_size = s_cast<u32>(sizeof(CullMeshesPush)),
+        .name = std::string{CullMeshesH::NAME},
     };
 }
 
-struct CullMeshesTask : CullMeshes
+struct CullMeshesTask : CullMeshesH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(cull_meshes_pipeline_compile_info().name));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
+        CullMeshesPush push = {};
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         auto const total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
-        ti.recorder.dispatch(daxa::DispatchInfo{
-            round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X),
-            1,
-            1,
-        });
+        ti.recorder.dispatch(daxa::DispatchInfo{ round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1 });
     }
 };
 
@@ -126,18 +121,18 @@ void tasks_cull_meshes(TaskCullMeshesInfo const & info)
 
     info.task_list.add_task(CullMeshesTask{
         .views = std::array{
-            daxa::attachment_view(CullMeshesTask::globals, info.globals),
-            daxa::attachment_view(CullMeshesTask::opaque_mesh_draw_lists, info.opaque_draw_lists),
-            daxa::attachment_view(CullMeshesTask::meshes, info.meshes),
-            daxa::attachment_view(CullMeshesTask::materials, info.materials),
-            daxa::attachment_view(CullMeshesTask::entity_meta, info.entity_meta),
-            daxa::attachment_view(CullMeshesTask::entity_meshgroup_indices, info.entity_meshgroup_indices),
-            daxa::attachment_view(CullMeshesTask::meshgroups, info.meshgroups),
-            daxa::attachment_view(CullMeshesTask::entity_transforms, info.entity_transforms),
-            daxa::attachment_view(CullMeshesTask::entity_combined_transforms, info.entity_combined_transforms),
-            daxa::attachment_view(CullMeshesTask::hiz, info.hiz),
-            daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_opaque, meshlets_cull_arg_buckets_buffer_opaque),
-            daxa::attachment_view(CullMeshesTask::meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
+            daxa::attachment_view(CullMeshesH::AT.globals, info.globals),
+            daxa::attachment_view(CullMeshesH::AT.opaque_mesh_draw_lists, info.opaque_draw_lists),
+            daxa::attachment_view(CullMeshesH::AT.meshes, info.meshes),
+            daxa::attachment_view(CullMeshesH::AT.materials, info.materials),
+            daxa::attachment_view(CullMeshesH::AT.entity_meta, info.entity_meta),
+            daxa::attachment_view(CullMeshesH::AT.entity_meshgroup_indices, info.entity_meshgroup_indices),
+            daxa::attachment_view(CullMeshesH::AT.meshgroups, info.meshgroups),
+            daxa::attachment_view(CullMeshesH::AT.entity_transforms, info.entity_transforms),
+            daxa::attachment_view(CullMeshesH::AT.entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(CullMeshesH::AT.hiz, info.hiz),
+            daxa::attachment_view(CullMeshesH::AT.meshlet_cull_arg_buckets_opaque, meshlets_cull_arg_buckets_buffer_opaque),
+            daxa::attachment_view(CullMeshesH::AT.meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
         },
         .render_context = info.render_context,
     });

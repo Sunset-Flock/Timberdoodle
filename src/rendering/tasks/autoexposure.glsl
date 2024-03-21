@@ -7,7 +7,7 @@ shared uint shared_histogram[LUM_HISTOGRAM_BIN_COUNT];
 const vec3 PERCEIVED_LUMINANCE_WEIGHTS = vec3(0.2127, 0.7152, 0.0722);
 const float MIN_LUMINANCE_THRESHOLD = 2e-10;
 
-DAXA_DECL_PUSH_CONSTANT(GenLuminanceHistogram, push)
+DAXA_DECL_PUSH_CONSTANT(GenLuminanceHistogramH, push)
 
 float compute_exposure(float average_luminance) 
 {
@@ -57,7 +57,7 @@ void main()
 #endif //GEN_HISTOGRAM
 #if defined(GEN_AVERAGE)
 
-DAXA_DECL_PUSH_CONSTANT(GenLuminanceAverage, push)
+DAXA_DECL_PUSH_CONSTANT(GenLuminanceAverageH, push)
 layout(local_size_x = LUM_HISTOGRAM_BIN_COUNT) in;
 void main()
 {

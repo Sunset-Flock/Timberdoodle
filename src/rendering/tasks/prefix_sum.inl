@@ -17,7 +17,7 @@ struct DispatchIndirectValueCount
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectValueCount)
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumWriteCommand, 5)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumCommandWriteH, 5)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), value_count)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command0)
@@ -25,7 +25,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueC
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), downsweep_command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweep, 5)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweepH, 5)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), src)
@@ -33,7 +33,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), block_sums)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweep, 4)
+DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweepH, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), block_sums)
@@ -43,7 +43,7 @@ DAXA_DECL_TASK_HEAD_END
 struct PrefixSumWriteCommandPush
 {
     daxa_u32 uint_offset;
-    DAXA_TH_BLOB(PrefixSumWriteCommand, uses)
+    DAXA_TH_BLOB(PrefixSumCommandWriteH, uses)
 };
 
 struct PrefixSumRange
@@ -57,13 +57,13 @@ struct PrefixSumRange
 struct PrefixSumUpsweepPush
 {
     PrefixSumRange range;
-    DAXA_TH_BLOB(PrefixSumUpsweep, uses)
+    DAXA_TH_BLOB(PrefixSumUpsweepH, uses)
 };
 
 struct PrefixSumDownsweepPush
 {
     PrefixSumRange range;
-    DAXA_TH_BLOB(PrefixSumDownsweep, uses)
+    DAXA_TH_BLOB(PrefixSumDownsweepH, uses)
 };
 
 #if __cplusplus
@@ -73,12 +73,9 @@ struct PrefixSumDownsweepPush
 
 static constexpr inline char const PREFIX_SUM_SHADER_PATH[] = "./src/rendering/tasks/prefix_sum.glsl";
 
-using PrefixSumCommandWriteTask =
-    WriteIndirectDispatchArgsPushBaseTask<PrefixSumWriteCommand, PREFIX_SUM_SHADER_PATH, PrefixSumWriteCommandPush>;
-auto prefix_sum_write_command_pipeline_compile_info()
-{
-    return write_indirect_dispatch_args_base_compile_pipeline_info<PrefixSumWriteCommand, PREFIX_SUM_SHADER_PATH, PrefixSumWriteCommandPush>();
-}
+using PrefixSumCommandWriteTask = 
+    SimpleComputeTask< PrefixSumCommandWriteH::Task, PrefixSumWriteCommandPush, PREFIX_SUM_SHADER_PATH, "main">;
+
 // Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
 inline daxa::ComputePipelineCompileInfo prefix_sum_upsweep_pipeline_compile_info()
 {
@@ -88,26 +85,23 @@ inline daxa::ComputePipelineCompileInfo prefix_sum_upsweep_pipeline_compile_info
                 .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
                 .compile_options = {.defines = {{"UPSWEEP", "1"}}},
             },
-        .push_constant_size = s_cast<u32>(sizeof(PrefixSumUpsweepPush) + PrefixSumUpsweep::attachment_shader_data_size()),
-        .name = std::string{PrefixSumUpsweep{}.name()},
+        .push_constant_size = s_cast<u32>(sizeof(PrefixSumUpsweepPush)),
+        .name = std::string{PrefixSumUpsweepH::NAME},
     };
 }
-struct PrefixSumUpsweepTask : PrefixSumUpsweep
+struct PrefixSumUpsweepTask : PrefixSumUpsweepH::Task
 {
-    PrefixSumUpsweep::AttachmentViews views = {};
+    AttachmentViews views = {};
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
-        ti.recorder.push_constant(PrefixSumUpsweepPush{ .range = range });
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(PrefixSumUpsweepPush),
-        });
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
+        PrefixSumUpsweepPush push{ .range = range };
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AT.command).ids[0]});
     }
 };
 
@@ -119,26 +113,23 @@ inline daxa::ComputePipelineCompileInfo prefix_sum_downsweep_pipeline_compile_in
                 .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
                 .compile_options = {.defines = {{"DOWNSWEEP", "1"}}},
             },
-        .push_constant_size = s_cast<u32>(sizeof(PrefixSumDownsweepPush) + PrefixSumDownsweep::attachment_shader_data_size()),
-        .name = std::string{PrefixSumDownsweep{}.name()},
+        .push_constant_size = s_cast<u32>(sizeof(PrefixSumDownsweepPush)),
+        .name = std::string{PrefixSumDownsweepH::NAME},
     };
 }
-struct PrefixSumDownsweepTask : PrefixSumDownsweep
+struct PrefixSumDownsweepTask : PrefixSumDownsweepH::Task
 {
-    PrefixSumDownsweep::AttachmentViews views = {};
+    AttachmentViews views = {};
     std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
-        ti.recorder.push_constant(PrefixSumDownsweepPush{ .range = range });
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-            .offset = sizeof(PrefixSumDownsweepPush),
-        });
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(command).ids[0]});
+        PrefixSumUpsweepPush push{ .range = range };
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AT.command).ids[0]});
     }
 };
 
@@ -177,11 +168,11 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumCommandWriteTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::globals, info.render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::value_count, info.value_count_buf}},
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::upsweep_command0, upsweep0_command_buffer}},
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::upsweep_command1, upsweep1_command_buffer}},
-            daxa::TaskViewVariant{std::pair{PrefixSumCommandWriteTask::downsweep_command, downsweep_command_buffer}},
+            daxa::attachment_view(PrefixSumCommandWriteH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(PrefixSumCommandWriteH::AT.value_count, info.value_count_buf),
+            daxa::attachment_view(PrefixSumCommandWriteH::AT.upsweep_command0, upsweep0_command_buffer),
+            daxa::attachment_view(PrefixSumCommandWriteH::AT.upsweep_command1, upsweep1_command_buffer),
+            daxa::attachment_view(PrefixSumCommandWriteH::AT.downsweep_command, downsweep_command_buffer),
         },
         .context = info.render_context->gpuctx,
         .push = {.uint_offset = info.value_count_uint_offset},
@@ -195,11 +186,11 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::command, upsweep0_command_buffer}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::src, info.src_buf}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::dst, info.dst_buf}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::block_sums, block_sums_src}},
+            daxa::attachment_view(PrefixSumUpsweepH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.command, upsweep0_command_buffer),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.src, info.src_buf),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.dst, info.dst_buf),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.block_sums, block_sums_src),
         },
         .context = info.render_context->gpuctx,
         .range = {
@@ -220,11 +211,11 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::globals, info.render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::command, upsweep1_command_buffer}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::src, block_sums_src}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::dst, block_sums_dst}},
-            daxa::TaskViewVariant{std::pair{PrefixSumUpsweepTask::block_sums, total_count}},
+            daxa::attachment_view(PrefixSumUpsweepH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.command, upsweep1_command_buffer),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.src, block_sums_src),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.dst, block_sums_dst),
+            daxa::attachment_view(PrefixSumUpsweepH::AT.block_sums, total_count),
         },
         .context = info.render_context->gpuctx,
         .range = {
@@ -237,10 +228,10 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumDownsweepTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::globals, info.render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::command, downsweep_command_buffer}},
-            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::block_sums, block_sums_dst}},
-            daxa::TaskViewVariant{std::pair{PrefixSumDownsweepTask::values, info.dst_buf}},
+            daxa::attachment_view(PrefixSumDownsweepH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(PrefixSumDownsweepH::AT.command, downsweep_command_buffer),
+            daxa::attachment_view(PrefixSumDownsweepH::AT.block_sums, block_sums_dst),
+            daxa::attachment_view(PrefixSumDownsweepH::AT.values, info.dst_buf),
         },
         .context = info.render_context->gpuctx,
         .range = {

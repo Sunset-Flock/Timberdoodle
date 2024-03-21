@@ -2,7 +2,7 @@
 
 #include "prefix_sum.inl"
 
-#if defined(PrefixSumWriteCommand_COMMAND)
+#if defined(PrefixSumCommandWriteH_SHADER)
 DAXA_DECL_PUSH_CONSTANT(PrefixSumWriteCommandPush, push)
 layout(local_size_x = 1) in;
 void main()

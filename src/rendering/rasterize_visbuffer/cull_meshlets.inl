@@ -10,7 +10,7 @@
 #include "../../shader_shared/cull_util.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets, 12)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsH, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer)
@@ -25,7 +25,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(Meshle
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets2, 12)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets2H, 12)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer)
@@ -42,7 +42,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshletsPush
 {
-    DAXA_TH_BLOB(CullMeshlets, uses)
+    DAXA_TH_BLOB(CullMeshletsH, uses)
     daxa_u32 indirect_args_table_id;
     daxa_u32 meshlets_per_indirect_arg;
     daxa_u32 opaque_or_discard;
@@ -53,7 +53,7 @@ struct CullMeshletsPush
 #include "../tasks/misc.hpp"
 
 using CullMeshletsTask2 = SimpleComputeTask<
-    CullMeshlets2, 
+    CullMeshlets2H::Task, 
     CullMeshletsPush, 
     "./src/rendering/rasterize_visbuffer/cull_meshlets.slang",
     "entry_cull_meshlets"
@@ -61,6 +61,8 @@ using CullMeshletsTask2 = SimpleComputeTask<
 
 inline static constexpr char const CULL_MESHLETS_SHADER_PATH[] =
     "./src/rendering/rasterize_visbuffer/cull_meshlets.glsl";
+inline static constexpr char const SLANG_CULL_MESHLETS_SHADER_PATH[] =
+    "./src/rendering/rasterize_visbuffer/cull_meshlets.slang";
 
 SANE_STATIC_BEGIN(cull_meshlets_pipeline_compile_info)
 daxa::ComputePipelineCompileInfo{
@@ -68,22 +70,36 @@ daxa::ComputePipelineCompileInfo{
         .source = daxa::ShaderFile{CULL_MESHLETS_SHADER_PATH},
         .compile_options = {.defines = {{"CullMeshlets_", "1"}}},
     },
-    .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush) + CullMeshlets::attachment_shader_data_size()),
-    .name = std::string{CullMeshlets::name()},
+    .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush)),
+    .name = std::string{CullMeshletsH::NAME},
 };
 SANE_STATIC_END
 
+SANE_STATIC_BEGIN(slang_cull_meshlets_pipeline_compile_info)
+daxa::ComputePipelineCompileInfo{
+    .shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_CULL_MESHLETS_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_cull_meshlets",
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {{"CullMeshlets_", "1"}},
+        },
+    },
+    .push_constant_size = s_cast<u32>(sizeof(CullMeshletsPush)),
+    .name = std::string{CullMeshlets2H::NAME},
+};
+SANE_STATIC_END
 
-struct CullMeshletsTask : CullMeshlets
+struct CullMeshletsTask : CullMeshletsH::Task
 {
-    CullMeshlets::AttachmentViews views = {};
+    AttachmentViews views = {};
     RenderContext * render_context = {};
     u32 opaque_or_discard = {};
     void callback(daxa::TaskInterface ti)
     {
         if (render_context->render_data.settings.use_slang_for_culling)
         {
-            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(CullMeshletsTask2::pipeline_compile_info().name));
+            ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(slang_cull_meshlets_pipeline_compile_info().name));
         }
         else
         {
@@ -91,17 +107,15 @@ struct CullMeshletsTask : CullMeshlets
         }
         for (u32 bucket = 0; bucket < 32; ++bucket)
         {
-            ti.recorder.push_constant_vptr({
-                .data = ti.attachment_shader_data.data(),
-                .size = ti.attachment_shader_data.size(),
-            });
-            ti.recorder.push_constant(CullMeshletsPush{
+            CullMeshletsPush push = {
                 .indirect_args_table_id = bucket,
                 .meshlets_per_indirect_arg = (1u << bucket),
                 .opaque_or_discard = opaque_or_discard,
-            }, CullMeshlets::attachment_shader_data_size());
+            };
+            assign_blob(push.uses, ti.attachment_shader_blob);
+            ti.recorder.push_constant(push);
             ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(CullMeshlets::meshlets_cull_arg_buckets_buffer).ids[0],
+                .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets_buffer).ids[0],
                 .offset = sizeof(DispatchIndirectStruct) * bucket,
             });
         }

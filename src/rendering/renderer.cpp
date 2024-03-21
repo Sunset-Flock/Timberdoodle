@@ -126,17 +126,17 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     std::vector<daxa::ComputePipelineCompileInfo> computes = {
         {alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
         {set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
-        {prepopulate_meshlet_instances_command_write_pipeline_compile_info()},
+        {AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info},
         {prepopulate_meshlet_instances_pipeline_compile_info()},
-        {IndirectMemsetBufferTask::pipeline_compile_info()},
+        {IndirectMemsetBufferTask::pipeline_compile_info},
         {analyze_visbufer_pipeline_compile_info()},
         {gen_hiz_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info()},
         {shade_opaque_pipeline_compile_info()},
-        {DrawVisbuffer_WriteCommandTask::pipeline_compile_info()},
+        {DrawVisbuffer_WriteCommandTask::pipeline_compile_info},
         {cull_meshes_pipeline_compile_info()},
         {cull_meshlets_pipeline_compile_info()},
-        {prefix_sum_write_command_pipeline_compile_info()},
+        {PrefixSumCommandWriteTask::pipeline_compile_info},
         {prefix_sum_upsweep_pipeline_compile_info()},
         {prefix_sum_downsweep_pipeline_compile_info()},
         {compute_transmittance_pipeline_compile_info()},
@@ -148,8 +148,8 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     };
     if (allow_slang)
     {
-        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info());
-        add_if_not_present(this->context->compute_pipelines, computes, CullMeshletsTask2::pipeline_compile_info());
+        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
+        add_if_not_present(this->context->compute_pipelines, computes, slang_cull_meshlets_pipeline_compile_info());
     }
     for (auto const & info : computes)
     {
@@ -319,17 +319,17 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
 
     task_graph.add_task(ComputeTransmittanceTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{ComputeTransmittanceTask::globals, render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{ComputeTransmittanceTask::transmittance, transmittance}},
+            daxa::attachment_view(ComputeTransmittanceH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(ComputeTransmittanceH::AT.transmittance, transmittance),
         },
         .context = context,
     });
 
     task_graph.add_task(ComputeMultiscatteringTask{
         .views = std::array{
-            daxa::TaskViewVariant{std::pair{ComputeMultiscatteringTask::globals, render_context->tgpu_render_data}},
-            daxa::TaskViewVariant{std::pair{ComputeMultiscatteringTask::transmittance, transmittance}},
-            daxa::TaskViewVariant{std::pair{ComputeMultiscatteringTask::multiscattering, multiscattering}},
+            daxa::attachment_view(ComputeMultiscatteringH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(ComputeMultiscatteringH::AT.transmittance, transmittance),
+            daxa::attachment_view(ComputeMultiscatteringH::AT.multiscattering, multiscattering),
         },
         .render_context = render_context.get(),
     });
@@ -419,8 +419,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto visbuffer = raster_visbuf::create_visbuffer(task_list, *render_context);
     auto depth = raster_visbuf::create_depth(task_list, *render_context);
 
-    task_list.add_task(ShaderDebugDrawContext::ReadbackTask{
-        .views = std::array{daxa::attachment_view(ShaderDebugDrawContext::ReadbackTask::globals, render_context->tgpu_render_data)},
+    task_list.add_task(ReadbackTask{
+        .views = std::array{daxa::attachment_view(ReadbackH::AT.globals, render_context->tgpu_render_data)},
         .shader_debug_context = &context->shader_debug_context,
     });
     task_list.add_task({
@@ -443,19 +443,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
     task_list.add_task(ComputeSkyTask{
         .views = std::array{
-            daxa::attachment_view(ComputeSkyTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(ComputeSkyTask::transmittance, transmittance),
-            daxa::attachment_view(ComputeSkyTask::multiscattering, multiscattering),
-            daxa::attachment_view(ComputeSkyTask::sky, sky),
+            daxa::attachment_view(ComputeSkyH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(ComputeSkyH::AT.transmittance, transmittance),
+            daxa::attachment_view(ComputeSkyH::AT.multiscattering, multiscattering),
+            daxa::attachment_view(ComputeSkyH::AT.sky, sky),
         },
         .render_context = render_context.get(),
     });
     task_list.add_task(SkyIntoCubemapTask{
         .views = std::array{
-            daxa::attachment_view(SkyIntoCubemap::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(SkyIntoCubemap::transmittance, transmittance),
-            daxa::attachment_view(SkyIntoCubemap::sky, sky),
-            daxa::attachment_view(SkyIntoCubemap::ibl_cube, sky_ibl_view),
+            daxa::attachment_view(SkyIntoCubemapH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(SkyIntoCubemapH::AT.transmittance, transmittance),
+            daxa::attachment_view(SkyIntoCubemapH::AT.sky, sky),
+            daxa::attachment_view(SkyIntoCubemapH::AT.ibl_cube, sky_ibl_view),
         },
         .context = context,
     });
@@ -555,11 +555,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, visible_meshlet_instances, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
-            daxa::attachment_view(AnalyzeVisBufferTask2::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(AnalyzeVisBufferTask2::visbuffer, visbuffer),
-            daxa::attachment_view(AnalyzeVisBufferTask2::instantiated_meshlets, meshlet_instances),
-            daxa::attachment_view(AnalyzeVisBufferTask2::meshlet_visibility_bitfield, visible_meshlets_bitfield),
-            daxa::attachment_view(AnalyzeVisBufferTask2::visible_meshlets, visible_meshlet_instances),
+            daxa::attachment_view(AnalyzeVisbuffer2H::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(AnalyzeVisbuffer2H::AT.visbuffer, visbuffer),
+            daxa::attachment_view(AnalyzeVisbuffer2H::AT.instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield, visible_meshlets_bitfield),
+            daxa::attachment_view(AnalyzeVisbuffer2H::AT.visible_meshlets, visible_meshlet_instances),
         },
         .context = context,
     });
@@ -593,19 +593,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
-            daxa::attachment_view(ShadeOpaqueTask::debug_lens_image, debug_lens_image),
-            daxa::attachment_view(ShadeOpaqueTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(ShadeOpaqueTask::color_image, color_image),
-            daxa::attachment_view(ShadeOpaqueTask::vis_image, visbuffer),
-            daxa::attachment_view(ShadeOpaqueTask::transmittance, transmittance),
-            daxa::attachment_view(ShadeOpaqueTask::sky, sky),
-            daxa::attachment_view(ShadeOpaqueTask::sky_ibl, sky_ibl_view),
-            daxa::attachment_view(ShadeOpaqueTask::material_manifest, scene->_gpu_material_manifest),
-            daxa::attachment_view(ShadeOpaqueTask::instantiated_meshlets, meshlet_instances),
-            daxa::attachment_view(ShadeOpaqueTask::meshes, scene->_gpu_mesh_manifest),
-            daxa::attachment_view(ShadeOpaqueTask::combined_transforms, scene->_gpu_entity_combined_transforms),
-            daxa::attachment_view(ShadeOpaqueTask::luminance_average, luminance_average),
-            daxa::attachment_view(ShadeOpaqueTask::debug_image, debug_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.debug_lens_image, debug_lens_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(ShadeOpaqueH::AT.color_image, color_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.vis_image, visbuffer),
+            daxa::attachment_view(ShadeOpaqueH::AT.transmittance, transmittance),
+            daxa::attachment_view(ShadeOpaqueH::AT.sky, sky),
+            daxa::attachment_view(ShadeOpaqueH::AT.sky_ibl, sky_ibl_view),
+            daxa::attachment_view(ShadeOpaqueH::AT.material_manifest, scene->_gpu_material_manifest),
+            daxa::attachment_view(ShadeOpaqueH::AT.instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(ShadeOpaqueH::AT.meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(ShadeOpaqueH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
+            daxa::attachment_view(ShadeOpaqueH::AT.luminance_average, luminance_average),
+            daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
         },
         .context = context,
     });
@@ -613,35 +613,35 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, luminance_histogram, 0);
     task_list.add_task(GenLuminanceHistogramTask{
         .views = std::array{
-            daxa::attachment_view(GenLuminanceHistogramTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(GenLuminanceHistogramTask::histogram, luminance_histogram),
-            daxa::attachment_view(GenLuminanceHistogramTask::luminance_average, luminance_average),
-            daxa::attachment_view(GenLuminanceHistogramTask::color_image, color_image),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.luminance_average, luminance_average),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.color_image, color_image),
         },
         .render_context = render_context.get(),
     });
     task_list.add_task(GenLuminanceAverageTask{
         .views = std::array{
-            daxa::attachment_view(GenLuminanceAverageTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(GenLuminanceAverageTask::histogram, luminance_histogram),
-            daxa::attachment_view(GenLuminanceAverageTask::luminance_average, luminance_average),
+            daxa::attachment_view(GenLuminanceAverageH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(GenLuminanceAverageH::AT.histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceAverageH::AT.luminance_average, luminance_average),
         },
         .context = context,
     });
     task_list.add_task(WriteSwapchainTask{
         .views = std::array{
-            daxa::attachment_view(WriteSwapchainTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(WriteSwapchainTask::swapchain, swapchain_image),
-            daxa::attachment_view(WriteSwapchainTask::color_image, color_image),
+            daxa::attachment_view(WriteSwapchainH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(WriteSwapchainH::AT.swapchain, swapchain_image),
+            daxa::attachment_view(WriteSwapchainH::AT.color_image, color_image),
         },
         .context = context,
     });
 
     task_list.add_task(DebugDrawTask{
         .views = std::array{
-            daxa::attachment_view(DebugDrawTask::globals, render_context->tgpu_render_data),
-            daxa::attachment_view(DebugDrawTask::color_image, swapchain_image),
-            daxa::attachment_view(DebugDrawTask::depth_image, depth),
+            daxa::attachment_view(DebugDrawH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(DebugDrawH::AT.color_image, swapchain_image),
+            daxa::attachment_view(DebugDrawH::AT.depth_image, depth),
         },
         .rctx = render_context.get(),
     });

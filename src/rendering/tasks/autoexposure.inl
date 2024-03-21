@@ -4,14 +4,14 @@
 #include <daxa/utils/task_graph.inl>
 #include "../../shader_shared/globals.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceHistogram, 4)
+DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceHistogramH, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_u32), histogram)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, color_image)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceAverage, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceAverageH, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), histogram)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), luminance_average)
@@ -32,8 +32,8 @@ inline daxa::ComputePipelineCompileInfo gen_luminace_histogram_pipeline_compile_
             .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
             .compile_options = {.defines = {{"GEN_HISTOGRAM", "1"}}},
         },
-        .push_constant_size = GenLuminanceHistogram::attachment_shader_data_size(),
-        .name = std::string{GenLuminanceHistogram{}.name()},
+        .push_constant_size = sizeof(GenLuminanceHistogramH::AttachmentShaderBlob),
+        .name = std::string{GenLuminanceHistogramH::NAME},
     };
 };
 
@@ -44,14 +44,14 @@ inline daxa::ComputePipelineCompileInfo gen_luminace_average_pipeline_compile_in
             .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
             .compile_options = {.defines = {{"GEN_AVERAGE", "1"}}},
         },
-        .push_constant_size = GenLuminanceAverage::attachment_shader_data_size(),
-        .name = std::string{GenLuminanceAverage{}.name()},
+        .push_constant_size = sizeof(GenLuminanceAverageH::AttachmentShaderBlob),
+        .name = std::string{GenLuminanceAverageH::NAME},
     };
 };
 
-struct GenLuminanceHistogramTask : GenLuminanceHistogram
+struct GenLuminanceHistogramTask : GenLuminanceHistogramH::Task
 {
-    GenLuminanceHistogram::AttachmentViews views = {};
+    AttachmentViews views = {};
     RenderContext * render_context = {};
 
     void callback(daxa::TaskInterface ti)
@@ -62,26 +62,24 @@ struct GenLuminanceHistogramTask : GenLuminanceHistogram
             (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
         };
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
+        GenLuminanceHistogramH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
     }
 };
 
-struct GenLuminanceAverageTask : GenLuminanceAverage
+struct GenLuminanceAverageTask : GenLuminanceAverageH::Task
 {
-    GenLuminanceAverage::AttachmentViews views = {};
+    AttachmentViews views = {};
     GPUContext * context = {};
 
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
+        GenLuminanceAverageH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = 1});
     }
 };

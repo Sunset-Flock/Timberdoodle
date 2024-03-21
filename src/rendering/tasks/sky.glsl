@@ -3,7 +3,7 @@
 #include "sky.inl"
 
 #if defined(TRANSMITTANCE)
-DAXA_DECL_PUSH_CONSTANT(ComputeTransmittance, push)
+DAXA_DECL_PUSH_CONSTANT(ComputeTransmittanceH, push)
 layout(local_size_x = TRANSMITTANCE_X_DISPATCH, local_size_y = TRANSMITTANCE_Y_DISPATCH) in;
 
 vec3 integrate_transmittance(vec3 world_position, vec3 world_direction, uint sample_count)
@@ -482,7 +482,7 @@ void main()
 }
 #endif // SKY
 #if defined(CUBEMAP)
-DAXA_DECL_PUSH_CONSTANT(SkyIntoCubemap, push)
+DAXA_DECL_PUSH_CONSTANT(SkyIntoCubemapH, push)
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
 float radical_inverse_vdc(uint bits) 

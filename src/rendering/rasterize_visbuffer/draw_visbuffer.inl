@@ -9,14 +9,14 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommand, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH, 8)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
@@ -27,7 +27,7 @@ DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShader, 15)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShaderH, 15)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer_opaque)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
@@ -46,20 +46,20 @@ DAXA_DECL_TASK_HEAD_END
 
 struct DrawVisbufferPush_WriteCommand
 {
-    DAXA_TH_BLOB(DrawVisbuffer_WriteCommand, uses)
+    DAXA_TH_BLOB(DrawVisbuffer_WriteCommandH, uses)
     daxa_u32 pass;
     daxa_u32 mesh_shader;
 };
 
 struct DrawVisbufferPush
 {
-    DAXA_TH_BLOB(DrawVisbuffer, uses)
+    DAXA_TH_BLOB(DrawVisbufferH, uses)
     daxa_u32 pass;
 };
 
 struct DrawVisbufferPush_MeshShader
 {
-    DAXA_TH_BLOB(DrawVisbuffer_MeshShader, uses)
+    DAXA_TH_BLOB(DrawVisbuffer_MeshShaderH, uses)
     daxa_u32 bucket_index;
 };
 
@@ -89,13 +89,13 @@ static inline std::vector<daxa::RenderAttachment> DRAW_VISBUFFER_RENDER_ATTACHME
 };
 
 using DrawVisbuffer_WriteCommandTask = SimpleComputeTask<
-    DrawVisbuffer_WriteCommand,
+    DrawVisbuffer_WriteCommandH::Task,
     DrawVisbufferPush_WriteCommand,
     DRAW_VISBUFFER_SHADER_PATH,
     "main">;
 
 using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
-    DrawVisbuffer_WriteCommand,
+    DrawVisbuffer_WriteCommandH::Task,
     DrawVisbufferPush_WriteCommand,
     SLANG_DRAW_VISBUFFER_SHADER_PATH,
     "entry_write_commands">;
@@ -138,7 +138,7 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_solid_pipeline_compile_inf
         #endif
     };
     ret.name = "DrawVisbufferOpaque";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -178,7 +178,7 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_masked_pipeline_compile_in
         #endif
     };
     ret.name = "DrawVisbufferDiscard";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -258,7 +258,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pi
         },
     };
     ret.name = "DrawVisbufferMeshShaderSolid";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -284,7 +284,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_p
         },
     };
     ret.name = "DrawVisbufferMeshShaderMasked";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush) + DrawVisbuffer::attachment_shader_data_size());
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -306,25 +306,25 @@ inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_cull_and_draw_
     ret.mesh_shader_info = comp_info;
     ret.task_shader_info = comp_info;
     ret.name = "DrawVisbuffer_MeshShader";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush_MeshShader) + DrawVisbuffer_MeshShader::attachment_shader_data_size());
+    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush_MeshShader));
     return ret;
 };
 
-struct DrawVisbufferTask : DrawVisbuffer
+struct DrawVisbufferTask : DrawVisbufferH::Task
 {
-    DrawVisbuffer::AttachmentViews views = {};
+    AttachmentViews views = {};
     RenderContext * render_context = {};
     u32 pass = {};
     bool mesh_shader = {};
     void callback(daxa::TaskInterface ti)
     {
         bool const clear_images = pass != PASS1_DRAW_POST_CULL;
-        auto [x, y, z] = ti.device.info_image(ti.get(DrawVisbuffer::depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(DrawVisbuffer::depth_image).ids[0].default_view(),
+                    .image_view = ti.get(AT.depth_image).ids[0].default_view(),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -334,14 +334,14 @@ struct DrawVisbufferTask : DrawVisbuffer
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.get(DrawVisbuffer::vis_image).ids[0].default_view(),
+                .image_view = ti.get(AT.vis_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
             },
             //daxa::RenderAttachmentInfo{
-            //    .image_view = ti.get(DrawVisbuffer::debug_image).ids[0].default_view(),
+            //    .image_view = ti.get(AT::debug_image).ids[0].default_view(),
             //    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
             //    .load_op = load_op,
             //    .store_op = daxa::AttachmentStoreOp::STORE,
@@ -366,15 +366,13 @@ struct DrawVisbufferTask : DrawVisbuffer
                     render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(draw_visbuffer_pipelines[opaque_draw_list_type].name));
                 }
             }
-            render_cmd.push_constant_vptr({
-                .data = ti.attachment_shader_data.data(),
-                .size = ti.attachment_shader_data.size(),
-            });
-            render_cmd.push_constant(DrawVisbufferPush{.pass = pass}, DrawVisbuffer::attachment_shader_data_size());
+            DrawVisbufferPush push{ .pass = pass };
+            assign_blob(push.uses, ti.attachment_shader_blob);
+            render_cmd.push_constant(push);
             if (mesh_shader)
             {
                 render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = ti.get(DrawVisbuffer::draw_commands).ids[0],
+                    .indirect_buffer = ti.get(AT.draw_commands).ids[0],
                     .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
                     .draw_count = 1,
                     .stride = sizeof(DispatchIndirectStruct),
@@ -383,7 +381,7 @@ struct DrawVisbufferTask : DrawVisbuffer
             else
             {
                 render_cmd.draw_indirect({
-                    .draw_command_buffer = ti.get(DrawVisbuffer::draw_commands).ids[0],
+                    .draw_command_buffer = ti.get(AT.draw_commands).ids[0],
                     .indirect_buffer_offset = sizeof(DrawIndirectStruct) * opaque_draw_list_type,
                     .draw_count = 1,
                     .draw_command_stride = sizeof(DrawIndirectStruct),
@@ -394,9 +392,9 @@ struct DrawVisbufferTask : DrawVisbuffer
     }
 };
 
-struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShader
+struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShaderH::Task
 {
-    DrawVisbuffer_MeshShader::AttachmentViews views = {};
+    AttachmentViews views = {};
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
@@ -539,50 +537,50 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         }
         info.task_graph.add_task(CullMeshletsTask{
             .views = std::array{
-                daxa::attachment_view(CullMeshletsTask::globals, info.render_context->tgpu_render_data),
-                daxa::attachment_view(CullMeshletsTask::hiz, info.hiz),
-                daxa::attachment_view(CullMeshletsTask::meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_opaque),
-                daxa::attachment_view(CullMeshletsTask::entity_meta_data, info.entity_meta_data),
-                daxa::attachment_view(CullMeshletsTask::entity_meshgroups, info.entity_meshgroups),
-                daxa::attachment_view(CullMeshletsTask::meshgroups, info.mesh_groups),
-                daxa::attachment_view(CullMeshletsTask::entity_combined_transforms, info.entity_combined_transforms),
-                daxa::attachment_view(CullMeshletsTask::meshes, info.meshes),
-                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
-                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
-                daxa::attachment_view(CullMeshletsTask::meshlet_instances, info.meshlet_instances),
-                daxa::attachment_view(CullMeshletsTask::draw_commands, draw_commands_array),
+                daxa::attachment_view(CullMeshletsH::AT.globals, info.render_context->tgpu_render_data),
+                daxa::attachment_view(CullMeshletsH::AT.hiz, info.hiz),
+                daxa::attachment_view(CullMeshletsH::AT.meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_opaque),
+                daxa::attachment_view(CullMeshletsH::AT.entity_meta_data, info.entity_meta_data),
+                daxa::attachment_view(CullMeshletsH::AT.entity_meshgroups, info.entity_meshgroups),
+                daxa::attachment_view(CullMeshletsH::AT.meshgroups, info.mesh_groups),
+                daxa::attachment_view(CullMeshletsH::AT.entity_combined_transforms, info.entity_combined_transforms),
+                daxa::attachment_view(CullMeshletsH::AT.meshes, info.meshes),
+                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
+                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
+                daxa::attachment_view(CullMeshletsH::AT.meshlet_instances, info.meshlet_instances),
+                daxa::attachment_view(CullMeshletsH::AT.draw_commands, draw_commands_array),
             },
             .render_context = info.render_context,
             .opaque_or_discard = 0,
         });
         info.task_graph.add_task(CullMeshletsTask{
             .views = std::array{
-                daxa::attachment_view(CullMeshletsTask::globals, info.render_context->tgpu_render_data),
-                daxa::attachment_view(CullMeshletsTask::hiz, info.hiz),
-                daxa::attachment_view(CullMeshletsTask::meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_discard),
-                daxa::attachment_view(CullMeshletsTask::entity_meta_data, info.entity_meta_data),
-                daxa::attachment_view(CullMeshletsTask::entity_meshgroups, info.entity_meshgroups),
-                daxa::attachment_view(CullMeshletsTask::meshgroups, info.mesh_groups),
-                daxa::attachment_view(CullMeshletsTask::entity_combined_transforms, info.entity_combined_transforms),
-                daxa::attachment_view(CullMeshletsTask::meshes, info.meshes),
-                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
-                daxa::attachment_view(CullMeshletsTask::first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
-                daxa::attachment_view(CullMeshletsTask::meshlet_instances, info.meshlet_instances),
-                daxa::attachment_view(CullMeshletsTask::draw_commands, draw_commands_array),
+                daxa::attachment_view(CullMeshletsH::AT.globals, info.render_context->tgpu_render_data),
+                daxa::attachment_view(CullMeshletsH::AT.hiz, info.hiz),
+                daxa::attachment_view(CullMeshletsH::AT.meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_discard),
+                daxa::attachment_view(CullMeshletsH::AT.entity_meta_data, info.entity_meta_data),
+                daxa::attachment_view(CullMeshletsH::AT.entity_meshgroups, info.entity_meshgroups),
+                daxa::attachment_view(CullMeshletsH::AT.meshgroups, info.mesh_groups),
+                daxa::attachment_view(CullMeshletsH::AT.entity_combined_transforms, info.entity_combined_transforms),
+                daxa::attachment_view(CullMeshletsH::AT.meshes, info.meshes),
+                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
+                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
+                daxa::attachment_view(CullMeshletsH::AT.meshlet_instances, info.meshlet_instances),
+                daxa::attachment_view(CullMeshletsH::AT.draw_commands, draw_commands_array),
             },
             .render_context = info.render_context,
             .opaque_or_discard = 1,
         });
         DrawVisbufferTask draw_task = {
             .views = std::array{
-                daxa::attachment_view(DrawVisbufferTask::globals, info.render_context->tgpu_render_data),
-                daxa::attachment_view(DrawVisbufferTask::draw_commands, draw_commands_array),
-                daxa::attachment_view(DrawVisbufferTask::meshlet_instances, info.meshlet_instances),
-                daxa::attachment_view(DrawVisbufferTask::meshes, info.meshes),
-                daxa::attachment_view(DrawVisbufferTask::entity_combined_transforms, info.entity_combined_transforms),
-                daxa::attachment_view(DrawVisbufferTask::vis_image, info.vis_image),
-                daxa::attachment_view(DrawVisbufferTask::depth_image, info.depth_image),
-                daxa::attachment_view(DrawVisbufferTask::material_manifest, info.material_manifest),
+                daxa::attachment_view(DrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
+                daxa::attachment_view(DrawVisbufferH::AT.draw_commands, draw_commands_array),
+                daxa::attachment_view(DrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
+                daxa::attachment_view(DrawVisbufferH::AT.meshes, info.meshes),
+                daxa::attachment_view(DrawVisbufferH::AT.entity_combined_transforms, info.entity_combined_transforms),
+                daxa::attachment_view(DrawVisbufferH::AT.vis_image, info.vis_image),
+                daxa::attachment_view(DrawVisbufferH::AT.depth_image, info.depth_image),
+                daxa::attachment_view(DrawVisbufferH::AT.material_manifest, info.material_manifest),
             },
             .render_context = info.render_context,
             .pass = PASS1_DRAW_POST_CULL,
@@ -616,9 +614,9 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbuffer_WriteCommandTask2 write_task = {
         .views = std::array{
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandTask2::draw_commands, draw_commands_array),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.draw_commands, draw_commands_array),
         },
         .context = info.render_context->gpuctx,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass, .mesh_shader = info.enable_mesh_shader ? 1u : 0u},
@@ -628,14 +626,14 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbufferTask draw_task = {
         .views = std::array{
-            daxa::attachment_view(DrawVisbufferTask::globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DrawVisbufferTask::draw_commands, draw_commands_array),
-            daxa::attachment_view(DrawVisbufferTask::meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(DrawVisbufferTask::meshes, info.meshes),
-            daxa::attachment_view(DrawVisbufferTask::material_manifest, info.material_manifest),
-            daxa::attachment_view(DrawVisbufferTask::entity_combined_transforms, info.combined_transforms),
-            daxa::attachment_view(DrawVisbufferTask::vis_image, info.vis_image),
-            daxa::attachment_view(DrawVisbufferTask::depth_image, info.depth_image),
+            daxa::attachment_view(DrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(DrawVisbufferH::AT.draw_commands, draw_commands_array),
+            daxa::attachment_view(DrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(DrawVisbufferH::AT.meshes, info.meshes),
+            daxa::attachment_view(DrawVisbufferH::AT.material_manifest, info.material_manifest),
+            daxa::attachment_view(DrawVisbufferH::AT.entity_combined_transforms, info.combined_transforms),
+            daxa::attachment_view(DrawVisbufferH::AT.vis_image, info.vis_image),
+            daxa::attachment_view(DrawVisbufferH::AT.depth_image, info.depth_image),
         },
         .render_context = info.render_context,
         .pass = info.pass,

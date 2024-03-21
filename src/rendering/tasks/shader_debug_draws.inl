@@ -7,7 +7,7 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/debug.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DebugDraw, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawH, 3)
 DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -15,7 +15,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct DebugDrawPush
 {
-    DAXA_TH_BLOB(DebugDraw, attachments)
+    DAXA_TH_BLOB(DebugDrawH, attachments)
     daxa_u32 draw_as_observer;
 };
 
@@ -69,7 +69,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compil
         .compile_options = {.defines = {{"DRAW_CIRCLE", "1"}}},
     };
     ret.name = "DrawShaderDebugCircles";
-    ret.push_constant_size = sizeof(DebugDrawPush) + DebugDraw::attachment_shader_data_size();
+    ret.push_constant_size = sizeof(DebugDrawPush);
     return ret;
 };
 
@@ -85,7 +85,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_rectangles_pipeline_com
         .compile_options = {.defines = {{"DRAW_RECTANGLE", "1"}}},
     };
     ret.name = "DrawShaderDebugRectangles";
-    ret.push_constant_size = sizeof(DebugDrawPush) + DebugDraw::attachment_shader_data_size();
+    ret.push_constant_size = sizeof(DebugDrawPush);
     return ret;
 };
 
@@ -101,22 +101,22 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_i
         .compile_options = {.defines = {{"DRAW_AABB", "1"}}},
     };
     ret.name = "DrawShaderDebugAABB";
-    ret.push_constant_size = sizeof(DebugDrawPush) + DebugDraw::attachment_shader_data_size();
+    ret.push_constant_size = sizeof(DebugDrawPush);
     ret.raster.primitive_topology = daxa::PrimitiveTopology::LINE_LIST;
     return ret;
 };
 
-struct DebugDrawTask : DebugDraw
+struct DebugDrawTask : DebugDrawH::Task
 {
     AttachmentViews views = {};
     RenderContext * rctx = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto const colorImageSize = ti.device.info_image(ti.get(color_image).ids[0]).value().size;
+        auto const colorImageSize = ti.device.info_image(ti.get(AT.color_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(depth_image).view_ids[0],
+                    .image_view = ti.get(AT.depth_image).view_ids[0],
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = daxa::AttachmentLoadOp::LOAD,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -126,7 +126,7 @@ struct DebugDrawTask : DebugDraw
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.get(color_image).view_ids[0],
+                .image_view = ti.get(AT.color_image).view_ids[0],
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
@@ -137,14 +137,9 @@ struct DebugDrawTask : DebugDraw
 
         render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
-        render_cmd.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-            .offset = 0,
-        });
-        render_cmd.push_constant(
-            DebugDrawPush{.draw_as_observer = rctx->render_data.settings.draw_from_observer},
-            ti.attachment_shader_data.size());
+        DebugDrawPush push{.draw_as_observer = rctx->render_data.settings.draw_from_observer};
+        assign_blob(push.attachments, ti.attachment_shader_blob);
+        render_cmd.push_constant(push);
 
         render_cmd.draw_indirect({
             .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,

@@ -90,26 +90,6 @@ struct ShaderDebugDrawContext
         shader_debug_input.texel_detector_window_half_size = detector_window_size / 2;
         frame_index += 1;
     }
-
-    struct ReadbackTask : daxa::PartialTask<1, "ReadbackTask">
-    {
-        AttachmentViews views = {};
-        DAXA_TH_BUFFER(TRANSFER_READ, globals); // Use globals as fake dependency for shader debug data.
-        ShaderDebugDrawContext * shader_debug_context = {};
-        void callback(daxa::TaskInterface ti)
-        {
-            // Copy out the debug output from 4 frames ago
-            std::memcpy(&shader_debug_context->shader_debug_output, ti.device.get_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
-            // Set the currently recording frame to write its debug output to the slot we just read from.
-            ti.recorder.copy_buffer_to_buffer({
-                .src_buffer = shader_debug_context->buffer,
-                .dst_buffer = shader_debug_context->readback_queue,
-                .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
-                .dst_offset = sizeof(ShaderDebugOutput) * (shader_debug_context->frame_index % 4),
-                .size = sizeof(ShaderDebugOutput),
-            });
-        }
-    };
     
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
@@ -198,6 +178,29 @@ struct ShaderDebugDrawContext
             });
             cpu_debug_aabb_draws.clear();
         }
+    }
+};
+
+DAXA_DECL_TASK_HEAD_BEGIN(ReadbackH, 1)
+DAXA_TH_BUFFER(TRANSFER_READ, globals); // Use globals as fake dependency for shader debug data.
+DAXA_DECL_TASK_HEAD_END
+
+struct ReadbackTask : ReadbackH::Task
+{
+    AttachmentViews views = {};
+    ShaderDebugDrawContext * shader_debug_context = {};
+    void callback(daxa::TaskInterface ti)
+    {
+        // Copy out the debug output from 4 frames ago
+        std::memcpy(&shader_debug_context->shader_debug_output, ti.device.get_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
+        // Set the currently recording frame to write its debug output to the slot we just read from.
+        ti.recorder.copy_buffer_to_buffer({
+            .src_buffer = shader_debug_context->buffer,
+            .dst_buffer = shader_debug_context->readback_queue,
+            .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
+            .dst_offset = sizeof(ShaderDebugOutput) * (shader_debug_context->frame_index % 4),
+            .size = sizeof(ShaderDebugOutput),
+        });
     }
 };
 

@@ -36,31 +36,27 @@ inline daxa::ComputePipelineCompileInfo gen_hiz_pipeline_compile_info()
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},
-        .push_constant_size = s_cast<u32>(sizeof(GenHizPush) + GenHizTH::attachment_shader_data_size()),
+        .push_constant_size = s_cast<u32>(sizeof(GenHizPush)),
         .name = std::string{"GenHiz"},
     };
 };
 
-struct GenHizTask : GenHizTH
+struct GenHizTask : GenHizTH::Task
 {
-    GenHizTH::AttachmentViews views = {};
+    AttachmentViews views = {};
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_hiz_pipeline_compile_info().name));
         auto const dispatch_x = round_up_div(render_context->render_data.settings.render_target_size.x, GEN_HIZ_WINDOW_X);
         auto const dispatch_y = round_up_div(render_context->render_data.settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
-        ti.recorder.push_constant(GenHizPush{
+        GenHizPush push = {
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
-            .mip_count = ti.get(GenHizTH::mips).view.slice.level_count,
+            .mip_count = ti.get(AT.mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
-        },
-        GenHizTH::attachment_shader_data_size());
-
+        };
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
     }
 };
@@ -89,9 +85,9 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
     });
     info.task_graph.add_task(GenHizTask{
         .views = std::array{
-            daxa::attachment_view(GenHizTask::globals, info.globals),
-            daxa::attachment_view(GenHizTask::src, info.src),
-            daxa::attachment_view(GenHizTask::mips, *info.hiz),
+            daxa::attachment_view(GenHizTH::AT.globals, info.globals),
+            daxa::attachment_view(GenHizTH::AT.src, info.src),
+            daxa::attachment_view(GenHizTH::AT.mips, *info.hiz),
         },
         .render_context = info.render_context,
     });

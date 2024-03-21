@@ -4,43 +4,6 @@
 #include <daxa/utils/task_graph.hpp>
 #include "../../gpu_context.hpp"
 
-template <typename T_USES_BASE, char const * T_FILE_PATH, typename T_PUSH>
-inline daxa::ComputePipelineCompileInfo write_indirect_dispatch_args_base_compile_pipeline_info()
-{
-    std::string_view shader_path_sv = {T_FILE_PATH};
-    daxa::ShaderLanguage lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
-    daxa::ShaderCompileOptions shader_compile_info = {
-        .language = lang,
-        .defines = {{std::string(T_USES_BASE{}.name()) + std::string("_COMMAND"), "1"}},
-    };
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{T_FILE_PATH},
-            .compile_options = shader_compile_info,
-        },
-        .push_constant_size = s_cast<u32>(sizeof(T_PUSH) + T_USES_BASE::attachment_shader_data_size()),
-        .name = std::string{T_USES_BASE{}.name()},
-    };
-}
-
-template <typename T_USES_BASE, char const * T_FILE_PATH, typename T_PUSH>
-struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
-{
-    T_USES_BASE::AttachmentViews views = {};
-    GPUContext * context = {};
-    T_PUSH push = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{T_USES_BASE{}.name()}));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
-        ti.recorder.push_constant(push, T_USES_BASE::attachment_shader_data_size());
-        ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
-    }
-};
-
 #define CLEAR_REST -1
 
 inline void task_clear_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, u32 value, i32 range = CLEAR_REST, u32 offset = 0)
@@ -142,84 +105,79 @@ inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBuffer
     });
 }
 
-template<typename HeadT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry>
-struct SimpleIndirectComputeTask : HeadT
+void assign_blob(auto & arr, auto const & span)
 {
-    HeadT::AttachmentViews views = {};
+    std::memcpy(arr.value.data(), span.data(), span.size());
+}
+
+template <typename T_USES_BASE, char const * T_FILE_PATH, typename T_PUSH>
+struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
+{
+    T_USES_BASE::AttachmentViews views = {};
     GPUContext * context = {};
-    PushT push = {};
-    static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
-        auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
-        daxa::ShaderLanguage lang = 
-            shader_path_sv.ends_with(".glsl") ? 
-            daxa::ShaderLanguage::GLSL : 
-            daxa::ShaderLanguage::SLANG;
-        auto shader_comp_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{ std::filesystem::path(shader_path_sv) },
-            .compile_options = {
-                .entry_point = std::string(entry.value, entry.SIZE),
-                .language = lang,
-                .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
-            },
-        };
-        return daxa::ComputePipelineCompileInfo{
-            .shader_info = shader_comp_info,
-            .push_constant_size =
-                s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
-            .name = std::string(HeadT::name()),
-        };
-    }
+    T_PUSH push = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{HeadT::name()}));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
-        ti.recorder.push_constant(push, ti.attachment_shader_data.size());
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{T_USES_BASE{}.name()}));
+        assign_blob(push.uses, ti.attachment_shader_blob());
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
+    }
+};
+
+template<typename HeadTaskT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry_point>
+auto make_simple_compile_info() -> daxa::ComputePipelineCompileInfo
+{
+    auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
+    auto const entry_point_sv = std::string_view(entry_point.value, entry_point.SIZE);
+    auto const lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
+    auto const shader_comp_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{ std::filesystem::path(shader_path_sv) },
+        .compile_options = {
+            .entry_point = std::string(entry_point_sv),
+            .language = lang,
+            .defines = {{ std::string(HeadTaskT::name()) + "_SHADER", "1"}},
+        },
+    };
+    auto const value = daxa::ComputePipelineCompileInfo{
+        .shader_info = shader_comp_info,
+        .push_constant_size = s_cast<u32>(sizeof(PushT)),
+        .name = std::string(HeadTaskT::name()),
+    };
+    return value;
+}
+
+template<typename HeadTaskT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry_point>
+struct SimpleIndirectComputeTask : HeadTaskT
+{
+    HeadTaskT::AttachmentViews views = {};
+    GPUContext * context = {};
+    PushT push = {};
+    static inline const daxa::ComputePipelineCompileInfo pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{HeadTaskT::name()}));
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(this->command).ids[0],
+            .indirect_buffer = ti.get(this->AT.command).ids[0],
         });
     }
 };
 
-template<typename HeadT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry>
-struct SimpleComputeTask : HeadT
+template<typename HeadTaskT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry_point>
+struct SimpleComputeTask : HeadTaskT
 {
-    HeadT::AttachmentViews views = {};
+    HeadTaskT::AttachmentViews views = {};
     GPUContext * context = {};
     PushT push = {};
-    std::function<daxa::DispatchInfo(void)> dispatch_callback = {};
-    static auto pipeline_compile_info() -> daxa::ComputePipelineCompileInfo {
-        static const auto value = [&](){
-            auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
-            auto const lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
-            auto const shader_comp_info = daxa::ShaderCompileInfo{
-                .source = daxa::ShaderFile{ std::filesystem::path(shader_path_sv) },
-                .compile_options = {
-                    .entry_point = std::string(entry.value, entry.SIZE),
-                    .language = lang,
-                    .defines = {{ std::string(HeadT::name()) + "_SHADER", "1"}},
-                },
-            };
-            auto const value = daxa::ComputePipelineCompileInfo{
-                .shader_info = shader_comp_info,
-                .push_constant_size =
-                    s_cast<u32>(sizeof(PushT) + HeadT::attachment_shader_data_size()),
-                .name = std::string(HeadT::name()),
-            };
-            return value;
-        }();
-        return value;
-    }
+    std::function<daxa::DispatchInfo(void)> dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; };
+    static inline const daxa::ComputePipelineCompileInfo pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{HeadT::name()}));
-        ti.recorder.push_constant_vptr({
-            .data = ti.attachment_shader_data.data(),
-            .size = ti.attachment_shader_data.size(),
-        });
-        ti.recorder.push_constant(push, ti.attachment_shader_data.size());
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{HeadTaskT::name()}));
+        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
         ti.recorder.dispatch(dispatch_callback());
     }
 };
