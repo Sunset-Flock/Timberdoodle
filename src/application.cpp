@@ -48,7 +48,7 @@ void CameraController::process_input(Window & window, f32 dt)
     forward.z = -glm::sin(glm::radians(pitch));
 }
 
-void CameraController::update_matrices(Window & window)
+auto CameraController::make_camera_info(Settings const & settings) const -> CameraInfo
 {
     auto fov = this->fov;
     if (bZoom) { fov *= 0.25f; }
@@ -67,18 +67,19 @@ void CameraController::update_matrices(Window & window)
         return ret;
     };
     glm::mat4 prespective =
-        inf_depth_reverse_z_perspective(glm::radians(fov), f32(window.get_width()) / f32(window.get_height()), near);
+        inf_depth_reverse_z_perspective(glm::radians(fov), f32(settings.render_target_size.x) / f32(settings.render_target_size.y), near);
     prespective[1][1] *= -1.0f;
-    this->cam_info.proj = prespective;
-    this->cam_info.inv_proj = glm::inverse(prespective);
-    this->cam_info.view = glm::lookAt(position, position + forward, up);
-    this->cam_info.inv_view = glm::inverse(this->cam_info.view);
-    this->cam_info.view_proj = this->cam_info.proj * this->cam_info.view;
-    this->cam_info.inv_view_proj = glm::inverse(this->cam_info.view_proj);
-    this->cam_info.position = this->position;
-    this->cam_info.up = this->up;
+    CameraInfo ret = {};
+    ret.proj = prespective;
+    ret.inv_proj = glm::inverse(prespective);
+    ret.view = glm::lookAt(position, position + forward, up);
+    ret.inv_view = glm::inverse(ret.view);
+    ret.view_proj = ret.proj * ret.view;
+    ret.inv_view_proj = glm::inverse(ret.view_proj);
+    ret.position = this->position;
+    ret.up = this->up;
     glm::vec3 ws_ndc_corners[2][2][2];
-    glm::mat4 inv_view_proj = glm::inverse(this->cam_info.proj * this->cam_info.view);
+    glm::mat4 inv_view_proj = glm::inverse(ret.proj * ret.view);
     for (u32 z = 0; z < 2; ++z)
     {
         for (u32 y = 0; y < 2; ++y)
@@ -91,23 +92,24 @@ void CameraController::update_matrices(Window & window)
             }
         }
     }
-    this->cam_info.near_plane_normal = glm::normalize(
+    ret.near_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
-    this->cam_info.right_plane_normal = glm::normalize(
+    ret.right_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[1][1][0] - ws_ndc_corners[1][0][0], ws_ndc_corners[1][0][1] - ws_ndc_corners[1][0][0]));
-    this->cam_info.left_plane_normal = glm::normalize(
+    ret.left_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][0][1], ws_ndc_corners[0][0][0] - ws_ndc_corners[0][0][1]));
-    this->cam_info.top_plane_normal = glm::normalize(
+    ret.top_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[0][0][1] - ws_ndc_corners[0][0][0]));
-    this->cam_info.bottom_plane_normal = glm::normalize(
+    ret.bottom_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
     int i = 0;
-    this->cam_info.screen_size = { window.get_width(), window.get_height() };
-    this->cam_info.inv_screen_size = {
-        1.0f / static_cast<f32>(window.get_width()),
-        1.0f / static_cast<f32>(window.get_height()),
+    ret.screen_size = { settings.render_target_size.x, settings.render_target_size.y };
+    ret.inv_screen_size = {
+        1.0f / static_cast<f32>(settings.render_target_size.x),
+        1.0f / static_cast<f32>(settings.render_target_size.y),
     };
-    this->cam_info.near_plane = this->near;
+    ret.near_plane = this->near;
+    return ret;
 }
 
 Application::Application()
@@ -196,8 +198,8 @@ auto Application::run() -> i32
         {
             update();
             _renderer->render_frame(
-                this->camera_controller.cam_info, 
-                this->observer_camera_controller.cam_info, 
+                this->camera_controller, 
+                this->observer_camera_controller, 
                 delta_time,
                 this->_scene->_scene_draw);
         }
@@ -222,12 +224,10 @@ void Application::update()
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);
-        observer_camera_controller.update_matrices(*_window);
     }
     else
     {
         camera_controller.process_input(*_window, this->delta_time);
-        camera_controller.update_matrices(*_window);
     }
     if (_ui_engine->shader_debug_menu)
     {
@@ -287,26 +287,26 @@ void Application::update()
                     _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
                 if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
                 {
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos = {
+                    _renderer->context->shader_debug_context.detector_window_position = {
                         _window->get_cursor_x(),
                         _window->get_cursor_y(),
                     };
                 }
                 if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
                 {
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x -= 1;
+                    _renderer->context->shader_debug_context.detector_window_position.x -= 1;
                 }
                 if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
                 {
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x += 1;
+                    _renderer->context->shader_debug_context.detector_window_position.x += 1;
                 }
                 if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
                 {
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y -= 1;
+                    _renderer->context->shader_debug_context.detector_window_position.y -= 1;
                 }
                 if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
                 {
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y += 1;
+                    _renderer->context->shader_debug_context.detector_window_position.y += 1;
                 }
             }
             ImGui::SeparatorText("Debug Shader Lens");
@@ -317,8 +317,8 @@ void Application::update()
                 ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
                 ImGui::Text(
                     "detector texel position: (%i,%i)",
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.x, 
-                    _renderer->context->shader_debug_context.shader_debug_input.texel_detector_pos.y);
+                    _renderer->context->shader_debug_context.detector_window_position.x, 
+                    _renderer->context->shader_debug_context.detector_window_position.y);
                 ImGui::Text(
                     "detector center value: (%f,%f,%f,%f)",
                     _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x, 

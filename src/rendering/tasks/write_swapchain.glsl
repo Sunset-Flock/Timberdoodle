@@ -103,9 +103,24 @@ void main()
     {
         return;
     }
-    const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index);
-
-    const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
-    const vec3 gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
-    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, exposed_color.a));
+    vec3 gamma_correct = vec3(0,0,0);
+    if (deref(push.attachments.globals).settings.anti_aliasing_mode == AA_MODE_SUPER_SAMPLE)
+    {
+        for (uint y = 0; y < 2; ++y)
+        {
+            for (uint x = 0; x < 2; ++x)
+            {
+                const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index * 2 + ivec2(x,y));
+                const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+                gamma_correct += pow(tonemapped_color, vec3(1.0/2.2)) * 0.25f;
+            }
+        }
+    }
+    else
+    {
+        const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index);
+        const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+        gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
+    }
+    imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, 1));
 }

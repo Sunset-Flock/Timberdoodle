@@ -18,8 +18,9 @@ struct ShaderDebugDrawContext
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
+    daxa_i32vec2 detector_window_position = {};
     i32 detector_window_size = 15;
-    i32 old_detector_window_size = 0;
+    i32 old_detector_rt_size = 0;
     bool draw_magnified_area_rect = true;
     
     daxa::ImageInfo debug_lens_image_create_info = { 
@@ -64,25 +65,27 @@ struct ShaderDebugDrawContext
         });
     }
 
-    void update(daxa::Device & device, u32 render_image_size_x, u32 render_image_size_y)
+    void update(daxa::Device & device, daxa_u32vec2 render_target_size, i32vec2 window_size)
     {
-        if (detector_window_size != old_detector_window_size)
+        i32 const res_factor = static_cast<u32>(render_target_size.y) / window_size.y;
+        i32 const actual_detector_size = res_factor * detector_window_size;
+        if (actual_detector_size != old_detector_rt_size)
         {
             if (device.is_id_valid(debug_lens_image))
             {
                 device.destroy_image(debug_lens_image);
             }
-            debug_lens_image_create_info.size = { static_cast<u32>(detector_window_size), static_cast<u32>(detector_window_size), 1 };
+            debug_lens_image_create_info.size = { static_cast<u32>(actual_detector_size), static_cast<u32>(actual_detector_size), 1 };
             debug_lens_image = device.create_image(debug_lens_image_create_info);
             tdebug_lens_image.set_images({.images=std::array{debug_lens_image}});
-            old_detector_window_size = detector_window_size;
+            old_detector_rt_size = actual_detector_size;
         }
         if (draw_magnified_area_rect)
         {
-            auto u = (static_cast<f32>(shader_debug_input.texel_detector_pos.x) + 0.5f) / static_cast<f32>(render_image_size_x);
-            auto v = (static_cast<f32>(shader_debug_input.texel_detector_pos.y) + 0.5f) / static_cast<f32>(render_image_size_y);
-            auto span_u = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(render_image_size_x);
-            auto span_v = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(render_image_size_y);
+            auto u = (static_cast<f32>(detector_window_position.x) + 0.5f) / static_cast<f32>(window_size.x);
+            auto v = (static_cast<f32>(detector_window_position.y) + 0.5f) / static_cast<f32>(window_size.y);
+            auto span_u = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(window_size.x);
+            auto span_v = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(window_size.y);
             
             cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
                 .position = {u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.5},
@@ -91,7 +94,9 @@ struct ShaderDebugDrawContext
                 .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER,
             });
         }
-        shader_debug_input.texel_detector_window_half_size = detector_window_size / 2;
+        shader_debug_input.texel_detector_window_half_size = actual_detector_size / 2;
+        shader_debug_input.texel_detector_pos.x = detector_window_position.x * res_factor;
+        shader_debug_input.texel_detector_pos.y = detector_window_position.y * res_factor;
         frame_index += 1;
     }
     
