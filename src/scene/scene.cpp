@@ -110,7 +110,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 {
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu};
+    fastgltf::Parser parser{ fastgltf::Extensions::KHR_texture_basisu };
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -523,10 +523,10 @@ static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifes
             DBG_ASSERT_TRUE_M(!(used_as_diffuse && material_manifest_index.roughness_metalness),
                 "[ERROR] Texture used as diffuse and roughness metalness is not supported");
         }
-        //if (used_as_normal)
-        //{
-        //    gpu_compression_format = KTX_TTF_BC5_RG;
-        //}
+        if (used_as_normal)
+        {
+           gpu_compression_format = KTX_TTF_BC5_RG;
+        }
         auto gltf_image_idx_opt = gltf_texture_to_image_index(texture_manifest_index);
         if (!gltf_image_idx_opt.has_value())
         {
