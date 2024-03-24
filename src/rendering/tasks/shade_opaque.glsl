@@ -98,6 +98,7 @@ void main()
     }
     const uint triangle_id = imageLoad(daxa_uimage2D(push.attachments.vis_image), index).x;
     vec4 output_value = vec4(0,0,0,0);
+    vec4 debug_value = vec4(0, 0, 0, 0);
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
         mat4x4 view_proj;
@@ -123,8 +124,6 @@ void main()
             push.attachments.combined_transforms);
         vec3 normal = tri_data.world_normal;
 
-        vec4 debug_value = vec4(0, 0, 0, 0);
-
         // vec4 debug_tex_value = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
 
         GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
@@ -140,11 +139,13 @@ void main()
 
         if(material.normal_texture_id.value != 0)
         {
-            vec3 normal_map = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rgb;
-            normal_map = normal_map * 2.0f - 1.0f;
+            const vec2 normal_rg = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rg;
+            const vec2 rescaled_normal_rg = normal_rg * 2.0f - 1.0f;
+            const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg.rg, rescaled_normal_rg.rg ), 0.0, 1.0));
+            const vec3 normal_map = vec3(normal_rg, normal_b);
             mat3 tbn = mat3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
             normal = tbn * normal_map;
-            debug_value = vec4(normal * 0.5f + 0.5f, 1);   
+            debug_value = vec4(tri_data.world_tangent * 0.5 + 0.5, 1.0);
         }
         
         output_value = debug_value;
@@ -215,6 +216,6 @@ void main()
         deref(push.attachments.globals).debug, 
         push.attachments.debug_lens_image, 
         index, 
-        vec4(exposed_color,1));
+        vec4(debug_value));
     imageStore(daxa_image2D(push.attachments.color_image), index, vec4(exposed_color, output_value.a));
 }

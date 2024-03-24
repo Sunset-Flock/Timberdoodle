@@ -110,7 +110,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 {
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu};
+    fastgltf::Parser parser{ fastgltf::Extensions::KHR_texture_basisu };
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
