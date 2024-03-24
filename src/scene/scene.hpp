@@ -56,6 +56,7 @@ struct MaterialManifestEntry
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
+    bool normal_compressed_bc5_rg = {}; 
     std::string name = {};
 };
 
@@ -207,7 +208,7 @@ struct Scene
     struct RecordGPUManifestUpdateInfo
     {
         std::span<const AssetProcessor::MeshUploadInfo> uploaded_meshes = {};
-        std::span<const AssetProcessor::TextureUploadInfo> uploaded_textures = {};
+        std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
 

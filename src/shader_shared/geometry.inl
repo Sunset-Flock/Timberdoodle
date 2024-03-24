@@ -88,7 +88,7 @@ struct GPUMaterial
     daxa_ImageViewId normal_texture_id;
     daxa_ImageViewId roughnes_metalness_id;
     daxa_b32 alpha_discard_enabled;  
-    daxa_u32 padd;
+    daxa_b32 normal_compressed_bc5_rg;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 

@@ -130,6 +130,7 @@ struct ParsedImageData
     daxa::ImageId dst_image = {};
     u32 mips_to_copy = {};
     std::array<u32,16> mip_copy_offsets = {};
+    bool compressed_bc5_rg = {};
 };
 
 using ParsedImageRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ParsedImageData>;
@@ -425,7 +426,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device 
     ktx_transcode_fmt_e transcode_format;
     switch (type)
     {
-        //case TextureMaterialType::NORMAL: transcode_format = KTX_TTF_BC5_RG; break;
+        case TextureMaterialType::NORMAL: transcode_format = KTX_TTF_BC5_RG; break;
         default: transcode_format = KTX_TTF_BC7_RGBA; break;
     }
     // KTX handles image. Mister sexy. We load now. loading
@@ -480,7 +481,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device 
     });
     ret.dst_image = image_id;
     ret.src_buffer = staging;
-
+    ret.compressed_bc5_rg = transcode_format == KTX_TTF_BC5_RG;
     ret.mips_to_copy = texture->numLevels;
     for (u32 mip = 0; mip < texture->numLevels; ++mip)
     {
@@ -613,12 +614,14 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     /// NOTE: Append the processed texture to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
-        _upload_texture_queue.push_back(TextureUploadInfo{
+        _upload_texture_queue.push_back(LoadedTextureInfo{
             .staging_buffer = parsed_data.src_buffer,
             .dst_image = parsed_data.dst_image,
             .mips_to_copy = parsed_data.mips_to_copy,
             .mip_copy_offsets = parsed_data.mip_copy_offsets,
-            .texture_manifest_index = info.texture_manifest_index});
+            .texture_manifest_index = info.texture_manifest_index,
+            .compressed_bc5_rg = parsed_data.compressed_bc5_rg,
+        });
     }
     return AssetLoadResultCode::SUCCESS;
 }
@@ -1011,7 +1014,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
         ret.uploaded_textures = std::move(_upload_texture_queue);
         _upload_texture_queue = {};
     }
-    for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)
+    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
     {
         daxa::ImageViewInfo image_view_info = _device.info_image_view(texture_upload.dst_image.default_view()).value();
         /// TODO: If we are generating mips this will need to change
@@ -1022,7 +1025,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
             .image_id = texture_upload.dst_image,
         });
     }
-    for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)
+    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
     {
         daxa::ImageInfo image_info = _device.info_image(texture_upload.dst_image).value();
         for (u32 mip = 0; mip < texture_upload.mips_to_copy; ++mip)
@@ -1043,7 +1046,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
         }
         recorder.destroy_buffer_deferred(texture_upload.staging_buffer);
     }
-    for (TextureUploadInfo const & texture_upload : ret.uploaded_textures)
+    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
     {
         recorder.pipeline_barrier_image_transition({
             .src_access = daxa::AccessConsts::TRANSFER_WRITE,

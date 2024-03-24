@@ -94,13 +94,14 @@ struct AssetProcessor
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    struct TextureUploadInfo
+    struct LoadedTextureInfo
     {
         daxa::BufferId staging_buffer = {};
         daxa::ImageId dst_image = {};
         u32 mips_to_copy = {};
         std::array<u32, 16> mip_copy_offsets = {};
         u32 texture_manifest_index = {};
+        bool compressed_bc5_rg = {};
     };
     struct LoadTextureInfo
     {
@@ -166,7 +167,7 @@ struct AssetProcessor
     {
         daxa::ExecutableCommandList upload_commands = {};
         std::vector<MeshUploadInfo> uploaded_meshes = {};
-        std::vector<TextureUploadInfo> uploaded_textures = {};
+        std::vector<LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_load_processing_commands() -> RecordCommandsRet;
 
@@ -179,7 +180,7 @@ struct AssetProcessor
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.
     std::vector<MeshUploadInfo> _upload_mesh_queue = {};
-    std::vector<TextureUploadInfo> _upload_texture_queue = {};
+    std::vector<LoadedTextureInfo> _upload_texture_queue = {};
     std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
     std::unique_ptr<std::mutex> _texture_upload_mutex = std::make_unique<std::mutex>();
 };

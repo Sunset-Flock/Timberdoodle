@@ -876,7 +876,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
             std::vector<u32> dirty_material_entry_indices = {};
             // 1) Update CPU Manifest
-            for (AssetProcessor::TextureUploadInfo const & texture_upload : info.uploaded_textures)
+            for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
             {
                 _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime = texture_upload.dst_image;
                 TextureManifestEntry const & texture_manifest_entry = _material_texture_manifest.at(texture_upload.texture_manifest_index);
@@ -893,6 +893,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                         } break;
                         case TextureMaterialType::NORMAL: {
                             material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                            material_entry.normal_compressed_bc5_rg = texture_upload.compressed_bc5_rg;
                         } break;
                         case TextureMaterialType::ROUGHNESS_METALNESS: {
                             material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
@@ -951,6 +952,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
                 staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
                 staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
+                staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
+                
 
                 daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
                 recorder.copy_buffer_to_buffer({

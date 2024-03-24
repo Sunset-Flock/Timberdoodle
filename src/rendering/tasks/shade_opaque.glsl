@@ -139,12 +139,21 @@ void main()
 
         if(material.normal_texture_id.value != 0)
         {
-            const vec2 normal_rg = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rg;
-            const vec2 rescaled_normal_rg = normal_rg * 2.0f - 1.0f;
-            const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg.rg, rescaled_normal_rg.rg ), 0.0, 1.0));
-            const vec3 normal_map = vec3(normal_rg, normal_b);
+            vec3 normal_map_value = vec3(0,0,0);
+            if (material.normal_compressed_bc5_rg)
+            {
+                const vec2 raw = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rg;
+                const vec2 rescaled_normal_rg = raw * 2.0f - 1.0f;
+                const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg.rg, rescaled_normal_rg.rg ), 0.0, 1.0));
+                normal_map_value = vec3(rescaled_normal_rg, normal_b);
+            }
+            else
+            {
+                const vec3 raw = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rgb;
+                normal_map_value = raw * 2.0f - 1.0f;
+            }
             mat3 tbn = mat3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);
-            normal = tbn * normal_map;
+            normal = tbn * normal_map_value;
             debug_value = vec4(tri_data.world_tangent * 0.5 + 0.5, 1.0);
         }
         
@@ -176,6 +185,9 @@ void main()
 
 #if 0
         output_value.rgb = hsv2rgb(vec3(floor(manually_calc_mip) * 0.1, 1, 0.5));
+#endif
+#if 0
+        output_value.rgb = normal * 0.5f + 0.5f;
 #endif
 
         float combined_indices = tri_data.meshlet_instance.meshlet_index + tri_data.meshlet_instance.mesh_index * 100 + tri_data.meshlet_instance.entity_index * 1000;
