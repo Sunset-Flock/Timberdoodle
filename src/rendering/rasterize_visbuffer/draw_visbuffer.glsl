@@ -153,13 +153,16 @@ layout(location = 0) out uint visibility_id;
 void main()
 {
 #if defined(DISCARD)
-    GPUMaterial material = deref(push.uses.material_manifest + vout_material_index);
-    if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+    if (vout_material_index != INVALID_MANIFEST_INDEX)
     {
-        float alpha = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.uses.globals).samplers.linear_clamp), vout_uv).a; 
-        if (alpha < 0.5f)
+        GPUMaterial material = deref(push.uses.material_manifest + vout_material_index);
+        if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
         {
-            discard;
+            float alpha = texture(daxa_sampler2D(material.diffuse_texture_id, deref(push.uses.globals).samplers.linear_clamp), vout_uv).a; 
+            if (alpha < 0.5f)
+            {
+                discard;
+            }
         }
     }
 #endif // #if defined(DISCARD)

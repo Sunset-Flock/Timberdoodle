@@ -126,7 +126,16 @@ void main()
 
         // vec4 debug_tex_value = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
 
-        GPUMaterial material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
+        GPUMaterial material;
+        material.diffuse_texture_id.value = 0;
+        material.normal_texture_id.value = 0;
+        material.roughnes_metalness_id.value = 0;
+        material.alpha_discard_enabled = false;
+        material.normal_compressed_bc5_rg = false;
+        if (tri_data.meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
+        {
+            material = deref(push.attachments.material_manifest[tri_data.meshlet_instance.material_index]);
+        }
 
         ivec2 diffuse_size = textureSize(daxa_texture2D(material.diffuse_texture_id), 0);
         const float manually_calc_mip = mip_map_level(tri_data.uv_ddx * diffuse_size, tri_data.uv_ddy * diffuse_size);

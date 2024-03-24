@@ -479,8 +479,7 @@ static void start_async_loads_of_diry_meshes(Scene & scene, Scene::LoadManifestI
         auto const & curr_asset = scene._gltf_asset_manifest.back();
         auto const & mesh_manifest_entry = scene._mesh_manifest.at(curr_asset.mesh_manifest_offset + mesh_manifest_index);
         // Launch loading of this mesh
-        // TODO: ADD REAL DUMMY MATERIAL INDEX!
-        u32 const dummy_material_index = 0;
+        // TODO: ADD DUMMY MATERIAL INDEX!
         info.thread_pool->async_dispatch(
             std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
                 .load_info = {
@@ -490,7 +489,7 @@ static void start_async_loads_of_diry_meshes(Scene & scene, Scene::LoadManifestI
                     .gltf_primitive_index = mesh_manifest_entry.asset_local_primitive_index,
                     .global_material_manifest_offset = curr_asset.material_manifest_offset,
                     .manifest_index = mesh_manifest_index,
-                    .material_manifest_index = mesh_manifest_entry.material_index.value_or(dummy_material_index),
+                    .material_manifest_index = mesh_manifest_entry.material_index.value_or(INVALID_MANIFEST_INDEX),
                 },
                 .asset_processor = info.asset_processor.get(),
             }),
@@ -601,24 +600,22 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
             {
                 u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_meshgroup_mesh_i);
                 MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
+                u32 opaque_draw_list_type = OPAQUE_DRAW_LIST_SOLID;
                 // TODO: add dummy material!
                 if (mesh.material_index.has_value())
                 {
                     MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
-                    auto mesh_draw = MeshDrawTuple{
-                        .entity_index = entity_i, 
-                        .mesh_index = mesh_index, 
-                        .in_mesh_group_index = in_meshgroup_mesh_i,
-                    };
                     if (material.alpha_discard_enabled)
                     {
-                        scene._scene_draw.opaque_draw_lists[OPAQUE_DRAW_LIST_MASKED].push_back(mesh_draw);
-                    }
-                    else
-                    {
-                        scene._scene_draw.opaque_draw_lists[OPAQUE_DRAW_LIST_SOLID].push_back(mesh_draw);
+                        opaque_draw_list_type = OPAQUE_DRAW_LIST_MASKED;
                     }
                 }
+                auto mesh_draw = MeshDrawTuple{
+                    .entity_index = entity_i, 
+                    .mesh_index = mesh_index, 
+                    .in_mesh_group_index = in_meshgroup_mesh_i,
+                };
+                scene._scene_draw.opaque_draw_lists[opaque_draw_list_type].push_back(mesh_draw);
             }
         }
     }

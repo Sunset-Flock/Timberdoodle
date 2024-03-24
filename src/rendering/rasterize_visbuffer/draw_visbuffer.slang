@@ -122,15 +122,18 @@ FragmentOut entry_fragment(VertexOut frag_in)
 {
     FragmentOut frag_out;
     #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
-        GPUMaterial material = deref_i(draw_p.uses.material_manifest, frag_in.material_index);
-        if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+        if (frag_in.material_index != INVALID_MANIFEST_INDEX)
         {
-            float alpha = 
-                daxa_Texture2D(float4, material.diffuse_texture_id)
-                .SampleLevel(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), frag_in.uv, 0).a; 
-            if (alpha < 0.5f)
+            GPUMaterial material = deref_i(draw_p.uses.material_manifest, frag_in.material_index);
+            if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                discard;
+                float alpha = 
+                    daxa_Texture2D(float4, material.diffuse_texture_id)
+                    .SampleLevel(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), frag_in.uv, 0).a; 
+                if (alpha < 0.5f)
+                {
+                    discard;
+                }
             }
         }
     #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED

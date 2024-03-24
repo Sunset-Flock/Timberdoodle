@@ -32,7 +32,7 @@ void main()
         return;
     }
 
-    GPUMaterial material = deref(push.uses.materials[mesh.material_index]);
+    // GPUMaterial material = deref(push.uses.materials[mesh.material_index]);
     daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead) cull_buckets = 
         opaque_draw_list_index == 0 ? 
         push.uses.meshlet_cull_arg_buckets_opaque :
