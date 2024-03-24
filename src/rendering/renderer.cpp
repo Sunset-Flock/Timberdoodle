@@ -36,7 +36,7 @@ inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_na
 
 Renderer::Renderer(
     Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer)
-    :  render_context{std::make_unique<RenderContext>(context)}, window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
+    : render_context{std::make_unique<RenderContext>(context)}, window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
@@ -50,6 +50,8 @@ Renderer::Renderer(
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
+
+    vsm_state.initialize_persitent_state(context);
 
     images = {
         transmittance,
@@ -79,6 +81,7 @@ Renderer::~Renderer()
             this->context->device.destroy_image(image);
         }
     }
+    vsm_state.cleanup_persistent_state(context);
     this->context->device.wait_idle();
     this->context->device.collect_garbage();
 }
@@ -148,6 +151,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {sky_into_cubemap_pipeline_compile_info()},
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
+        {vsm_mark_required_pages_pipeline_compile_info()},
     };
     if (allow_slang)
     {
@@ -281,10 +285,10 @@ void Renderer::clear_select_buffers()
 
 void Renderer::window_resized()
 {
-    if (this->window->size.x == 0 || this->window->size.y == 0) 
-    { 
+    if (this->window->size.x == 0 || this->window->size.y == 0)
+    {
         DEBUG_MSG("minimized");
-        return; 
+        return;
     }
     this->context->swapchain.resize();
     recreate_framebuffer();
@@ -308,12 +312,12 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
         {
             allocate_fill_copy(
                 ti,
-                render_context->render_data.sky_settings, 
+                render_context->render_data.sky_settings,
                 ti.get(render_context->tgpu_render_data),
                 offsetof(RenderGlobalData, sky_settings));
             allocate_fill_copy(
                 ti,
-                render_context->render_data.sky_settings_ptr, 
+                render_context->render_data.sky_settings_ptr,
                 ti.get(render_context->tgpu_render_data),
                 offsetof(RenderGlobalData, sky_settings_ptr));
         },
@@ -405,6 +409,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
     task_list.use_persistent_buffer(render_context->scene_draw.opaque_draw_list_buffer);
+    task_list.use_persistent_buffer(vsm_state.globals);
+    task_list.use_persistent_image(vsm_state.memory_block);
+    task_list.use_persistent_image(vsm_state.meta_memory_table);
+    task_list.use_persistent_image(vsm_state.page_table);
+    task_list.use_persistent_image(vsm_state.page_height_offsets);
+    task_list.use_persistent_image(vsm_state.debug_page_table);
+    task_list.use_persistent_image(vsm_state.debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
@@ -463,7 +474,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
-    
+
     // Clear out counters for current meshlet instance lists.
     task_list.add_task({
         .attachments = {
@@ -481,18 +492,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     task_prepopulate_meshlet_instances({
-            .render_context = render_context.get(),
-            .task_graph = task_list,
-            .meshes = scene->_gpu_mesh_manifest,
-            .materials = scene->_gpu_material_manifest,
-            .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
-            .mesh_group_manifest = scene->_gpu_mesh_group_manifest,
-            .visible_meshlets_prev = visible_meshlet_instances,
-            .meshlet_instances_last_frame = meshlet_instances_last_frame,
-            .meshlet_instances = meshlet_instances,
-            .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
-            .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
-        });
+        .render_context = render_context.get(),
+        .task_graph = task_list,
+        .meshes = scene->_gpu_mesh_manifest,
+        .materials = scene->_gpu_material_manifest,
+        .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
+        .mesh_group_manifest = scene->_gpu_mesh_group_manifest,
+        .visible_meshlets_prev = visible_meshlet_instances,
+        .meshlet_instances_last_frame = meshlet_instances_last_frame,
+        .meshlet_instances = meshlet_instances,
+        .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
+        .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
+    });
 
     task_draw_visbuffer({
         .render_context = render_context.get(),
@@ -551,8 +562,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .depth_image = depth,
     });
 
+    vsm_state.initialize_transient_state(task_list);
+    task_clear_buffer(task_list, vsm_state.allocation_count, 0);
+    task_clear_buffer(task_list, vsm_state.find_free_pages_header, 0);
+    task_draw_vsms({
+        .render_context = render_context.get(),
+        .tg = &task_list,
+        .vsm_state = &vsm_state,
+        .depth = depth,
+    });
+
     auto visible_meshlets_bitfield = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES, 
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
         "visible meshlets bitfield",
     });
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
@@ -589,8 +610,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto color_image = task_list.create_transient_image({
         .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
         .size = {
-            render_context->render_data.settings.render_target_size.x, 
-            render_context->render_data.settings.render_target_size.y, 
+            render_context->render_data.settings.render_target_size.x,
+            render_context->render_data.settings.render_target_size.y,
             1,
         },
         .name = "color_image",
@@ -677,7 +698,6 @@ void Renderer::render_frame(
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
 
-
     // Calculate frame relevant values.
     u32 const flight_frame_index = context->swapchain.current_cpu_timeline_value() % (context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -698,7 +718,7 @@ void Renderer::render_frame(
         render_context->render_data.settings.render_target_size.x = render_target_size.x;
         render_context->render_data.settings.render_target_size.y = render_target_size.y;
         render_context->render_data.settings.render_target_size_inv = {
-            1.0f / render_target_size.x, 
+            1.0f / render_target_size.x,
             1.0f / render_target_size.y,
         };
         render_context->scene_draw = scene_draw;
@@ -716,7 +736,6 @@ void Renderer::render_frame(
             }
         }
 
-
         // Set Render Data.
         render_context->render_data.camera = camera_info.make_camera_info(render_context->render_data.settings);
         render_context->render_data.observer_camera = observer_camera_info.make_camera_info(render_context->render_data.settings);
@@ -724,17 +743,17 @@ void Renderer::render_frame(
         render_context->render_data.delta_time = delta_time;
         render_context->render_data.test[0] = daxa_f32mat4x3{
             // rc = row column
-            {11, 21, 31},   // col 1
-            {12, 22, 32},   // col 2
-            {13, 23, 33},   // col 3
-            {14, 24, 34},   // col 4
-        };    
+            {11, 21, 31}, // col 1
+            {12, 22, 32}, // col 2
+            {13, 23, 33}, // col 3
+            {14, 24, 34}, // col 4
+        };
         render_context->render_data.test[1] = daxa_f32mat4x3{
             // rc = row column
-            {11, 21, 31},   // col 1
-            {12, 22, 32},   // col 2
-            {13, 23, 33},   // col 3
-            {14, 24, 34},   // col 4
+            {11, 21, 31}, // col 1
+            {12, 22, 32}, // col 2
+            {13, 23, 33}, // col 3
+            {14, 24, 34}, // col 4
         };
     }
 
@@ -742,10 +761,11 @@ void Renderer::render_frame(
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     // Sky is transient of main task graph
-    if (settings_changed || sky_res_changed_flags.sky_changed) { 
+    if (settings_changed || sky_res_changed_flags.sky_changed)
+    {
         main_task_graph = create_main_task_graph();
     }
-    daxa::DeviceAddress render_data_device_address = 
+    daxa::DeviceAddress render_data_device_address =
         context->device.get_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
     if (sky_settings_changed)
     {
@@ -771,15 +791,17 @@ void Renderer::render_frame(
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
 
-    // auto const vsm_clip_projections = get_vsm_projections(GetVSMProjectionsInfo{
-    //     .camera_info = &camera_info,
-    //     .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
-    //     .clip_0_scale = 10.0f,
-    //     .clip_0_near = 1.0f,
-    //     .clip_0_far = 100.0f,
-    //     .clip_0_height_offset = 50.0f,
-    //     .debug_context = &context->shader_debug_context,
-    // });
+    vsm_state.clip_projections_cpu = get_vsm_projections(GetVSMProjectionsInfo{
+        .camera_info = &camera_info,
+        .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
+        .clip_0_scale = 10.0f,
+        .clip_0_near = 1.0f,
+        .clip_0_far = 100.0f,
+        .clip_0_height_offset = 50.0f,
+        .debug_context = &context->shader_debug_context,
+    });
+    // clip_0.right - clip_0.left = 2.0f * clip_0_scale (HARDCODED FOR NOW TODO(msakmary) FIX)
+    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 10.0f) / VSM_TEXTURE_RESOLUTION;
 
     // debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
     //     .clip_projections = std::span<const VSMClipProjection>(vsm_clip_projections.begin(), 1),

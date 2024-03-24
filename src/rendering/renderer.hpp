@@ -10,6 +10,7 @@
 
 #include "../gpu_context.hpp"
 #include "scene_renderer_context.hpp"
+#include "virtual_shadow_maps/vsm_state.hpp"
 
 struct CameraController
 {
@@ -48,6 +49,8 @@ struct Renderer
         CameraController const &observer_camera_info, 
         f32 const delta_time,
         SceneDraw scene_draw);
+
+    VSMState vsm_state = {};
 
     daxa::TaskBuffer zero_buffer = {};
 

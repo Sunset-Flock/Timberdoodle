@@ -4,13 +4,99 @@
 #include <daxa/utils/task_graph.inl>
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/shared.inl"
+#include "../../shader_shared/globals.inl"
+
+#define MARK_REQUIRED_PAGES_X_DISPATCH 16
+#define MARK_REQUIRED_PAGES_Y_DISPATCH 16
+
+DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH, 8)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
 
 #if __cplusplus
-#include "../../gpu_context.hpp"
+#include "../tasks/misc.hpp"
+#include "vsm_state.hpp"
+#include "../scene_renderer_context.hpp"
 
+inline daxa::ComputePipelineCompileInfo vsm_mark_required_pages_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.glsl"}},
+        .push_constant_size = static_cast<u32>(sizeof(MarkRequiredPagesH::AttachmentShaderBlob)),
+        .name = std::string{MarkRequiredPagesH::NAME}};
+}
+
+struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        auto const depth_resolution = render_context->gpuctx->device.info_image(ti.get(AT.depth).ids[0]).value().size;
+        auto const dispatch_size = u32vec2{
+            (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
+            (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
+        };
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_mark_required_pages_pipeline_compile_info().name));
+        MarkRequiredPagesH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+    }
+};
+
+struct TaskDrawVSMsInfo
+{
+    RenderContext * render_context = {};
+    daxa::TaskGraph * tg = {};
+    VSMState * vsm_state = {};
+    daxa::TaskImageView depth = {};
+};
+
+inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
+{
+    info.tg->add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->free_wrapped_pages_info),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->globals),
+        },
+        .task = [info](daxa::TaskInterface ti)
+        {
+            allocate_fill_copy(ti, info.vsm_state->clip_projections_cpu, ti.get(info.vsm_state->clip_projections));
+            allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
+            allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
+        },
+    });
+
+    info.tg->add_task(MarkRequiredPagesTask{
+        .views = std::array{
+            daxa::attachment_view(MarkRequiredPagesH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_globals, info.vsm_state->globals),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
+            daxa::attachment_view(MarkRequiredPagesH::AT.depth, info.depth),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, info.vsm_state->page_table),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        },
+        .render_context = info.render_context,
+    });
+}
+
+struct CameraController;
 struct GetVSMProjectionsInfo
 {
-    CameraInfo const * camera_info = {};
+    CameraController const * camera_info = {};
     f32vec3 sun_direction = {};
     f32 clip_0_scale = {};
     f32 clip_0_near = {};
@@ -20,7 +106,7 @@ struct GetVSMProjectionsInfo
     ShaderDebugDrawContext * debug_context = {};
 };
 
-static auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::array<VSMClipProjection, VSM_CLIP_LEVELS>
+inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::array<VSMClipProjection, VSM_CLIP_LEVELS>
 {
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections = {};
     auto const default_vsm_pos = glm::vec3{0.0, 0.0, 0.0};
@@ -101,14 +187,6 @@ static auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
 
-        ShaderDebugAABBDraw aabb_draw = {
-            .position = daxa_f32vec3{clip_position.x, clip_position.y, clip_position.z},
-            .size = daxa_f32vec3{0.1f, 0.1f, 0.1f},
-            .color = daxa_f32vec3{1.0f * (f32(clip + 1) / VSM_CLIP_LEVELS), 0.0f, 0.0f},
-            .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
-        };
-        info.debug_context->cpu_debug_aabb_draws.push_back(aabb_draw);
-
         clip_projections.at(clip) = VSMClipProjection{
             .height_offset = view_offset_scale,
             .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
@@ -133,7 +211,7 @@ struct DebugDrawClipFrustiInfo
     f32vec3 vsm_view_direction = {};
 };
 
-static void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
+inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
 {
     static constexpr std::array offsets = {
         glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),

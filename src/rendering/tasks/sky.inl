@@ -12,7 +12,6 @@
 
 #define IBL_CUBE_RES 16
 
-
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeTransmittanceH, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, transmittance)
@@ -51,7 +50,7 @@ struct ComputeSkyPush
 };
 
 #if __cplusplus
-#include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 
 inline static constexpr char const SKY_SHADER_PATH[] = "./src/rendering/tasks/sky.glsl";
 
