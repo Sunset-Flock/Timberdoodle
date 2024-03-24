@@ -160,22 +160,51 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 
 static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
+    auto gltf_texture_to_image_index = [&](u32 const texture_index) -> std::optional<u32>
+    {
+        fastgltf::Asset const & asset = load_ctx.asset;
+        if (asset.textures.at(texture_index).basisuImageIndex.has_value())
+        {
+            return s_cast<u32>(asset.textures.at(texture_index).basisuImageIndex.value());
+        }
+        else if (asset.textures.at(texture_index).imageIndex.has_value())
+        {
+            return s_cast<u32>(asset.textures.at(texture_index).imageIndex.value());
+        }
+        else
+        {
+            return std::nullopt;
+        }
+    };
     /// NOTE: GLTF texture = image + sampler we collapse the sampler into the material itself here we thus only iterate over the images
     //        Later when we load in the materials which reference the textures rather than images we just
     //        translate the textures image index and store that in the material
-    for (u32 i = 0; i < s_cast<u32>(load_ctx.asset.images.size()); ++i)
+
+    for (u32 i = 0; i < s_cast<u32>(load_ctx.asset.textures.size()); ++i)
     {
         u32 const texture_manifest_index = s_cast<u32>(scene._material_texture_manifest.size());
+        auto gltf_image_idx_opt = gltf_texture_to_image_index(texture_manifest_index);
+        DBG_ASSERT_TRUE_M(
+            gltf_image_idx_opt.has_value(),
+            fmt::format(
+                "[ERROR] Texture \"{}\" has no supported gltf image index!\n",
+                load_ctx.asset.textures[i].name.c_str())
+            );
+        u32 gltf_image_index = gltf_image_idx_opt.value();
+        DEBUG_MSG(
+            fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  asset local index: {}\n  manifest index:  {}",
+            load_ctx.asset.images[i].name, i, texture_manifest_index));
+        // KTX_TTF_BC7_RGBA
         scene._material_texture_manifest.push_back(TextureManifestEntry{
+            .type = TextureMaterialType::NONE, // Set by material manifest.
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = i,
+            .asset_local_image_index = gltf_image_index,
             .material_manifest_indices = {}, // Filled when reading in materials
             .runtime = {},                   // Filled when the texture data are uploaded to the GPU
-            .name = load_ctx.asset.images[i].name.c_str(),
+            .name = load_ctx.asset.textures[i].name.c_str(),
         });
         scene._new_texture_manifest_entries += 1;
-        DEBUG_MSG(fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  asset local index: {}\n  manifest index:  {}",
-            load_ctx.asset.images[i].name, i, texture_manifest_index));
     }
 }
 
@@ -190,7 +219,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
         bool const has_roughness_metalness_texture = material.pbrData.metallicRoughnessTexture.has_value();
         std::optional<MaterialManifestEntry::TextureInfo> diffuse_texture_info = {};
         std::optional<MaterialManifestEntry::TextureInfo> normal_texture_info = {};
-        std::optional<MaterialManifestEntry::TextureInfo> roughnes_metalness_info = {};
+        std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
         if (has_diffuse_texture)
         {
             u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
@@ -198,8 +227,13 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
                 .tex_manifest_index = gltf_texture_index + load_ctx.texture_manifest_offset,
                 .sampler_index = {}, // TODO(msakmary) ADD SAMPLERS
             };
-            scene._material_texture_manifest.at(diffuse_texture_info->tex_manifest_index).material_manifest_indices.push_back({
-                .diffuse = true,
+            TextureManifestEntry & tmenty = scene._material_texture_manifest.at(diffuse_texture_info->tex_manifest_index);
+            if (tmenty.type != TextureMaterialType::DIFFUSE)
+            {
+                DBG_ASSERT_TRUE_M(tmenty.type == TextureMaterialType::NONE, "ERROR: Found a texture used by different materials as DIFFERENT types!");
+                tmenty.type = TextureMaterialType::DIFFUSE;
+            }
+            tmenty.material_manifest_indices.push_back({
                 .material_manifest_index = material_manifest_index,
             });
         }
@@ -210,27 +244,37 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
                 .tex_manifest_index = gltf_texture_index + load_ctx.texture_manifest_offset,
                 .sampler_index = 0, // TODO(msakmary) ADD SAMPLERS
             };
-            scene._material_texture_manifest.at(normal_texture_info->tex_manifest_index).material_manifest_indices.push_back({
-                .normal = true,
+            TextureManifestEntry & tmenty = scene._material_texture_manifest.at(normal_texture_info->tex_manifest_index);
+            if (tmenty.type != TextureMaterialType::NORMAL)
+            {
+                DBG_ASSERT_TRUE_M(tmenty.type == TextureMaterialType::NONE, "ERROR: Found a texture used by different materials as DIFFERENT types!");
+                tmenty.type = TextureMaterialType::NORMAL;
+            }
+            tmenty.material_manifest_indices.push_back({
                 .material_manifest_index = material_manifest_index,
             });
         }
         if (has_roughness_metalness_texture)
         {
-            u32 const gltf_texture_index = s_cast<u32>(material.normalTexture.value().textureIndex);
-            roughnes_metalness_info = {
+            u32 const gltf_texture_index = s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex);
+            roughness_metalness_info = {
                 .tex_manifest_index = gltf_texture_index + load_ctx.texture_manifest_offset,
                 .sampler_index = 0, // TODO(msakmary) ADD SAMPLERS
             };
-            scene._material_texture_manifest.at(roughnes_metalness_info->tex_manifest_index).material_manifest_indices.push_back({
-                .roughness_metalness = false,
+            TextureManifestEntry & tmenty = scene._material_texture_manifest.at(roughness_metalness_info->tex_manifest_index);
+            if (tmenty.type != TextureMaterialType::ROUGHNESS_METALNESS)
+            {
+                DBG_ASSERT_TRUE_M(tmenty.type == TextureMaterialType::NONE, "ERROR: Found a texture used by different materials as DIFFERENT types!");
+                tmenty.type = TextureMaterialType::ROUGHNESS_METALNESS;
+            }
+            tmenty.material_manifest_indices.push_back({
                 .material_manifest_index = material_manifest_index,
             });
         }
         scene._material_manifest.push_back(MaterialManifestEntry{
             .diffuse_info = diffuse_texture_info,
             .normal_info = normal_texture_info,
-            .roughness_metalness_info = roughnes_metalness_info,
+            .roughness_metalness_info = roughness_metalness_info,
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = material_index,
             .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask || material.alphaMode == fastgltf::AlphaMode::Blend,
@@ -511,46 +555,26 @@ static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifes
         auto const & curr_asset = scene._gltf_asset_manifest.back();
         auto const texture_manifest_index = curr_asset.texture_manifest_offset + gltf_texture_index;
         auto const & texture_manifest_entry = scene._material_texture_manifest.at(texture_manifest_index);
-        bool used_as_diffuse = false;
-        bool used_as_normal = false;
         auto gpu_compression_format = KTX_TTF_BC7_RGBA;
-        for (auto const & material_manifest_index : texture_manifest_entry.material_manifest_indices)
-        {
-            used_as_diffuse |= material_manifest_index.diffuse;
-            used_as_normal |= material_manifest_index.normal;
-            DBG_ASSERT_TRUE_M(!(used_as_diffuse && material_manifest_index.normal),
-                "[ERROR] Texture used as diffuse and normal is not supported");
-            DBG_ASSERT_TRUE_M(!(used_as_diffuse && material_manifest_index.roughness_metalness),
-                "[ERROR] Texture used as diffuse and roughness metalness is not supported");
-        }
-        //if (used_as_normal)
-        //{
-        //    gpu_compression_format = KTX_TTF_BC5_RG;
-        //}
         auto gltf_image_idx_opt = gltf_texture_to_image_index(texture_manifest_index);
-        if (!gltf_image_idx_opt.has_value())
+        DBG_ASSERT_TRUE_M(
+            gltf_image_idx_opt.has_value(),
+            fmt::format(
+                "[ERROR] Texture \"{}\" has no supported gltf image index!\n",
+                texture_manifest_entry.name)
+            );
+        if (!texture_manifest_entry.material_manifest_indices.empty())
         {
-            DBG_ASSERT_TRUE_M(
-                gltf_image_idx_opt.has_value(),
-                fmt::format(
-                    "[ERROR] Texture \"{}\" has no supported gltf image index!\n",
-                    texture_manifest_entry.name)
-                );
-        }
-        else if (!texture_manifest_entry.material_manifest_indices.empty())
-        {
-            u32 gltf_image_index = gltf_image_idx_opt.value();
             // Launch loading of this texture
             info.thread_pool->async_dispatch(
                 std::make_shared<LoadTextureTask>(LoadTextureTask::TaskInfo{
                     .load_info = {
                         .asset_path = curr_asset.path,
                         .asset = curr_asset.gltf_asset.get(),
-                        .gltf_texture_index = gltf_texture_index,
-                        .gltf_image_index = gltf_image_index,
+                        .gltf_texture_index = texture_manifest_entry.asset_local_index,
+                        .gltf_image_index = texture_manifest_entry.asset_local_image_index,
                         .texture_manifest_index = texture_manifest_index,
-                        .load_as_srgb = used_as_diffuse,
-                        .gpu_compression_format = gpu_compression_format,
+                        .texture_material_type = texture_manifest_entry.type,
                     },
                     .asset_processor = info.asset_processor.get(),
                 }),
@@ -558,9 +582,8 @@ static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifes
         }
         else
         {
-            auto const texture_name = curr_asset.gltf_asset->images.at(gltf_texture_index).name;
-            // DEBUG_MSG(fmt::format("[INFO] Skipping load of texture index {} name {} - not used by any material",
-            //     gltf_texture_index, texture_name));
+            DEBUG_MSG(
+                fmt::format("[WARNING] Texture \"{}\" can not be loaded because it is not referenced by any material", texture_manifest_entry.name));
         }
     }
     scene._new_texture_manifest_entries = 0;
@@ -860,17 +883,21 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
                 {
                     MaterialManifestEntry & material_entry = _material_manifest.at(material_using_texture_info.material_manifest_index);
-                    if (material_using_texture_info.diffuse)
+                    switch (texture_manifest_entry.type)
                     {
-                        material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                    }
-                    if (material_using_texture_info.normal)
-                    {
-                        material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                    }
-                    if (material_using_texture_info.roughness_metalness)
-                    {
-                        material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        case TextureMaterialType::DIFFUSE: {
+                            material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        } break;
+                        case TextureMaterialType::DIFFUSE_OPACITY: {
+                            material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        } break;
+                        case TextureMaterialType::NORMAL: {
+                            material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        } break;
+                        case TextureMaterialType::ROUGHNESS_METALNESS: {
+                            material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        } break;
+                        default: DBG_ASSERT_TRUE_M(false, "unimplemented"); break;
                     }
                     /// NOTE: Add material index only if it was not added previously
                     if (std::find(

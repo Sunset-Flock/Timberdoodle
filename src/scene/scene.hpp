@@ -26,15 +26,15 @@ using namespace tido::types;
  */
 struct TextureManifestEntry
 {
+    // The type is determined by the materials that reference it.
+    TextureMaterialType type = {};
     struct MaterialManifestIndex
     {
-        bool diffuse = {};
-        bool normal = {};
-        bool roughness_metalness = {};
         u32 material_manifest_index = {};
     };
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
+    u32 asset_local_image_index = {};
     // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.

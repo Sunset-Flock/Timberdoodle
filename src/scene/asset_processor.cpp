@@ -307,8 +307,9 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
     return format;
 };
 
-static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, bool load_as_srgb, daxa::Device & device) -> ParsedImageRet
+static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
 {
+    bool load_as_srgb = type == TextureMaterialType::DIFFUSE;
     /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
     //        wrapper so that it can internally process the data
     FIMEMORY * fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
@@ -418,8 +419,15 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, bool l
     return ret;
 }
 
-static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, bool load_as_srgb, daxa::Device & device, ktx_transcode_fmt_e compression_format) -> ParsedImageRet
+static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
 {
+    bool const load_as_srgb = type == TextureMaterialType::DIFFUSE;
+    ktx_transcode_fmt_e transcode_format;
+    switch (type)
+    {
+        //case TextureMaterialType::NORMAL: transcode_format = KTX_TTF_BC5_RG; break;
+        default: transcode_format = KTX_TTF_BC7_RGBA; break;
+    }
     // KTX handles image. Mister sexy. We load now. loading
     ktxTexture2* texture;
     KTX_error_code result;
@@ -435,14 +443,12 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, bool load_as_
     }
     defer{ktxTexture_Destroy(ktxTexture(texture));};
 
-    result = ktxTexture2_TranscodeBasis(texture, compression_format, KTX_TF_HIGH_QUALITY);
+    result = ktxTexture2_TranscodeBasis(texture, transcode_format, KTX_TF_HIGH_QUALITY);
     if (result != KTX_SUCCESS)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
     
-    // Retrieve information about the texture from fields in the ktxTexture
-    // such as:
     u32 const numLevels = texture->numLevels;
     u32 const numLayers = texture->numLayers;
     u32 const baseWidth = texture->baseWidth;
@@ -521,7 +527,7 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
         return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
     }
     ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-    ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), load_as_srgb, _device);
+    ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE);
     if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
         return *error;
@@ -593,12 +599,11 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     ParsedImageRet parsed_data_ret;
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
-        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), info.load_as_srgb, _device, info.gpu_compression_format);
+        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
     }
     else
     {
-        // FreeImage handles image loading
-        parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_image_data), info.load_as_srgb, _device);
+        parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
     }
     if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {

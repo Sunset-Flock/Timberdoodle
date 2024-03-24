@@ -17,6 +17,15 @@ using ImageIndex = size_t;
 
 #define MAX_MESHES 10000
 
+enum struct TextureMaterialType
+{
+    NONE,
+    DIFFUSE,
+    DIFFUSE_OPACITY,
+    NORMAL,
+    ROUGHNESS_METALNESS,
+};
+
 struct AssetProcessor
 {
     enum struct AssetLoadResultCode
@@ -100,8 +109,7 @@ struct AssetProcessor
         u32 gltf_texture_index = {};
         u32 gltf_image_index = {};
         u32 texture_manifest_index = {};
-        bool load_as_srgb = {};
-        ktx_transcode_fmt_e gpu_compression_format = {};
+        TextureMaterialType texture_material_type = {};
     };
     auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
 

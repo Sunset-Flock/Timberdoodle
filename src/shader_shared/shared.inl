@@ -20,8 +20,8 @@
 #define ENABLE_MESHLET_CULLING 1
 #define ENABLE_TRIANGLE_CULLING 0
 #define ENABLE_SHADER_PRINT_DEBUG 1
-#define COMPILE_IN_MESH_SHADER 0
-#define COMPILE_IN_SLANG 0
+#define COMPILE_IN_MESH_SHADER 1
+#define COMPILE_IN_SLANG 1
 #define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
@@ -122,6 +122,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 
 #define AA_MODE_NONE 0
 #define AA_MODE_SUPER_SAMPLE 1
+#define AA_MODE_DVM 2
 
 struct Settings
 {
