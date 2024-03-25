@@ -30,22 +30,24 @@ void main()
     {
         mesh_draw_index -= deref(push.uses.opaque_mesh_draw_lists).list_sizes[0];
         opaque_draw_list_index = 1;
-    }
-    if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[1])
-    {
-        return;
+        if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[1])
+        {
+            return;
+        }
     }
 
     const MeshDrawTuple mesh_draw = deref(deref(push.uses.opaque_mesh_draw_lists).mesh_draw_tuples[opaque_draw_list_index][mesh_draw_index]);
     const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_draw.entity_index]);
-    if (mesh_group_index == (~0u))
+    if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         // Entity has no mesh group.
+        debugPrintfEXT("exit on invalid mesh group index\n");
         return;
     }
     GPUMeshGroup mesh_group = deref(push.uses.mesh_groups[mesh_group_index]);
     if (mesh_group.count == 0)
     {
+        debugPrintfEXT("exit on broken mesh group\n");
         // Broken mesh group
         return;
     }
@@ -57,6 +59,7 @@ void main()
     );
     if (!locked_entities_offset)
     {
+        debugPrintfEXT("exit on fail to lock index\n");
         return;
     }
 
@@ -146,12 +149,16 @@ void main()
             
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
-            GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
+            uint opaque_draw_list_type_index = OPAQUE_DRAW_LIST_MASKED;
+            if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
+            {
+                GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
+                opaque_draw_list_type_index = material.alpha_discard_enabled ? OPAQUE_DRAW_LIST_MASKED : OPAQUE_DRAW_LIST_SOLID;
+            }
             // Scalarize appends to the draw lists.
             // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
             // This allows for scalar atomic ops and packed writeouts.
             // Drawlist type count are low, scalarization will most likely always improve perf.
-            const uint opaque_draw_list_type_index = material.alpha_discard_enabled ? OPAQUE_DRAW_LIST_MASKED : OPAQUE_DRAW_LIST_SOLID;
             [[unroll]]
             for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
             {

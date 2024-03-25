@@ -297,9 +297,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
         IMGUI_UINT_CHECKBOX(settings.observer_show_pass);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_drawing);
-        std::array<char const * const, 2> aa_modes = { 
+        std::array<char const * const, 3> aa_modes = { 
             "AA_MODE_NONE",
             "AA_MODE_SUPER_SAMPLE", 
+            "AA_MODE_DVM", 
         };
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
         ImGui::End();

@@ -237,6 +237,6 @@ void main()
         deref(push.attachments.globals).debug, 
         push.attachments.debug_lens_image, 
         index, 
-        vec4(debug_value));
+        vec4(exposed_color, 1.0f));
     imageStore(daxa_image2D(push.attachments.color_image), index, vec4(exposed_color, output_value.a));
 }

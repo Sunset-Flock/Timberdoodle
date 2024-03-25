@@ -67,26 +67,10 @@ struct DrawVisbufferPush_MeshShader
 #include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
 #include "cull_meshlets.inl"
+#include "../tasks/dvmaa.hpp"
 
 static constexpr inline char const DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.glsl";
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.slang";
-
-static inline daxa::DepthTestInfo DRAW_VISBUFFER_DEPTH_TEST_INFO = {
-    .depth_attachment_format = daxa::Format::D32_SFLOAT,
-    .enable_depth_write = true,
-    .depth_test_compare_op = daxa::CompareOp::GREATER,
-    .min_depth_bounds = 0.0f,
-    .max_depth_bounds = 1.0f,
-};
-
-static inline std::vector<daxa::RenderAttachment> DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS = {
-    daxa::RenderAttachment{
-        .format = daxa::Format::R32_UINT,
-    },
-    //daxa::RenderAttachment{
-    //    .format = daxa::Format::R16G16B16A16_SFLOAT,
-    //},
-};
 
 using DrawVisbuffer_WriteCommandTask = SimpleComputeTask<
     DrawVisbuffer_WriteCommandH::Task,
@@ -100,85 +84,64 @@ using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
     SLANG_DRAW_VISBUFFER_SHADER_PATH,
     "entry_write_commands">;
 
-#define USE_SLANG_SHADER 0
-
-inline daxa::RasterPipelineCompileInfo draw_visbuffer_solid_pipeline_compile_info()
-{
+static inline daxa::RasterPipelineCompileInfo draw_visbuffer_base_compile_info() {
     auto ret = daxa::RasterPipelineCompileInfo{};
-    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
-    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        #if USE_SLANG_SHADER
-        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "entry_fragment",
-            .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
-        },
-        #else
-        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
-        },
-        #endif
+    ret.depth_test = {
+        .depth_attachment_format = daxa::Format::D32_SFLOAT,
+        .enable_depth_write = true,
+        .depth_test_compare_op = daxa::CompareOp::GREATER,
+        .min_depth_bounds = 0.0f,
+        .max_depth_bounds = 1.0f,
     };
-    ret.vertex_shader_info = daxa::ShaderCompileInfo{
-        #if USE_SLANG_SHADER
-        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "entry_vertex",
-            .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+    ret.color_attachments = {
+        daxa::RenderAttachment{
+            .format = daxa::Format::R32_UINT,
         },
-        #else
-        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
-        },
-        #endif
+        //daxa::RenderAttachment{
+        //    .format = daxa::Format::R16G16B16A16_SFLOAT,
+        //},
     };
     ret.name = "DrawVisbufferOpaque";
     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
+    ret.raster.static_state_sample_count = daxa::None; // Set to use dynamic state for msaa.
+    return ret;
+};
+
+inline daxa::RasterPipelineCompileInfo draw_visbuffer_solid_pipeline_compile_info()
+{
+    auto ret = draw_visbuffer_base_compile_info();
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+    };
+    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
+        },
+    };
+    ret.name = "DrawVisbufferOpaque";
     return ret;
 };
 
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_masked_pipeline_compile_info()
 {
-    auto ret = daxa::RasterPipelineCompileInfo{};
-    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
-    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
+    auto ret = draw_visbuffer_base_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        #if USE_SLANG_SHADER
-        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "entry_fragment",
-            .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
-        },
-        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
             .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
-        #endif
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
-        #if USE_SLANG_SHADER
-        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "entry_vertex",
-            .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
-        },
-        #else
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
             .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
-        #endif
     };
     ret.name = "DrawVisbufferDiscard";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -238,9 +201,7 @@ inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_draw_visbuffer_pipel
 
 inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pipeline_compile_info()
 {
-    auto ret = daxa::RasterPipelineCompileInfo{};
-    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
-    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
+    auto ret = slang_draw_visbuffer_solid_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
@@ -249,6 +210,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pi
             .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
+    ret.vertex_shader_info = daxa::None;
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
@@ -258,15 +220,12 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pi
         },
     };
     ret.name = "DrawVisbufferMeshShaderSolid";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
 inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_pipeline_compile_info()
 {
-    auto ret = daxa::RasterPipelineCompileInfo{};
-    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
-    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
+    auto ret = slang_draw_visbuffer_masked_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
@@ -275,6 +234,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_p
             .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
+    ret.vertex_shader_info = daxa::None;
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
@@ -284,7 +244,6 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_p
         },
     };
     ret.name = "DrawVisbufferMeshShaderMasked";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush));
     return ret;
 };
 
@@ -293,22 +252,20 @@ inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_draw_visbuffer_mesh_
     slang_draw_visbuffer_mesh_shader_masked_pipeline_compile_info()
 };
 
-inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()
-{
-    auto ret = daxa::RasterPipelineCompileInfo{};
-    ret.depth_test = DRAW_VISBUFFER_DEPTH_TEST_INFO;
-    ret.color_attachments = DRAW_VISBUFFER_RENDER_ATTACHMENT_INFOS;
-    auto comp_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {.defines = {{"MESH_SHADER_CULL_AND_DRAW", "1"}}},
-    };
-    ret.fragment_shader_info = comp_info;
-    ret.mesh_shader_info = comp_info;
-    ret.task_shader_info = comp_info;
-    ret.name = "DrawVisbuffer_MeshShader";
-    ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush_MeshShader));
-    return ret;
-};
+// inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()
+// {
+//     auto ret = slang_draw_visbuffer_solid_pipeline_compile_info();
+//     auto comp_info = daxa::ShaderCompileInfo{
+//         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
+//         .compile_options = {.defines = {{"MESH_SHADER_CULL_AND_DRAW", "1"}}},
+//     };
+//     ret.fragment_shader_info = comp_info;
+//     ret.mesh_shader_info = comp_info;
+//     ret.task_shader_info = comp_info;
+//     ret.name = "DrawVisbuffer_MeshShader";
+//     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush_MeshShader));
+//     return ret;
+// };
 
 struct DrawVisbufferTask : DrawVisbufferH::Task
 {
@@ -318,6 +275,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     bool mesh_shader = {};
     void callback(daxa::TaskInterface ti)
     {
+        bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
         bool const clear_images = pass != PASS1_DRAW_POST_CULL;
         auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
@@ -349,6 +307,14 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
             //},
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
+        if (dvmaa)
+        {
+            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E4);
+        }
+        else
+        {
+            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
+        }
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
             if (mesh_shader)
@@ -471,6 +437,8 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
+    daxa::TaskImageView dvmaa_vis_image = {};
+    daxa::TaskImageView dvmaa_depth_image = {};
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
@@ -571,6 +539,9 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             .render_context = info.render_context,
             .opaque_or_discard = 1,
         });
+
+        bool const dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
+
         DrawVisbufferTask draw_task = {
             .views = std::array{
                 daxa::attachment_view(DrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
@@ -578,15 +549,28 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(DrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
                 daxa::attachment_view(DrawVisbufferH::AT.meshes, info.meshes),
                 daxa::attachment_view(DrawVisbufferH::AT.entity_combined_transforms, info.entity_combined_transforms),
-                daxa::attachment_view(DrawVisbufferH::AT.vis_image, info.vis_image),
-                daxa::attachment_view(DrawVisbufferH::AT.depth_image, info.depth_image),
                 daxa::attachment_view(DrawVisbufferH::AT.material_manifest, info.material_manifest),
+                daxa::attachment_view(DrawVisbufferH::AT.vis_image, dvmaa ? info.dvmaa_vis_image : info.vis_image),
+                daxa::attachment_view(DrawVisbufferH::AT.depth_image, dvmaa ? info.dvmaa_depth_image : info.depth_image),
             },
             .render_context = info.render_context,
             .pass = PASS1_DRAW_POST_CULL,
             .mesh_shader = info.enable_mesh_shader,
         };
         info.task_graph.add_task(draw_task);
+
+        if (dvmaa)
+        {
+            info.task_graph.add_task(DVMResolveVisImageTask{
+                .views = std::array{
+                    daxa::attachment_view(DVMResolveVisImageH::AT.dvm_vis_image, info.dvmaa_vis_image),
+                    daxa::attachment_view(DVMResolveVisImageH::AT.vis_image, info.vis_image),
+                    daxa::attachment_view(DVMResolveVisImageH::AT.dvm_depth_image, info.dvmaa_depth_image),
+                    daxa::attachment_view(DVMResolveVisImageH::AT.depth_image, info.depth_image),
+                },
+                .rctx = info.render_context,
+            });
+        }
     }
 }
 
@@ -603,6 +587,8 @@ struct TaskDrawVisbufferInfo
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
+    daxa::TaskImageView dvmaa_vis_image = {};
+    daxa::TaskImageView dvmaa_depth_image = {};
 };
 
 inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
@@ -624,6 +610,9 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     };
     info.task_graph.add_task(write_task);
 
+    bool dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
+    info.task_graph.add_task(write_task);
+
     DrawVisbufferTask draw_task = {
         .views = std::array{
             daxa::attachment_view(DrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
@@ -632,13 +621,26 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             daxa::attachment_view(DrawVisbufferH::AT.meshes, info.meshes),
             daxa::attachment_view(DrawVisbufferH::AT.material_manifest, info.material_manifest),
             daxa::attachment_view(DrawVisbufferH::AT.entity_combined_transforms, info.combined_transforms),
-            daxa::attachment_view(DrawVisbufferH::AT.vis_image, info.vis_image),
-            daxa::attachment_view(DrawVisbufferH::AT.depth_image, info.depth_image),
+            daxa::attachment_view(DrawVisbufferH::AT.vis_image, dvmaa ? info.dvmaa_vis_image : info.vis_image),
+            daxa::attachment_view(DrawVisbufferH::AT.depth_image, dvmaa ? info.dvmaa_depth_image : info.depth_image),
         },
         .render_context = info.render_context,
         .pass = info.pass,
         .mesh_shader = info.enable_mesh_shader,
     };
     info.task_graph.add_task(draw_task);
+    
+    if (dvmaa)
+    {
+        info.task_graph.add_task(DVMResolveVisImageTask{
+            .views = std::array{
+                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_vis_image, info.dvmaa_vis_image),
+                daxa::attachment_view(DVMResolveVisImageH::AT.vis_image, info.vis_image),
+                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_depth_image, info.dvmaa_depth_image),
+                daxa::attachment_view(DVMResolveVisImageH::AT.depth_image, info.depth_image),
+            },
+            .rctx = info.render_context,
+        });
+    }
 }
 #endif // #if defined(__cplusplus)

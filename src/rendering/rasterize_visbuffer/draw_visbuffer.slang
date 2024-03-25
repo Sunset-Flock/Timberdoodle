@@ -177,7 +177,7 @@ void entry_mesh(
     in uint3 svtid : SV_DispatchThreadID,
     out indices uint3 out_indices[MAX_TRIANGLES_PER_MESHLET],
     out vertices MeshShaderVertexOut out_vertices[MAX_VERTICES_PER_MESHLET],
-    out primitives MeshShaderPrimitiveOut out_primitives[MAX_TRIANGLES_PER_MESHLET])
+    OutputPrimitives<MeshShaderPrimitiveOut, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
     const uint inst_meshlet_index = get_meshlet_instance_index(
         draw_p.uses.globals,
@@ -187,12 +187,14 @@ void entry_mesh(
         svtid.y);
     const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
     const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
-    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
+    Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
     const daxa_f32mat4x4 view_proj = 
         (draw_p.pass > PASS1_DRAW_POST_CULL) ? 
         deref(draw_p.uses.globals).observer_camera.view_proj : 
         deref(draw_p.uses.globals).camera.view_proj;
+    //meshlet.vertex_count = min(meshlet.vertex_count, 3);
+    meshlet.triangle_count = min(meshlet.triangle_count, 2);
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
@@ -227,6 +229,7 @@ void entry_mesh(
     {
         const uint in_meshlet_triangle_index = svtid.x + triangle_offset;
         if (in_meshlet_triangle_index >= meshlet.triangle_count) break;
+        printf("svtid.x: %i\n", svtid.x);
 
         const uint3 tri_in_meshlet_vertex_indices = uint3(
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
