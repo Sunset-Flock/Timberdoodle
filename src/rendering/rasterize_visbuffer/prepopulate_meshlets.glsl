@@ -41,13 +41,11 @@ void main()
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         // Entity has no mesh group.
-        debugPrintfEXT("exit on invalid mesh group index\n");
         return;
     }
     GPUMeshGroup mesh_group = deref(push.uses.mesh_groups[mesh_group_index]);
     if (mesh_group.count == 0)
     {
-        debugPrintfEXT("exit on broken mesh group\n");
         // Broken mesh group
         return;
     }
@@ -59,7 +57,6 @@ void main()
     );
     if (!locked_entities_offset)
     {
-        debugPrintfEXT("exit on fail to lock index\n");
         return;
     }
 
