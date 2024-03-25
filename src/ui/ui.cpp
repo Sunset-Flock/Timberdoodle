@@ -293,8 +293,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
     {
         ImGui::SeparatorText("General settings");
         IMGUI_UINT_CHECKBOX(settings.enable_mesh_shader);
-        IMGUI_UINT_CHECKBOX(settings.draw_from_observer);
-        IMGUI_UINT_CHECKBOX(settings.observer_show_pass);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_drawing);
         std::array<char const * const, 3> aa_modes = { 

@@ -34,7 +34,7 @@ using namespace tido::ui;
 struct UIEngine
 {
     public:
-        bool renderer_settings = false;
+        bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
         bool widget_scene_hierarchy = true;

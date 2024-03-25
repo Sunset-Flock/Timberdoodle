@@ -146,7 +146,7 @@ void main()
             
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
-            uint opaque_draw_list_type_index = OPAQUE_DRAW_LIST_MASKED;
+            uint opaque_draw_list_type_index = OPAQUE_DRAW_LIST_SOLID;
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
                 GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
