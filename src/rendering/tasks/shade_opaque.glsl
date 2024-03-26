@@ -151,14 +151,14 @@ void main()
             vec3 normal_map_value = vec3(0,0,0);
             if (material.normal_compressed_bc5_rg)
             {
-                const vec2 raw = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rg;
+                const vec2 raw = textureGrad(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.normals), tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy).rg;
                 const vec2 rescaled_normal_rg = raw * 2.0f - 1.0f;
                 const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg.rg, rescaled_normal_rg.rg ), 0.0, 1.0));
                 normal_map_value = vec3(rescaled_normal_rg, normal_b);
             }
             else
             {
-                const vec3 raw = texture(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.linear_repeat_ani), tri_data.uv).rgb;
+                const vec3 raw = textureGrad(daxa_sampler2D(material.normal_texture_id, deref(push.attachments.globals).samplers.normals), tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
             }
             mat3 tbn = mat3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal);

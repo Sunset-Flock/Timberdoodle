@@ -65,6 +65,16 @@ struct RenderContext
                 .max_anisotropy = 16.0f,
                 .name = "nearest clamp sampler",
             }),
+            .normals = gpuctx->device.create_sampler({
+                .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+                .mip_lod_bias = 0.0f,
+                .enable_anisotropy = true,
+                .max_anisotropy = 16.0f,
+                .max_lod = 3.0f,
+                .name = "normals sampler",
+            }),
         };
         render_data.debug = gpuctx->device.get_device_address(gpuctx->shader_debug_context.buffer).value();
     }
@@ -75,6 +85,7 @@ struct RenderContext
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_clamp));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
+        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
     }
 
     // GPUContext containing all shared global-ish gpu related data.

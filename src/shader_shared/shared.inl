@@ -191,6 +191,7 @@ struct GlobalSamplers
     daxa_SamplerId linear_repeat;
     daxa_SamplerId nearest_clamp;
     daxa_SamplerId linear_repeat_ani;
+    daxa_SamplerId normals;
 };
 
 struct CameraInfo
