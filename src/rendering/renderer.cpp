@@ -154,6 +154,13 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
+        {vsm_find_free_pages_pipeline_compile_info()},
+        {vsm_allocate_pages_pipeline_compile_info()},
+        {vsm_clear_pages_pipeline_compile_info()},
+    };
+    if (allow_slang)
+    {
+        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
     };
     if (allow_slang)
     {
