@@ -153,10 +153,14 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {sky_into_cubemap_pipeline_compile_info()},
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
+        {vsm_free_wrapped_pages_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
         {vsm_find_free_pages_pipeline_compile_info()},
         {vsm_allocate_pages_pipeline_compile_info()},
         {vsm_clear_pages_pipeline_compile_info()},
+        {vsm_clear_dirty_bit_pipeline_compile_info()},
+        {vsm_debug_virtual_page_table_pipeline_compile_info()},
+        {vsm_debug_meta_memory_table_pipeline_compile_info()},
     };
     if (allow_slang)
     {
@@ -423,8 +427,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
-    task_list.use_persistent_image(vsm_state.debug_page_table);
-    task_list.use_persistent_image(vsm_state.debug_meta_memory_table);
+    task_list.use_persistent_image(context->shader_debug_context.vsm_debug_page_table);
+    task_list.use_persistent_image(context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
@@ -823,6 +827,10 @@ void Renderer::render_frame(
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
 
+    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
+    }
     vsm_state.clip_projections_cpu = get_vsm_projections(GetVSMProjectionsInfo{
         .camera_info = &camera_info,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
@@ -832,6 +840,13 @@ void Renderer::render_frame(
         .clip_0_height_offset = 50.0f,
         .debug_context = &context->shader_debug_context,
     });
+
+    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        const auto clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
+        vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
+    }
+
     // clip_0.right - clip_0.left = 2.0f * clip_0_scale (HARDCODED FOR NOW TODO(msakmary) FIX)
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 10.0f) / VSM_TEXTURE_RESOLUTION;
 

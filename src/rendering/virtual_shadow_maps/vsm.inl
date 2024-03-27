@@ -10,8 +10,20 @@
 #define MARK_REQUIRED_PAGES_Y_DISPATCH 16
 #define FIND_FREE_PAGES_X_DISPATCH 32
 #define ALLOCATE_PAGES_X_DISPATCH 32
+#define CLEAR_DIRTY_BIT_X_DISPATCH 32
 #define CLEAR_PAGES_X_DISPATCH 16
 #define CLEAR_PAGES_Y_DISPATCH 16
+#define DEBUG_PAGE_TABLE_X_DISPATCH 16
+#define DEBUG_PAGE_TABLE_Y_DISPATCH 16
+#define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
+#define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
+
+DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH, 4)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH, 8)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -24,12 +36,13 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(FindFreePagesH, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(FindFreePagesH, 9)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_pages_header)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(PageCoordBuffer), vsm_free_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(PageCoordBuffer), vsm_not_visited_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_indirect)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
@@ -56,10 +69,40 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
 DAXA_DECL_TASK_HEAD_END
 
+DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH, 4)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(DebugVirtualPageTableH, 3)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_page_table)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(DebugMetaMemoryTableH, 3)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
+
+
 #if __cplusplus
 #include "../tasks/misc.hpp"
 #include "vsm_state.hpp"
 #include "../scene_renderer_context.hpp"
+
+inline daxa::ComputePipelineCompileInfo vsm_free_wrapped_pages_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/free_wrapped_pages.glsl"}},
+        .push_constant_size = static_cast<u32>(sizeof(FreeWrappedPagesH::AttachmentShaderBlob)),
+        .name = std::string{FreeWrappedPagesH::NAME},
+    };
+}
 
 inline daxa::ComputePipelineCompileInfo vsm_mark_required_pages_pipeline_compile_info()
 {
@@ -100,6 +143,55 @@ inline daxa::ComputePipelineCompileInfo vsm_clear_pages_pipeline_compile_info()
         .name = std::string{ClearPagesH::NAME},
     };
 }
+
+inline daxa::ComputePipelineCompileInfo vsm_clear_dirty_bit_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl"}},
+        .push_constant_size = static_cast<u32>(sizeof(ClearDirtyBitH::AttachmentShaderBlob)),
+        .name = std::string{ClearDirtyBitH::NAME},
+    };
+}
+
+inline daxa::ComputePipelineCompileInfo vsm_debug_virtual_page_table_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.glsl"},
+            .compile_options = {.defines = {{"DEBUG_PAGE_TABLE", "1"}}},
+        },
+        .push_constant_size = static_cast<u32>(sizeof(DebugVirtualPageTableH::AttachmentShaderBlob)),
+        .name = std::string{DebugVirtualPageTableH::NAME},
+    };
+}
+
+inline daxa::ComputePipelineCompileInfo vsm_debug_meta_memory_table_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.glsl"},
+            .compile_options = {.defines = {{"DEBUG_META_MEMORY_TABLE", "1"}}},
+        },
+        .push_constant_size = static_cast<u32>(sizeof(DebugMetaMemoryTableH::AttachmentShaderBlob)),
+        .name = std::string{DebugMetaMemoryTableH::NAME},
+    };
+}
+
+struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
+        FreeWrappedPagesH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
+    }
+};
 
 struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
 {
@@ -175,6 +267,62 @@ struct ClearPagesTask : ClearPagesH::Task
     }
 };
 
+struct ClearDirtyBitTask : ClearDirtyBitH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
+        ClearDirtyBitH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.get(AT.vsm_clear_dirty_bit_indirect).ids[0],
+            .offset = 0u,
+        });
+    }
+};
+
+struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    static constexpr auto dispatch_size = u32vec2{
+        (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_X_DISPATCH - 1) / DEBUG_PAGE_TABLE_X_DISPATCH,
+        (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_Y_DISPATCH - 1) / DEBUG_PAGE_TABLE_Y_DISPATCH,
+    };
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_virtual_page_table_pipeline_compile_info().name));
+        DebugVirtualPageTableH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
+struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    static constexpr auto dispatch_size = u32vec2{
+        (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_X_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_X_DISPATCH,
+        (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_Y_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_Y_DISPATCH,
+    };
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_meta_memory_table_pipeline_compile_info().name));
+        DebugMetaMemoryTableH::AttachmentShaderBlob push = {};
+        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
 struct TaskDrawVSMsInfo
 {
     RenderContext * render_context = {};
@@ -185,6 +333,8 @@ struct TaskDrawVSMsInfo
 
 inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 {
+    auto const vsm_page_table_view = info.vsm_state->page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_page_height_offsets_view = info.vsm_state->page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     info.tg->add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
@@ -199,6 +349,16 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         },
     });
 
+    info.tg->add_task(FreeWrappedPagesTask{
+        .views = std::array{
+            daxa::attachment_view(FreeWrappedPagesH::AT.free_wrapped_pages_info, info.vsm_state->free_wrapped_pages_info),
+            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
+            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        },
+        .render_context = info.render_context,
+    });
+
     info.tg->add_task(MarkRequiredPagesTask{
         .views = std::array{
             daxa::attachment_view(MarkRequiredPagesH::AT.globals, info.render_context->tgpu_render_data),
@@ -207,7 +367,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(MarkRequiredPagesH::AT.depth, info.depth),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, info.vsm_state->page_table),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
         },
         .render_context = info.render_context,
@@ -220,6 +380,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(FindFreePagesH::AT.vsm_find_free_pages_header, info.vsm_state->find_free_pages_header),
             daxa::attachment_view(FindFreePagesH::AT.vsm_allocate_indirect, info.vsm_state->allocate_indirect),
             daxa::attachment_view(FindFreePagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
+            daxa::attachment_view(FindFreePagesH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
             daxa::attachment_view(FindFreePagesH::AT.vsm_globals, info.vsm_state->globals),
             daxa::attachment_view(FindFreePagesH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
             daxa::attachment_view(FindFreePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
@@ -237,20 +398,49 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(AllocatePagesH::AT.vsm_not_visited_pages_buffer, info.vsm_state->not_visited_page_buffer),
             daxa::attachment_view(AllocatePagesH::AT.vsm_allocate_indirect, info.vsm_state->allocate_indirect),
             daxa::attachment_view(AllocatePagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_page_table, info.vsm_state->page_table),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_page_height_offsets, info.vsm_state->page_height_offsets),
+            daxa::attachment_view(AllocatePagesH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(AllocatePagesH::AT.vsm_page_height_offsets, vsm_page_height_offsets_view),
             daxa::attachment_view(AllocatePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
         },
         .render_context = info.render_context,
     });
 
-
     info.tg->add_task(ClearPagesTask{
         .views = std::array{
             daxa::attachment_view(ClearPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
-            daxa::attachment_view(ClearPagesH::AT.vsm_page_table, info.vsm_state->page_table),
-            daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->meta_memory_table),
+            daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
+        },
+        .render_context = info.render_context,
+    });
+
+    task_clear_image(*info.tg, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f});
+    info.tg->add_task(DebugVirtualPageTableTask{
+        .views = std::array{
+            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
+            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table),
+        },
+        .render_context = info.render_context,
+    });
+
+    task_clear_image(*info.tg, info.render_context->gpuctx->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f});
+    info.tg->add_task(DebugMetaMemoryTableTask{
+        .views = std::array{
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpuctx->shader_debug_context.vsm_debug_meta_memory_table),
+        },
+        .render_context = info.render_context,
+    });
+
+    info.tg->add_task(ClearDirtyBitTask{
+        .views = std::array{
+            daxa::attachment_view(ClearDirtyBitH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
+            daxa::attachment_view(ClearDirtyBitH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
+            daxa::attachment_view(ClearDirtyBitH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
+            daxa::attachment_view(ClearDirtyBitH::AT.vsm_page_table, vsm_page_table_view),
         },
         .render_context = info.render_context,
     });

@@ -80,18 +80,19 @@ void main()
         deref(push.vsm_allocate_indirect).y = 1;
         deref(push.vsm_allocate_indirect).z = allocate_dispach_count;
 
+        const uint clear_dirty_bit_distpach_count = (allocations_number + CLEAR_DIRTY_BIT_X_DISPATCH - 1) / CLEAR_DIRTY_BIT_X_DISPATCH;
+        deref(push.vsm_clear_dirty_bit_indirect).x = 1;
+        deref(push.vsm_clear_dirty_bit_indirect).y = 1;
+        deref(push.vsm_clear_dirty_bit_indirect).z = clear_dirty_bit_distpach_count;
+
         deref(push.vsm_clear_indirect).x = VSM_PAGE_SIZE / CLEAR_PAGES_X_DISPATCH;
         deref(push.vsm_clear_indirect).y = VSM_PAGE_SIZE / CLEAR_PAGES_Y_DISPATCH;
-        deref(push.vsm_clear_indirect).z = deref(push.vsm_allocation_count).count;
-
-        // const daxa_u32 clear_dirty_bit_distpach_count = 
-        //     (allocations_number + VSM_CLEAR_DIRTY_BIT_LOCAL_SIZE_X - 1) / VSM_CLEAR_DIRTY_BIT_LOCAL_SIZE_X;
-        // deref(_vsm_clear_dirty_bit_indirect).x = 1;
-        // deref(_vsm_clear_dirty_bit_indirect).y = 1;
-        // deref(_vsm_clear_dirty_bit_indirect).z = clear_dirty_bit_distpach_count;
+        deref(push.vsm_clear_indirect).z = allocations_number;
     }
 
     const int linear_thread_index = int(gl_WorkGroupID.x * FIND_FREE_PAGES_X_DISPATCH + gl_LocalInvocationID.x);
+    if(linear_thread_index >= VSM_META_MEMORY_TABLE_RESOLUTION * VSM_META_MEMORY_TABLE_RESOLUTION) {return; }
+
     const ivec2 thread_coords = ivec2(
         linear_thread_index % VSM_META_MEMORY_TABLE_RESOLUTION,
         linear_thread_index / VSM_META_MEMORY_TABLE_RESOLUTION
@@ -110,6 +111,6 @@ void main()
     fits_into_reserved_slots = info.order < info.reserved_count;
     if(info.condition && fits_into_reserved_slots) 
     {
-        deref_i(push.vsm_not_visited_pages_buffer,info.reserved_offset + info.order).coords = thread_coords;
+        deref_i(push.vsm_not_visited_pages_buffer, info.reserved_offset + info.order).coords = thread_coords;
     }
 }

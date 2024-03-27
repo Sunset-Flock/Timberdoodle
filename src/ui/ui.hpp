@@ -40,6 +40,7 @@ struct UIEngine
         bool widget_scene_hierarchy = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
+        bool vsm_debug_menu = false;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;

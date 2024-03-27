@@ -128,12 +128,12 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
     ImGui::NewFrame();
 
     ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
-    ImGuiWindowFlags window_flags = 
-        ImGuiWindowFlags_NoDocking  | ImGuiWindowFlags_NoBackground |
-        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse   |
-        ImGuiWindowFlags_NoResize   | ImGuiWindowFlags_NoMove       |
+    ImGuiWindowFlags window_flags =
+        ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoBackground |
+        ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoCollapse |
+        ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
         ImGuiWindowFlags_NoNavFocus | ImGuiWindowFlags_NoBringToFrontOnFocus;
-    const ImGuiViewport *viewport = ImGui::GetMainViewport();
+    ImGuiViewport const * viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos);
     ImGui::SetNextWindowSize(viewport->WorkSize);
     ImGui::SetNextWindowViewport(viewport->ID);
@@ -156,10 +156,32 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_hierarchy);
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
+            ImGui::MenuItem("VSM Debug Menu", NULL, &vsm_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
+    }
+    if (vsm_debug_menu)
+    {
+        if(ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            ImGui::Image(
+                imgui_renderer.create_texture_id({
+                    .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                }),
+                ImVec2(VSM_DEBUG_PAGE_TABLE_RESOLUTION, VSM_DEBUG_PAGE_TABLE_RESOLUTION)
+            );
+            ImGui::Image(
+                imgui_renderer.create_texture_id({
+                    .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                }),
+                ImVec2(VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION)
+            );
+            ImGui::End();
+        }
     }
     if (widget_settings)
     {
@@ -197,7 +219,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             .post_settings = &render_ctx.render_data.postprocess_settings,
         });
     }
-    if(demo_window)
+    if (demo_window)
     {
         ImGui::ShowDemoWindow();
     }
@@ -295,10 +317,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
         IMGUI_UINT_CHECKBOX(settings.enable_mesh_shader);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
         IMGUI_UINT_CHECKBOX(settings.use_slang_for_drawing);
-        std::array<char const * const, 3> aa_modes = { 
+        std::array<char const * const, 3> aa_modes = {
             "AA_MODE_NONE",
-            "AA_MODE_SUPER_SAMPLE", 
-            "AA_MODE_DVM", 
+            "AA_MODE_SUPER_SAMPLE",
+            "AA_MODE_DVM",
         };
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
         ImGui::End();

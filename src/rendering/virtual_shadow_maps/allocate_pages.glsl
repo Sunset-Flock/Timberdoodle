@@ -24,11 +24,17 @@ void main()
 
     const int free_shifted_id = id - int(header.free_buffer_counter);
 
-    const ivec3 alloc_request_page_coords = deref(push.vsm_allocation_requests[id]).coords;
+    const ivec3 alloc_request_page_coords = deref_i(push.vsm_allocation_requests, id).coords;
 
+    // if(id == 0)
+    // {
+    //     debugPrintfEXT("=========================== Alloc requests %d free pages %d ===========================\n", 
+    //         deref(push.vsm_allocation_count).count, header.free_buffer_counter);
+    // }
     // Use up all free pages
     if(id < header.free_buffer_counter)
     {
+        // debugPrintfEXT("allocating from id %d\n", id);
         const ivec2 free_memory_page_coords = deref_i(push.vsm_free_pages_buffer, id).coords;
         const int current_camera_height_offset = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).height_offset;
         
@@ -44,11 +50,12 @@ void main()
     // If there is not enough free pages free NOT VISITED pages to make space
     else if (free_shifted_id < header.not_visited_buffer_counter)
     {
-        const ivec2 not_visited_memory_page_coords = deref(push.vsm_not_visited_pages_buffer[free_shifted_id]).coords;
+        const ivec2 not_visited_memory_page_coords = deref_i(push.vsm_not_visited_pages_buffer, free_shifted_id).coords;
+        const int current_camera_height_offset = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).height_offset;
+
         // Reset previously owning vsm page
         const uint meta_entry = imageLoad(daxa_uimage2D(push.vsm_meta_memory_table), not_visited_memory_page_coords).r;
         const ivec3 owning_vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
-        const int current_camera_height_offset = deref(push.vsm_clip_projections[alloc_request_page_coords.z]).height_offset;
         imageStore(daxa_uimage2DArray(push.vsm_page_table), owning_vsm_coords, uvec4(0));
         
         // Perform the allocation
