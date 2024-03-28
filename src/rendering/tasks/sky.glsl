@@ -580,7 +580,8 @@ void main() {
             input_dir,
             world_camera_position
         );
-        accumulated_result += subgroupInclusiveAdd(result);
+        const vec3 cos_weighed_result = result * dot(output_dir, input_dir);
+        accumulated_result += subgroupInclusiveAdd(cos_weighed_result);
     }
     // Only last thread in each subgroup contains the correct accumulated result
     if(gl_SubgroupInvocationID == 31)

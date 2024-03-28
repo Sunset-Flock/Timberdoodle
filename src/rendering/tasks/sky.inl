@@ -10,7 +10,7 @@
 #define SKY_X_DISPATCH 8
 #define SKY_Y_DISPATCH 8
 
-#define IBL_CUBE_RES 16
+#define IBL_CUBE_RES 32
 #define IBL_CUBE_X_WG_SIZE 2
 #define IBL_CUBE_Y_WG_SIZE 2
 

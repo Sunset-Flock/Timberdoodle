@@ -29,18 +29,7 @@ void main()
         if(color.x == 0 && color.y == 0 && color.z == 0) { return; }
 
         const ivec2 base_pix_pos = ivec2(gl_GlobalInvocationID.xy);
-
-        const ivec2 offset_debug_page_coords = base_pix_pos * VSM_DEBUG_PAGE_TABLE_SCALE;
-        const int debug_page_square = int(VSM_DEBUG_PAGE_TABLE_SCALE);
-
-        for(int x = 0; x < debug_page_square; x++)
-        {
-            for(int y = 0; y < debug_page_square; y++)
-            {
-                const ivec2 shaded_pix_pos = ivec2(offset_debug_page_coords.x + x, offset_debug_page_coords.y + y);
-                imageStore(daxa_image2D(push.vsm_debug_page_table), shaded_pix_pos, color);
-            }
-        }
+        imageStore(daxa_image2D(push.vsm_debug_page_table), base_pix_pos, color);
     }
 }
 #endif //DEBUG_PAGE_TABLE
@@ -53,7 +42,6 @@ void main()
     if(all(lessThan(gl_GlobalInvocationID.xy, ivec2(VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION))))
     {
         const uint meta_entry = imageLoad(daxa_uimage2D(push.vsm_meta_memory_table), ivec2(gl_GlobalInvocationID.xy)).r;
-        const ivec2 base_pix_pos = ivec2(gl_GlobalInvocationID.xy * VSM_DEBUG_META_MEMORY_TABLE_SCALE);
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 
         if (get_meta_memory_is_allocated(meta_entry)) { color = vec4(0.0, 1.0, 0.0, 1.0); }
@@ -73,14 +61,8 @@ void main()
 
         if(color.w != 0.0)
         {
-            for(daxa_i32 x = 0; x < VSM_DEBUG_META_MEMORY_TABLE_SCALE; x++)
-            {
-                for(daxa_i32 y = 0; y < VSM_DEBUG_META_MEMORY_TABLE_SCALE; y++)
-                {
-                    const daxa_i32vec2 shaded_pix_pos = ivec2(base_pix_pos.x + x, base_pix_pos.y + y);
-                    imageStore(daxa_image2D(push.vsm_debug_meta_memory_table), shaded_pix_pos, color);
-                }
-            }
+            const daxa_i32vec2 shaded_pix_pos = ivec2(gl_GlobalInvocationID.xy);
+            imageStore(daxa_image2D(push.vsm_debug_meta_memory_table), shaded_pix_pos, color);
         }
     }
 }
