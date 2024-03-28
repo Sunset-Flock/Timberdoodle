@@ -166,6 +166,18 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
     {
         if(ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            bool visualize_clip_levels = s_cast<bool>(render_ctx.render_data.vsm_settings.visualize_clip_levels);
+            bool force_clip_level = s_cast<bool>(render_ctx.render_data.vsm_settings.force_clip_level);
+            ImGui::Checkbox("Visualize clip levels", &visualize_clip_levels);
+            ImGui::Checkbox("Force clip level",&force_clip_level);
+            ImGui::BeginDisabled(!force_clip_level);
+            i32 forced_clip_level = render_ctx.render_data.vsm_settings.forced_clip_level;
+            ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
+            ImGui::EndDisabled();
+            render_ctx.render_data.vsm_settings.visualize_clip_levels = visualize_clip_levels;
+            render_ctx.render_data.vsm_settings.force_clip_level = force_clip_level;
+            render_ctx.render_data.vsm_settings.forced_clip_level = forced_clip_level ? forced_clip_level : -1;
+
             ImGui::Image(
                 imgui_renderer.create_texture_id({
                     .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),

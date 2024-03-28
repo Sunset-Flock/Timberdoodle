@@ -120,7 +120,11 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const vec3 right_world_space = world_space_from_uv( right_side_texel_uvs, info.depth, info.inv_view_proj);
 
         const float texel_world_size = length(left_world_space - right_world_space);
-        clip_level = clamp(int(ceil(log2(texel_world_size / deref(info.globals).clip_0_texel_world_size))), 0, VSM_CLIP_LEVELS - 1);
+        clip_level = max(int(ceil(log2(texel_world_size / deref(info.globals).clip_0_texel_world_size))), 0);
+        if(clip_level >= VSM_CLIP_LEVELS) 
+        {
+            return ClipInfo(clip_level, vec2(0.0));
+        }
     } 
     else 
     {
@@ -154,4 +158,13 @@ ivec3 vsm_clip_info_to_wrapped_coords(ClipInfo info, daxa_BufferPtr(VSMClipProje
 {
     const ivec3 vsm_page_pix_coords = ivec3(floor(info.sun_depth_uv * VSM_PAGE_TABLE_RESOLUTION), info.clip_level);
     return vsm_page_coords_to_wrapped_coords(vsm_page_pix_coords, clip_projections);
+}
+
+ivec2 virtual_uv_to_physical_texel(vec2 virtual_uv, ivec2 physical_page_coords)
+{
+    const ivec2 virtual_texel_coord = ivec2(virtual_uv * VSM_TEXTURE_RESOLUTION);
+    const ivec2 in_page_texel_coord = ivec2(mod(virtual_texel_coord, daxa_f32(VSM_PAGE_SIZE)));
+    const ivec2 in_memory_offset = physical_page_coords * VSM_PAGE_SIZE;
+    const ivec2 memory_texel_coord = in_memory_offset + in_page_texel_coord;
+    return memory_texel_coord;
 }

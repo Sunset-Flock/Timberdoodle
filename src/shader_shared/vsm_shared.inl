@@ -5,7 +5,7 @@
 #define VSM_TEXTURE_RESOLUTION 4096
 #define VSM_MEMORY_RESOLUTION 4096
 #define VSM_PAGE_SIZE 128
-#define VSM_CLIP_LEVELS 4
+#define VSM_CLIP_LEVELS 6
 #define VSM_PAGE_TABLE_RESOLUTION (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE)
 #define VSM_META_MEMORY_TABLE_RESOLUTION (VSM_MEMORY_RESOLUTION / VSM_PAGE_SIZE)
 
@@ -20,6 +20,7 @@
 struct VSMGlobals
 {
     daxa_f32 clip_0_texel_world_size;
+    int force_clip_level;
 };
 DAXA_DECL_BUFFER_PTR(VSMGlobals)
 

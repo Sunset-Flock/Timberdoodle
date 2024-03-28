@@ -14,6 +14,7 @@ struct RenderGlobalData
     daxa_f32 delta_time;
     Settings settings;
     SkySettings sky_settings;
+    VSMSettings vsm_settings;
     PostprocessSettings postprocess_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
