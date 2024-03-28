@@ -882,5 +882,4 @@ void Renderer::render_frame(
 
     context->shader_debug_context.update(context->device, render_target_size, window->size);
     main_task_graph.execute({});
-    render_context->prev_settings = render_context->render_data.settings;
 }

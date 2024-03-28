@@ -11,6 +11,8 @@
 #define SKY_Y_DISPATCH 8
 
 #define IBL_CUBE_RES 16
+#define IBL_CUBE_X_WG_SIZE 2
+#define IBL_CUBE_Y_WG_SIZE 2
 
 DAXA_DECL_TASK_HEAD_BEGIN(ComputeTransmittanceH, 2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -165,7 +167,11 @@ struct SkyIntoCubemapTask : SkyIntoCubemapH::Task
         SkyIntoCubemapH::AttachmentShaderBlob push{};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch({(IBL_CUBE_RES + 7) / 8, (IBL_CUBE_RES + 7) / 8, 6});
+        ti.recorder.dispatch({
+            (IBL_CUBE_RES + IBL_CUBE_X_WG_SIZE - 1) / IBL_CUBE_X_WG_SIZE,
+            (IBL_CUBE_RES + IBL_CUBE_Y_WG_SIZE - 1) / IBL_CUBE_Y_WG_SIZE,
+            6
+        });
     }
 };
 #endif //_cplusplus

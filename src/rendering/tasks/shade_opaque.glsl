@@ -305,9 +305,10 @@ void main()
             world_camera_position
         );
         const vec3 total_direct_illuminance = get_sun_direct_lighting(settings, view_direction, world_camera_position) + atmosphere_direct_illuminance;
+        output_value = vec4(total_direct_illuminance, 1.0);
+
         // const vec4 total_direct_illuminance = texture( daxa_samplerCube( AT_FROM_PUSH.sky_ibl, deref(AT_FROM_PUSH.globals).samplers.linear_clamp), view_direction).rgba;
         // output_value = vec4(total_direct_illuminance.rgb * total_direct_illuminance.a, 1.0);
-        output_value = vec4(total_direct_illuminance, 1.0);
     }
 
     const float exposure = compute_exposure(deref(AT_FROM_PUSH.luminance_average));
