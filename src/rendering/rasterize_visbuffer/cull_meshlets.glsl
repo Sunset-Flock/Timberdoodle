@@ -43,7 +43,16 @@ void main()
         [[unroll]] for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
         {
             if (push.opaque_or_discard != draw_list_type) continue;
-            atomicAdd(deref(push.uses.draw_commands[draw_list_type]).instance_count, 1);
+            if (deref(push.uses.globals).settings.enable_mesh_shader == 1)
+            {
+                daxa_RWBufferPtr(DispatchIndirectStruct) draw_cmds = daxa_RWBufferPtr(DispatchIndirectStruct)(push.uses.draw_commands);
+                atomicAdd(deref_i(draw_cmds, draw_list_type).y, 1);
+            }
+            else
+            {
+                daxa_RWBufferPtr(DrawIndirectStruct) draw_cmds = daxa_RWBufferPtr(DrawIndirectStruct)(push.uses.draw_commands);
+                atomicAdd(deref_i(draw_cmds, draw_list_type).instance_count, 1);
+            }
             const uint draw_list_element_offset = 
                 deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count;
             const uint draw_list_element_index = draw_list_element_offset +

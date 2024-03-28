@@ -47,11 +47,12 @@ void entry_cull_meshlets(uint3 dtid : SV_DispatchThreadID)
             if (mesh_shader_enable)
             {
                 let dispatch = (DispatchIndirectStruct*)push.uses.draw_commands;
-                atomicAdd(dispatch.y, 1);
+                atomicAdd(dispatch[draw_list_type].y, 1);
             }
             else
             {
-                atomicAdd(deref_i(push.uses.draw_commands, draw_list_type).instance_count, 1);
+                let draw = (DrawIndirectStruct*)push.uses.draw_commands;
+                atomicAdd(draw[draw_list_type].instance_count, 1);
             }
             const uint draw_list_element_offset = 
                 deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count;

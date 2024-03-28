@@ -22,7 +22,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(daxa_u32), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshlets2H, 12)
@@ -37,7 +37,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(DrawIndirectStruct), draw_commands)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(daxa_u32), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshletsPush
