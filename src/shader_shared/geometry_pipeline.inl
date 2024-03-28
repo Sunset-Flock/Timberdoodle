@@ -11,9 +11,9 @@
 
 /// --- Mesh Instance Draw List Begin ---
 
-#define OPAQUE_DRAW_LIST_SOLID 0
-#define OPAQUE_DRAW_LIST_MASKED 1
-#define OPAQUE_DRAW_LIST_COUNT 2
+#define DRAW_LIST_OPAQUE 0
+#define DRAW_LIST_MASK 1
+#define DRAW_LIST_TYPES 2
 
 struct MeshDrawTuple
 {

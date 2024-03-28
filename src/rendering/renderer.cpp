@@ -15,6 +15,8 @@
 #include "tasks/sky.inl"
 #include "tasks/autoexposure.inl"
 #include "tasks/shader_debug_draws.inl"
+#include "tasks/decode_visbuffer_test.inl"
+
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
 #include <thread>
@@ -154,6 +156,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
+        {decode_visbuffer_test_pipeline_info()},
     };
     if (allow_slang)
     {
@@ -640,6 +643,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             1,
         },
         .name = "color_image",
+    });
+    task_list.add_task(DecodeVisbufferTestTask{
+        .views = std::array{
+            daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.debug_image, debug_image),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.vis_image, visbuffer),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.material_manifest, scene->_gpu_material_manifest),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
+        },
+        .context = context,
     });
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{

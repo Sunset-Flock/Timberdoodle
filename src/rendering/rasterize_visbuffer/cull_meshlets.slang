@@ -41,7 +41,7 @@ void entry_cull_meshlets(uint3 dtid : SV_DispatchThreadID)
         deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
         const bool mesh_shader_enable = deref(push.uses.globals).settings.enable_mesh_shader == 1;
         // Scalarize atomic appends.
-        [[unroll]] for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
+        [[unroll]] for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
         {
             if (push.opaque_or_discard != draw_list_type) continue;
             if (mesh_shader_enable)

@@ -11,9 +11,9 @@
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 
 #if defined(OPAQUE)
-#define OPAQUE_DRAW_LIST_TYPE OPAQUE_DRAW_LIST_SOLID
+#define OPAQUE_DRAW_LIST_TYPE DRAW_LIST_OPAQUE
 #elif defined(DISCARD)
-#define OPAQUE_DRAW_LIST_TYPE OPAQUE_DRAW_LIST_MASKED
+#define OPAQUE_DRAW_LIST_TYPE DRAW_LIST_MASK
 #else
 #define OPAQUE_DRAW_LIST_TYPE 0
 #endif
@@ -25,7 +25,7 @@ import core;
 void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
 {
     DrawVisbufferPush_WriteCommand push = write_cmd_p;
-    for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
+    for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
     {
         uint meshlets_to_draw = get_meshlet_draw_count(
             push.uses.globals,
@@ -35,8 +35,8 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
         if (push.mesh_shader == 1)
         {
             DispatchIndirectStruct command;
-            command.x = meshlets_to_draw;
-            command.y = 1;
+            command.x = 1;
+            command.y = meshlets_to_draw;
             command.z = 1;
             ((DispatchIndirectStruct*)(push.uses.draw_commands))[draw_list_type] = command;
         }
@@ -56,10 +56,10 @@ struct VertexOut
 {
     float4 position : SV_Position;
     [[vk::location(0)]] nointerpolation uint triangle_id;
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         [[vk::location(1)]] float2 uv;
         [[vk::location(2)]] nointerpolation uint material_index;
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
 };
 
 // used to make repro
@@ -101,14 +101,14 @@ VertexOut entry_vertex(
     VertexOut vertex;
     vertex.position = pos;
     encode_triangle_id(inst_meshlet_index, triangle_index, vertex.triangle_id);
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         vertex.material_index = meshlet_inst.material_index;
         vertex.uv = float2(0,0);
         if (as_address(mesh.vertex_uvs) != 0)
         {
             vertex.uv = deref_i(mesh.vertex_uvs, vertex_index);
         }
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
     return vertex;
 }
 
@@ -121,7 +121,7 @@ struct FragmentOut
 FragmentOut entry_fragment(VertexOut frag_in)
 {
     FragmentOut frag_out;
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         if (frag_in.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = deref_i(draw_p.uses.material_manifest, frag_in.material_index);
@@ -129,14 +129,14 @@ FragmentOut entry_fragment(VertexOut frag_in)
             {
                 float alpha = 
                     daxa_Texture2D(float4, material.diffuse_texture_id)
-                    .SampleLevel(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), frag_in.uv, 0).a; 
+                    .Sample(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), frag_in.uv).a; 
                 if (alpha < 0.5f)
                 {
                     discard;
                 }
             }
         }
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
     frag_out.triangle_id = frag_in.triangle_id;
     return frag_out;
 }
@@ -156,18 +156,18 @@ void entry_task(
 
 struct MeshShaderPrimitiveOut
 {
-    [[vk::location(0)]] uint triangle_id;
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
-        [[vk::location(1)]] uint material_index;
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    [[vk::location(0)]] nointerpolation uint triangle_id;
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
+        [[vk::location(1)]] nointerpolation uint material_index;
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
 };
 
 struct MeshShaderVertexOut
 {
     float4 position : SV_Position;
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         [[vk::location(0)]] float2 uv;
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
 };
 
 [outputtopology("triangle")]
@@ -185,16 +185,17 @@ void entry_mesh(
         draw_p.pass, 
         OPAQUE_DRAW_LIST_TYPE,
         svtid.y);
+    const uint total_meshlet_count = 
+        deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
+        deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
     const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
     const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
-    Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
+    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
     const daxa_f32mat4x4 view_proj = 
         (draw_p.pass > PASS1_DRAW_POST_CULL) ? 
         deref(draw_p.uses.globals).observer_camera.view_proj : 
         deref(draw_p.uses.globals).camera.view_proj;
-    //meshlet.vertex_count = min(meshlet.vertex_count, 3);
-    meshlet.triangle_count = min(meshlet.triangle_count, 2);
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
@@ -215,13 +216,13 @@ void entry_mesh(
 
         MeshShaderVertexOut vertex;
         vertex.position = pos;
-        #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+        #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
             vertex.uv = float2(0,0);
             if (as_address(mesh.vertex_uvs) != 0)
             {
                 vertex.uv = deref_i(mesh.vertex_uvs, in_mesh_vertex_index);
             }
-        #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+        #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         out_vertices[in_meshlet_vertex_index] = vertex;
     }
 
@@ -229,7 +230,6 @@ void entry_mesh(
     {
         const uint in_meshlet_triangle_index = svtid.x + triangle_offset;
         if (in_meshlet_triangle_index >= meshlet.triangle_count) break;
-        printf("svtid.x: %i\n", svtid.x);
 
         const uint3 tri_in_meshlet_vertex_indices = uint3(
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
@@ -241,9 +241,9 @@ void entry_mesh(
         encode_triangle_id(inst_meshlet_index, in_meshlet_triangle_index, triangle_id);
         out_primitives[in_meshlet_triangle_index] = {
             triangle_id
-            #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+            #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
                 , meshlet_inst.material_index
-            #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+            #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         };
     }
 }
@@ -252,19 +252,19 @@ void entry_mesh(
 FragmentOut entry_mesh_fragment(in MeshShaderVertexOut vert, in MeshShaderPrimitiveOut prim)
 {
     FragmentOut frag_out;
-    #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
         GPUMaterial material = deref_i(draw_p.uses.material_manifest, prim.material_index);
         if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
         {
             float alpha = 
                 daxa_Texture2D(float4, material.diffuse_texture_id)
-                .SampleLevel(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), vert.uv, 0).a; 
+                .Sample(daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), vert.uv).a; 
             if (alpha < 0.5f)
             {
                 discard;
             }
         }
-    #endif // #if OPAQUE_DRAW_LIST_TYPE == OPAQUE_DRAW_LIST_MASKED
+    #endif // #if OPAQUE_DRAW_LIST_TYPE == DRAW_LIST_MASK
     frag_out.triangle_id = prim.triangle_id;
     return frag_out;
 }

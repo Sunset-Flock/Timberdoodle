@@ -600,14 +600,14 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
             {
                 u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_meshgroup_mesh_i);
                 MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
-                u32 opaque_draw_list_type = OPAQUE_DRAW_LIST_SOLID;
+                u32 opaque_draw_list_type = DRAW_LIST_OPAQUE;
                 // TODO: add dummy material!
                 if (mesh.material_index.has_value())
                 {
                     MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
                     if (material.alpha_discard_enabled)
                     {
-                        opaque_draw_list_type = OPAQUE_DRAW_LIST_MASKED;
+                        opaque_draw_list_type = DRAW_LIST_MASK;
                     }
                 }
                 auto mesh_draw = MeshDrawTuple{

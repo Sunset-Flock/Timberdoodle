@@ -40,7 +40,7 @@ void main()
         const uint meshlet_instance_idx = out_index + offset;
         deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_idx]) = instanced_meshlet;
         // Scalarize atomic appends.
-        [[unroll]] for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
+        [[unroll]] for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
         {
             if (push.opaque_or_discard != draw_list_type) continue;
             atomicAdd(deref(push.uses.draw_commands[draw_list_type]).instance_count, 1);

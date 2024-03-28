@@ -103,7 +103,7 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {    
-    const uint count = deref(push.uses.visible_meshlets_prev).count;
+    const uint count = deref(push.uses.visible_meshlets_prev).count; 
     const uint thread_index = gl_GlobalInvocationID.x;
     if (thread_index >= count)
     {
@@ -146,18 +146,18 @@ void main()
             
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
-            uint opaque_draw_list_type_index = OPAQUE_DRAW_LIST_SOLID;
+            uint opaque_draw_list_type_index = DRAW_LIST_OPAQUE;
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
                 GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
-                opaque_draw_list_type_index = material.alpha_discard_enabled ? OPAQUE_DRAW_LIST_MASKED : OPAQUE_DRAW_LIST_SOLID;
+                opaque_draw_list_type_index = material.alpha_discard_enabled ? DRAW_LIST_MASK : DRAW_LIST_OPAQUE;
             }
             // Scalarize appends to the draw lists.
             // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
             // This allows for scalar atomic ops and packed writeouts.
             // Drawlist type count are low, scalarization will most likely always improve perf.
             [[unroll]]
-            for (uint draw_list_type = 0; draw_list_type < OPAQUE_DRAW_LIST_COUNT; ++draw_list_type)
+            for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
             {
                 if (opaque_draw_list_type_index != draw_list_type)
                 {

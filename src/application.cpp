@@ -155,7 +155,6 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
 
-
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
         .asset_name = DEFAULT_HARDCODED_FILE,

@@ -12,7 +12,7 @@
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_u64, draw_commands)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
@@ -110,6 +110,7 @@ static inline daxa::RasterPipelineCompileInfo draw_visbuffer_base_compile_info()
 inline daxa::RasterPipelineCompileInfo draw_visbuffer_solid_pipeline_compile_info()
 {
     auto ret = draw_visbuffer_base_compile_info();
+    // ret.raster.face_culling = daxa::FaceCullFlagBits::BACK_BIT;
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
@@ -169,6 +170,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_solid_pipeline_compi
             .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
+    ret.name = "SlangDrawVisbufferOpaque";
     return ret;
 };
 
@@ -191,6 +193,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_masked_pipeline_comp
             .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
+    ret.name = "SlangDrawVisbufferMasked";
     return ret;
 };
 
@@ -219,7 +222,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pi
             .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
-    ret.name = "DrawVisbufferMeshShaderSolid";
+    ret.name = "SlangDrawVisbufferMeshShaderSolid";
     return ret;
 };
 
@@ -243,7 +246,7 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_p
             .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
-    ret.name = "DrawVisbufferMeshShaderMasked";
+    ret.name = "SlangDrawVisbufferMeshShaderMasked";
     return ret;
 };
 
@@ -325,7 +328,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
             {
                 if (render_context->render_data.settings.use_slang_for_drawing)
                 {
-                    render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(draw_visbuffer_pipelines[opaque_draw_list_type].name));
+                    render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(slang_draw_visbuffer_pipelines[opaque_draw_list_type].name));
                 }
                 else
                 {
@@ -611,7 +614,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     info.task_graph.add_task(write_task);
 
     bool dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
-    info.task_graph.add_task(write_task);
 
     DrawVisbufferTask draw_task = {
         .views = std::array{
