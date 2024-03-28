@@ -142,6 +142,7 @@ struct VisbufferTriangleData
     daxa_f32vec3 world_position;
     daxa_f32vec3 world_normal;
     daxa_f32vec3 world_tangent;
+    daxa_f32 depth;
     daxa_f32vec2 uv;
     daxa_f32vec2 uv_ddx;
     daxa_f32vec2 uv_ddy;
@@ -198,7 +199,7 @@ VisbufferTriangleData visgeo_triangle_data(
         mul(view_proj, world_vertex_positions[1]),
         mul(view_proj, world_vertex_positions[2])
     );
-
+    
     ret.bari_deriv = calc_bary_and_deriv(
         clipspace_vertex_positions[0],
         clipspace_vertex_positions[1],
@@ -213,6 +214,14 @@ VisbufferTriangleData visgeo_triangle_data(
         world_vertex_positions[1].xyz,
         world_vertex_positions[2].xyz
     );
+
+    const daxa_f32vec2 interp_zw = visgeo_interpolate_vec2(
+        ret.bari_deriv.m_lambda,
+        clipspace_vertex_positions[0].zw,
+        clipspace_vertex_positions[1].zw,
+        clipspace_vertex_positions[2].zw
+    );
+    ret.depth = interp_zw.r / interp_zw.g;
 
     const daxa_f32vec3[3] vertex_normals = daxa_f32vec3[3](
         deref_i(mesh.vertex_normals, ret.vertex_indices.x),

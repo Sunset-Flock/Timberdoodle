@@ -98,5 +98,6 @@ struct RenderContext
     // Data
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};
+    VSMSettings prev_vsm_settings = {};
     RenderGlobalData render_data = {};
 };

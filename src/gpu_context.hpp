@@ -4,6 +4,7 @@
 #include "window.hpp"
 #include "shader_shared/shared.inl"
 #include "shader_shared/globals.inl"
+#include "shader_shared/vsm_shared.inl"
 
 struct ShaderDebugDrawContext
 {
@@ -32,6 +33,8 @@ struct ShaderDebugDrawContext
     };
     daxa::ImageId debug_lens_image = {};
     daxa::TaskImage tdebug_lens_image = {};
+    daxa::TaskImage vsm_debug_meta_memory_table = {};
+    daxa::TaskImage vsm_debug_page_table = {};
     daxa::BufferId readback_queue = {};
 
     std::vector<ShaderDebugCircleDraw> cpu_debug_circle_draws = {};
@@ -58,6 +61,41 @@ struct ShaderDebugDrawContext
             .initial_images = {.images = std::array{debug_lens_image}}, 
             .name = "debug detector image",
         });
+
+        vsm_debug_page_table = daxa::TaskImage({
+            .initial_images = {
+                .images = std::array{
+                    device.create_image({
+                        .format = daxa::Format::R8G8B8A8_UNORM,
+                        .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                        .usage =
+                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_DST,
+                        .name = "vsm debug page table physical image",
+                    }),
+                },
+            },
+            .name = "vsm debug page table",
+        });
+
+        vsm_debug_meta_memory_table = daxa::TaskImage({
+            .initial_images = {
+                .images = std::array{
+                    device.create_image({
+                        .format = daxa::Format::R8G8B8A8_UNORM,
+                        .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
+                        .usage =
+                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_DST,
+                        .name = "vsm debug meta memory table physical image",
+                    }),
+                },
+            },
+            .name = "vsm debug meta memory table",
+        });
+
         readback_queue = device.create_buffer({
             .size = sizeof(ShaderDebugOutput) * 4 /*4 is a save value for all kinds of frames in flight setups*/,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.

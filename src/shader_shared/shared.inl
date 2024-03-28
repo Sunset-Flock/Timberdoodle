@@ -124,6 +124,13 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 #define AA_MODE_SUPER_SAMPLE 1
 #define AA_MODE_DVM 2
 
+struct VSMSettings
+{
+    daxa_u32 visualize_clip_levels;
+    daxa_u32 force_clip_level;
+    daxa_i32 forced_clip_level;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 struct Settings
 {
     daxa_u32vec2 render_target_size;

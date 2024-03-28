@@ -155,8 +155,19 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {sky_into_cubemap_pipeline_compile_info()},
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
+        {vsm_free_wrapped_pages_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
+        {vsm_find_free_pages_pipeline_compile_info()},
+        {vsm_allocate_pages_pipeline_compile_info()},
+        {vsm_clear_pages_pipeline_compile_info()},
+        {vsm_clear_dirty_bit_pipeline_compile_info()},
+        {vsm_debug_virtual_page_table_pipeline_compile_info()},
+        {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info()},
+    };
+    if (allow_slang)
+    {
+        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
     };
     if (allow_slang)
     {
@@ -419,8 +430,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
-    task_list.use_persistent_image(vsm_state.debug_page_table);
-    task_list.use_persistent_image(vsm_state.debug_meta_memory_table);
+    task_list.use_persistent_image(context->shader_debug_context.vsm_debug_page_table);
+    task_list.use_persistent_image(context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
@@ -656,6 +667,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .context = context,
     });
+    auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_page_heigh_offsets_view = vsm_state.page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
             daxa::attachment_view(ShadeOpaqueH::AT.debug_lens_image, debug_lens_image),
@@ -665,11 +678,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.transmittance, transmittance),
             daxa::attachment_view(ShadeOpaqueH::AT.sky, sky),
             daxa::attachment_view(ShadeOpaqueH::AT.sky_ibl, sky_ibl_view),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_page_height_offsets, vsm_page_heigh_offsets_view),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_memory_block, vsm_state.memory_block),
             daxa::attachment_view(ShadeOpaqueH::AT.material_manifest, scene->_gpu_material_manifest),
             daxa::attachment_view(ShadeOpaqueH::AT.instantiated_meshlets, meshlet_instances),
             daxa::attachment_view(ShadeOpaqueH::AT.meshes, scene->_gpu_mesh_manifest),
             daxa::attachment_view(ShadeOpaqueH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
             daxa::attachment_view(ShadeOpaqueH::AT.luminance_average, luminance_average),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_clip_projections, vsm_state.clip_projections),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
         },
         .context = context,
@@ -830,7 +848,12 @@ void Renderer::render_frame(
     }
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
+    render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
 
+    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
+    }
     vsm_state.clip_projections_cpu = get_vsm_projections(GetVSMProjectionsInfo{
         .camera_info = &camera_info,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
@@ -840,12 +863,19 @@ void Renderer::render_frame(
         .clip_0_height_offset = 50.0f,
         .debug_context = &context->shader_debug_context,
     });
+
+    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        const auto clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
+        vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
+    }
+
     // clip_0.right - clip_0.left = 2.0f * clip_0_scale (HARDCODED FOR NOW TODO(msakmary) FIX)
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 10.0f) / VSM_TEXTURE_RESOLUTION;
 
     // debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
-    //     .clip_projections = std::span<const VSMClipProjection>(vsm_clip_projections.begin(), 1),
-    //     .draw_individual_pages = true,
+    //     .clip_projections = std::span<const VSMClipProjection>(vsm_state.clip_projections_cpu.begin(), 1),
+    //     .draw_individual_pages = false,
     //     .debug_context = &context->shader_debug_context,
     //     .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
     // });
@@ -867,5 +897,4 @@ void Renderer::render_frame(
 
     context->shader_debug_context.update(context->device, render_target_size, window->size);
     main_task_graph.execute({});
-    render_context->prev_settings = render_context->render_data.settings;
 }

@@ -483,7 +483,7 @@ void main()
 #endif // SKY
 #if defined(CUBEMAP)
 DAXA_DECL_PUSH_CONSTANT(SkyIntoCubemapH, push)
-layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+layout(local_size_x = 2, local_size_y = 2, local_size_z = 32) in;
 
 float radical_inverse_vdc(uint bits) 
 {
@@ -546,13 +546,13 @@ vec3 uniform_sample_cone(vec2 urand, float cos_theta_max)
 }
 
 void main() {
-    uvec3 px = gl_GlobalInvocationID.xyz;
-    uint face = px.z;
-    vec2 uv = (px.xy + 0.5) / IBL_CUBE_RES;
+    const uvec2 wg_base_pix_pos = gl_WorkGroupID.xy * uvec2(IBL_CUBE_X_WG_SIZE, IBL_CUBE_Y_WG_SIZE);
+    const uvec2 sg_pix_pos = wg_base_pix_pos + uvec2(gl_SubgroupID % IBL_CUBE_X_WG_SIZE, gl_SubgroupID / IBL_CUBE_X_WG_SIZE);
+    uint face = gl_WorkGroupID.z;
+    vec2 uv = (vec2(sg_pix_pos) + vec2(0.5)) / IBL_CUBE_RES;
 
     vec3 output_dir = normalize(CUBE_MAP_FACE_ROTATION(face) * vec3(uv * 2 - 1, -1.0));
     const mat3 basis = build_orthonormal_basis(output_dir);
-    const uint sample_count = 128;
 
     daxa_BufferPtr(SkySettings) sky_settings_ptr = deref(push.globals).sky_settings_ptr;
     // Because the atmosphere is using km as it's default units and we want one unit in world
@@ -561,15 +561,18 @@ void main() {
     vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(sky_settings_ptr).atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const float height = length(world_camera_position);
 
-    uint rng = hash2(px.xy);
+    vec3 accumulated_result = vec3(0);
 
-    vec3 result = vec3(0);
-    for (uint i = 0; i < sample_count; ++i) {
-        vec2 urand = hammersley(i, sample_count);
+    // We hardcode the subgroup size to be 32
+    const uint sample_count = 128;
+    const uint subgroup_size = 32;
+    const uint iter_count = sample_count / subgroup_size;
+    for (uint i = 0; i < iter_count; ++i) {
+        vec2 urand = hammersley(i * subgroup_size + gl_SubgroupInvocationID, sample_count);
         vec3 input_dir = basis * uniform_sample_cone(urand, 0.01);
         // TODO: Now that we sample the atmosphere directly, computing this IBL is really slow.
         // We should cache the IBL cubemap, and only re-render it when necessary.
-        result += get_atmosphere_illuminance_along_ray(
+        const vec3 result = get_atmosphere_illuminance_along_ray(
             sky_settings_ptr,
             push.transmittance,
             push.sky,
@@ -577,11 +580,16 @@ void main() {
             input_dir,
             world_camera_position
         );
+        const vec3 cos_weighed_result = result * dot(output_dir, input_dir);
+        accumulated_result += subgroupInclusiveAdd(cos_weighed_result);
     }
-
-    const vec3 luminance = result / sample_count;
-    const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
-    const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
-    imageStore(daxa_image2DArray(push.ibl_cube), ivec3(px), vec4(luminance * inv_mult, 1.0/inv_mult));
+    // Only last thread in each subgroup contains the correct accumulated result
+    if(gl_SubgroupInvocationID == 31)
+    {
+        const vec3 luminance = accumulated_result / sample_count;
+        const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
+        const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
+        imageStore(daxa_image2DArray(push.ibl_cube), ivec3(sg_pix_pos, gl_WorkGroupID.z), vec4(luminance * inv_mult, 1.0/inv_mult));
+    }
 }
 #endif //CUBEMAP

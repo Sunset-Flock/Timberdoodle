@@ -14,9 +14,6 @@ struct VSMState
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
 
-    daxa::TaskImage debug_page_table = {};
-    daxa::TaskImage debug_meta_memory_table = {};
-
     // Transient state
     daxa::TaskBufferView allocation_count = {};
     daxa::TaskBufferView allocation_requests = {};
@@ -32,6 +29,7 @@ struct VSMState
 
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections_cpu = {};
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
+    std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
     VSMGlobals globals_cpu = {};
 
     void initialize_persitent_state(GPUContext * context)
@@ -116,39 +114,6 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
-        debug_page_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    context->device.create_image({
-                        .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_DEBUG_PAGE_TABLE_RESOLUTION, VSM_DEBUG_PAGE_TABLE_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm debug page table physical image",
-                    }),
-                },
-            },
-            .name = "vsm debug page table",
-        });
-
-        debug_meta_memory_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    context->device.create_image({
-                        .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm debug meta memory table physical image",
-                    }),
-                },
-            },
-            .name = "vsm debug meta memory table",
-        });
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = context->device,
@@ -188,8 +153,6 @@ struct VSMState
         context->device.destroy_image(meta_memory_table.get_state().images[0]);
         context->device.destroy_image(page_table.get_state().images[0]);
         context->device.destroy_image(page_height_offsets.get_state().images[0]);
-        context->device.destroy_image(debug_page_table.get_state().images[0]);
-        context->device.destroy_image(debug_meta_memory_table.get_state().images[0]);
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg)
