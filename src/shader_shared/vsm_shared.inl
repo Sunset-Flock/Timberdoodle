@@ -16,6 +16,9 @@
 #define VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION (VSM_META_MEMORY_TABLE_RESOLUTION * VSM_DEBUG_META_MEMORY_TABLE_SCALE)
 
 #define MAX_VSM_ALLOC_REQUESTS 256
+#if defined(__cplusplus)
+static_assert(VSM_PAGE_TABLE_RESOLUTION < 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
+#endif //defined(__cplusplus)
 
 struct VSMGlobals
 {

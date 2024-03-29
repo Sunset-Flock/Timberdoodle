@@ -212,9 +212,9 @@ struct VSMState
 
         dirty_pages_hiz = tg.create_transient_image({
             .dimensions = 2,
-            .format = daxa::Format::R8_UNORM,
+            .format = daxa::Format::R8_UINT,
             .size = hiz_size,
-            .mip_level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)),
+            .mip_level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
             .array_layer_count = VSM_CLIP_LEVELS,
             .name = "vsm dirty hiz"
         });

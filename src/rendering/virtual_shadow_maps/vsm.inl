@@ -15,6 +15,8 @@
 #define CLEAR_PAGES_Y_DISPATCH 16
 #define GEN_DIRTY_BIT_HIZ_X_DISPATCH 16
 #define GEN_DIRTY_BIT_HIZ_Y_DISPATCH 16
+#define GEN_DIRTY_BIT_HIZ_X_WINDOW 64
+#define GEN_DIRTY_BIT_HIZ_Y_WINDOW 64
 #define DEBUG_PAGE_TABLE_X_DISPATCH 16
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
@@ -73,7 +75,7 @@ DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH, 3)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz, 8)
 DAXA_DECL_TASK_HEAD_END
 
@@ -378,10 +380,12 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 {
     auto const vsm_page_table_view = info.vsm_state->page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_height_offsets_view = info.vsm_state->page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-    auto const vsm_dirty_bit_hiz_view = info.vsm_state->dirty_pages_hiz.view({.base_mip_level = 0,
-        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)),
+    auto const vsm_dirty_bit_hiz_view = info.vsm_state->dirty_pages_hiz.view({
+        .base_mip_level = 0,
+        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
-        .layer_count = VSM_CLIP_LEVELS});
+        .layer_count = VSM_CLIP_LEVELS,
+    });
     info.tg->add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
