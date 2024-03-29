@@ -8,23 +8,6 @@
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
 
-bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32vec3 ws_center, float ws_radius)
-{
-    const daxa_f32vec3 frustum_planes[5] = {
-        camera.right_plane_normal,
-        camera.left_plane_normal,
-        camera.top_plane_normal,
-        camera.bottom_plane_normal,
-        camera.near_plane_normal,
-    };
-    bool out_of_frustum = false;
-    for (uint i = 0; i < 5; ++i)
-    {
-        out_of_frustum = out_of_frustum || (dot((ws_center - camera.position), frustum_planes[i]) - ws_radius) > 0.0f;
-    }
-    return out_of_frustum;
-}
-
 bool is_tri_out_of_frustum(CameraInfo camera, daxa_f32vec3 tri[3])
 {
     const daxa_f32vec3 frustum_planes[5] = {
@@ -47,22 +30,12 @@ bool is_tri_out_of_frustum(CameraInfo camera, daxa_f32vec3 tri[3])
     return out_of_frustum;
 }
 
-bool is_meshlet_occluded(
-    CameraInfo camera,
+bool is_meshlet_drawn_in_first_pass(
     MeshletInstance meshlet_inst,
     daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
-    U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
-    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
-    daxa_BufferPtr(GPUMesh) meshes,
-    daxa_ImageViewId hiz
+    U32ArenaBufferRef first_pass_meshlets_bitfield_arena
 )
 {
-    GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
-    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
-    {
-        return true;
-    }
-
     const uint first_pass_meshgroup_bitfield_offset = deref_i(first_pass_meshlets_bitfield_offsets, meshlet_inst.entity_index);
     if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
         (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
@@ -89,36 +62,62 @@ bool is_meshlet_occluded(
             }
         }
     }
+    return false;
+}
 
-    // daxa_f32vec3 center;
-    // daxa_f32 radius;
-    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
-    daxa_f32mat4x4 view_proj = camera.view_proj;
+BoundingSphere calculate_meshlet_ws_bounding_sphere(
+    daxa_f32mat4x4 model_matrix,
+    BoundingSphere model_space_bounding_sphere
+)
+{
     const float model_scaling_x_squared = dot(model_matrix[0],model_matrix[0]);
     const float model_scaling_y_squared = dot(model_matrix[1],model_matrix[1]);
     const float model_scaling_z_squared = dot(model_matrix[2],model_matrix[2]);
     const float radius_scaling = sqrt(max(max(model_scaling_x_squared,model_scaling_y_squared), model_scaling_z_squared));
-    BoundingSphere bounds = deref_i(mesh_data.meshlet_bounds,meshlet_inst.meshlet_index);
-    AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    const float scaled_radius = radius_scaling * bounds.radius;
-    const daxa_f32vec3 ws_center = mul(model_matrix, daxa_f32vec4(bounds.center, 1)).xyz;
+    BoundingSphere ret;
+    ret.radius = radius_scaling * model_space_bounding_sphere.radius;
+    ret.center = mul(model_matrix, daxa_f32vec4(model_space_bounding_sphere.center, 1)).xyz;
+    return ret;
+}
 
-    if (is_sphere_out_of_frustum(camera, ws_center, scaled_radius))
+bool is_ws_sphere_out_of_frustum(CameraInfo camera, BoundingSphere ws_bounding_sphere)
+{
+    const daxa_f32vec3 frustum_planes[5] = {
+        camera.right_plane_normal,
+        camera.left_plane_normal,
+        camera.top_plane_normal,
+        camera.bottom_plane_normal,
+        camera.near_plane_normal,
+    };
+    bool out_of_frustum = false;
+    for (uint i = 0; i < 5; ++i)
     {
-        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
-            ShaderDebugCircleDraw circle;
-            circle.position = ws_center;
-            circle.radius = scaled_radius;
-            circle.color = daxa_f32vec3(1,1,0);
-            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.debug, circle);
-        #endif
-        return true;
+        out_of_frustum = out_of_frustum || (dot((ws_bounding_sphere.center - camera.position), frustum_planes[i]) - ws_bounding_sphere.radius) > 0.0f;
     }
+    return out_of_frustum;
+}
 
-    bool initialized_min_max = false;
+bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32mat4x4 model_matrix, BoundingSphere ws_bounding_sphere)
+{
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, ws_bounding_sphere);
+    return is_ws_sphere_out_of_frustum(camera, ws_bs);
+}
+
+struct NdcAABB
+{
     daxa_f32vec3 ndc_min;
     daxa_f32vec3 ndc_max;
+};
+
+NdcAABB calculate_meshlet_ndc_aabb(
+    CameraInfo camera,
+    MeshletInstance meshlet_inst,
+    daxa_f32mat4x4 model_matrix,
+    AABB meshlet_aabb
+)
+{
+    bool initialized_min_max = false;
+    NdcAABB ret;
     for (int z = -1; z <= 1; z += 2)
     {
         for (int y = -1; y <= 1; y += 2)
@@ -127,27 +126,35 @@ bool is_meshlet_occluded(
             {
                 const daxa_f32vec3 model_corner_position = meshlet_aabb.center + meshlet_aabb.size * daxa_f32vec3(x,y,z) * 0.5f;
                 const daxa_f32vec4 worldspace_corner_position = mul(model_matrix, daxa_f32vec4(model_corner_position,1));
-                const daxa_f32vec4 clipspace_corner_position = mul(view_proj, worldspace_corner_position);
+                const daxa_f32vec4 clipspace_corner_position = mul(camera.view_proj, worldspace_corner_position);
                 const daxa_f32vec3 ndc_corner_position = clipspace_corner_position.xyz / clipspace_corner_position.w;
-                ndc_min.x = !initialized_min_max ? ndc_corner_position.x : min(ndc_corner_position.x, ndc_min.x);
-                ndc_min.y = !initialized_min_max ? ndc_corner_position.y : min(ndc_corner_position.y, ndc_min.y);
-                ndc_min.z = !initialized_min_max ? ndc_corner_position.z : min(ndc_corner_position.z, ndc_min.z);
-                ndc_max.x = !initialized_min_max ? ndc_corner_position.x : max(ndc_corner_position.x, ndc_max.x);
-                ndc_max.y = !initialized_min_max ? ndc_corner_position.y : max(ndc_corner_position.y, ndc_max.y);
-                ndc_max.z = !initialized_min_max ? ndc_corner_position.z : max(ndc_corner_position.z, ndc_max.z);
+                ret.ndc_min.x = !initialized_min_max ? ndc_corner_position.x : min(ndc_corner_position.x, ret.ndc_min.x);
+                ret.ndc_min.y = !initialized_min_max ? ndc_corner_position.y : min(ndc_corner_position.y, ret.ndc_min.y);
+                ret.ndc_min.z = !initialized_min_max ? ndc_corner_position.z : min(ndc_corner_position.z, ret.ndc_min.z);
+                ret.ndc_max.x = !initialized_min_max ? ndc_corner_position.x : max(ndc_corner_position.x, ret.ndc_max.x);
+                ret.ndc_max.y = !initialized_min_max ? ndc_corner_position.y : max(ndc_corner_position.y, ret.ndc_max.y);
+                ret.ndc_max.z = !initialized_min_max ? ndc_corner_position.z : max(ndc_corner_position.z, ret.ndc_max.z);
                 initialized_min_max = true;
             }
         }
     }
 
-    ndc_min.x = max(ndc_min.x, -1.0f);
-    ndc_min.y = max(ndc_min.y, -1.0f);
-    ndc_max.x = min(ndc_max.x,  1.0f);
-    ndc_max.y = min(ndc_max.y,  1.0f);
+    ret.ndc_min.x = max(ret.ndc_min.x, -1.0f);
+    ret.ndc_min.y = max(ret.ndc_min.y, -1.0f);
+    ret.ndc_max.x = min(ret.ndc_max.x,  1.0f);
+    ret.ndc_max.y = min(ret.ndc_max.y,  1.0f);
+    return ret;
+}
 
+bool is_ndc_aabb_hiz_depth_occluded(
+    CameraInfo camera,
+    NdcAABB meshlet_ndc_aabb,
+    daxa_ImageViewId hiz
+)
+{
     const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
-    const daxa_f32vec2 min_uv = (ndc_min.xy + 1.0f) * 0.5f;
-    const daxa_f32vec2 max_uv = (ndc_max.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
@@ -173,7 +180,89 @@ bool is_meshlet_occluded(
         texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), imip).x
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
-    const bool depth_cull = ndc_max.z < conservative_depth;
+    const bool depth_cull = meshlet_ndc_aabb.ndc_max.z < conservative_depth;
+    return depth_cull;
+}
+
+// Used by Virtual Shadow Maps.
+bool is_ndc_aabb_hiz_opacity_occluded(
+    CameraInfo camera,
+    NdcAABB meshlet_ndc_aabb,
+    daxa_ImageViewId hiz,
+    daxa_u32 array_layer
+)
+{
+    const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
+    const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
+    const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
+    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
+
+    // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
+    // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
+    // We check if the quad at its current position within that mip level fits that quad and if not we move up one mip.
+    // This will give us the tightest fit.
+    int imip = int(mip);
+    const daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+    const daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
+    if (any(greaterThan(max_corner_texel - min_corner_texel, daxa_i32vec2(1)))) {
+        imip += 1;
+    }
+    const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+    const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
+
+    const daxa_u32vec4 fetch = daxa_u32vec4(
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x
+    );
+    const bool no_valid_pages_in_ndc = (fetch.x | fetch.y | fetch.z | fetch.w) == 0;
+    return no_valid_pages_in_ndc;
+}
+
+bool is_meshlet_occluded(
+    CameraInfo camera,
+    MeshletInstance meshlet_inst,
+    daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
+    U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_ImageViewId hiz
+)
+{
+    GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
+    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
+    {
+        return true;
+    }
+
+    if (is_meshlet_drawn_in_first_pass( meshlet_inst, first_pass_meshlets_bitfield_offsets, first_pass_meshlets_bitfield_arena ))
+    {
+        return true;
+    }
+
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
+    BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
+    if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    {
+        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+            ShaderDebugCircleDraw circle;
+            circle.position = ws_center;
+            circle.radius = scaled_radius;
+            circle.color = daxa_f32vec3(1,1,0);
+            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            debug_draw_circle(GLOBALS.debug, circle);
+        #endif
+        return true;
+    }
+
+
+    AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
+    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
+    const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
     if (depth_cull)
@@ -212,6 +301,80 @@ bool is_meshlet_occluded(
     #endif
 
     return depth_cull;
+}
+
+bool is_meshlet_occluded_vsm(
+    CameraInfo camera,
+    MeshletInstance meshlet_inst,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_ImageViewId hiz,
+    daxa_u32 cascade
+)
+{
+    GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
+    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
+    {
+        return true;
+    }
+
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
+    BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
+    if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    {
+        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+            ShaderDebugCircleDraw circle;
+            circle.position = ws_center;
+            circle.radius = scaled_radius;
+            circle.color = daxa_f32vec3(1,1,0);
+            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            debug_draw_circle(GLOBALS.debug, circle);
+        #endif
+        return true;
+    }
+
+
+    AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
+    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
+
+    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
+    if (page_opacity_cull)
+    {
+        ShaderDebugAABBDraw aabb1;
+        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        debug_draw_aabb(GLOBALS.debug, aabb1);
+        {
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
+            rectangle.center = ndc_min + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(0, 1, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
+        }
+        {
+            const daxa_f32vec2 min_r = quad_corner_texel << imip;
+            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
+            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(1, 0, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
+        }
+    }
+    #endif
+
+    return page_opacity_cull;
 }
 
 // How does this work?

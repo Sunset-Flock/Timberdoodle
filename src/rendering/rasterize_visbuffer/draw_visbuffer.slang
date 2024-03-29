@@ -1,5 +1,7 @@
 #include "daxa/daxa.inl"
+
 #include "draw_visbuffer.inl"
+
 #include "shader_shared/cull_util.inl"
 
 #include "shader_lib/visbuffer.glsl"
@@ -9,8 +11,6 @@
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
-
-import core;
 
 [shader("compute")]
 [numthreads(1,1,1)]
@@ -341,88 +341,6 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     }
 }
 
-func generic_mesh2<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    in uint3 svtid,
-    out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
-    out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
-    out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives)
-{
-    const uint inst_meshlet_index = get_meshlet_instance_index(
-        draw_p.uses.globals,
-        draw_p.uses.meshlet_instances, 
-        draw_p.pass, 
-        V::DRAW_LIST_TYPE,
-        svtid.y);
-    const uint total_meshlet_count = 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
-    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
-    const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
-    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
-    const daxa_f32mat4x4 view_proj = 
-        (draw_p.pass > PASS1_DRAW_POST_CULL) ? 
-        deref(draw_p.uses.globals).observer_camera.view_proj : 
-        deref(draw_p.uses.globals).camera.view_proj;
-    SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
-
-    for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
-    {
-        const uint in_meshlet_vertex_index = svtid.x + vertex_offset;
-        if (in_meshlet_vertex_index >= meshlet.vertex_count) break;
-
-        const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index);
-        if (in_mesh_vertex_index >= mesh.vertex_count)
-        {
-            /// TODO: ASSERT HERE. 
-            continue;
-        }
-        const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-        const daxa_f32mat4x3 model_mat4x3 = deref_i(draw_p.uses.entity_combined_transforms, meshlet_inst.entity_index);
-        const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
-        const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
-
-        V vertex;
-        vertex.set_position(pos);
-        if (V is MeshShaderMaskVertex)
-        {
-            var mvertex = reinterpret<MeshShaderMaskVertex>(vertex);
-            mvertex.uv = float2(0,0);
-            if (as_address(mesh.vertex_uvs) != 0)
-            {
-                mvertex.uv = deref_i(mesh.vertex_uvs, in_mesh_vertex_index);
-            }
-            vertex = reinterpret<V>(mvertex);
-        }
-        out_vertices[in_meshlet_vertex_index] = vertex;
-    }
-
-    for (uint triangle_offset = 0; triangle_offset < meshlet.triangle_count; triangle_offset += MESH_SHADER_WORKGROUP_X)
-    {
-        const uint in_meshlet_triangle_index = svtid.x + triangle_offset;
-        if (in_meshlet_triangle_index >= meshlet.triangle_count) break;
-
-        const uint3 tri_in_meshlet_vertex_indices = uint3(
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
-        
-        out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
-        uint visibility_id;
-        encode_triangle_id(inst_meshlet_index, in_meshlet_triangle_index, visibility_id);
-
-        P primitive;
-        primitive.set_visibility_id(visibility_id);
-        if (P is MeshShaderMaskPrimitive)
-        {
-            var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
-            mprim.material_index = meshlet_inst.material_index;
-            primitive = reinterpret<P>(mprim);
-        }
-        out_primitives[in_meshlet_triangle_index] = primitive;
-    }
-}
-
 // --- Mesh shader opaque ---
 [outputtopology("triangle")]
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
@@ -433,7 +351,7 @@ func entry_mesh_opaque(
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    generic_mesh2(svtid, out_indices, out_vertices, out_primitives);
+    generic_mesh(svtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
@@ -471,33 +389,3 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
     return generic_fragment(o_vert);
 }
 // --- Mesh shader mask ---
-
-struct Push
-{
-    float3x4* ptr;
-};
-
-[[vk::push_constant]] Push push;
-[shader("compute")]
-[numthreads(1, 1, 1)]
-void main(uint3 dtid : SV_DispatchThreadID)
-{    
-    // This matrix is in memry column major. Slang respects this here and load it properly!
-    float3x4 correctly_read_matrix = *push.ptr;
-    printf("(%f,%f,%f,%f)\n(%f,%f,%f,%f)\n",
-        correctly_read_matrix[0][0], correctly_read_matrix[0][1], correctly_read_matrix[0][2], correctly_read_matrix[0][3],
-        correctly_read_matrix[1][0], correctly_read_matrix[1][1], correctly_read_matrix[1][2], correctly_read_matrix[1][3]
-    );
-    printf("(%f,%f,%f,%f)\n\n",
-        correctly_read_matrix[2][0], correctly_read_matrix[2][1], correctly_read_matrix[2][2], correctly_read_matrix[2][3]
-    );
-    // With this syntax however, Slang ignores the column major setting and loads it as it it was row major!
-    float3x4 broken_matrix = *push.ptr;
-    printf("(%f,%f,%f,%f)\n(%f,%f,%f,%f)\n",
-        broken_matrix[0][0], broken_matrix[0][1], broken_matrix[0][2], broken_matrix[0][3],
-        broken_matrix[1][0], broken_matrix[1][1], broken_matrix[1][2], broken_matrix[1][3]
-    );
-    printf("(%f,%f,%f,%f)\n\n",
-        broken_matrix[2][0], broken_matrix[2][1], broken_matrix[2][2], broken_matrix[2][3]
-    );
-}
