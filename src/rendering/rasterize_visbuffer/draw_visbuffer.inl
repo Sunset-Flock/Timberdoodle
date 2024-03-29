@@ -157,17 +157,15 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_solid_pipeline_compi
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_fragment",
+            .entry_point = "entry_fragment_opaque",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_vertex",
+            .entry_point = "entry_vertex_opaque",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
     ret.name = "SlangDrawVisbufferOpaque";
@@ -180,17 +178,15 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_masked_pipeline_comp
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_fragment",
+            .entry_point = "entry_fragment_masked",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_vertex",
+            .entry_point = "entry_vertex_masked",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"NO_MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
     ret.name = "SlangDrawVisbufferMasked";
@@ -208,18 +204,16 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pi
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_fragment",
+            .entry_point = "entry_mesh_fragment_opaque",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
     ret.vertex_shader_info = daxa::None;
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_mesh",
+            .entry_point = "entry_mesh_opaque",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"MESH_SHADER", "1"}, {"OPAQUE", "1"}},
         },
     };
     ret.name = "SlangDrawVisbufferMeshShaderSolid";
@@ -232,18 +226,16 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_masked_p
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_mesh_fragment",
+            .entry_point = "entry_mesh_fragment_mask",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
     ret.vertex_shader_info = daxa::None;
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_mesh",
+            .entry_point = "entry_mesh_mask",
             .language = daxa::ShaderLanguage::SLANG,
-            .defines = {{"MESH_SHADER", "1"}, {"DISCARD", "1"}},
         },
     };
     ret.name = "SlangDrawVisbufferMeshShaderMasked";

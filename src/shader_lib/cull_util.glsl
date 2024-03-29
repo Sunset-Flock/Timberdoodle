@@ -47,18 +47,6 @@ bool is_tri_out_of_frustum(CameraInfo camera, daxa_f32vec3 tri[3])
     return out_of_frustum;
 }
 
-bool is_meshlet_occluded_repro(
-    MeshletInstance meshlet_inst,
-    daxa_BufferPtr(GPUMesh) meshes
-)
-{
-    GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
-    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
-    {
-        return true;
-    }
-}
-
 bool is_meshlet_occluded(
     CameraInfo camera,
     MeshletInstance meshlet_inst,
