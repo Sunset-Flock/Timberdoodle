@@ -10,7 +10,7 @@ void main()
 {
     if(all(lessThan(gl_GlobalInvocationID.xy, ivec2(VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION))))
     {
-        const int clip_level = 1;
+        const int clip_level = 0;
         const ivec3 page_entry_coords = ivec3(gl_GlobalInvocationID.xy, clip_level);
         const uint page_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), page_entry_coords).r;
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);

@@ -22,6 +22,7 @@ struct VSMState
     daxa::TaskBufferView not_visited_page_buffer = {};
     daxa::TaskBufferView find_free_pages_header = {};
     daxa::TaskBufferView clip_projections = {};
+    daxa::TaskImageView dirty_pages_hiz = {};
 
     daxa::TaskBufferView allocate_indirect = {};
     daxa::TaskBufferView clear_indirect = {};
@@ -205,6 +206,17 @@ struct VSMState
         clear_dirty_bit_indirect = tg.create_transient_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm clear dirty bit indirect",
+        });
+
+        auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};
+
+        dirty_pages_hiz = tg.create_transient_image({
+            .dimensions = 2,
+            .format = daxa::Format::R8_UNORM,
+            .size = hiz_size,
+            .mip_level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)),
+            .array_layer_count = VSM_CLIP_LEVELS,
+            .name = "vsm dirty hiz"
         });
     }
 };

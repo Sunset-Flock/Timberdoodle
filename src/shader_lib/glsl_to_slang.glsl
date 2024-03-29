@@ -9,6 +9,7 @@
 
 #define daxa_texture2D(TEX) daxa_Texture2D(float4, TEX)
 #define daxa_image2D(TEX) daxa_RWTexture2D(float4, TEX)
+#define _mod(X, Y) fmod(X,Y)
 
 float4 texelFetch(Texture2D<float4> tex, uint2 index, uint mip)
 {
@@ -44,6 +45,7 @@ uint _atomicMax(uint* dst, uint value)
 
 #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
 
+#define _mod(X, Y) mod(X,Y)
 #define mul(M, V) (M * V)
 
 #endif // #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)

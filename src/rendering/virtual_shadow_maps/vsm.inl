@@ -13,6 +13,8 @@
 #define CLEAR_DIRTY_BIT_X_DISPATCH 32
 #define CLEAR_PAGES_X_DISPATCH 16
 #define CLEAR_PAGES_Y_DISPATCH 16
+#define GEN_DIRTY_BIT_HIZ_X_DISPATCH 16
+#define GEN_DIRTY_BIT_HIZ_Y_DISPATCH 16
 #define DEBUG_PAGE_TABLE_X_DISPATCH 16
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
@@ -69,6 +71,18 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
 DAXA_DECL_TASK_HEAD_END
 
+DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH, 3)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz, 8)
+DAXA_DECL_TASK_HEAD_END
+
+struct GenDirtyBitHizPush
+{
+    DAXA_TH_BLOB(GenDirtyBitHizH, attachments)
+    daxa_u32 mip_count;
+};
+
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH, 4)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
@@ -88,8 +102,7 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
-
-#if __cplusplus
+#if defined(__cplusplus)
 #include "../tasks/misc.hpp"
 #include "vsm_state.hpp"
 #include "../scene_renderer_context.hpp"
@@ -141,6 +154,17 @@ inline daxa::ComputePipelineCompileInfo vsm_clear_pages_pipeline_compile_info()
             .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_pages.glsl"}},
         .push_constant_size = static_cast<u32>(sizeof(ClearPagesH::AttachmentShaderBlob)),
         .name = std::string{ClearPagesH::NAME},
+    };
+}
+
+inline daxa::ComputePipelineCompileInfo vsm_gen_dirty_bit_hiz_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.slang"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
+        .push_constant_size = static_cast<u32>(sizeof(GenDirtyBitHizPush)),
+        .name = std::string{GenDirtyBitHizH::NAME},
     };
 }
 
@@ -267,6 +291,25 @@ struct ClearPagesTask : ClearPagesH::Task
     }
 };
 
+struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
+        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
+        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
+        GenDirtyBitHizPush push = {
+            .mip_count = ti.get(AT.vsm_dirty_bit_hiz).view.slice.level_count,
+        };
+        assign_blob(push.attachments, ti.attachment_shader_blob);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
+    }
+};
+
 struct ClearDirtyBitTask : ClearDirtyBitH::Task
 {
     AttachmentViews views = {};
@@ -335,6 +378,10 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 {
     auto const vsm_page_table_view = info.vsm_state->page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_height_offsets_view = info.vsm_state->page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_dirty_bit_hiz_view = info.vsm_state->dirty_pages_hiz.view({.base_mip_level = 0,
+        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)),
+        .base_array_layer = 0,
+        .layer_count = VSM_CLIP_LEVELS});
     info.tg->add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
@@ -411,6 +458,15 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
+        },
+        .render_context = info.render_context,
+    });
+
+    info.tg->add_task(GenDirtyBitHizTask{
+        .views = std::array{
+            daxa::attachment_view(GenDirtyBitHizH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
         },
         .render_context = info.render_context,
     });

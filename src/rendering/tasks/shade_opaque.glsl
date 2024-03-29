@@ -135,7 +135,7 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
     if(get_is_allocated(page_entry))
     {
         const ivec2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
-        const ivec2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.sun_depth_uv, physical_page_coords);
+        const ivec2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
         const ivec2 in_page_texel_coords = ivec2(mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
         bool texel_near_border = any(greaterThan(in_page_texel_coords, ivec2(126))) ||
                                  any(lessThan(in_page_texel_coords, ivec2(2)));

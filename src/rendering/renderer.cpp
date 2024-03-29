@@ -160,6 +160,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {vsm_find_free_pages_pipeline_compile_info()},
         {vsm_allocate_pages_pipeline_compile_info()},
         {vsm_clear_pages_pipeline_compile_info()},
+        {vsm_gen_dirty_bit_hiz_pipeline_compile_info()},
         {vsm_clear_dirty_bit_pipeline_compile_info()},
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
