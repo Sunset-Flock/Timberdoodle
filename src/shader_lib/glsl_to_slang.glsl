@@ -8,12 +8,18 @@
 #define findMSB firstbithigh
 
 #define daxa_texture2D(TEX) daxa_Texture2D(float4, TEX)
+#define daxa_utexture2DArray(TEX) daxa_Texture2DArray(uint4, TEX)
 #define daxa_image2D(TEX) daxa_RWTexture2D(float4, TEX)
 #define _mod(X, Y) fmod(X,Y)
 
-float4 texelFetch(Texture2D<float4> tex, uint2 index, uint mip)
+float4 texelFetch(Texture2D<float4> tex, int2 index, uint mip)
 {
     return tex.Load(uint3(index, mip));
+}
+
+uint4 texelFetch(Texture2DArray<uint4> tex, int3 index, uint mip)
+{
+    return tex.Load(uint4(index, mip));
 }
 
 void imageStore(RWTexture2D<float4> tex, int2 index, float4 value)
