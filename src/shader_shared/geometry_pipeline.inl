@@ -98,12 +98,17 @@ struct MeshletCullIndirectArg
 };
 DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArg)
 
-// Table is set up in write command of cull_meshes.glsl.
-struct MeshletCullArgBucketsBufferHead
+struct CullMeshletsArgBuckets
 {
     DispatchIndirectStruct commands[32];
     daxa_RWBufferPtr(MeshletCullIndirectArg) indirect_arg_ptrs[32];
     daxa_u32 indirect_arg_counts[32];
+};
+
+// Table is set up in write command of cull_meshes.glsl.
+struct MeshletCullArgBucketsBufferHead
+{
+    CullMeshletsArgBuckets draw_list_arg_buckets[DRAW_LIST_TYPES];
 };
 DAXA_DECL_BUFFER_PTR(MeshletCullArgBucketsBufferHead)
 
@@ -129,11 +134,14 @@ inline auto meshlet_cull_arg_buckets_buffer_make_head(daxa_u32 max_meshes, daxa_
 {
     MeshletCullArgBucketsBufferHead ret = {};
     daxa_u32 current_buffer_offset = static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
-    for (daxa_u32 i = 0; i < 32; ++i)
+    for (daxa_u32 draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
     {
-        ret.commands[i] = { 0, 1, 1 };
-        ret.indirect_arg_ptrs[i] = static_cast<daxa_u64>(current_buffer_offset) + address;
-        current_buffer_offset += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+        for (daxa_u32 i = 0; i < 32; ++i)
+        {
+            ret.draw_list_arg_buckets[draw_list_type].commands[i] = { 0, 1, 1 };
+            ret.draw_list_arg_buckets[draw_list_type].indirect_arg_ptrs[i] = static_cast<daxa_u64>(current_buffer_offset) + address;
+            current_buffer_offset += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+        }
     }
     return ret;
 }

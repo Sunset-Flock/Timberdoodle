@@ -27,22 +27,24 @@ DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_MeshShaderH, 15)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets_buffer_opaque)
+#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH, 12)
+DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, commands)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, RenderGlobalData*, globals)
+// Cull Attachments:
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, MeshletCullArgBucketsBufferHead*, meshlets_cull_arg_buckets_buffer)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, MeshletInstancesBufferHead*, meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroups)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, U32ArenaBufferRef, entity_meshlet_visibility_bitfield_offsets)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshlet_visibility_bitfield_arena)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstancesBufferHead), instantiated_meshlets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
+#endif
 
 struct DrawVisbufferPush_WriteCommand
 {
@@ -57,11 +59,14 @@ struct DrawVisbufferPush
     daxa_u32 pass;
 };
 
-struct DrawVisbufferPush_MeshShader
+#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+struct CullMeshletsDrawVisbufferPush
 {
-    DAXA_TH_BLOB(DrawVisbuffer_MeshShaderH, uses)
+    DAXA_TH_BLOB(CullMeshletsDrawVisbufferH, uses)
+    daxa_u32 draw_list_type;
     daxa_u32 bucket_index;
 };
+#endif
 
 #if defined(__cplusplus)
 #include "../../gpu_context.hpp"
@@ -247,20 +252,54 @@ inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_draw_visbuffer_mesh_
     slang_draw_visbuffer_mesh_shader_masked_pipeline_compile_info()
 };
 
-// inline daxa::RasterPipelineCompileInfo draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info()
-// {
-//     auto ret = slang_draw_visbuffer_solid_pipeline_compile_info();
-//     auto comp_info = daxa::ShaderCompileInfo{
-//         .source = daxa::ShaderFile{DRAW_VISBUFFER_SHADER_PATH},
-//         .compile_options = {.defines = {{"MESH_SHADER_CULL_AND_DRAW", "1"}}},
-//     };
-//     ret.fragment_shader_info = comp_info;
-//     ret.mesh_shader_info = comp_info;
-//     ret.task_shader_info = comp_info;
-//     ret.name = "DrawVisbuffer_MeshShader";
-//     ret.push_constant_size = s_cast<u32>(sizeof(DrawVisbufferPush_MeshShader));
-//     return ret;
-// };
+inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_opaque_pipeline_compile_info()
+{
+    auto ret = slang_draw_visbuffer_mesh_shader_solid_pipeline_compile_info();
+    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_task_cull_draw_opaque",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh_cull_draw_opaque",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "SlangCullMeshletsDrawVisbufferOpaque";
+    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferH::AttachmentShaderBlob));
+    return ret;
+};
+
+inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_masked_pipeline_compile_info()
+{
+    auto ret = slang_draw_visbuffer_mesh_shader_masked_pipeline_compile_info();
+    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_task_cull_draw_masked",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh_cull_draw_masked",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "SlangCullMeshletsDrawVisbufferMasked";
+    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferH::AttachmentShaderBlob));
+    return ret;
+};
+
+inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_cull_meshlets_draw_visbuffer_pipelines = {
+    slang_cull_meshlets_draw_visbuffer_opaque_pipeline_compile_info(),
+    slang_cull_meshlets_draw_visbuffer_masked_pipeline_compile_info()
+};
 
 struct DrawVisbufferTask : DrawVisbufferH::Task
 {
@@ -353,20 +392,19 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     }
 };
 
-struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShaderH::Task
+struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-#if 0
         bool const clear_images = false;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        auto [x, y, z] = ti.device.info_image(ti.get(DrawVisbuffer_MeshShader::depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(DrawVisbuffer_MeshShader::depth_image).ids[0].default_view(),
+                    .image_view = ti.get(AT.depth_image).ids[0].default_view(),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -376,39 +414,40 @@ struct CullAndDrawVisbufferTask : DrawVisbuffer_MeshShaderH::Task
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
-                .image_view = ti.get(DrawVisbuffer_MeshShader::vis_image).ids[0].default_view(),
+                .image_view = ti.get(AT.vis_image).ids[0].default_view(),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::ClearValue{std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0}},
             },
-            daxa::RenderAttachmentInfo{
-                .image_view = ti.get(DrawVisbuffer_MeshShader::debug_image).ids[0].default_view(),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                .load_op = load_op,
-                .store_op = daxa::AttachmentStoreOp::STORE,
-                .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
-            },
+            // daxa::RenderAttachmentInfo{
+            //     .image_view = ti.get(AT.debug_image).ids[0].default_view(),
+            //     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+            //     .load_op = load_op,
+            //     .store_op = daxa::AttachmentStoreOp::STORE,
+            //     .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
+            // },
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        render_cmd.set_pipeline(*context->raster_pipelines.at(draw_visbuffer_mesh_shader_cull_and_draw_pipeline_compile_info().name));
-        for (u32 i = 0; i < 32; ++i)
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < DRAW_LIST_TYPES; ++opaque_draw_list_type)
         {
-            render_cmd.push_constant_vptr({
-                .data = ti.attachment_shader_data.data(),
-                .size = ti.attachment_shader_data.size(),
-                .offset = sizeof(DrawVisbufferPush_MeshShader),
-            });
-            render_cmd.push_constant(DrawVisbufferPush_MeshShader{ .bucket_index = i}, DrawVisbuffer_MeshShader::attachment_shader_data_size());
-            render_cmd.draw_mesh_tasks_indirect({
-                .indirect_buffer = ti.get(DrawVisbuffer_MeshShader::command).ids[0],
-                .offset = sizeof(DispatchIndirectStruct) * i,
-                .draw_count = 1,
-                .stride = sizeof(DispatchIndirectStruct),
-            });
+            for (u32 i = 0; i < 32; ++i)
+            {
+                CullMeshletsDrawVisbufferPush push = {
+                    .draw_list_type = opaque_draw_list_type,
+                    .bucket_index = i,
+                };
+                assign_blob(push.uses, ti.attachment_shader_blob);
+                render_cmd.push_constant(push);
+                render_cmd.draw_mesh_tasks_indirect({
+                    .indirect_buffer = ti.get(AT.commands).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * i,
+                    .draw_count = 1,
+                    .stride = sizeof(DispatchIndirectStruct),
+                });
+            }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
-#endif
     }
 };
 
@@ -417,8 +456,7 @@ struct TaskCullAndDrawVisbufferInfo
     RenderContext * render_context = {};
     daxa::TaskGraph & task_graph;
     bool const enable_mesh_shader = {};
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_opaque = {};
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_discard = {};
+    daxa::TaskBufferView meshlets_cull_arg_buckets_buffers = {};
     daxa::TaskBufferView entity_meta_data = {};
     daxa::TaskBufferView entity_meshgroups = {};
     daxa::TaskBufferView entity_combined_transforms = {};
@@ -502,7 +540,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             .views = std::array{
                 daxa::attachment_view(CullMeshletsH::AT.globals, info.render_context->tgpu_render_data),
                 daxa::attachment_view(CullMeshletsH::AT.hiz, info.hiz),
-                daxa::attachment_view(CullMeshletsH::AT.meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_opaque),
+                daxa::attachment_view(CullMeshletsH::AT.meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffers),
                 daxa::attachment_view(CullMeshletsH::AT.entity_meta_data, info.entity_meta_data),
                 daxa::attachment_view(CullMeshletsH::AT.entity_meshgroups, info.entity_meshgroups),
                 daxa::attachment_view(CullMeshletsH::AT.meshgroups, info.mesh_groups),
@@ -514,25 +552,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 daxa::attachment_view(CullMeshletsH::AT.draw_commands, draw_commands_array),
             },
             .render_context = info.render_context,
-            .opaque_or_discard = 0,
-        });
-        info.task_graph.add_task(CullMeshletsTask{
-            .views = std::array{
-                daxa::attachment_view(CullMeshletsH::AT.globals, info.render_context->tgpu_render_data),
-                daxa::attachment_view(CullMeshletsH::AT.hiz, info.hiz),
-                daxa::attachment_view(CullMeshletsH::AT.meshlets_cull_arg_buckets_buffer, info.meshlets_cull_arg_buckets_buffer_discard),
-                daxa::attachment_view(CullMeshletsH::AT.entity_meta_data, info.entity_meta_data),
-                daxa::attachment_view(CullMeshletsH::AT.entity_meshgroups, info.entity_meshgroups),
-                daxa::attachment_view(CullMeshletsH::AT.meshgroups, info.mesh_groups),
-                daxa::attachment_view(CullMeshletsH::AT.entity_combined_transforms, info.entity_combined_transforms),
-                daxa::attachment_view(CullMeshletsH::AT.meshes, info.meshes),
-                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
-                daxa::attachment_view(CullMeshletsH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
-                daxa::attachment_view(CullMeshletsH::AT.meshlet_instances, info.meshlet_instances),
-                daxa::attachment_view(CullMeshletsH::AT.draw_commands, draw_commands_array),
-            },
-            .render_context = info.render_context,
-            .opaque_or_discard = 1,
         });
 
         bool const dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;

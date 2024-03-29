@@ -394,6 +394,7 @@ void write_meshlet_cull_arg_buckets(
     GPUMesh mesh,
     const MeshDrawTuple mesh_draw,
     daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead) cull_buckets,
+    const uint draw_list_type,
     const uint meshlet_cull_shader_workgroup_x,
     const uint cull_shader_workgroup_log2)
 {
@@ -418,7 +419,7 @@ void write_meshlet_cull_arg_buckets(
         // Mask out bit.
         bucket_bit_mask &= ~indirect_arg_meshlet_count;
 
-        const uint arg_array_offset = atomicAdd(deref(cull_buckets).indirect_arg_counts[bucket_index], 1);
+        const uint arg_array_offset = atomicAdd(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].indirect_arg_counts[bucket_index], 1);
         // Update indirect args for meshlet cull
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
@@ -432,7 +433,7 @@ void write_meshlet_cull_arg_buckets(
             const bool update_cull_meshlets_dispatch = prev_needed_workgroups != cur_needed_workgroups;
             if (update_cull_meshlets_dispatch)
             {
-                atomicMax(deref(cull_buckets).commands[bucket_index].x, cur_needed_workgroups);
+                atomicMax(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].commands[bucket_index].x, cur_needed_workgroups);
             }
         }
         MeshletCullIndirectArg arg;
@@ -442,15 +443,23 @@ void write_meshlet_cull_arg_buckets(
         arg.in_mesh_group_index = mesh_draw.in_mesh_group_index;
         arg.meshlet_indices_offset = meshlet_offset;
         arg.meshlet_count = min(mesh.meshlet_count - meshlet_offset, indirect_arg_meshlet_count);
-        deref_i(deref(cull_buckets).indirect_arg_ptrs[bucket_index],arg_array_offset) = arg;
+        deref_i(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].indirect_arg_ptrs[bucket_index],arg_array_offset) = arg;
         meshlet_offset += indirect_arg_meshlet_count;
     }
 }
 
-bool get_meshlet_instance_from_arg_buckets(uint thread_id, uint arg_bucket_index, daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args, out MeshletInstance meshlet_inst)
+bool get_meshlet_instance_from_arg_buckets(
+    uint thread_id, 
+    uint arg_bucket_index, 
+    daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args,
+    uint opaque_draw_list_type, 
+    out MeshletInstance meshlet_inst)
 {
     const uint indirect_arg_index = thread_id >> arg_bucket_index;
-    const uint valid_arg_count = deref(meshlet_cull_indirect_args).indirect_arg_counts[arg_bucket_index];
+    const uint valid_arg_count = 
+        deref(meshlet_cull_indirect_args)
+        .draw_list_arg_buckets[opaque_draw_list_type]
+        .indirect_arg_counts[arg_bucket_index];
     // As work groups are launched in multiples of 128 (or 32 in the case of task shaders), 
     // there may be threads with indices greater then the arg count for a bucket.
     if (indirect_arg_index >= valid_arg_count)
@@ -458,7 +467,10 @@ bool get_meshlet_instance_from_arg_buckets(uint thread_id, uint arg_bucket_index
         return false;
     }
     const uint in_arg_meshlet_index = thread_id - (indirect_arg_index << arg_bucket_index);
-    daxa_RWBufferPtr(MeshletCullIndirectArg) args_ptr = (deref(meshlet_cull_indirect_args).indirect_arg_ptrs[arg_bucket_index]);
+    daxa_RWBufferPtr(MeshletCullIndirectArg) args_ptr = 
+        (deref(meshlet_cull_indirect_args)
+        .draw_list_arg_buckets[opaque_draw_list_type]
+        .indirect_arg_ptrs[arg_bucket_index]);
     const MeshletCullIndirectArg arg = deref_i(args_ptr, indirect_arg_index);
     
     meshlet_inst.entity_index = arg.entity_index;

@@ -45,7 +45,7 @@ struct CullMeshletsPush
     DAXA_TH_BLOB(CullMeshletsH, uses)
     daxa_u32 indirect_args_table_id;
     daxa_u32 meshlets_per_indirect_arg;
-    daxa_u32 opaque_or_discard;
+    daxa_u32 draw_list_type;
 };
 
 #if defined(__cplusplus)
@@ -94,7 +94,6 @@ struct CullMeshletsTask : CullMeshletsH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
-    u32 opaque_or_discard = {};
     void callback(daxa::TaskInterface ti)
     {
         if (render_context->render_data.settings.use_slang_for_culling)
@@ -105,19 +104,22 @@ struct CullMeshletsTask : CullMeshletsH::Task
         {
             ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(cull_meshlets_pipeline_compile_info().name));
         }
-        for (u32 bucket = 0; bucket < 32; ++bucket)
+        for (u32 draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
         {
-            CullMeshletsPush push = {
-                .indirect_args_table_id = bucket,
-                .meshlets_per_indirect_arg = (1u << bucket),
-                .opaque_or_discard = opaque_or_discard,
-            };
-            assign_blob(push.uses, ti.attachment_shader_blob);
-            ti.recorder.push_constant(push);
-            ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets_buffer).ids[0],
-                .offset = sizeof(DispatchIndirectStruct) * bucket,
-            });
+            for (u32 bucket = 0; bucket < 32; ++bucket)
+            {
+                CullMeshletsPush push = {
+                    .indirect_args_table_id = bucket,
+                    .meshlets_per_indirect_arg = (1u << bucket),
+                    .draw_list_type = draw_list_type,
+                };
+                assign_blob(push.uses, ti.attachment_shader_blob);
+                ti.recorder.push_constant(push);
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets_buffer).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * bucket + sizeof(CullMeshletsArgBuckets) * draw_list_type,
+                });
+            }
         }
     }
 };

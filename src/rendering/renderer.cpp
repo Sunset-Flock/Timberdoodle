@@ -107,7 +107,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
     };
-    if (allow_mesh_shader && allow_slang)
+    if (allow_slang)
     {
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[1]);
@@ -116,6 +116,8 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     {
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[1]);
+        // add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[0]);
+        // add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[1]);
     }
     add_if_not_present(this->context->raster_pipelines, rasters, draw_visbuffer_solid_pipeline_compile_info());
     for (auto info : rasters)
@@ -558,8 +560,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView hiz = {};
     task_gen_hiz_single_pass({render_context.get(), task_list, depth, render_context->tgpu_render_data, &hiz});
 
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_opaque = {};
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffer_discard = {};
+    daxa::TaskBufferView meshlets_cull_arg_buckets_buffers = {};
     tasks_cull_meshes({
         .render_context = render_context.get(),
         .task_list = task_list,
@@ -573,16 +574,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .entity_transforms = scene->_gpu_entity_transforms,
         .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
         .hiz = hiz,
-        .meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque,
-        .meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard,
+        .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
     });
 
     task_cull_and_draw_visbuffer({
         .render_context = render_context.get(),
         .task_graph = task_list,
         .enable_mesh_shader = render_context->render_data.settings.enable_mesh_shader != 0,
-        .meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque,
-        .meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard,
+        .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
         .entity_meta_data = scene->_gpu_entity_meta,
         .entity_meshgroups = scene->_gpu_entity_mesh_groups,
         .entity_combined_transforms = scene->_gpu_entity_combined_transforms,

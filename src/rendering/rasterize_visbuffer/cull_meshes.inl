@@ -11,7 +11,7 @@
 
 #define CULL_MESHES_WORKGROUP_X 128
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH, 12)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH, 11)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
@@ -26,11 +26,7 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(
     COMPUTE_SHADER_READ_WRITE, 
     daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead), 
-    meshlet_cull_arg_buckets_opaque)
-DAXA_TH_BUFFER_PTR(
-    COMPUTE_SHADER_READ_WRITE, 
-    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead), 
-    meshlet_cull_arg_buckets_discard)
+    meshlets_cull_arg_buckets_buffers)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullMeshesPush
@@ -84,37 +80,26 @@ struct TaskCullMeshesInfo
     daxa::TaskBufferView entity_transforms = {};
     daxa::TaskBufferView entity_combined_transforms = {};
     daxa::TaskImageView hiz = {};
-    daxa::TaskBufferView & meshlets_cull_arg_buckets_buffer_opaque;
-    daxa::TaskBufferView & meshlets_cull_arg_buckets_buffer_discard;
+    daxa::TaskBufferView & meshlets_cull_arg_buckets_buffers;
 };
 void tasks_cull_meshes(TaskCullMeshesInfo const & info)
 {
-    auto meshlets_cull_arg_buckets_buffer_opaque = info.task_list.create_transient_buffer({
+    auto meshlets_cull_arg_buckets_buffers = info.task_list.create_transient_buffer({
         .size = meshlet_cull_arg_buckets_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
-        .name = "meshlet_cull_arg_buckets_buffer_opaque",
-    });
-    auto meshlets_cull_arg_buckets_buffer_discard = info.task_list.create_transient_buffer({
-        .size = meshlet_cull_arg_buckets_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
-        .name = "meshlet_cull_arg_buckets_buffer_discard",
+        .name = "meshlet_cull_arg_buckets_buffers",
     });
 
     info.task_list.add_task({
         .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffer_opaque),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffer_discard),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffers),
         },
         .task = [=](daxa::TaskInterface ti)
         {
             auto const opaque_solid_head = meshlet_cull_arg_buckets_buffer_make_head(
                     MAX_MESH_INSTANCES, 
                     MAX_MESHLET_INSTANCES, 
-                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffer_opaque).ids[0]).value());
-            allocate_fill_copy(ti, opaque_solid_head, ti.get(meshlets_cull_arg_buckets_buffer_opaque));
-            auto const opaque_masked_head = meshlet_cull_arg_buckets_buffer_make_head(
-                    MAX_MESH_INSTANCES, 
-                    MAX_MESHLET_INSTANCES, 
-                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffer_discard).ids[0]).value());
-            allocate_fill_copy(ti, opaque_masked_head, ti.get(meshlets_cull_arg_buckets_buffer_discard));
+                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffers).ids[0]).value());
+            allocate_fill_copy(ti, opaque_solid_head, ti.get(meshlets_cull_arg_buckets_buffers));
         },
         .name = "init meshlet cull arg buckets buffer",
     });
@@ -131,13 +116,11 @@ void tasks_cull_meshes(TaskCullMeshesInfo const & info)
             daxa::attachment_view(CullMeshesH::AT.entity_transforms, info.entity_transforms),
             daxa::attachment_view(CullMeshesH::AT.entity_combined_transforms, info.entity_combined_transforms),
             daxa::attachment_view(CullMeshesH::AT.hiz, info.hiz),
-            daxa::attachment_view(CullMeshesH::AT.meshlet_cull_arg_buckets_opaque, meshlets_cull_arg_buckets_buffer_opaque),
-            daxa::attachment_view(CullMeshesH::AT.meshlet_cull_arg_buckets_discard, meshlets_cull_arg_buckets_buffer_discard),
+            daxa::attachment_view(CullMeshesH::AT.meshlets_cull_arg_buckets_buffers, meshlets_cull_arg_buckets_buffers),
         },
         .render_context = info.render_context,
     });
-    info.meshlets_cull_arg_buckets_buffer_opaque = meshlets_cull_arg_buckets_buffer_opaque;
-    info.meshlets_cull_arg_buckets_buffer_discard = meshlets_cull_arg_buckets_buffer_discard;
+    info.meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers;
 }
 
 #endif

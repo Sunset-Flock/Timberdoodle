@@ -16,7 +16,12 @@ layout(local_size_x = CULL_MESHLETS_WORKGROUP_X) in;
 void main()
 {
     MeshletInstance instanced_meshlet;
-    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(gl_GlobalInvocationID.x, push.indirect_args_table_id, push.uses.meshlets_cull_arg_buckets_buffer, instanced_meshlet);
+    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
+        gl_GlobalInvocationID.x,
+        push.indirect_args_table_id, 
+        push.uses.meshlets_cull_arg_buckets_buffer, 
+        push.draw_list_type,
+        instanced_meshlet);
     if (!valid_meshlet)
     {
         return;
@@ -40,24 +45,21 @@ void main()
         const uint meshlet_instance_idx = out_index + offset;
         deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_idx]) = instanced_meshlet;
         // Scalarize atomic appends.
-        [[unroll]] for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
+
+        if (deref(push.uses.globals).settings.enable_mesh_shader == 1)
         {
-            if (push.opaque_or_discard != draw_list_type) continue;
-            if (deref(push.uses.globals).settings.enable_mesh_shader == 1)
-            {
-                daxa_RWBufferPtr(DispatchIndirectStruct) draw_cmds = daxa_RWBufferPtr(DispatchIndirectStruct)(push.uses.draw_commands);
-                atomicAdd(deref_i(draw_cmds, draw_list_type).y, 1);
-            }
-            else
-            {
-                daxa_RWBufferPtr(DrawIndirectStruct) draw_cmds = daxa_RWBufferPtr(DrawIndirectStruct)(push.uses.draw_commands);
-                atomicAdd(deref_i(draw_cmds, draw_list_type).instance_count, 1);
-            }
-            const uint draw_list_element_offset = 
-                deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count;
-            const uint draw_list_element_index = draw_list_element_offset +
-                atomicAdd(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].second_count, 1);
-            deref(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].instances[draw_list_element_index]) = meshlet_instance_idx;
+            daxa_RWBufferPtr(DispatchIndirectStruct) draw_cmds = daxa_RWBufferPtr(DispatchIndirectStruct)(push.uses.draw_commands);
+            atomicAdd(deref_i(draw_cmds, push.draw_list_type).y, 1);
         }
+        else
+        {
+            daxa_RWBufferPtr(DrawIndirectStruct) draw_cmds = daxa_RWBufferPtr(DrawIndirectStruct)(push.uses.draw_commands);
+            atomicAdd(deref_i(draw_cmds, push.draw_list_type).instance_count, 1);
+        }
+        const uint draw_list_element_offset = 
+            deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].first_count;
+        const uint draw_list_element_index = draw_list_element_offset +
+            atomicAdd(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].second_count, 1);
+        deref(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances[draw_list_element_index]) = meshlet_instance_idx;
     }
 }
