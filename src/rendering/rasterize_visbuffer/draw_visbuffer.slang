@@ -11,6 +11,7 @@
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
+[[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
 
 [shader("compute")]
 [numthreads(1,1,1)]
@@ -260,28 +261,21 @@ struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
 };
 
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
+    DrawVisbufferPush push,
     in uint3 svtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
-    out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives)
-{
-    const uint inst_meshlet_index = get_meshlet_instance_index(
-        draw_p.uses.globals,
-        draw_p.uses.meshlet_instances, 
-        draw_p.pass, 
-        V::DRAW_LIST_TYPE,
-        svtid.y);
-    const uint total_meshlet_count = 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
-    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
-    const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
+    out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
+    uint meshlet_inst_index,
+    MeshletInstance meshlet_inst)
+{    
+    const GPUMesh mesh = deref_i(push.uses.meshes, meshlet_inst.mesh_index);
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.uses.meshes, meshlet_inst.mesh_index).micro_indices;
     const daxa_f32mat4x4 view_proj = 
-        (draw_p.pass > PASS1_DRAW_POST_CULL) ? 
-        deref(draw_p.uses.globals).observer_camera.view_proj : 
-        deref(draw_p.uses.globals).camera.view_proj;
+        (push.pass > PASS1_DRAW_POST_CULL) ? 
+        deref(push.uses.globals).observer_camera.view_proj : 
+        deref(push.uses.globals).camera.view_proj;
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
@@ -296,7 +290,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             continue;
         }
         const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-        const daxa_f32mat4x3 model_mat4x3 = deref_i(draw_p.uses.entity_combined_transforms, meshlet_inst.entity_index);
+        const daxa_f32mat4x3 model_mat4x3 = deref_i(push.uses.entity_combined_transforms, meshlet_inst.entity_index);
         const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
         const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
@@ -327,7 +321,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         
         out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
         uint visibility_id;
-        encode_triangle_id(inst_meshlet_index, in_meshlet_triangle_index, visibility_id);
+        encode_triangle_id(meshlet_inst_index, in_meshlet_triangle_index, visibility_id);
 
         P primitive;
         primitive.set_visibility_id(visibility_id);
@@ -341,6 +335,25 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     }
 }
 
+func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
+    in uint3 svtid,
+    out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
+    out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
+    out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives)
+{
+    const uint inst_meshlet_index = get_meshlet_instance_index(
+        draw_p.uses.globals,
+        draw_p.uses.meshlet_instances, 
+        draw_p.pass, 
+        V::DRAW_LIST_TYPE,
+        svtid.y);
+    const uint total_meshlet_count = 
+        deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
+        deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
+    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
+    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst);
+}
+
 // --- Mesh shader opaque ---
 [outputtopology("triangle")]
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
@@ -351,7 +364,7 @@ func entry_mesh_opaque(
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    generic_mesh(svtid, out_indices, out_vertices, out_primitives);
+    generic_mesh_draw_only(svtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
@@ -375,7 +388,7 @@ func entry_mesh_mask(
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    generic_mesh(svtid, out_indices, out_vertices, out_primitives);
+    generic_mesh_draw_only(svtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
@@ -389,3 +402,150 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
     return generic_fragment(o_vert);
 }
 // --- Mesh shader mask ---
+
+// --- Cull Meshlets Draw Visbuffer
+
+struct CullMeshletsDrawVisbufferPayload
+{
+    uint global_meshlet_args_offset;
+    uint global_meshlet_instances_offset;
+    uint local_surviving_meshlet_args_mask;
+};
+
+[shader("amplification")]
+[numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
+func entry_task_cull_draw_opaque_and_mask(
+    uint3 svtid : SV_DispatchThreadID
+)
+{
+    let push = cull_meshlets_draw_visbuffer_push;
+    MeshletInstance instanced_meshlet;
+    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
+        svtid.x,
+        push.bucket_index,
+        push.uses.meshlets_cull_arg_buckets,
+        push.draw_list_type,
+        instanced_meshlet);
+    if (!valid_meshlet)
+    {
+        return;
+    }
+#if ENABLE_MESHLET_CULLING == 1
+    const bool occluded = is_meshlet_occluded(
+        deref(push.uses.globals).camera,
+        instanced_meshlet,
+        push.uses.first_pass_meshlets_bitfield_offsets,
+        push.uses.first_pass_meshlets_bitfield_arena,
+        push.uses.entity_combined_transforms,
+        push.uses.meshes,
+        push.uses.hiz);
+#else
+    const bool occluded = false;
+#endif
+    CullMeshletsDrawVisbufferPayload payload;
+    payload.global_meshlet_args_offset =  svtid.x >> push.bucket_index;
+    payload.local_surviving_meshlet_args_mask = WaveActiveBallot(!occluded).x;  
+    let surviving_meshlet_count = WaveActiveSum(occluded ? 0u : 1u);
+    // When not occluded, this value determines the new packed index for each thread in the wave:
+    let local_survivor_index = WavePrefixSum(occluded ? 0u : 1u);
+    uint global_draws_offsets;
+    if (WaveIsFirstLane())
+    {
+        payload.global_meshlet_instances_offset = atomicAdd(deref(push.uses.meshlet_instances).second_count, surviving_meshlet_count);
+        global_draws_offsets = atomicAdd(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
+    }
+    payload.global_meshlet_instances_offset = WaveBroadcastLaneAt(payload.global_meshlet_instances_offset, 0);
+    global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
+    
+    if (!occluded)
+    {
+        const uint meshlet_instances_first_offset = deref(push.uses.meshlet_instances).first_count;
+        const uint meshlet_instance_idx = meshlet_instances_first_offset + payload.global_meshlet_instances_offset + local_survivor_index;
+        deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
+
+        // Only needed for observer:
+        const uint draw_list_element_offset = deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].first_count;
+        const uint draw_list_element_index = draw_list_element_offset + global_draws_offsets + local_survivor_index;
+        deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = meshlet_instance_idx;
+    }
+
+    DispatchMesh(1, surviving_meshlet_count, 1, payload);
+}
+
+func wave32_find_nth_set_bit(uint mask, uint bit) -> uint
+{
+    // Each thread tests a bit in the mask.
+    // The nth bit is the nth thread.
+    let wave_lane_bit_mask = 1u << WaveGetLaneIndex();
+    let is_nth_bit_set = ((mask & wave_lane_bit_mask) != 0) ? 1u : 0u;
+    let set_bits_prefix_sum = WavePrefixSum(is_nth_bit_set) + is_nth_bit_set;
+
+    let does_nth_bit_match_group = set_bits_prefix_sum == (bit + 1);
+    uint ret;
+    uint4 mask = WaveActiveBallot(does_nth_bit_match_group);
+    uint first_set_bit = WaveActiveMin((mask.x & wave_lane_bit_mask) != 0 ? WaveGetLaneIndex() : 100);
+    return first_set_bit;
+}
+
+func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
+    in uint3 svtid,
+    out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
+    out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
+    out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
+    in CullMeshletsDrawVisbufferPayload payload)
+{
+    let push = cull_meshlets_draw_visbuffer_push;
+    let wave_lane_index = svtid.x;
+    let group_index = svtid.y;
+
+    // We need to search in the set bits of the culled task meshlets.
+    // The nth mesh shader work group works on the nth set bit.
+    let task_meshlet_index = wave32_find_nth_set_bit(payload.local_surviving_meshlet_args_mask, group_index);
+    let arg_index = task_meshlet_index + payload.global_meshlet_args_offset;
+    // The meshlet should always be valid here:
+    MeshletInstance meshlet_inst;
+    let meshlet_valid = get_meshlet_instance_from_arg_buckets(
+        arg_index, 
+        push.bucket_index, 
+        push.uses.meshlets_cull_arg_buckets, 
+        push.draw_list_type, 
+        meshlet_inst);
+    let meshlet_instance_index = payload.global_meshlet_instances_offset + task_meshlet_index;
+    DrawVisbufferPush fake_draw_p;
+    fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
+    fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
+    fake_draw_p.uses.globals = push.uses.globals;
+    fake_draw_p.uses.material_manifest = push.uses.material_manifest;
+    fake_draw_p.uses.meshes = push.uses.meshes;
+    fake_draw_p.uses.meshlet_instances = push.uses.meshlet_instances;
+    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
+}
+
+[outputtopology("triangle")]
+[shader("mesh")]
+[numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
+func entry_mesh_cull_draw_opaque(
+    in uint3 svtid : SV_DispatchThreadID,
+    OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
+    OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
+    OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
+    in payload CullMeshletsDrawVisbufferPayload payload)
+{
+    generic_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
+}
+
+[outputtopology("triangle")]
+[shader("mesh")]
+[numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
+func entry_mesh_cull_draw_masked(
+    in uint3 svtid : SV_DispatchThreadID,
+    OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
+    OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
+    OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
+    in payload CullMeshletsDrawVisbufferPayload payload)
+{
+    generic_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
+}
+
+
+// --- Cull Meshlets Draw Visbuffer

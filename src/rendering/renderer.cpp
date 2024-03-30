@@ -116,8 +116,8 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     {
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[1]);
-        // add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[0]);
-        // add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[1]);
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[0]);
+        add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[1]);
     }
     add_if_not_present(this->context->raster_pipelines, rasters, draw_visbuffer_solid_pipeline_compile_info());
     for (auto info : rasters)

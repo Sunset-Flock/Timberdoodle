@@ -28,16 +28,15 @@ DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH, 12)
-DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, commands)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, RenderGlobalData*, globals)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH, 11)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, MeshletCullArgBucketsBufferHead*, meshlets_cull_arg_buckets_buffer)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, MeshletInstancesBufferHead*, meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
@@ -255,10 +254,10 @@ inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_draw_visbuffer_mesh_
 inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_opaque_pipeline_compile_info()
 {
     auto ret = slang_draw_visbuffer_mesh_shader_solid_pipeline_compile_info();
-    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+    ret.task_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_task_cull_draw_opaque",
+            .entry_point = "entry_task_cull_draw_opaque_and_mask",
             .language = daxa::ShaderLanguage::SLANG,
         },
     };
@@ -270,17 +269,17 @@ inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_opaque
         },
     };
     ret.name = "SlangCullMeshletsDrawVisbufferOpaque";
-    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferH::AttachmentShaderBlob));
+    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferPush));
     return ret;
 };
 
 inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_masked_pipeline_compile_info()
 {
     auto ret = slang_draw_visbuffer_mesh_shader_masked_pipeline_compile_info();
-    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+    ret.task_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_task_cull_draw_masked",
+            .entry_point = "entry_task_cull_draw_opaque_and_mask",
             .language = daxa::ShaderLanguage::SLANG,
         },
     };
@@ -292,7 +291,7 @@ inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_masked
         },
     };
     ret.name = "SlangCullMeshletsDrawVisbufferMasked";
-    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferH::AttachmentShaderBlob));
+    ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferPush));
     return ret;
 };
 
@@ -440,8 +439,8 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 assign_blob(push.uses, ti.attachment_shader_blob);
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = ti.get(AT.commands).ids[0],
-                    .offset = sizeof(DispatchIndirectStruct) * i,
+                    .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * i + sizeof(CullMeshletsArgBuckets) * opaque_draw_list_type,
                     .draw_count = 1,
                     .stride = sizeof(DispatchIndirectStruct),
                 });
@@ -475,32 +474,27 @@ struct TaskCullAndDrawVisbufferInfo
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
-#if 0
     if (info.enable_mesh_shader)
     {
-        info.task_graph.add_task(CullAndDrawVisbufferTask{
+        info.task_graph.add_task(CullMeshletsDrawVisbufferTask{
             .views = std::array{
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::globals, info.context->tgpu_render_data}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::command, info.cull_meshlets_commands}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::meshlet_cull_indirect_args, info.meshlet_cull_indirect_args}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::instantiated_meshlets, info.meshlet_instances}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::meshes, info.meshes}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::entity_meta, info.entity_meta_data}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::entity_meshgroups, info.entity_meshgroups}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::meshgroups, info.mesh_groups}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::entity_combined_transforms, info.entity_combined_transforms}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::entity_meshlet_visibility_bitfield_offsets, info.entity_meshlet_visibility_bitfield_offsets}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::entity_meshlet_visibility_bitfield_arena, info.entity_meshlet_visibility_bitfield_arena}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::hiz, info.hiz}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::vis_image, info.vis_image}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::debug_image, info.debug_image}},
-                daxa::TaskViewVariant{std::pair{CullAndDrawVisbufferTask::depth_image, info.depth_image}},
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.hiz, info.hiz),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshlets_cull_arg_buckets, info.meshlets_cull_arg_buckets_buffers),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshes, info.meshes),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.entity_combined_transforms, info.entity_combined_transforms),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.material_manifest, info.material_manifest),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.vis_image, info.vis_image),
+                daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.depth_image, info.depth_image),
+
             },
-            .context = info.context,
+            .render_context = info.render_context,
         });
     }
     else
-#endif
     {
         auto draw_commands_array = info.task_graph.create_transient_buffer({
             .size = static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct)) * 2),
