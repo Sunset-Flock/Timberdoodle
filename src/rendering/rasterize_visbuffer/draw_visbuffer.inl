@@ -268,6 +268,13 @@ inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_opaque
             .language = daxa::ShaderLanguage::SLANG,
         },
     };
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh_fragment_cull_draw_opaque",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
     ret.name = "SlangCullMeshletsDrawVisbufferOpaque";
     ret.push_constant_size = s_cast<u32>(sizeof(CullMeshletsDrawVisbufferPush));
     return ret;
@@ -286,7 +293,14 @@ inline daxa::RasterPipelineCompileInfo slang_cull_meshlets_draw_visbuffer_masked
     ret.mesh_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = "entry_mesh_cull_draw_masked",
+            .entry_point = "entry_mesh_cull_draw_mask",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "entry_mesh_fragment_cull_draw_mask",
             .language = daxa::ShaderLanguage::SLANG,
         },
     };

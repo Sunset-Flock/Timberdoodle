@@ -140,21 +140,29 @@ func generic_vertex<V : VertexT>(
     return vertex;
 }
 
-func generic_fragment<V:VertexT>(V vertex) -> FragmentOut
+// SamplerState::get(deref(draw_p.uses.globals).samplers.linear_clamp), 
+func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::SamplerId sampler) -> FragmentOut
 {
     FragmentOut ret;
     ret.visibility_id = vertex.get_visibility_id();
-    if (V is MaskedVertex)
+    if (vertex is MaskedVertex)
+    {
+        if (WaveIsFirstLane())
+        {
+            printf("am masked\n");
+        }
+    }
+    if (V is MaskedVertex && daxa::u64(materials) != 0)
     {
         MaskedVertex mvertex = reinterpret<MaskedVertex>(vertex);
         if (mvertex.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = deref_i(draw_p.uses.material_manifest, mvertex.material_index);
+            GPUMaterial material = deref_i(materials, mvertex.material_index);
             if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
                 float alpha = Texture2D<float>::get(material.diffuse_texture_id)
                     .Sample(
-                        SamplerState::get(deref(draw_p.uses.globals).samplers.linear_clamp), 
+                        SamplerState::get(sampler), 
                         mvertex.uv
                     ).a; 
                 if (alpha < 0.5f)
@@ -182,7 +190,7 @@ OpaqueVertex entry_vertex_opaque(
 [shader("fragment")]
 FragmentOut entry_fragment_opaque(OpaqueVertex vertex)
 {
-    return generic_fragment(vertex);
+    return generic_fragment(vertex, (Ptr<GPUMaterial>)(0), daxa::SamplerId(0));
 }
 // --- Opaque ---
 
@@ -202,7 +210,7 @@ MaskedVertex entry_vertex_masked(
 [shader("fragment")]
 FragmentOut entry_fragment_masked(MaskedVertex vertex)
 {
-    return generic_fragment(vertex);
+    return generic_fragment(vertex, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat);
 }
 // --- Masked ---
 
@@ -361,12 +369,13 @@ FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshSh
     OpaqueVertex o_vert;
     o_vert.position = vert.position;
     o_vert.visibility_id = prim.visibility_id;
-    return generic_fragment(o_vert);
+    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
 }
 // --- Mesh shader opaque ---
 
 
 // --- Mesh shader mask ---
+
 [outputtopology("triangle")]
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
@@ -387,23 +396,25 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
     o_vert.visibility_id = prim.visibility_id;
     o_vert.uv = vert.uv;
     o_vert.material_index = prim.material_index;
-    return generic_fragment(o_vert);
+    return generic_fragment(o_vert, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat);
 }
+
 // --- Mesh shader mask ---
 
 // --- Cull Meshlets Draw Visbuffer
 
 struct CullMeshletsDrawVisbufferPayload
 {
-    uint global_meshlet_args_offset;
-    uint global_meshlet_instances_offset;
-    uint local_surviving_meshlet_args_mask;
+    uint task_shader_wg_meshlet_args_offset;
+    uint task_shader_meshlet_instances_offset;
+    uint task_shader_surviving_meshlets_mask;
 };
 
 [shader("amplification")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_task_cull_draw_opaque_and_mask(
-    uint3 svtid : SV_DispatchThreadID
+    uint3 svtid : SV_DispatchThreadID,
+    uint3 svgid : SV_GroupID
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
@@ -434,27 +445,27 @@ func entry_task_cull_draw_opaque_and_mask(
     const bool occluded = false;
 #endif
     CullMeshletsDrawVisbufferPayload payload;
-    payload.global_meshlet_args_offset =  svtid.x >> push.bucket_index;
-    payload.local_surviving_meshlet_args_mask = WaveActiveBallot(!occluded).x;  
+    payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(!occluded).x;  
     let surviving_meshlet_count = WaveActiveSum(occluded ? 0u : 1u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(occluded ? 0u : 1u);
     uint global_draws_offsets;
     if (WaveIsFirstLane())
     {
-        payload.global_meshlet_instances_offset = 
+        payload.task_shader_meshlet_instances_offset = 
             push.uses.meshlet_instances->first_count + 
             atomicAdd(push.uses.meshlet_instances->second_count, surviving_meshlet_count);
         global_draws_offsets = 
             push.uses.meshlet_instances->draw_lists[push.draw_list_type].first_count + 
             atomicAdd(push.uses.meshlet_instances->draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
     }
-    payload.global_meshlet_instances_offset = WaveBroadcastLaneAt(payload.global_meshlet_instances_offset, 0);
+    payload.task_shader_meshlet_instances_offset = WaveBroadcastLaneAt(payload.task_shader_meshlet_instances_offset, 0);
     global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
     
     if (!occluded)
     {
-        const uint meshlet_instance_idx = payload.global_meshlet_instances_offset + local_survivor_index;
+        const uint meshlet_instance_idx = payload.task_shader_meshlet_instances_offset + local_survivor_index;
         deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
 
         // Only needed for observer:
@@ -493,30 +504,34 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let group_index = svtid.y;
     // The payloads packed survivor indices go from 0-survivor_count.
     // These indices map to the meshlet instance indices.
-    let payload_packed_surviving_meshlet_index = group_index;
+    let local_meshlet_instance_index = group_index;
     // Meshlet instance indices are the task allocated offset into the meshlet instances + the packed survivor index.
-    let meshlet_instance_index = payload.global_meshlet_instances_offset + payload_packed_surviving_meshlet_index;
+    let meshlet_instance_index = payload.task_shader_meshlet_instances_offset + local_meshlet_instance_index;
 
-    // We need to search in the set bits of the culled task meshlets.
-    // The nth mesh shader work group works on the nth set bit.
-    let task_meshlet_index = wave32_find_nth_set_bit(payload.local_surviving_meshlet_args_mask, group_index);
-    let arg_index = task_meshlet_index + payload.global_meshlet_args_offset;
-    // The meshlet should always be valid here:
+    // We need to know the thread index of the task shader that ran for this meshlet.
+    // With its thread id we can read the argument buffer just like the task shader did.
+    // From the argument we construct the meshlet and any other data that we need.
+    let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
+    let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
     MeshletInstance meshlet_inst;
+    // The meshlet should always be valid here, 
+    // as otherwise the task shader would not have dispatched this mesh shader.
     let meshlet_valid = get_meshlet_instance_from_arg_buckets(
-        arg_index, 
+        meshlet_cull_arg_index, 
         push.bucket_index, 
         push.uses.meshlets_cull_arg_buckets, 
         push.draw_list_type, 
         meshlet_inst);
     DrawVisbufferPush fake_draw_p;
     fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
-    fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
     fake_draw_p.uses.globals = push.uses.globals;
-    fake_draw_p.uses.material_manifest = push.uses.material_manifest;
-    fake_draw_p.uses.meshes = push.uses.meshes;
     fake_draw_p.uses.meshlet_instances = push.uses.meshlet_instances;
+    fake_draw_p.uses.meshes = push.uses.meshes;
+    fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
+    fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     
+
+    // SetMeshOutputCounts(0,0);
     generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
 }
 
@@ -536,7 +551,7 @@ func entry_mesh_cull_draw_opaque(
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
-func entry_mesh_cull_draw_masked(
+func entry_mesh_cull_draw_mask(
     in uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -544,6 +559,35 @@ func entry_mesh_cull_draw_masked(
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
     generic_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
+}
+
+[shader("fragment")]
+FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+{
+    OpaqueVertex o_vert;
+    o_vert.position = vert.position;
+    o_vert.visibility_id = prim.visibility_id;
+    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
+}
+
+[shader("fragment")]
+FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+{
+    MaskedVertex o_vert;
+    o_vert.position = vert.position;
+    o_vert.visibility_id = prim.visibility_id;
+    o_vert.uv = vert.uv;
+    o_vert.material_index = prim.material_index;
+    return generic_fragment(
+        o_vert, 
+        cull_meshlets_draw_visbuffer_push.uses.material_manifest, 
+        cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat
+    );
+
+    // OpaqueVertex o_vert;
+    // o_vert.position = vert.position;
+    // o_vert.visibility_id = prim.visibility_id;
+    // return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
 }
 
 

@@ -178,9 +178,9 @@ void main()
 #if (MESH_SHADER_CULL_AND_DRAW) && ((DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_TASK) || (DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_MESH))
 struct NewTaskPayload
 {
-    uint global_meshlet_args_offset;
-    uint global_meshlet_instances_offset;
-    uint local_surviving_meshlet_args_mask;
+    uint task_shader_wg_meshlet_args_offset;
+    uint task_shader_meshlet_instances_offset;
+    uint task_shader_surviving_meshlets_mask;
 };
 taskPayloadSharedEXT NewTaskPayload tps;
 #endif
@@ -206,19 +206,19 @@ void main()
     const uint local_arg_offset = gl_SubgroupInvocationID.x;
     const uint local_surviving_meshlet_count = subgroupBallotBitCount(subgroupBallot(active_thread));
     const uint local_meshlet_instances_offset = subgroupExclusiveAdd(active_thread ? 1 : 0);
-    const uint local_surviving_meshlet_args_mask = subgroupBallot(active_thread).x;
-    uint global_meshlet_instances_offset;
+    const uint task_shader_surviving_meshlets_mask = subgroupBallot(active_thread).x;
+    uint task_shader_meshlet_instances_offset;
     if (subgroupElect())
     {
-        global_meshlet_instances_offset = atomicAdd(deref(push.uses.meshlet_instances).second_count, local_surviving_meshlet_count) + deref(push.uses.meshlet_instances).first_count;
-        tps.global_meshlet_instances_offset = global_meshlet_instances_offset;
-        tps.global_meshlet_args_offset = gl_GlobalInvocationID.x;
-        tps.local_surviving_meshlet_args_mask = local_surviving_meshlet_args_mask;
+        task_shader_meshlet_instances_offset = atomicAdd(deref(push.uses.meshlet_instances).second_count, local_surviving_meshlet_count) + deref(push.uses.meshlet_instances).first_count;
+        tps.task_shader_meshlet_instances_offset = task_shader_meshlet_instances_offset;
+        tps.task_shader_wg_meshlet_args_offset = gl_GlobalInvocationID.x;
+        tps.task_shader_surviving_meshlets_mask = task_shader_surviving_meshlets_mask;
     }
-    global_meshlet_instances_offset = subgroupBroadcastFirst(global_meshlet_instances_offset);
+    task_shader_meshlet_instances_offset = subgroupBroadcastFirst(task_shader_meshlet_instances_offset);
     if (active_thread)
     {
-        const uint meshlet_instance_index = global_meshlet_instances_offset + local_meshlet_instances_offset;
+        const uint meshlet_instance_index = task_shader_meshlet_instances_offset + local_meshlet_instances_offset;
         deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index] = meshlet_instance;
     }
     EmitMeshTasksEXT(local_surviving_meshlet_count, 1, 1);
@@ -247,7 +247,7 @@ void main()
 #if MESH_SHADER_CULL_AND_DRAW
     const uint local_meshlet_instances_offset = gl_WorkGroupID.x;
     const uint test_thread_local_meshlet_arg_offset = gl_SubgroupInvocationID.x;
-    const uint set_bits_prefix_sum = subgroupInclusiveAdd(((tps.local_surviving_meshlet_args_mask & (1u << test_thread_local_meshlet_arg_offset)) != 0) ? 1 : 0);
+    const uint set_bits_prefix_sum = subgroupInclusiveAdd(((tps.task_shader_surviving_meshlets_mask & (1u << test_thread_local_meshlet_arg_offset)) != 0) ? 1 : 0);
     if (set_bits_prefix_sum == (local_meshlet_instances_offset + 1))
     {
         if (subgroupElect())
@@ -256,8 +256,8 @@ void main()
         }
     }
     barrier();
-    const uint arg_index = tps.global_meshlet_args_offset + s_local_meshlet_arg_offset;
-    const uint meshlet_instance_index = tps.global_meshlet_instances_offset + local_meshlet_instances_offset;
+    const uint arg_index = tps.task_shader_wg_meshlet_args_offset + s_local_meshlet_arg_offset;
+    const uint meshlet_instance_index = tps.task_shader_meshlet_instances_offset + local_meshlet_instances_offset;
     MeshletInstance meshlet_inst;
     bool active_thread = get_meshlet_instance_from_arg_buckets(arg_index, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_inst);
 #else
