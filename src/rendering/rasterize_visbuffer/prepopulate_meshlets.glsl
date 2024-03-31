@@ -103,7 +103,6 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {    
-    return;
     const uint count = deref(push.uses.visible_meshlets_prev).count; 
     const uint thread_index = gl_GlobalInvocationID.x;
     if (thread_index >= count)
