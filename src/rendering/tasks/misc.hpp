@@ -119,7 +119,7 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(std::string{T_USES_BASE{}.name()}));
-        assign_blob(push.uses, ti.attachment_shader_blob());
+        assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = 1, .y = 1, .z = 1});
     }

@@ -263,6 +263,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         (push.pass > PASS1_DRAW_POST_CULL) ? 
         deref(push.uses.globals).observer_camera.view_proj : 
         deref(push.uses.globals).camera.view_proj;
+
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
     for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
@@ -405,11 +406,6 @@ func entry_task_cull_draw_opaque_and_mask(
     uint3 svtid : SV_DispatchThreadID
 )
 {
-    // if (WaveGetLaneIndex() == 0)
-    // {
-    //     printf("test\n");
-    // }
-    // return;
     let push = cull_meshlets_draw_visbuffer_push;
     MeshletInstance instanced_meshlet;
     const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
@@ -418,19 +414,22 @@ func entry_task_cull_draw_opaque_and_mask(
         push.uses.meshlets_cull_arg_buckets,
         push.draw_list_type,
         instanced_meshlet);
-    if (!valid_meshlet)
-    {
-        return;
-    }
 #if ENABLE_MESHLET_CULLING == 1
-    const bool occluded = is_meshlet_occluded(
-        deref(push.uses.globals).camera,
-        instanced_meshlet,
-        push.uses.first_pass_meshlets_bitfield_offsets,
-        push.uses.first_pass_meshlets_bitfield_arena,
-        push.uses.entity_combined_transforms,
-        push.uses.meshes,
-        push.uses.hiz);
+    // We still continue to run the task shader even with invalid meshlets.
+    // We simple set the occluded value to true for these invalida meshlets.
+    // This is done so that the following WaveOps are well formed and have all threads active. 
+    bool occluded = true;
+    if (valid_meshlet)
+    {
+        occluded = is_meshlet_occluded(
+            deref(push.uses.globals).camera,
+            instanced_meshlet,
+            push.uses.first_pass_meshlets_bitfield_offsets,
+            push.uses.first_pass_meshlets_bitfield_arena,
+            push.uses.entity_combined_transforms,
+            push.uses.meshes,
+            push.uses.hiz);
+    }
 #else
     const bool occluded = false;
 #endif
@@ -443,21 +442,23 @@ func entry_task_cull_draw_opaque_and_mask(
     uint global_draws_offsets;
     if (WaveIsFirstLane())
     {
-        payload.global_meshlet_instances_offset = atomicAdd(deref(push.uses.meshlet_instances).second_count, surviving_meshlet_count);
-        global_draws_offsets = atomicAdd(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
+        payload.global_meshlet_instances_offset = 
+            push.uses.meshlet_instances->first_count + 
+            atomicAdd(push.uses.meshlet_instances->second_count, surviving_meshlet_count);
+        global_draws_offsets = 
+            push.uses.meshlet_instances->draw_lists[push.draw_list_type].first_count + 
+            atomicAdd(push.uses.meshlet_instances->draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
     }
     payload.global_meshlet_instances_offset = WaveBroadcastLaneAt(payload.global_meshlet_instances_offset, 0);
     global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
     
     if (!occluded)
     {
-        const uint meshlet_instances_first_offset = deref(push.uses.meshlet_instances).first_count;
-        const uint meshlet_instance_idx = meshlet_instances_first_offset + payload.global_meshlet_instances_offset + local_survivor_index;
+        const uint meshlet_instance_idx = payload.global_meshlet_instances_offset + local_survivor_index;
         deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
 
         // Only needed for observer:
-        const uint draw_list_element_offset = deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].first_count;
-        const uint draw_list_element_index = draw_list_element_offset + global_draws_offsets + local_survivor_index;
+        const uint draw_list_element_index = global_draws_offsets + local_survivor_index;
         deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = meshlet_instance_idx;
     }
 
@@ -490,6 +491,11 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let push = cull_meshlets_draw_visbuffer_push;
     let wave_lane_index = svtid.x;
     let group_index = svtid.y;
+    // The payloads packed survivor indices go from 0-survivor_count.
+    // These indices map to the meshlet instance indices.
+    let payload_packed_surviving_meshlet_index = group_index;
+    // Meshlet instance indices are the task allocated offset into the meshlet instances + the packed survivor index.
+    let meshlet_instance_index = payload.global_meshlet_instances_offset + payload_packed_surviving_meshlet_index;
 
     // We need to search in the set bits of the culled task meshlets.
     // The nth mesh shader work group works on the nth set bit.
@@ -503,7 +509,6 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         push.uses.meshlets_cull_arg_buckets, 
         push.draw_list_type, 
         meshlet_inst);
-    let meshlet_instance_index = payload.global_meshlet_instances_offset + task_meshlet_index;
     DrawVisbufferPush fake_draw_p;
     fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
     fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
@@ -511,12 +516,8 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     fake_draw_p.uses.meshes = push.uses.meshes;
     fake_draw_p.uses.meshlet_instances = push.uses.meshlet_instances;
-    // generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
-    if (WaveIsFirstLane())
-    {
-        printf("test\n");
-    }
-    SetMeshOutputCounts(0,0);
+    
+    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
 }
 
 [outputtopology("triangle")]
