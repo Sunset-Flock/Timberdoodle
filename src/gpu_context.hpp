@@ -252,7 +252,7 @@ struct ShaderDebugDrawContext
     }
 };
 
-DAXA_DECL_TASK_HEAD_BEGIN(ReadbackH, 1)
+DAXA_DECL_TASK_HEAD_BEGIN(ReadbackH)
 DAXA_TH_BUFFER(TRANSFER_READ, globals); // Use globals as fake dependency for shader debug data.
 DAXA_DECL_TASK_HEAD_END
 

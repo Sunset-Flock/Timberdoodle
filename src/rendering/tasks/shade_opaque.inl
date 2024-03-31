@@ -10,7 +10,7 @@
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/vsm_shared.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(ShadeOpaqueH, 18)
+DAXA_DECL_TASK_HEAD_BEGIN(ShadeOpaqueH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, color_image)

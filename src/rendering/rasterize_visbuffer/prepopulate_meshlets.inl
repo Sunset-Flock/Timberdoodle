@@ -12,7 +12,7 @@
 #define ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X 128
 #define PREPOPULATE_MESHLET_INSTANCES_X 256
 
-DAXA_DECL_TASK_HEAD_BEGIN(AllocEntToMeshInstOffsetsOffsetsH, 7)
+DAXA_DECL_TASK_HEAD_BEGIN(AllocEntToMeshInstOffsetsOffsetsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_mesh_groups)
@@ -22,7 +22,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), ent_to
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, U32ArenaBufferRef, bitfield_arena)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrepopMeshletInstancesCommWH, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(PrepopMeshletInstancesCommWH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
@@ -30,7 +30,7 @@ DAXA_DECL_TASK_HEAD_END
 
 // - Goes over all visible meshlets from last frame
 // - Attempts to allocate a meshlet instance bitfield offset for each mesh in the list of visible meshlets
-DAXA_DECL_TASK_HEAD_BEGIN(AllocMeshletInstBitfieldsH, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(AllocMeshletInstBitfieldsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(COMPUTE_SHADER_READ, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
@@ -44,7 +44,7 @@ DAXA_DECL_TASK_HEAD_END
 // - Goes over all visible meshlets from last frame again
 // - Sets bits for all previously visible meshlets
 // - prepopulates meshlet instances with previously visible meshlets
-DAXA_DECL_TASK_HEAD_BEGIN(WriteFirstPassMeshletsAndBitfieldsH, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(WriteFirstPassMeshletsAndBitfieldsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(COMPUTE_SHADER_READ, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)

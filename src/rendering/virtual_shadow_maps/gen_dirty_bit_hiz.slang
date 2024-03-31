@@ -26,9 +26,9 @@ void downsample_64x64(
         int2 sub_i = int2(quad_i >> 1, quad_i & 1);
         int2 src_i = int2((grid_index * 16 + local_index.xy) * 2 + sub_i) * 2;
 
-        const uint4 fetch = daxa_Texture2DArray(uint4, push.attachments.vsm_page_table)
+        const uint4 fetch = Texture2DArray<uint>::get(push.attachments.vsm_page_table)
             .Gather(
-                daxa_SamplerState(deref(push.attachments.globals).samplers.linear_clamp),
+                SamplerState::get(deref(push.attachments.globals).samplers.linear_clamp),
                 float3(make_gather_uv(inv_size, src_i), clip_level)
             );
 
@@ -41,18 +41,18 @@ void downsample_64x64(
         int2 dst_i = int2((grid_index * 16 + local_index.xy) * 2) + sub_i;
 
         // texel gather component mapping - (00,w);(01,x);(11,y);(10,z)
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 0), clip_level)].x = uint(get_is_dirty(fetch.w));
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 0), clip_level)].x = uint(get_is_dirty(fetch.z));
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 1), clip_level)].x = uint(get_is_dirty(fetch.y));
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 1), clip_level)].x = uint(get_is_dirty(fetch.x));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 0), clip_level)].x = uint(get_is_dirty(fetch.w));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 0), clip_level)].x = uint(get_is_dirty(fetch.z));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 1), clip_level)].x = uint(get_is_dirty(fetch.y));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 1), clip_level)].x = uint(get_is_dirty(fetch.x));
 
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[1])[uint3(dst_i, clip_level)].x = uint(is_dirty);
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[1])[uint3(dst_i, clip_level)].x = uint(is_dirty);
         quad_values[quad_i] = is_dirty;
     }
     {
         const bool is_dirty = quad_values.x || quad_values.y || quad_values.z || quad_values.w;
         const int2 dst_i = int2(grid_index * 16 + local_index.xy);
-        daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[2])[uint3(dst_i, clip_level)].x = uint(is_dirty);
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[2])[uint3(dst_i, clip_level)].x = uint(is_dirty);
         s_mins[0][local_index.y][local_index.x] = is_dirty;
     }
     const uint2 glob_wg_dst_offset0 = (uint2(GEN_DIRTY_BIT_HIZ_X_WINDOW, GEN_DIRTY_BIT_HIZ_Y_WINDOW) * grid_index.xy) / 2;
@@ -77,7 +77,7 @@ void downsample_64x64(
             );
             const bool is_dirty = fetch.x || fetch.y || fetch.z || fetch.w;
             const uint dst_mip = i + 1;
-            daxa_RWTexture2DArray(uint4, push.attachments.vsm_dirty_bit_hiz[dst_mip])[uint3(glob_wg_offset + local_index.xy, clip_level)].x = uint(is_dirty);
+            RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[dst_mip])[uint3(glob_wg_offset + local_index.xy, clip_level)].x = uint(is_dirty);
             s_mins[ping_pong_dst_index][local_index.y][local_index.x] = is_dirty;
         }
     }

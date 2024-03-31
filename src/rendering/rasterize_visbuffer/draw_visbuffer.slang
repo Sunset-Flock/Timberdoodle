@@ -152,9 +152,9 @@ func generic_fragment<V:VertexT>(V vertex) -> FragmentOut
             GPUMaterial material = deref_i(draw_p.uses.material_manifest, mvertex.material_index);
             if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                float alpha = daxa_Texture2D(float4, material.diffuse_texture_id)
+                float alpha = Texture2D<float>::get(material.diffuse_texture_id)
                     .Sample(
-                        daxa_SamplerState(deref(draw_p.uses.globals).samplers.linear_clamp), 
+                        SamplerState::get(deref(draw_p.uses.globals).samplers.linear_clamp), 
                         mvertex.uv
                     ).a; 
                 if (alpha < 0.5f)
@@ -205,19 +205,6 @@ FragmentOut entry_fragment_masked(MaskedVertex vertex)
     return generic_fragment(vertex);
 }
 // --- Masked ---
-
-struct MeshPayload
-{
-
-};
-
-[shader("amplification")]
-void entry_task(
-    in uint tid : SV_DispatchThreadID,
-    in uint tig : SV_GroupIndex)
-{
-    
-}
 
 // Interface:
 interface MeshShaderVertexT
@@ -418,6 +405,11 @@ func entry_task_cull_draw_opaque_and_mask(
     uint3 svtid : SV_DispatchThreadID
 )
 {
+    // if (WaveGetLaneIndex() == 0)
+    // {
+    //     printf("test\n");
+    // }
+    // return;
     let push = cull_meshlets_draw_visbuffer_push;
     MeshletInstance instanced_meshlet;
     const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
@@ -470,6 +462,7 @@ func entry_task_cull_draw_opaque_and_mask(
     }
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
+    // DispatchMesh(1, 0, 1, payload);
 }
 
 func wave32_find_nth_set_bit(uint mask, uint bit) -> uint
@@ -518,7 +511,12 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     fake_draw_p.uses.meshes = push.uses.meshes;
     fake_draw_p.uses.meshlet_instances = push.uses.meshlet_instances;
-    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
+    // generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
+    if (WaveIsFirstLane())
+    {
+        printf("test\n");
+    }
+    SetMeshOutputCounts(0,0);
 }
 
 [outputtopology("triangle")]

@@ -10,7 +10,7 @@
 #define ANALYZE_VIS_BUFFER_WORKGROUP_X 8
 #define ANALYZE_VIS_BUFFER_WORKGROUP_Y 16
 
-DAXA_DECL_TASK_HEAD_BEGIN(AnalyzeVisbuffer, 4)
+DAXA_DECL_TASK_HEAD_BEGIN(AnalyzeVisbuffer)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, u_visbuffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstance), u_instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32vec4), u_meshlet_visibility_bitfields)

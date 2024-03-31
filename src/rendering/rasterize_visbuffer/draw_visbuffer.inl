@@ -9,14 +9,14 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH, 3)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH, 8)
+DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
@@ -28,7 +28,7 @@ DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH, 11)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
@@ -430,6 +430,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < DRAW_LIST_TYPES; ++opaque_draw_list_type)
         {
+            render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(slang_cull_meshlets_draw_visbuffer_pipelines[opaque_draw_list_type].name));
             for (u32 i = 0; i < 32; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {

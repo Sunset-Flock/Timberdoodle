@@ -11,7 +11,7 @@
 
 #define CULL_MESHES_WORKGROUP_X 128
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH, 11)
+DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)

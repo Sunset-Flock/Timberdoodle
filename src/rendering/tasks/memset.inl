@@ -18,12 +18,12 @@ struct IndirectMemsetBufferCommand
 };
 DAXA_DECL_BUFFER_PTR(IndirectMemsetBufferCommand)
 
-DAXA_DECL_TASK_HEAD_BEGIN(IndirectMemsetBufferH, 2)
+DAXA_DECL_TASK_HEAD_BEGIN(IndirectMemsetBufferH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(IndirectMemsetBufferCommand), command)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(MemcpyBufferH, 2)
+DAXA_DECL_TASK_HEAD_BEGIN(MemcpyBufferH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_RWBufferPtr(daxa_u32), src)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
 DAXA_DECL_TASK_HEAD_END
