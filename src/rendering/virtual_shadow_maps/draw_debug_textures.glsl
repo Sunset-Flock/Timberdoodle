@@ -24,7 +24,6 @@ void main()
         { 
             color.xyz = vec3(1.0, 1.0, 0.0);
         }
-        if(page_entry == 1) { color = vec4(0.0, 0.0, 1.0, 1.0); }
 
         if(color.x == 0 && color.y == 0 && color.z == 0) { return; }
 

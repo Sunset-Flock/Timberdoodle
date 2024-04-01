@@ -5,6 +5,7 @@
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
+#include "../../shader_shared/geometry_pipeline.inl"
 
 #define MARK_REQUIRED_PAGES_X_DISPATCH 16
 #define MARK_REQUIRED_PAGES_Y_DISPATCH 16
@@ -38,6 +39,10 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_c
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), vsm_meshlets_cull_arg_buckets)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(FindFreePagesH)
@@ -78,11 +83,32 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGl
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz, 8)
 DAXA_DECL_TASK_HEAD_END
-
 struct GenDirtyBitHizPush
 {
     DAXA_TH_BLOB(GenDirtyBitHizH, attachments)
     daxa_u32 mip_count;
+};
+
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+// Vsm Attachments:
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_memory_block)
+DAXA_DECL_TASK_HEAD_END
+struct CullAndDrawPagesPush
+{
+    DAXA_TH_BLOB(CullAndDrawPagesH, attachments)
+    daxa_u32 draw_list_type;
+    daxa_u32 bucket_index;
+    daxa_ImageViewId daxa_u32_vsm_memory_view;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
@@ -170,6 +196,58 @@ inline daxa::ComputePipelineCompileInfo vsm_gen_dirty_bit_hiz_pipeline_compile_i
     };
 }
 
+static constexpr inline char const CULL_AND_DRAW_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_pages.hlsl";
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_compile_info()
+{
+    return {
+        .mesh_shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+        },
+        .task_shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+        },
+        .push_constant_size = s_cast<u32>(sizeof(CullAndDrawPagesPush)),
+    };
+}
+
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_opaque_pipeline_compile_info()
+{
+    auto ret = vsm_cull_and_draw_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "vsm_entry_mesh_opaque";
+    ret.task_shader_info.value().compile_options.entry_point = "vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "vsm_entry_fragment_opaque",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "VsmCullAndDrawPagesOpaque";
+    return ret;
+}
+
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_masked_pipeline_compile_info()
+{
+    auto ret = vsm_cull_and_draw_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "vsm_entry_mesh_masked";
+    ret.task_shader_info.value().compile_options.entry_point = "vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "vsm_entry_fragment_masked",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "VsmCullAndDrawPagesMasked";
+    return ret;
+}
+
+inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_pages_pipelines = {
+    vsm_cull_and_draw_pages_opaque_pipeline_compile_info(),
+    vsm_cull_and_draw_pages_masked_pipeline_compile_info()};
+
 inline daxa::ComputePipelineCompileInfo vsm_clear_dirty_bit_pipeline_compile_info()
 {
     return {
@@ -203,6 +281,12 @@ inline daxa::ComputePipelineCompileInfo vsm_debug_meta_memory_table_pipeline_com
         .name = std::string{DebugMetaMemoryTableH::NAME},
     };
 }
+
+using CullAndDrawPages_WriteCommandTask = SimpleComputeTaskPushless<
+    CullAndDrawPages_WriteCommandH::Task,
+    CullAndDrawPages_WriteCommandH::AttachmentShaderBlob,
+    CULL_AND_DRAW_PAGES_SHADER_PATH,
+    "vsm_entry_write_commands">;
 
 struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
 {
@@ -312,6 +396,49 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
     }
 };
 
+struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        auto const memory_block_view = render_context->gpuctx->device.create_image_view({
+            .type = daxa::ImageViewType::REGULAR_2D,
+            .format = daxa::Format::R32_UINT,
+            .image = ti.get(AT.vsm_memory_block).ids[0],
+            .name = "vsm memory daxa_u32 view",
+        });
+
+        auto render_cmd = std::move(ti.recorder).begin_renderpass({
+            .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
+        });
+
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+        {
+            render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
+            for (u32 i = 0; i < 32; ++i)
+            {
+                CullAndDrawPagesPush push = {
+                    .draw_list_type = opaque_draw_list_type,
+                    .bucket_index = i,
+                    .daxa_u32_vsm_memory_view = memory_block_view,
+                };
+                ti.assign_attachment_shader_blob(push.attachments.value);
+                render_cmd.push_constant(push);
+                render_cmd.draw_mesh_tasks_indirect({
+                    .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * i + sizeof(CullMeshletsArgBuckets) * opaque_draw_list_type,
+                    .draw_count = 1,
+                    .stride = sizeof(DispatchIndirectStruct),
+                });
+            }
+        }
+        ti.recorder = std::move(render_cmd).end_renderpass();
+        ti.recorder.destroy_image_view_deferred(memory_block_view);
+    }
+};
+
 struct ClearDirtyBitTask : ClearDirtyBitH::Task
 {
     AttachmentViews views = {};
@@ -373,6 +500,11 @@ struct TaskDrawVSMsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph * tg = {};
     VSMState * vsm_state = {};
+    daxa::TaskBufferView meshlets_cull_arg_buckets_buffers = {};
+    daxa::TaskBufferView meshlet_instances = {};
+    daxa::TaskBufferView meshes = {};
+    daxa::TaskBufferView entity_combined_transforms = {};
+    daxa::TaskBufferView material_manifest = {};
     daxa::TaskImageView depth = {};
 };
 
@@ -391,13 +523,29 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->free_wrapped_pages_info),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->globals),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->meshlet_cull_arg_buckets_buffer_head),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, info.meshlets_cull_arg_buckets_buffers),
         },
         .task = [info](daxa::TaskInterface ti)
         {
             allocate_fill_copy(ti, info.vsm_state->clip_projections_cpu, ti.get(info.vsm_state->clip_projections));
             allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
             allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
+            ti.recorder.copy_buffer_to_buffer({
+                .src_buffer = ti.get(info.meshlets_cull_arg_buckets_buffers).ids[0],
+                .dst_buffer = ti.get(info.vsm_state->meshlet_cull_arg_buckets_buffer_head).ids[0],
+                .size = sizeof(MeshletCullArgBucketsBufferHead),
+            });
         },
+    });
+
+    info.tg->add_task(CullAndDrawPages_WriteCommandTask{
+        .views = std::array{
+            daxa::attachment_view(CullAndDrawPages_WriteCommandH::AT.vsm_meshlets_cull_arg_buckets, info.vsm_state->meshlet_cull_arg_buckets_buffer_head),
+        },
+        .context = info.render_context->gpuctx,
+        .dispatch_callback = []()
+        { return daxa::DispatchInfo{DRAW_LIST_TYPES, 1, 1}; },
     });
 
     info.tg->add_task(FreeWrappedPagesTask{
@@ -471,6 +619,22 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(GenDirtyBitHizH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(GenDirtyBitHizH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(GenDirtyBitHizH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
+        },
+        .render_context = info.render_context,
+    });
+
+    info.tg->add_task(CullAndDrawPagesTask{
+        .views = std::array{
+            daxa::attachment_view(CullAndDrawPagesH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(CullAndDrawPagesH::AT.meshlets_cull_arg_buckets, info.vsm_state->meshlet_cull_arg_buckets_buffer_head),
+            daxa::attachment_view(CullAndDrawPagesH::AT.meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(CullAndDrawPagesH::AT.meshes, info.meshes),
+            daxa::attachment_view(CullAndDrawPagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(CullAndDrawPagesH::AT.material_manifest, info.material_manifest),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, info.vsm_state->dirty_pages_hiz),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, info.vsm_state->page_table),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
         },
         .render_context = info.render_context,
     });
@@ -600,6 +764,46 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
 
+        auto clip_camera = CameraInfo{
+            .view = final_clip_view,
+            .inv_view = glm::inverse(final_clip_view),
+            .proj = curr_clip_proj,
+            .inv_proj = glm::inverse(curr_clip_proj),
+            .view_proj = curr_clip_proj * final_clip_view,
+            .inv_view_proj = glm::inverse(curr_clip_proj * final_clip_view),
+            .position = clip_position,
+            .up = default_vsm_up,
+            .screen_size = {VSM_PAGE_TABLE_RESOLUTION << 1, VSM_PAGE_TABLE_RESOLUTION << 1},
+            .inv_screen_size = {
+                1.0f / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION << 1),
+                1.0f / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION << 1),
+            },
+        };
+
+        glm::vec3 ws_ndc_corners[2][2][2];
+        for (u32 z = 0; z < 2; ++z)
+        {
+            for (u32 y = 0; y < 2; ++y)
+            {
+                for (u32 x = 0; x < 2; ++x)
+                {
+                    glm::vec3 corner = glm::vec3((glm::vec2(x, y) - 0.5f) * 2.0f, 1.0f - z * 0.5f);
+                    glm::vec4 proj_corner = clip_camera.inv_view_proj * glm::vec4(corner, 1);
+                    ws_ndc_corners[x][y][z] = glm::vec3(proj_corner) / proj_corner.w;
+                }
+            }
+        }
+        clip_camera.near_plane_normal = glm::normalize(
+            glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
+        clip_camera.right_plane_normal = glm::normalize(
+            glm::cross(ws_ndc_corners[1][1][0] - ws_ndc_corners[1][0][0], ws_ndc_corners[1][0][1] - ws_ndc_corners[1][0][0]));
+        clip_camera.left_plane_normal = glm::normalize(
+            glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][0][1], ws_ndc_corners[0][0][0] - ws_ndc_corners[0][0][1]));
+        clip_camera.top_plane_normal = glm::normalize(
+            glm::cross(ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[0][0][1] - ws_ndc_corners[0][0][0]));
+        clip_camera.bottom_plane_normal = glm::normalize(
+            glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
+
         clip_projections.at(clip) = VSMClipProjection{
             .height_offset = view_offset_scale,
             .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
@@ -607,10 +811,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
                 -s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x),
                 -s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y),
             },
-            .view = std::bit_cast<daxa_f32mat4x4>(final_clip_view),
-            .projection = std::bit_cast<daxa_f32mat4x4>(curr_clip_proj),
-            .projection_view = std::bit_cast<daxa_f32mat4x4>(curr_clip_proj * final_clip_view),
-            .inv_projection_view = std::bit_cast<daxa_f32mat4x4>(glm::inverse(curr_clip_proj * final_clip_view)),
+            .camera = clip_camera,
         };
     }
     return clip_projections;
@@ -632,9 +833,9 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
 
     for (auto const & clip_projection : info.clip_projections)
     {
-        auto const left_right_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[0][0])) * 2.0f;
-        auto const top_bottom_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[1][1])) * 2.0f;
-        auto const near_far_size = (1.0f / std::bit_cast<glm::mat4x4>(clip_projection.projection)[2][2]) * 2.0f;
+        auto const left_right_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[0][0])) * 2.0f;
+        auto const top_bottom_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[1][1])) * 2.0f;
+        auto const near_far_size = (1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[2][2]) * 2.0f;
         auto const page_size = glm::vec2(left_right_size / VSM_PAGE_TABLE_RESOLUTION, top_bottom_size / VSM_PAGE_TABLE_RESOLUTION);
 
         auto const page_proj = glm::ortho(
@@ -661,7 +862,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
                         ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset.y;
                     auto const virtual_page_ndc = (virtual_uv * 2.0f) - glm::vec2(1.0f);
                     auto const page_ndc_position = glm::vec4(virtual_page_ndc, -depth, 1.0);
-                    auto const new_position = std::bit_cast<glm::mat4x4>(clip_projection.inv_projection_view) * page_ndc_position;
+                    auto const new_position = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * page_ndc_position;
 
                     auto const page_view = glm::lookAt(glm::vec3(new_position), glm::vec3(new_position) + info.vsm_view_direction, {0.0, 0.0, 1.0});
                     auto const page_inv_projection_view = glm::inverse(page_proj * page_view);
@@ -687,7 +888,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
             for (i32 i = 0; i < 8; i++)
             {
                 auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
-                auto const world_pos = std::bit_cast<glm::mat4x4>(clip_projection.inv_projection_view) * ndc_pos;
+                auto const world_pos = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * ndc_pos;
                 box_draw.vertices[i] = {world_pos.x, world_pos.y, world_pos.z};
             }
             info.debug_context->cpu_debug_box_draws.push_back(box_draw);

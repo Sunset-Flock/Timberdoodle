@@ -95,6 +95,17 @@ struct ClipFromUVsInfo
     daxa_BufferPtr(VSMGlobals) globals;
 };
 
+daxa_f32 get_page_offset_depth(ClipInfo info, daxa_f32 current_depth, daxa_BufferPtr(VSMClipProjection) clip_projections)
+{
+    const daxa_i32vec2 non_wrapped_page_coords = daxa_i32vec2(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION);
+    const daxa_i32vec2 inverted_page_coords = daxa_i32vec2((VSM_PAGE_TABLE_RESOLUTION - 1) - non_wrapped_page_coords);
+    const daxa_f32vec2 per_inv_page_depth_offset = deref_i(clip_projections, info.clip_level).depth_page_offset;
+    const daxa_f32 depth_offset = 
+        inverted_page_coords.x * per_inv_page_depth_offset.x +
+        inverted_page_coords.y * per_inv_page_depth_offset.y;
+    return clamp(current_depth + depth_offset, 0.0, 1.0);
+}
+
 daxa_f32vec3 world_space_from_uv(daxa_f32vec2 screen_space_uv, daxa_f32 depth, daxa_f32mat4x4 inv_view_proj)
 {
     const daxa_f32vec2 remap_uv = (screen_space_uv * 2.0) - 1.0;
@@ -133,7 +144,7 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
     }
 
     const daxa_f32vec3 center_world_space = world_space_from_uv( info.uv, info.depth, info.inv_view_proj);
-    const daxa_f32vec4 sun_projected_world_position = mul(deref_i(info.clip_projections, clip_level).projection_view, daxa_f32vec4(center_world_space, 1.0)); 
+    const daxa_f32vec4 sun_projected_world_position = mul(deref_i(info.clip_projections, clip_level).camera.view_proj, daxa_f32vec4(center_world_space, 1.0)); 
     const daxa_f32vec3 sun_ndc_position = sun_projected_world_position.xyz / sun_projected_world_position.w; 
     const daxa_f32vec2 sun_depth_uv = (sun_ndc_position.xy + daxa_f32vec2(1.0)) / daxa_f32vec2(2.0); 
     return ClipInfo(clip_level, sun_depth_uv);

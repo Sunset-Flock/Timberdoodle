@@ -149,7 +149,7 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
     {
         if (WaveIsFirstLane())
         {
-            printf("am masked\n");
+            // printf("am masked\n");
         }
     }
     if (V is MaskedVertex && daxa::u64(materials) != 0)

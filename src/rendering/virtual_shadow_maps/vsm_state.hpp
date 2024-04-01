@@ -2,6 +2,7 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 #include "../../gpu_context.hpp"
+#include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/vsm_shared.inl"
 
 struct VSMState
@@ -27,6 +28,7 @@ struct VSMState
     daxa::TaskBufferView allocate_indirect = {};
     daxa::TaskBufferView clear_indirect = {};
     daxa::TaskBufferView clear_dirty_bit_indirect = {};
+    daxa::TaskBufferView meshlet_cull_arg_buckets_buffer_head = {};
 
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections_cpu = {};
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
@@ -66,6 +68,7 @@ struct VSMState
             .initial_images = {
                 .images = std::array{
                     context->device.create_image({
+                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                         .format = daxa::Format::R32_UINT,
                         .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
                         .usage =
@@ -206,6 +209,11 @@ struct VSMState
         clear_dirty_bit_indirect = tg.create_transient_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm clear dirty bit indirect",
+        });
+
+        meshlet_cull_arg_buckets_buffer_head = tg.create_transient_buffer({
+            .size = static_cast<u32>(sizeof(MeshletCullArgBucketsBufferHead)),
+            .name = "vsm meshlett cull arg buckets buffers"
         });
 
         auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};

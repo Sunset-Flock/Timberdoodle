@@ -102,6 +102,8 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     std::vector<daxa::RasterPipelineCompileInfo> rasters = {
         {draw_visbuffer_pipelines[0]},
         {draw_visbuffer_pipelines[1]},
+        {cull_and_draw_pages_pipelines[0]},
+        {cull_and_draw_pages_pipelines[1]},
         {draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
@@ -158,6 +160,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {gen_luminace_histogram_pipeline_compile_info()},
         {gen_luminace_average_pipeline_compile_info()},
         {vsm_free_wrapped_pages_pipeline_compile_info()},
+        {CullAndDrawPages_WriteCommandTask::pipeline_compile_info},
         {vsm_mark_required_pages_pipeline_compile_info()},
         {vsm_find_free_pages_pipeline_compile_info()},
         {vsm_allocate_pages_pipeline_compile_info()},
@@ -606,6 +609,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .render_context = render_context.get(),
         .tg = &task_list,
         .vsm_state = &vsm_state,
+        .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
+        .meshlet_instances = meshlet_instances,
+        .meshes = scene->_gpu_mesh_manifest,
+        .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
+        .material_manifest = scene->_gpu_material_manifest,
         .depth = depth,
     });
 
