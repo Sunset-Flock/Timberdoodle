@@ -24,6 +24,7 @@
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
 
 DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
@@ -550,6 +551,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(FreeWrappedPagesTask{
         .views = std::array{
+            daxa::attachment_view(FreeWrappedPagesH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(FreeWrappedPagesH::AT.free_wrapped_pages_info, info.vsm_state->free_wrapped_pages_info),
             daxa::attachment_view(FreeWrappedPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(FreeWrappedPagesH::AT.vsm_page_table, vsm_page_table_view),
