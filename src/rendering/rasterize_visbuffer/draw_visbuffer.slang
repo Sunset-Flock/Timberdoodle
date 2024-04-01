@@ -425,14 +425,14 @@ func entry_task_cull_draw_opaque_and_mask(
         push.uses.meshlets_cull_arg_buckets,
         push.draw_list_type,
         instanced_meshlet);
+    bool draw_meshlet = valid_meshlet;
 #if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
-    bool occluded = true;
     if (valid_meshlet)
     {
-        occluded = is_meshlet_occluded(
+        draw_meshlet = draw_meshlet && !is_meshlet_occluded(
             deref(push.uses.globals).camera,
             instanced_meshlet,
             push.uses.first_pass_meshlets_bitfield_offsets,
@@ -441,15 +441,13 @@ func entry_task_cull_draw_opaque_and_mask(
             push.uses.meshes,
             push.uses.hiz);
     }
-#else
-    const bool occluded = false;
 #endif
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
-    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(!occluded).x;  
-    let surviving_meshlet_count = WaveActiveSum(occluded ? 0u : 1u);
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  
+    let surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
-    let local_survivor_index = WavePrefixSum(occluded ? 0u : 1u);
+    let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
     uint global_draws_offsets;
     if (WaveIsFirstLane())
     {
@@ -463,7 +461,7 @@ func entry_task_cull_draw_opaque_and_mask(
     payload.task_shader_meshlet_instances_offset = WaveBroadcastLaneAt(payload.task_shader_meshlet_instances_offset, 0);
     global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
     
-    if (!occluded)
+    if (draw_meshlet)
     {
         const uint meshlet_instance_idx = payload.task_shader_meshlet_instances_offset + local_survivor_index;
         deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
@@ -474,7 +472,6 @@ func entry_task_cull_draw_opaque_and_mask(
     }
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
-    // DispatchMesh(1, 0, 1, payload);
 }
 
 func wave32_find_nth_set_bit(uint mask, uint bit) -> uint

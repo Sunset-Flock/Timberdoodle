@@ -18,23 +18,24 @@ void entry_cull_meshlets(uint3 dtid : SV_DispatchThreadID)
         push.uses.meshlets_cull_arg_buckets_buffer,
         push.draw_list_type,
         instanced_meshlet);
-    if (!valid_meshlet)
-    {
-        return;
-    }
+    bool draw_meshlet = valid_meshlet;
 #if ENABLE_MESHLET_CULLING == 1
-    const bool occluded = is_meshlet_occluded(
-        deref(push.uses.globals).camera,
-        instanced_meshlet,
-        push.uses.first_pass_meshlets_bitfield_offsets,
-        push.uses.first_pass_meshlets_bitfield_arena,
-        push.uses.entity_combined_transforms,
-        push.uses.meshes,
-        push.uses.hiz);
-#else
-    const bool occluded = false;
+    // We still continue to run the task shader even with invalid meshlets.
+    // We simple set the occluded value to true for these invalida meshlets.
+    // This is done so that the following WaveOps are well formed and have all threads active. 
+    if (valid_meshlet)
+    {
+        draw_meshlet = draw_meshlet && !is_meshlet_occluded(
+            deref(push.uses.globals).camera,
+            instanced_meshlet,
+            push.uses.first_pass_meshlets_bitfield_offsets,
+            push.uses.first_pass_meshlets_bitfield_arena,
+            push.uses.entity_combined_transforms,
+            push.uses.meshes,
+            push.uses.hiz);
+    }
 #endif
-    if (!occluded)
+    if (draw_meshlet)
     {
         const uint out_index = atomicAdd(deref(push.uses.meshlet_instances).second_count, 1);
         const uint offset = deref(push.uses.meshlet_instances).first_count;

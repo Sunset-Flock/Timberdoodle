@@ -155,15 +155,14 @@ func vsm_entry_task(
         push.attachments.meshlets_cull_arg_buckets,
         push.draw_list_type,
         instanced_meshlet);
-#if ENABLE_MESHLET_CULLING == 1
+    bool draw_meshlet = valid_meshlet;
+#if ENABLE_MESHLET_CULLING == 1 && false
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
-    bool occluded = true;
-    
     if (valid_meshlet)
     {
-        occluded = is_meshlet_occluded_vsm2(
+        draw_meshlet = draw_meshlet && !is_meshlet_occluded_vsm2(
             svtid.x,
             deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
             instanced_meshlet,
@@ -173,17 +172,15 @@ func vsm_entry_task(
             clip_level
         );
     }
-#else
-    const bool occluded = false;
 #endif
 
     CullMeshletsDrawPagesPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
-    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(!occluded).x;
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;
     payload.task_shader_clip_level = clip_level;
-    let surviving_meshlet_count = WaveActiveSum(occluded ? 0u : 1u);
+    let surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
-    let local_survivor_index = WavePrefixSum(occluded ? 0u : 1u);
+    let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
 
     // DispatchMesh(1, 0, 1, payload);
     DispatchMesh(1, surviving_meshlet_count, 1, payload);

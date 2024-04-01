@@ -130,6 +130,15 @@ struct VSMSettings
     daxa_u32 force_clip_level;
     daxa_u32 disable_caching;
     daxa_i32 forced_clip_level;
+#if defined(__cplusplus)
+    VSMSettings()
+        : visualize_clip_levels{ 0 },
+          force_clip_level{ 0 },
+          disable_caching{ 1 },
+          forced_clip_level{ 0 }
+    {
+    }
+#endif
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 struct Settings
