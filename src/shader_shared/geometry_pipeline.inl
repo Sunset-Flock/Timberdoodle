@@ -124,9 +124,12 @@ inline auto meshlet_cull_arg_bucket_size(daxa_u32 max_meshes, daxa_u32 max_meshl
 inline auto meshlet_cull_arg_buckets_buffer_size(daxa_u32 max_meshes, daxa_u32 max_meshlets) -> daxa_u32
 {
     daxa_u32 worst_case_size = {};
-    for (daxa_u32 i = 0; i < 32; ++i)
+    for (daxa_u32 draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
     {
-        worst_case_size += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+        for (daxa_u32 i = 0; i < 32; ++i)
+        {
+            worst_case_size += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
+        }
     }
     return worst_case_size + static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
 }
