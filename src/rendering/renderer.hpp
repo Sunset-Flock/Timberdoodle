@@ -37,7 +37,7 @@ struct Renderer
     Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer);
     ~Renderer();
 
-    void compile_pipelines(bool allow_mesh_shader, bool allow_slang);
+    void compile_pipelines();
     void recreate_framebuffer();
     void clear_select_buffers();
     void window_resized();

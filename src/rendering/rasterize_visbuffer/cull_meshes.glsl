@@ -32,14 +32,8 @@ void main()
         return;
     }
     
-    const uint cull_shader_workgroup_size = 
-        (deref(push.uses.globals).settings.enable_mesh_shader == 1) ? 
-        TASK_SHADER_WORKGROUP_X : 
-        CULL_MESHLETS_WORKGROUP_X;
-    const uint cull_shader_workgroup_log2 = 
-        (deref(push.uses.globals).settings.enable_mesh_shader == 1) ? 
-        uint(log2(TASK_SHADER_WORKGROUP_X)) : 
-        uint(log2(CULL_MESHLETS_WORKGROUP_X));
+    const uint cull_shader_workgroup_size = TASK_SHADER_WORKGROUP_X;
+    const uint cull_shader_workgroup_log2 = uint(log2(TASK_SHADER_WORKGROUP_X));
     
     write_meshlet_cull_arg_buckets(
         mesh,

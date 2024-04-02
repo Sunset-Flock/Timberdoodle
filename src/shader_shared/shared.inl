@@ -146,11 +146,8 @@ struct Settings
     daxa_u32vec2 render_target_size;
     daxa_u32vec2 window_size;
     daxa_f32vec2 render_target_size_inv;
-    daxa_u32 enable_mesh_shader;
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
-    daxa_i32 use_slang_for_culling;
-    daxa_i32 use_slang_for_drawing;
     daxa_i32 anti_aliasing_mode;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
@@ -165,11 +162,8 @@ struct Settings
         : render_target_size{16, 16},
           window_size{16, 16},
           render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
-          enable_mesh_shader{1},
           draw_from_observer{0},
           observer_show_pass{0},
-          use_slang_for_culling{0},
-          use_slang_for_drawing{0},
           anti_aliasing_mode{AA_MODE_NONE}
     {
     }

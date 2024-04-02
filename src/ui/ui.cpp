@@ -329,9 +329,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
-        IMGUI_UINT_CHECKBOX(settings.enable_mesh_shader);
-        IMGUI_UINT_CHECKBOX(settings.use_slang_for_culling);
-        IMGUI_UINT_CHECKBOX(settings.use_slang_for_drawing);
         std::array<char const * const, 3> aa_modes = {
             "AA_MODE_NONE",
             "AA_MODE_SUPER_SAMPLE",

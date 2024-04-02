@@ -3,7 +3,7 @@
 #include "vsm.inl"
 #include "shader_lib/cull_util.glsl"
 #include "shader_lib/vsm_util.glsl"
-#include "../rasterize_visbuffer/draw_visbuffer.slang"
+#include "../rasterize_visbuffer/draw_visbuffer.hlsl"
 
 [[vk::push_constant]] CullAndDrawPagesPush vsm_push;
 [[vk::push_constant]] CullAndDrawPages_WriteCommandH::AttachmentShaderBlob write_command_push;

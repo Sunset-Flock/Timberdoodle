@@ -89,7 +89,7 @@ Renderer::~Renderer()
     this->context->device.collect_garbage();
 }
 
-void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
+void Renderer::compile_pipelines()
 {
     auto add_if_not_present = [&](auto & map, auto & list, auto compile_info)
     {
@@ -100,8 +100,6 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
     };
 
     std::vector<daxa::RasterPipelineCompileInfo> rasters = {
-        {draw_visbuffer_pipelines[0]},
-        {draw_visbuffer_pipelines[1]},
         {cull_and_draw_pages_pipelines[0]},
         {cull_and_draw_pages_pipelines[1]},
         {draw_shader_debug_circles_pipeline_compile_info()},
@@ -109,19 +107,16 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
     };
-    if (allow_slang)
     {
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_pipelines[1]);
     }
-    if (allow_mesh_shader && allow_slang)
     {
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[1]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[0]);
         add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[1]);
     }
-    add_if_not_present(this->context->raster_pipelines, rasters, draw_visbuffer_solid_pipeline_compile_info());
     for (auto info : rasters)
     {
         auto compilation_result = this->context->pipeline_manager.add_raster_pipeline(info);
@@ -147,9 +142,7 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {gen_hiz_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info()},
         {shade_opaque_pipeline_compile_info()},
-        {DrawVisbuffer_WriteCommandTask::pipeline_compile_info},
         {cull_meshes_pipeline_compile_info()},
-        {cull_meshlets_pipeline_compile_info()},
         {PrefixSumCommandWriteTask::pipeline_compile_info},
         {prefix_sum_upsweep_pipeline_compile_info()},
         {prefix_sum_downsweep_pipeline_compile_info()},
@@ -171,14 +164,11 @@ void Renderer::compile_pipelines(bool allow_mesh_shader, bool allow_slang)
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info()},
     };
-    if (allow_slang)
     {
         add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
     };
-    if (allow_slang)
     {
         add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
-        add_if_not_present(this->context->compute_pipelines, computes, slang_cull_meshlets_pipeline_compile_info());
     }
     for (auto const & info : computes)
     {
@@ -547,7 +537,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_draw_visbuffer({
         .render_context = render_context.get(),
         .task_graph = task_list,
-        .enable_mesh_shader = render_context->render_data.settings.enable_mesh_shader != 0,
         .pass = PASS0_DRAW_VISIBLE_LAST_FRAME,
         .meshlet_instances = meshlet_instances,
         .meshes = scene->_gpu_mesh_manifest,
@@ -583,7 +572,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_cull_and_draw_visbuffer({
         .render_context = render_context.get(),
         .task_graph = task_list,
-        .enable_mesh_shader = render_context->render_data.settings.enable_mesh_shader != 0,
         .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
         .entity_meta_data = scene->_gpu_entity_meta,
         .entity_meshgroups = scene->_gpu_entity_mesh_groups,
@@ -639,7 +627,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         task_draw_visbuffer({
             .render_context = render_context.get(),
             .task_graph = task_list,
-            .enable_mesh_shader = render_context->render_data.settings.enable_mesh_shader != 0,
             .pass = PASS4_OBSERVER_DRAW_ALL,
             .meshlet_instances = meshlet_instances,
             .meshes = scene->_gpu_mesh_manifest,

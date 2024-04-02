@@ -332,7 +332,7 @@ bool is_meshlet_occluded_vsm(
         #endif
         return true;
     }
-
+    return false;
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
