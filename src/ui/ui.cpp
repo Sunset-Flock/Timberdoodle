@@ -178,7 +178,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::EndDisabled();
             render_ctx.render_data.vsm_settings.visualize_clip_levels = visualize_clip_levels;
             render_ctx.render_data.vsm_settings.force_clip_level = force_clip_level;
-            render_ctx.render_data.vsm_settings.forced_clip_level = forced_clip_level ? forced_clip_level : -1;
+            render_ctx.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
             render_ctx.render_data.vsm_settings.disable_caching = disable_caching;
 
             ImGui::Image(

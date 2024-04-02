@@ -865,10 +865,10 @@ void Renderer::render_frame(
     vsm_state.clip_projections_cpu = get_vsm_projections(GetVSMProjectionsInfo{
         .camera_info = &camera_info,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
-        .clip_0_scale = 10.0f,
-        .clip_0_near = 1.0f,
-        .clip_0_far = 100.0f,
-        .clip_0_height_offset = 50.0f,
+        .clip_0_scale = 2.0f,
+        .clip_0_near = 0.01f,
+        .clip_0_far = 10.0f,
+        .clip_0_height_offset = 10.0f,
         .debug_context = &context->shader_debug_context,
     });
 
@@ -879,7 +879,7 @@ void Renderer::render_frame(
     }
 
     // clip_0.right - clip_0.left = 2.0f * clip_0_scale (HARDCODED FOR NOW TODO(msakmary) FIX)
-    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 10.0f) / VSM_TEXTURE_RESOLUTION;
+    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 2.0f) / VSM_TEXTURE_RESOLUTION;
 
     // debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
     //     .clip_projections = std::span<const VSMClipProjection>(vsm_state.clip_projections_cpu.begin(), 1),

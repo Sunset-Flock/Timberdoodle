@@ -165,7 +165,7 @@ struct Settings
         : render_target_size{16, 16},
           window_size{16, 16},
           render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
-          enable_mesh_shader{0},
+          enable_mesh_shader{1},
           draw_from_observer{0},
           observer_show_pass{0},
           use_slang_for_culling{0},
@@ -188,7 +188,7 @@ struct PostprocessSettings
     daxa_f32 inv_luminance_log2_range;
 #if defined(__cplusplus)
     PostprocessSettings()
-        : min_luminance_log2{std::log2(0.0002f)},
+        : min_luminance_log2{std::log2(4.0f)},
           max_luminance_log2{std::log2(4096.0f)},
           luminance_adaption_tau{1.0f},
           exposure_bias{1.0f},

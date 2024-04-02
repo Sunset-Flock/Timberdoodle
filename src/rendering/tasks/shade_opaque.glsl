@@ -88,7 +88,8 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
     vec3 color = vec3(1.0, 1.0, 1.0);
 
     const mat4x4 inv_projection_view = deref(AT_FROM_PUSH.globals).camera.inv_view_proj;
-    const int force_clip_level = -1;//deref(_globals).force_view_clip_level ? deref(_globals).vsm_debug_clip_level : -1;
+    const bool level_forced = deref(AT_FROM_PUSH.globals).vsm_settings.force_clip_level != 0;
+    const int force_clip_level = level_forced ? deref(AT_FROM_PUSH.globals).vsm_settings.forced_clip_level : -1;
 
     ClipInfo clip_info;
     // When we are using debug camera and no clip level is manually forced we need to
@@ -143,7 +144,6 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
         {
             color = vec3(0.001, 0.001, 0.001);
         } else {
-            // color = clip_to_color[int(mod(clip_info.clip_level, float(NUM_CLIP_VIZ_COLORS)))];
             color = hsv2rgb(vec3(float(clip_info.clip_level) / float(VSM_CLIP_LEVELS), 1.0, 0.5));
             if(get_is_visited_marked(page_entry)) {color = vec3(1.0, 1.0, 0.0);}
         }
@@ -152,6 +152,70 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
         if(get_is_dirty(page_entry)) {color = vec3(0.0, 0.0, 1.0);}
     }
     return color;
+}
+
+int get_height_depth_offset(ivec3 vsm_page_texel_coords)
+{
+    const int page_draw_camera_height = texelFetch(daxa_itexture2DArray(AT_FROM_PUSH.vsm_page_height_offsets), vsm_page_texel_coords, 0).r;
+    const int current_camera_height = deref_i(AT_FROM_PUSH.vsm_clip_projections, vsm_page_texel_coords.z).height_offset;
+    const int height_difference = current_camera_height - page_draw_camera_height;
+    return height_difference;
+}
+
+float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
+{
+    const bool level_forced = deref(AT_FROM_PUSH.globals).vsm_settings.force_clip_level != 0;
+    const int force_clip_level = level_forced ? deref(AT_FROM_PUSH.globals).vsm_settings.forced_clip_level : -1;
+
+    const mat4x4 inv_projection_view = deref(AT_FROM_PUSH.globals).camera.inv_view_proj;
+    uvec2 render_target_size = deref(AT_FROM_PUSH.globals).settings.render_target_size;
+    daxa_BufferPtr(VSMClipProjection) vsm_clip_projections = AT_FROM_PUSH.vsm_clip_projections;
+    daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
+    ClipInfo clip_info;
+    clip_info = clip_info_from_uvs(ClipFromUVsInfo(
+        uv,
+        render_target_size,
+        depth,
+        inv_projection_view,
+        force_clip_level,
+        vsm_clip_projections,
+        vsm_globals
+    ));
+    if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
+
+    const ivec3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, vsm_clip_projections);
+    const uint page_entry = texelFetch(daxa_utexture2DArray(AT_FROM_PUSH.vsm_page_table), vsm_page_texel_coords, 0).r;
+
+    if(get_is_allocated(page_entry))
+    {
+        const ivec2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
+        const ivec2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
+        const ivec2 in_page_texel_coords = ivec2(mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+
+        const float vsm_sample = texelFetch(daxa_texture2D(AT_FROM_PUSH.vsm_memory_block), physical_texel_coords, 0).r;
+
+        const mat4 vsm_shadow_view = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.view;
+        const mat4 vsm_shadow_proj = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.proj;
+
+        const vec3 view_projected_world_pos = (vsm_shadow_view * daxa_f32vec4(world_position, 1.0)).xyz;
+
+        const int height_offset = get_height_depth_offset(vsm_page_texel_coords);
+
+        const float view_space_offset = 0.004 * pow(2, clip_info.clip_level);
+        const float fp_remainder = fract(view_projected_world_pos.z) + view_space_offset;
+        const int int_part = daxa_i32(floor(view_projected_world_pos.z));
+        const int modified_view_depth = int_part + height_offset;
+    
+        const vec3 offset_view_pos = vec3(view_projected_world_pos.xy, float(modified_view_depth) + fp_remainder);
+
+        const vec4 vsm_projected_world = vsm_shadow_proj * vec4(offset_view_pos, 1.0);
+        const float vsm_projected_depth = vsm_projected_world.z / vsm_projected_world.w;
+
+        const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, vsm_clip_projections);
+        const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
+        return is_in_shadow ? 0.0 : 1.0;
+    }
+    return 1.0;
 }
 
 float mip_map_level(vec2 ddx, vec2 ddy)
@@ -255,14 +319,17 @@ void main()
         const vec3 sun_direction = deref(AT_FROM_PUSH.globals).sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
         // This will be multiplied with shadows once added
-        const float shadow = sun_norm_dot;
+        const float norm_dot_shadow = sun_norm_dot;
+        const float vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position);
+        const float final_shadow = norm_dot_shadow * vsm_shadow;
+
         daxa_BufferPtr(SkySettings) settings = deref(AT_FROM_PUSH.globals).sky_settings_ptr;
         // Because the atmosphere is using km as it's default units and we want one unit in world
         // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
         const vec3 atmo_camera_position = deref(AT_FROM_PUSH.globals).camera.position * M_TO_KM_SCALE;
         vec3 world_camera_position = atmo_camera_position + vec3(0.0, 0.0, deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET);
 
-        const vec3 direct_lighting = shadow * get_sun_direct_lighting(settings, sun_direction, world_camera_position);
+        const vec3 direct_lighting = final_shadow * get_sun_direct_lighting(settings, sun_direction, world_camera_position);
         const vec4 norm_indirect_ligting = texture( daxa_samplerCube( AT_FROM_PUSH.sky_ibl, deref(AT_FROM_PUSH.globals).samplers.linear_clamp), normal).rgba;
         const vec3 indirect_ligting = norm_indirect_ligting.rgb * norm_indirect_ligting.a;
         const vec3 lighting = direct_lighting + indirect_ligting;
@@ -270,7 +337,9 @@ void main()
         const uint visualize_clip_levels = deref(AT_FROM_PUSH.globals).vsm_settings.visualize_clip_levels;
         const vec3 vsm_debug_color = visualize_clip_levels == 0 ? vec3(1.0f) : get_vsm_debug_page_color(screen_uv, tri_data.depth);
 
-        output_value.rgb = albedo.rgb * lighting * vsm_debug_color;
+        output_value.rgb = albedo.rgb * lighting * vsm_debug_color;// * vsm_shadow;
+        debug_value = vec4(vsm_shadow * vsm_debug_color, 1.0);
+        // debug_value = vec4(depth, tri_data.depth, 0.0, 1.0);
 #endif
 
 #if 0
@@ -320,6 +389,6 @@ void main()
         debug_info, 
         AT_FROM_PUSH.debug_lens_image, 
         index, 
-        vec4(exposed_color, 1.0f));
+        vec4(debug_value));
     imageStore(daxa_image2D(AT_FROM_PUSH.color_image), index, vec4(exposed_color, output_value.a));
 }

@@ -10,7 +10,7 @@
 #define daxa_texture2D(TEX) Texture2D<float>::get(TEX)
 #define daxa_utexture2DArray(TEX) Texture2DArray<uint>::get(TEX)
 #define daxa_image2D(TEX) RWTexture2D<float>::get(TEX)
-#define _mod(X, Y) fmod(X,Y)
+#define _mod(X, Y) (X - Y * floor(X/Y))
 
 float4 texelFetch(Texture2D<float4> tex, int2 index, uint mip)
 {

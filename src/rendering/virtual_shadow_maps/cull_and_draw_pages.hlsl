@@ -56,7 +56,6 @@ bool is_meshlet_occluded_vsm2(
         return true;
     }
 
-
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
     const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
@@ -156,7 +155,7 @@ func vsm_entry_task(
         push.draw_list_type,
         instanced_meshlet);
     bool draw_meshlet = valid_meshlet;
-#if ENABLE_MESHLET_CULLING == 1 && false
+#if ENABLE_MESHLET_CULLING == 0
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
@@ -209,7 +208,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     const GPUMesh mesh = deref_i(push.attachments.meshes, meshlet_inst.mesh_index);
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attachments.meshes, meshlet_inst.mesh_index).micro_indices;
-    const daxa_f32mat4x4 view_proj = deref_i(push.attachments.vsm_clip_projections, svtid.z).camera.view_proj;
+    const daxa_f32mat4x4 view_proj = deref_i(push.attachments.vsm_clip_projections, clip_level).camera.view_proj;
 
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
 
@@ -276,9 +275,7 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     in CullMeshletsDrawPagesPayload payload)
 {
     let push = vsm_push;
-    let wave_lane_index = svtid.x;
     let group_index = svtid.y;
-    let clip_index = svtid.z;
 
     // The payloads packed survivor indices go from 0-survivor_count.
     // These indices map to the meshlet instance indices.
@@ -347,19 +344,15 @@ void vsm_entry_fragment_opaque(
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
-        // printf("shading with depth %f\n", get_page_offset_depth(
-        //     {prim.clip_level, virtual_uv}, 
-        //     svpos.z,
-        //     push.attachments.vsm_clip_projections,
-        // ));
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
         InterlockedMin(
-            RWTexture2D_utable[push.attachments.vsm_memory_block.index()][physical_texel_coords],
+            RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
+            // asuint(vert.position.z / vert.position.w),
             asuint(get_page_offset_depth(
                 {prim.clip_level, virtual_uv}, 
-                svpos.z,
+                vert.position.z / vert.position.w,
                 push.attachments.vsm_clip_projections
             ))
         );
@@ -386,10 +379,11 @@ void vsm_entry_fragment_masked(
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
         InterlockedMin(
-            RWTexture2D_utable[push.attachments.vsm_memory_block.index()][physical_texel_coords],
+            RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
+            // asuint(vert.position.z / vert.position.w),
             asuint(get_page_offset_depth(
                 {prim.clip_level, virtual_uv}, 
-                svpos.z,
+                vert.position.z / vert.position.w,
                 push.attachments.vsm_clip_projections
             ))
         );

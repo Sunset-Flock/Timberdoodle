@@ -120,6 +120,7 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(DebugVirtualPageTableH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_page_table)
@@ -209,6 +210,7 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_com
             .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
+        .raster = {.depth_clamp_enable = true},
         .push_constant_size = s_cast<u32>(sizeof(CullAndDrawPagesPush)),
     };
 }
@@ -635,7 +637,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPagesH::AT.material_manifest, info.material_manifest),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, info.vsm_state->dirty_pages_hiz),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, info.vsm_state->page_table),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
         },
         .render_context = info.render_context,
@@ -644,6 +646,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     task_clear_image(*info.tg, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f});
     info.tg->add_task(DebugVirtualPageTableTask{
         .views = std::array{
+            daxa::attachment_view(DebugVirtualPageTableH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
             daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table),
@@ -724,6 +727,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const ndc_target_pos = glm::vec3(clip_projected_target_pos) / clip_projected_target_pos.w;
         auto const ndc_page_scaled_target_pos = glm::vec2(ndc_target_pos) / ndc_page_size;
         auto const ndc_page_scaled_aligned_target_pos = glm::vec2(glm::ceil(ndc_page_scaled_target_pos));
+        // auto const ndc_page_scaled_aligned_target_pos = glm::vec2(glm::ivec2(ndc_page_scaled_target_pos));
 
         // Here we calculate the offsets that will be applied per page in the clip level
         // This is used to virtually offset the depth of each page so that we can actually snap the vsm position to the camera position
@@ -756,15 +760,16 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         // Clip offset from the xy plane - essentially clip_xy_plane_world_position gives us the position on a world xy plane positioned
         // at the height 0. We want to shift the clip camera up so that it observes the player position from the above. The height from
         // which the camera observes this player should be set according to the info.height_offset
-        auto const view_offset_scale = s_cast<i32>(std::floor(info.camera_info->position.z / -default_vsm_forward.z) + info.clip_0_height_offset);
+        auto const view_offset_scale = s_cast<i32>(std::floor(info.camera_info->position.z / -default_vsm_forward.z) + info.clip_0_height_offset * curr_clip_scale);
         auto const view_offset = s_cast<f32>(view_offset_scale) * -default_vsm_forward;
         auto const clip_position = clip_xy_plane_world_position + view_offset;
 
-        auto const origin_shift = (clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
-        auto const page_u_depth_offset = (clip_projection_view * glm::vec4(u_offset_vector, 1.0)).z - origin_shift;
-        auto const page_v_depth_offset = (clip_projection_view * glm::vec4(v_offset_vector, 1.0)).z - origin_shift;
-
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
+        auto const final_clip_projection_view = curr_clip_proj * final_clip_view;
+
+        auto const origin_shift = (final_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
+        auto const page_u_depth_offset = (final_clip_projection_view * glm::vec4(u_offset_vector, 1.0)).z - origin_shift;
+        auto const page_v_depth_offset = (final_clip_projection_view * glm::vec4(v_offset_vector, 1.0)).z - origin_shift;
 
         auto clip_camera = CameraInfo{
             .view = final_clip_view,
@@ -810,8 +815,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             .height_offset = view_offset_scale,
             .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
             .page_offset = {
-                -s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x),
-                -s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y),
+                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)) % VSM_PAGE_TABLE_RESOLUTION,
+                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)) % VSM_PAGE_TABLE_RESOLUTION,
             },
             .camera = clip_camera,
         };
