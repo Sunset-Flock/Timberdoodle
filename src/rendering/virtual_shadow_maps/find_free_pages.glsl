@@ -73,7 +73,7 @@ void main()
 {
     if(gl_GlobalInvocationID.x == 0)
     {
-        const uint allocations_number = deref(push.vsm_allocation_count).count;
+        const uint allocations_number = min(deref(push.vsm_allocation_count).count, MAX_VSM_ALLOC_REQUESTS);
 
         const uint allocate_dispach_count = (allocations_number + ALLOCATE_PAGES_X_DISPATCH - 1) / ALLOCATE_PAGES_X_DISPATCH;
         deref(push.vsm_allocate_indirect).x = 1;

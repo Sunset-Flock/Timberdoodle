@@ -3,6 +3,8 @@
 #include "shader_shared/vsm_shared.inl"
 #include "vsm.inl"
 
+#extension GL_EXT_debug_printf : enable
+
 DAXA_DECL_IMAGE_ACCESSOR_WITH_FORMAT(uimage2DArray, r32ui, , r32uiImageArray)
 DAXA_DECL_IMAGE_ACCESSOR_WITH_FORMAT(uimage2D, r32ui, , r32uiImage)
 
@@ -36,53 +38,46 @@ void main()
 
         const ivec3 vsm_page_wrapped_coords = vsm_clip_info_to_wrapped_coords(clip_info, push.vsm_clip_projections);
         if(vsm_page_wrapped_coords.x < 0 || vsm_page_wrapped_coords.y < 0) { return; }
-        const uint page_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), vsm_page_wrapped_coords).r;
 
-        const bool is_not_allocated = !get_is_allocated(page_entry);
-        const bool allocation_available = atomicAdd(deref(push.vsm_allocation_count).count, 0) < MAX_VSM_ALLOC_REQUESTS;
-
-        if(is_not_allocated && allocation_available)
+        uint prev_page_state;
+        bool active_thread = true;
+        bool first_to_see = false;
+        while(active_thread)
         {
-            const uint prev_state = imageAtomicOr(
+            const ivec3 sg_uniform_page_wrapped_coords = subgroupBroadcastFirst(vsm_page_wrapped_coords);
+
+            if(all(equal(sg_uniform_page_wrapped_coords, vsm_page_wrapped_coords)))
+            {
+                if(subgroupElect())
+                {
+                    first_to_see = true;
+                }
+                active_thread = false;
+            }
+        }
+
+
+        if(first_to_see)
+        {
+            prev_page_state = imageAtomicOr(
                 daxa_access(r32uiImageArray, push.vsm_page_table),
                 vsm_page_wrapped_coords,
-                requests_allocation_mask()
+                requests_allocation_mask() | visited_marked_mask()
             );
 
-            if(!get_requests_allocation(prev_state))
+            if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
             {
-                // If this is the thread to mark this page as REQUESTS_ALLOCATION
-                //    -> create a new allocation request in the allocation buffer
                 uint idx = atomicAdd(deref(push.vsm_allocation_count).count, 1);
                 if(idx < MAX_VSM_ALLOC_REQUESTS)
                 {
                     deref_i(push.vsm_allocation_requests, idx) = AllocationRequest(vsm_page_wrapped_coords);
-                } 
-                else 
-                {
-                    atomicAdd(deref(push.vsm_allocation_count).count, -1);
-                    imageAtomicAnd(
-                        daxa_access(r32uiImageArray, push.vsm_page_table),
-                        vsm_page_wrapped_coords,
-                        ~requests_allocation_mask()
-                    );
                 }
-            } 
-        } 
-        else if (!get_is_visited_marked(page_entry) && !is_not_allocated)
-        {
-            const uint prev_state = imageAtomicOr(
-                daxa_access(r32uiImageArray, push.vsm_page_table),
-                vsm_page_wrapped_coords,
-                visited_marked_mask()
-            );
-            // If this is the first thread to mark this page as VISITED_MARKED 
-            //   -> mark the physical page as VISITED
-            if(!get_is_visited_marked(prev_state))
-            { 
+            }
+            else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
+            {
                 imageAtomicOr(
                     daxa_access(r32uiImage, push.vsm_meta_memory_table),
-                    get_meta_coords_from_vsm_entry(page_entry),
+                    get_meta_coords_from_vsm_entry(prev_page_state),
                     meta_memory_visited_mask()
                 );
             }
