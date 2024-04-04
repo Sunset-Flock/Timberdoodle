@@ -196,6 +196,13 @@ struct VSMOpaqueMeshShaderPrimitive : VSMMeshShaderPrimitiveT
     IMPL_GET_SET(uint, clip_level)
 };
 
+struct VSMMaskMeshShaderPrimitive : VSMMeshShaderPrimitiveT
+{
+    nointerpolation [[vk::location(0)]] uint clip_level;
+    nointerpolation [[vk::location(1)]] uint material_index;
+    IMPL_GET_SET(uint, clip_level)
+}
+
 func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     in uint3 svtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
@@ -257,9 +264,9 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
 
         P primitive;
         primitive.set_clip_level(clip_level);
-        if (P is MeshShaderMaskPrimitive)
+        if (P is VSMMaskMeshShaderPrimitive)
         {
-            var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
+            var mprim = reinterpret<VSMMaskMeshShaderPrimitive>(primitive);
             mprim.material_index = meshlet_inst.material_index;
             primitive = reinterpret<P>(mprim);
         }
@@ -319,8 +326,8 @@ func vsm_entry_mesh_opaque(
 func vsm_entry_mesh_masked(
     in uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
-    OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
-    OutputPrimitives<VSMOpaqueMeshShaderPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
+    OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
+    OutputPrimitives<VSMMaskMeshShaderPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in payload CullMeshletsDrawPagesPayload payload)
 {
     vsm_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
@@ -362,8 +369,8 @@ void vsm_entry_fragment_opaque(
 [shader("fragment")]
 void vsm_entry_fragment_masked(
     in float3 svpos : SV_Position,
-    in MeshShaderOpaqueVertex vert,
-    in VSMOpaqueMeshShaderPrimitive prim)
+    in MeshShaderMaskVertex vert,
+    in VSMMaskMeshShaderPrimitive prim)
 {
     let push = vsm_push;
     const float2 virtual_uv = svpos.xy / VSM_TEXTURE_RESOLUTION;
@@ -375,6 +382,17 @@ void vsm_entry_fragment_masked(
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
+        if(prim.material_index != INVALID_MANIFEST_INDEX)
+        {
+            const GPUMaterial material = deref_i(push.attachments.material_manifest, prim.material_index);
+            if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                float alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .Sample(SamplerState::get(draw_p.uses.globals->samplers.linear_repeat), vert.uv).a;
+                if(alpha < 0.5f) { discard; }
+            }
+        }
+
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
