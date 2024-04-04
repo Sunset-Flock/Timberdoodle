@@ -339,7 +339,6 @@ func vsm_entry_mesh_masked(
 
 [shader("fragment")]
 void vsm_entry_fragment_opaque(
-    // in float4 svpos : SV_Position,
     in MeshShaderOpaqueVertex vert,
     in VSMOpaqueMeshShaderPrimitive prim)
 {
@@ -358,7 +357,6 @@ void vsm_entry_fragment_opaque(
 
         InterlockedMin(
             RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
-            // asuint(vert.position.z / vert.position.w),
             asuint(get_page_offset_depth(
                 {prim.clip_level, virtual_uv}, 
                 vert.position.z / vert.position.w,
@@ -370,7 +368,6 @@ void vsm_entry_fragment_opaque(
 
 [shader("fragment")]
 void vsm_entry_fragment_masked(
-    // in float4 svpos : SV_Position,
     in MeshShaderMaskVertex vert,
     in VSMMaskMeshShaderPrimitive prim)
 {
@@ -400,7 +397,6 @@ void vsm_entry_fragment_masked(
 
         InterlockedMin(
             RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
-            // asuint(vert.position.z / vert.position.w),
             asuint(get_page_offset_depth(
                 {prim.clip_level, virtual_uv}, 
                 vert.position.z / vert.position.w,

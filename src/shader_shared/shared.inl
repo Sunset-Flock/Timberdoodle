@@ -128,14 +128,14 @@ struct VSMSettings
 {
     daxa_u32 visualize_clip_levels;
     daxa_u32 force_clip_level;
-    daxa_u32 disable_caching;
+    daxa_u32 enable_caching;
     daxa_i32 forced_clip_level;
     daxa_f32 clip_0_frustum_scale;
 #if defined(__cplusplus)
     VSMSettings()
         : visualize_clip_levels{ 0 },
           force_clip_level{ 0 },
-          disable_caching{ 1 },
+          enable_caching{ 0 },
           forced_clip_level{ 0 },
           clip_0_frustum_scale{2.0f}
     {

@@ -102,6 +102,10 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth, vec3 world_position)
     {
         const vec4 main_cam_proj_world = deref(globals).camera.view_proj * vec4(world_position, 1.0);
         const vec2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
+        if(main_cam_proj_world.w < 0.0 || abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0)
+        {
+            return vec3(1.0);
+        }
         real_uv = (ndc + vec2(1.0)) / vec2(2.0);
         real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
     }
