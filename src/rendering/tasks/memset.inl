@@ -48,13 +48,13 @@ struct MemcpyBufferPush
 using IndirectMemsetBufferTask = SimpleIndirectComputeTask<
     IndirectMemsetBufferH::Task, 
     IndirectMemsetBufferPush, 
-    "./src/rendering/tasks/memset.slang",
+    "./src/rendering/tasks/memset.hlsl",
     "entry_indmemset"
 >;
 using MemcpyBufferTask = SimpleComputeTask<
     MemcpyBufferH::Task, 
     MemcpyBufferPush, 
-    "./src/rendering/tasks/memset.slang", 
+    "./src/rendering/tasks/memset.hlsl", 
     "entry_memcpy"
 >;
 

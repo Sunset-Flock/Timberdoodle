@@ -36,7 +36,7 @@ static inline daxa::ComputePipelineCompileInfo dvm_resolve_visbuffer_compile_inf
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/tasks/dvmaa.slang"},
+            .source = daxa::ShaderFile{"./src/rendering/tasks/dvmaa.hlsl"},
             .compile_options = {.entry_point = "entry_resolve_vis_image", .language = daxa::ShaderLanguage::SLANG},
         },
         .push_constant_size = sizeof(DVMResolveVisImagePush),

@@ -191,7 +191,7 @@ inline daxa::ComputePipelineCompileInfo vsm_gen_dirty_bit_hiz_pipeline_compile_i
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.slang"},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl"},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
         .push_constant_size = static_cast<u32>(sizeof(GenDirtyBitHizPush)),
         .name = std::string{GenDirtyBitHizH::NAME},
