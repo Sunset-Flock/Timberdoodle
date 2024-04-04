@@ -172,6 +172,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::Checkbox("Visualize clip levels", &visualize_clip_levels);
             ImGui::Checkbox("Force clip level",&force_clip_level);
             ImGui::Checkbox("Disable caching",&disable_caching);
+            ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.f);
             ImGui::BeginDisabled(!force_clip_level);
             i32 forced_clip_level = render_ctx.render_data.vsm_settings.forced_clip_level;
             ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);

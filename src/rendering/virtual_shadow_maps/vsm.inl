@@ -815,8 +815,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             .height_offset = view_offset_scale,
             .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
             .page_offset = {
-                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)) % VSM_PAGE_TABLE_RESOLUTION,
-                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)) % VSM_PAGE_TABLE_RESOLUTION,
+                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
+                (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
             },
             .camera = clip_camera,
         };

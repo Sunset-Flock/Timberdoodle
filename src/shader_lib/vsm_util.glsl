@@ -92,7 +92,8 @@ struct ClipFromUVsInfo
     daxa_f32mat4x4 inv_view_proj;
     daxa_i32 force_clip_level;
     daxa_BufferPtr(VSMClipProjection) clip_projections;
-    daxa_BufferPtr(VSMGlobals) globals;
+    daxa_BufferPtr(VSMGlobals) vsm_globals;
+    daxa_BufferPtr(RenderGlobalData) globals;
 };
 
 daxa_f32 get_page_offset_depth(ClipInfo info, daxa_f32 current_depth, daxa_BufferPtr(VSMClipProjection) clip_projections)
@@ -122,7 +123,14 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
     if(info.force_clip_level == -1)
     {
         const daxa_f32vec2 center_texel_coords = info.uv * info.screen_resolution;
+        #if 0
+        const daxa_f32vec2 texel_coords = center_texel_coords;
+        const daxa_f32vec2 texel_uvs = texel_coords / daxa_f32vec2(info.screen_resolution);
+        const daxa_f32vec3 world_space = world_space_from_uv(texel_uvs, info.depth, info.inv_view_proj);
 
+        const daxa_f32 dist = length(world_space - deref(info.globals).camera.position);
+        clip_level = clamp(daxa_i32(ceil(log2(max(2.0 * dist / deref(info.globals).vsm_settings.clip_0_frustum_scale, 1.0)))), 0, VSM_CLIP_LEVELS - 1);
+        #else 
         const daxa_f32vec2 left_side_texel_coords = center_texel_coords - daxa_f32vec2(0.5, 0.0);
         const daxa_f32vec2 left_side_texel_uvs = left_side_texel_coords / daxa_f32vec2(info.screen_resolution);
         const daxa_f32vec3 left_world_space = world_space_from_uv( left_side_texel_uvs, info.depth, info.inv_view_proj);
@@ -132,11 +140,13 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_f32vec3 right_world_space = world_space_from_uv( right_side_texel_uvs, info.depth, info.inv_view_proj);
 
         const daxa_f32 texel_world_size = length(left_world_space - right_world_space);
-        clip_level = max(daxa_i32(ceil(log2(texel_world_size / deref(info.globals).clip_0_texel_world_size))), 0);
+        clip_level = max(daxa_i32(ceil(log2(texel_world_size / deref(info.vsm_globals).clip_0_texel_world_size))), 0);
         if(clip_level >= VSM_CLIP_LEVELS) 
         {
             return ClipInfo(clip_level, daxa_f32vec2(0.0));
         }
+        #endif
+
     } 
     else 
     {

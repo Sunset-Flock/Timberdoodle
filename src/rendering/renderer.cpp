@@ -845,17 +845,13 @@ void Renderer::render_frame(
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
 
-    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-    {
-        vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
-    }
     vsm_state.clip_projections_cpu = get_vsm_projections(GetVSMProjectionsInfo{
         .camera_info = &camera_info,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
-        .clip_0_scale = 2.0f,
-        .clip_0_near = 0.01f,
+        .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
+        .clip_0_near = 0.1f,
         .clip_0_far = 10.0f,
-        .clip_0_height_offset = 10.0f,
+        .clip_0_height_offset = 5.0f,
         .debug_context = &context->shader_debug_context,
     });
 
@@ -864,9 +860,15 @@ void Renderer::render_frame(
         const auto clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
         vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
     }
+    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
+        vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_PAGE_TABLE_RESOLUTION;
+        vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
+    }
 
     // clip_0.right - clip_0.left = 2.0f * clip_0_scale (HARDCODED FOR NOW TODO(msakmary) FIX)
-    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * 2.0f) / VSM_TEXTURE_RESOLUTION;
+    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
 
     // debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
     //     .clip_projections = std::span<const VSMClipProjection>(vsm_state.clip_projections_cpu.begin(), 1),

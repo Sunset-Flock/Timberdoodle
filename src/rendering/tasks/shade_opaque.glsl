@@ -118,6 +118,7 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
         uvec2 render_target_size = deref(AT_FROM_PUSH.globals).settings.render_target_size;
         daxa_BufferPtr(VSMClipProjection) vsm_clip_projections = AT_FROM_PUSH.vsm_clip_projections;
         daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
+        daxa_BufferPtr(RenderGlobalData) globals = daxa_BufferPtr(RenderGlobalData)(AT_FROM_PUSH.globals);
         clip_info = clip_info_from_uvs(ClipFromUVsInfo(
             uv,
             render_target_size,
@@ -125,7 +126,8 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
             inv_projection_view,
             force_clip_level,
             vsm_clip_projections,
-            vsm_globals
+            vsm_globals,
+            globals
         ));
     // }
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return color; }
@@ -162,7 +164,8 @@ int get_height_depth_offset(ivec3 vsm_page_texel_coords)
     return height_difference;
 }
 
-float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
+// float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
+vec2 get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
 {
     const bool level_forced = deref(AT_FROM_PUSH.globals).vsm_settings.force_clip_level != 0;
     const int force_clip_level = level_forced ? deref(AT_FROM_PUSH.globals).vsm_settings.forced_clip_level : -1;
@@ -171,6 +174,7 @@ float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
     uvec2 render_target_size = deref(AT_FROM_PUSH.globals).settings.render_target_size;
     daxa_BufferPtr(VSMClipProjection) vsm_clip_projections = AT_FROM_PUSH.vsm_clip_projections;
     daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
+    daxa_BufferPtr(RenderGlobalData) globals = daxa_BufferPtr(RenderGlobalData)(AT_FROM_PUSH.globals);
     ClipInfo clip_info;
     clip_info = clip_info_from_uvs(ClipFromUVsInfo(
         uv,
@@ -179,9 +183,10 @@ float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
         inv_projection_view,
         force_clip_level,
         vsm_clip_projections,
-        vsm_globals
+        vsm_globals,
+        globals
     ));
-    if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
+    if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return vec2(1.0); }
 
     const ivec3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, vsm_clip_projections);
     const uint page_entry = texelFetch(daxa_utexture2DArray(AT_FROM_PUSH.vsm_page_table), vsm_page_texel_coords, 0).r;
@@ -213,9 +218,9 @@ float get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
 
         const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, vsm_clip_projections);
         const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
-        return is_in_shadow ? 0.0 : 1.0;
+        return is_in_shadow ? vec2(0.0, abs(height_offset) / 2.0) : vec2(1.0, abs(height_offset) /2.0);
     }
-    return 1.0;
+    return vec2(1.0);
 }
 
 float mip_map_level(vec2 ddx, vec2 ddy)
@@ -320,8 +325,8 @@ void main()
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
         // This will be multiplied with shadows once added
         const float norm_dot_shadow = sun_norm_dot;
-        const float vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position);
-        const float final_shadow = norm_dot_shadow * vsm_shadow;
+        const vec2 vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position);
+        const float final_shadow = norm_dot_shadow * vsm_shadow.x;
 
         daxa_BufferPtr(SkySettings) settings = deref(AT_FROM_PUSH.globals).sky_settings_ptr;
         // Because the atmosphere is using km as it's default units and we want one unit in world
@@ -338,7 +343,7 @@ void main()
         const vec3 vsm_debug_color = visualize_clip_levels == 0 ? vec3(1.0f) : get_vsm_debug_page_color(screen_uv, tri_data.depth);
 
         output_value.rgb = albedo.rgb * lighting * vsm_debug_color;// * vsm_shadow;
-        debug_value = vec4(vsm_shadow * vsm_debug_color, 1.0);
+        debug_value = vec4(vec3(vsm_shadow.y), 1.0);
         // debug_value = vec4(depth, tri_data.depth, 0.0, 1.0);
 #endif
 

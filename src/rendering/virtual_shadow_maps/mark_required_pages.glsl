@@ -32,7 +32,8 @@ void main()
             inv_projection_view,
             -1,
             push.vsm_clip_projections,
-            push.vsm_globals
+            push.vsm_globals,
+            push.globals
         ));
         if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return; }
 
