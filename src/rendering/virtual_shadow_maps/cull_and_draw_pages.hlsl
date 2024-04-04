@@ -22,7 +22,8 @@ void vsm_entry_write_commands(
     uint3 svgid : SV_GroupID
 )
 {
-    write_command_push.vsm_meshlets_cull_arg_buckets.draw_list_arg_buckets[svgid.x].commands[svgtid.x].y = VSM_CLIP_LEVELS;
+    let push = write_command_push;
+    push.vsm_meshlets_cull_arg_buckets.draw_list_arg_buckets[svgid.x].commands[svgtid.x].y = VSM_CLIP_LEVELS;
 }
 
 bool is_meshlet_occluded_vsm2(
@@ -338,12 +339,12 @@ func vsm_entry_mesh_masked(
 
 [shader("fragment")]
 void vsm_entry_fragment_opaque(
-    in float3 svpos : SV_Position,
+    // in float4 svpos : SV_Position,
     in MeshShaderOpaqueVertex vert,
     in VSMOpaqueMeshShaderPrimitive prim)
 {
     let push = vsm_push;
-    const float2 virtual_uv = svpos.xy / VSM_TEXTURE_RESOLUTION;
+    const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
         {prim.clip_level, virtual_uv},
@@ -369,12 +370,12 @@ void vsm_entry_fragment_opaque(
 
 [shader("fragment")]
 void vsm_entry_fragment_masked(
-    in float3 svpos : SV_Position,
+    // in float4 svpos : SV_Position,
     in MeshShaderMaskVertex vert,
     in VSMMaskMeshShaderPrimitive prim)
 {
     let push = vsm_push;
-    const float2 virtual_uv = svpos.xy / VSM_TEXTURE_RESOLUTION;
+    const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
         {prim.clip_level, virtual_uv},
@@ -389,7 +390,7 @@ void vsm_entry_fragment_masked(
             if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
                 float alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .Sample(SamplerState::get(draw_p.uses.globals->samplers.linear_repeat), vert.uv).a;
+                    .Sample(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv).a;
                 if(alpha < 0.5f) { discard; }
             }
         }
