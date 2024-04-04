@@ -83,7 +83,7 @@ vec3 hsv2rgb(vec3 c) {
     return c.z * mix(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
 }
 
-vec3 get_vsm_debug_page_color(vec2 uv, float depth)
+vec3 get_vsm_debug_page_color(vec2 uv, float depth, vec3 world_position)
 {
     vec3 color = vec3(1.0, 1.0, 1.0);
 
@@ -92,44 +92,29 @@ vec3 get_vsm_debug_page_color(vec2 uv, float depth)
     const int force_clip_level = level_forced ? deref(AT_FROM_PUSH.globals).vsm_settings.forced_clip_level : -1;
 
     ClipInfo clip_info;
-    // When we are using debug camera and no clip level is manually forced we need to
-    // search through all the clip levels linearly to see if one level contains VSM entry
-    // for this tile - This is a DEBUG ONLY thing the perf will probably suffer
-    // if(deref(_globals).use_debug_camera && !deref(_globals).force_view_clip_level)
-    // {
-    //     for(daxa_i32 clip_level = 0; clip_level < VSM_CLIP_LEVELS; clip_level++)
-    //     {
-    //         clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-    //             uv,
-    //             pc.offscreen_resolution,
-    //             depth,
-    //             inv_projection_view,
-    //             camera_offset,
-    //             clip_level
-    //         ));
-    //         const daxa_i32vec3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info);
-    //         const daxa_u32 page_entry = texelFetch(daxa_utexture2DArray(_vsm_page_table), vsm_page_texel_coords, 0).r;
-
-    //         if(get_is_visited_marked(page_entry)) {break;}
-    //     }
-    // }
-    // else 
-    // {
-        uvec2 render_target_size = deref(AT_FROM_PUSH.globals).settings.render_target_size;
-        daxa_BufferPtr(VSMClipProjection) vsm_clip_projections = AT_FROM_PUSH.vsm_clip_projections;
-        daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
-        daxa_BufferPtr(RenderGlobalData) globals = daxa_BufferPtr(RenderGlobalData)(AT_FROM_PUSH.globals);
-        clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-            uv,
-            render_target_size,
-            depth,
-            inv_projection_view,
-            force_clip_level,
-            vsm_clip_projections,
-            vsm_globals,
-            globals
-        ));
-    // }
+    uvec2 render_target_size = deref(AT_FROM_PUSH.globals).settings.render_target_size;
+    daxa_BufferPtr(VSMClipProjection) vsm_clip_projections = AT_FROM_PUSH.vsm_clip_projections;
+    daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
+    daxa_BufferPtr(RenderGlobalData) globals = daxa_BufferPtr(RenderGlobalData)(AT_FROM_PUSH.globals);
+    float real_depth = depth;
+    vec2 real_uv = uv;
+    if(deref(globals).settings.draw_from_observer == 1u)
+    {
+        const vec4 main_cam_proj_world = deref(globals).camera.view_proj * vec4(world_position, 1.0);
+        const vec2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
+        real_uv = (ndc + vec2(1.0)) / vec2(2.0);
+        real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
+    }
+    clip_info = clip_info_from_uvs(ClipFromUVsInfo(
+        real_uv,
+        render_target_size,
+        real_depth,
+        inv_projection_view,
+        force_clip_level,
+        vsm_clip_projections,
+        vsm_globals,
+        globals
+    ));
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return color; }
 
     const ivec3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, vsm_clip_projections);
@@ -176,10 +161,19 @@ vec2 get_vsm_shadow(vec2 uv, float depth, vec3 world_position)
     daxa_BufferPtr(VSMGlobals) vsm_globals = AT_FROM_PUSH.vsm_globals;
     daxa_BufferPtr(RenderGlobalData) globals = daxa_BufferPtr(RenderGlobalData)(AT_FROM_PUSH.globals);
     ClipInfo clip_info;
+    float real_depth = depth;
+    vec2 real_uv = uv;
+    if(deref(globals).settings.draw_from_observer == 1u)
+    {
+        const vec4 main_cam_proj_world = deref(globals).camera.view_proj * vec4(world_position, 1.0);
+        const vec2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
+        real_uv = (ndc + vec2(1.0)) / vec2(2.0);
+        real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
+    }
     clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-        uv,
+        real_uv,
         render_target_size,
-        depth,
+        real_depth,
         inv_projection_view,
         force_clip_level,
         vsm_clip_projections,
@@ -340,7 +334,7 @@ void main()
         const vec3 lighting = direct_lighting + indirect_ligting;
 
         const uint visualize_clip_levels = deref(AT_FROM_PUSH.globals).vsm_settings.visualize_clip_levels;
-        const vec3 vsm_debug_color = visualize_clip_levels == 0 ? vec3(1.0f) : get_vsm_debug_page_color(screen_uv, tri_data.depth);
+        const vec3 vsm_debug_color = visualize_clip_levels == 0 ? vec3(1.0f) : get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position );
 
         output_value.rgb = albedo.rgb * lighting * vsm_debug_color;// * vsm_shadow;
         debug_value = vec4(vec3(vsm_shadow.y), 1.0);
