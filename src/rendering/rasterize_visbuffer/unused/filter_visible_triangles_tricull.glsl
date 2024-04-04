@@ -2,7 +2,7 @@
 
 #include <daxa/daxa.inl>
 #include "filter_visible_triangles.inl"
-#include "cull_util.glsl"
+#include "cull_util.hlsl"
 
 // Notes:
 // - wg_ = work group

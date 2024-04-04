@@ -6,7 +6,7 @@
 
 #include "shader_lib/visbuffer.glsl"
 #include "shader_lib/depth_util.glsl"
-#include "shader_lib/cull_util.glsl"
+#include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;

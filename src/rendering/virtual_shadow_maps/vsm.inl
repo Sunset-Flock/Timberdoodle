@@ -800,6 +800,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
                 }
             }
         }
+        clip_camera.orthogonal_half_ws_width = curr_clip_scale * info.clip_0_scale;
+        clip_camera.is_orthogonal = 1u;
         clip_camera.near_plane_normal = glm::normalize(
             glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
         clip_camera.right_plane_normal = glm::normalize(

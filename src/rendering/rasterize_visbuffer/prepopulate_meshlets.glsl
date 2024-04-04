@@ -14,7 +14,7 @@ DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
 DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 #endif
 
-#include "shader_lib/cull_util.glsl"
+#include "shader_lib/cull_util.hlsl"
 
 #define WORKGROUP_SIZE PREPOPULATE_MESHLET_INSTANCES_X
 

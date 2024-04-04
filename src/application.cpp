@@ -92,6 +92,8 @@ auto CameraController::make_camera_info(Settings const & settings) const -> Came
             }
         }
     }
+    ret.is_orthogonal = 0u;
+    ret.orthogonal_half_ws_width = 0.0f;
     ret.near_plane_normal = glm::normalize(
         glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
     ret.right_plane_normal = glm::normalize(

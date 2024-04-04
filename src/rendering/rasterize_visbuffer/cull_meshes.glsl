@@ -4,7 +4,7 @@
 
 #extension GL_EXT_debug_printf : enable
 
-#include "shader_lib/cull_util.glsl"
+#include "shader_lib/cull_util.hlsl"
 
 DAXA_DECL_PUSH_CONSTANT(CullMeshesPush, push)
 layout(local_size_x = CULL_MESHES_WORKGROUP_X) in;

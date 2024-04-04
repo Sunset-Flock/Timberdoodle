@@ -1,7 +1,7 @@
 #include "daxa/daxa.inl"
 
 #include "vsm.inl"
-#include "shader_lib/cull_util.glsl"
+#include "shader_lib/cull_util.hlsl"
 #include "shader_lib/vsm_util.glsl"
 #include "../rasterize_visbuffer/draw_visbuffer.hlsl"
 
@@ -55,6 +55,7 @@ bool is_meshlet_occluded_vsm2(
         #endif
         return true;
     }
+    return false;
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
@@ -155,7 +156,7 @@ func vsm_entry_task(
         push.draw_list_type,
         instanced_meshlet);
     bool draw_meshlet = valid_meshlet;
-#if ENABLE_MESHLET_CULLING == 0
+#if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 

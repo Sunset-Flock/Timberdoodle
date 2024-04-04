@@ -217,6 +217,7 @@ struct CameraInfo
     glmsf32mat4 inv_view_proj;
     glmsf32vec3 position;
     glmsf32vec3 up;
+    // vec4 for planes contains normal (xyz) and offset (w).
     glmsf32vec3 near_plane_normal;
     glmsf32vec3 left_plane_normal;
     glmsf32vec3 right_plane_normal;
@@ -225,6 +226,8 @@ struct CameraInfo
     daxa_u32vec2 screen_size;
     daxa_f32vec2 inv_screen_size;
     daxa_f32 near_plane;
+    daxa_f32 orthogonal_half_ws_width;
+    daxa_b32 is_orthogonal;
 };
 
 #if DAXA_SHADER
