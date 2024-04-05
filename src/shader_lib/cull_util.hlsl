@@ -202,8 +202,12 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1/* we want one mip lower, as we sample a quad */;
+
+    // const float pixel_range = max(max_texel_i.x - min_texel_i.x, max_texel_i.y - min_texel_i.y + 1.0f);
+    // const float mip = ceil(log2(max(2.0f, pixel_range))) - 1/* we want one mip lower, as we sample a quad */;
+
+    const float pixel_range = max(max_texel_i.x - min_texel_i.x, max_texel_i.y - min_texel_i.y);
+    const float mip = ceil(log2(max(2.0f, pixel_range)));
 
     // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
     // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
