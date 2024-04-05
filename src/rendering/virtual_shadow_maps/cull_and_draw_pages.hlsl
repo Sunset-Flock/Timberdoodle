@@ -26,119 +26,6 @@ void vsm_entry_write_commands(
     push.vsm_meshlets_cull_arg_buckets.draw_list_arg_buckets[svgid.x].commands[svgtid.x].y = VSM_CLIP_LEVELS;
 }
 
-bool is_meshlet_occluded_vsm2(
-    uint tid,
-    daxa_BufferPtr(VSMClipProjection) projections,
-    MeshletInstance meshlet_inst,
-    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
-    daxa_BufferPtr(GPUMesh) meshes,
-    daxa_ImageViewId hiz,
-    daxa_u32 cascade)
-{
-    GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
-
-    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
-    {
-        return true;
-    }
-
-    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
-    BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
-    if (is_sphere_out_of_frustum(deref_i(projections, cascade).camera, model_matrix, model_bounding_sphere))
-    {
-        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
-            ShaderDebugCircleDraw circle;
-            circle.position = ws_center;
-            circle.radius = scaled_radius;
-            circle.color = daxa_f32vec3(1,1,0);
-            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.debug, circle);
-        #endif
-        // return true;
-    }
-
-    AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(deref_i(projections, cascade).camera, meshlet_inst, model_matrix, meshlet_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(projections, meshlet_ndc_aabb, hiz, cascade);
-
-    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
-    if (page_opacity_cull)
-    {
-        ShaderDebugAABBDraw aabb1;
-        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
-        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
-        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.debug, aabb1);
-        {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
-            rectangle.center = ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-        {
-            const daxa_f32vec2 min_r = quad_corner_texel << imip;
-            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
-            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
-            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
-            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
-            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
-            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(1, 0, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-    }
-    #endif
-
-    return page_opacity_cull;
-}
-
-bool get_meshlet_instance_from_arg_buckets2(
-    uint thread_id, 
-    uint arg_bucket_index, 
-    daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args,
-    uint opaque_draw_list_type, 
-    out MeshletInstance meshlet_inst)
-{
-    const uint indirect_arg_index = thread_id >> arg_bucket_index;
-    const uint valid_arg_count = 
-        deref(meshlet_cull_indirect_args)
-        .draw_list_arg_buckets[opaque_draw_list_type]
-        .indirect_arg_counts[arg_bucket_index];
-    // As work groups are launched in multiples of 128 (or 32 in the case of task shaders), 
-    // there may be threads with indices greater then the arg count for a bucket.
-    if (indirect_arg_index >= valid_arg_count)
-    {
-        return false;
-    }
-    const uint in_arg_meshlet_index = thread_id - (indirect_arg_index << arg_bucket_index);
-    daxa_RWBufferPtr(MeshletCullIndirectArg) args_ptr = 
-        (deref(meshlet_cull_indirect_args)
-        .draw_list_arg_buckets[opaque_draw_list_type]
-        .indirect_arg_ptrs[arg_bucket_index]);
-    const MeshletCullIndirectArg arg = deref_i(args_ptr, indirect_arg_index);
-    
-    meshlet_inst.entity_index = arg.entity_index;
-    meshlet_inst.material_index = arg.material_index;
-    meshlet_inst.mesh_index = arg.mesh_index;
-    meshlet_inst.meshlet_index = arg.meshlet_indices_offset + in_arg_meshlet_index;
-    meshlet_inst.in_mesh_group_index = arg.in_mesh_group_index;
-    if (meshlet_inst.mesh_index > 5000 && opaque_draw_list_type == 0) {
-        printf("args_ptr %ull,\nopaque_draw_list_type %u,\n arg_bucket_index %u,\n indirect_arg_index: %u\n\n", uint64_t(args_ptr), opaque_draw_list_type, arg_bucket_index, indirect_arg_index);
-    }
-    // Work argument may work on less then 1<<bucket_index meshlets.
-    // In this case we cull threads with an index over meshlet_count.
-    return in_arg_meshlet_index < arg.meshlet_count;
-}
-
-
 [shader("amplification")]
 [numthreads(32, 1, 1)]
 func vsm_entry_task(
@@ -162,9 +49,8 @@ func vsm_entry_task(
     // This is done so that the following WaveOps are well formed and have all threads active. 
     if (valid_meshlet)
     {
-        draw_meshlet = draw_meshlet && !is_meshlet_occluded_vsm2(
-            svtid.x,
-            push.attachments.vsm_clip_projections,
+        draw_meshlet = draw_meshlet && !is_meshlet_occluded_vsm(
+            deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
             instanced_meshlet,
             push.attachments.entity_combined_transforms,
             push.attachments.meshes,
