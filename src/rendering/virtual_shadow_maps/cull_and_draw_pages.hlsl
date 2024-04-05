@@ -28,7 +28,7 @@ void vsm_entry_write_commands(
 
 bool is_meshlet_occluded_vsm2(
     uint tid,
-    CameraInfo camera,
+    daxa_BufferPtr(VSMClipProjection) projections,
     MeshletInstance meshlet_inst,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
@@ -44,7 +44,7 @@ bool is_meshlet_occluded_vsm2(
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
-    if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    if (is_sphere_out_of_frustum(deref_i(projections, cascade).camera, model_matrix, model_bounding_sphere))
     {
         #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
             ShaderDebugCircleDraw circle;
@@ -56,11 +56,10 @@ bool is_meshlet_occluded_vsm2(
         #endif
         return true;
     }
-    return false;
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
+    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(deref_i(projections, cascade).camera, meshlet_inst, model_matrix, meshlet_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(projections, meshlet_ndc_aabb, hiz, cascade);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
     if (page_opacity_cull)
@@ -165,7 +164,7 @@ func vsm_entry_task(
     {
         draw_meshlet = draw_meshlet && !is_meshlet_occluded_vsm2(
             svtid.x,
-            deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
+            push.attachments.vsm_clip_projections,
             instanced_meshlet,
             push.attachments.entity_combined_transforms,
             push.attachments.meshes,

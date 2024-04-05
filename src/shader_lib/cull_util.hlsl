@@ -7,6 +7,8 @@
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
+#include "../shader_lib/vsm_util.glsl"
+#include "../shader_shared/vsm_shared.inl"
 
 // bool is_tri_out_of_frustum(CameraInfo camera, daxa_f32vec3 tri[3])
 // {
@@ -188,13 +190,13 @@ bool is_ndc_aabb_hiz_depth_occluded(
 
 // Used by Virtual Shadow Maps.
 bool is_ndc_aabb_hiz_opacity_occluded(
-    CameraInfo camera,
+    daxa_BufferPtr(VSMClipProjection) projections,
     NdcAABB meshlet_ndc_aabb,
     daxa_ImageViewId hiz,
-    daxa_u32 array_layer
+    daxa_u32 clip_level
 )
 {
-    const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
+    const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(deref_i(projections, clip_level).camera.screen_size >> 1 /*hiz is half res*/);
     const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
@@ -215,11 +217,21 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
     const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
 
+    const daxa_i32 mip_0_texel_offset = 1 << imip;
+    const daxa_i32vec3 wrapped_coords_1 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(0,0), clip_level), projections);
+    const daxa_i32vec3 wrapped_coords_2 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(0,mip_0_texel_offset), clip_level), projections);
+    const daxa_i32vec3 wrapped_coords_3 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(mip_0_texel_offset,0), clip_level), projections);
+    const daxa_i32vec3 wrapped_coords_4 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(mip_0_texel_offset, mip_0_texel_offset), clip_level), projections);
+
     const daxa_u32vec4 fetch = daxa_u32vec4(
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x
+        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
+        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_1.xy >> imip, clip_level), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_2.xy >> imip, clip_level), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_3.xy >> imip, clip_level), imip).x,
+        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_4.xy >> imip, clip_level), imip).x
     );
     const bool no_valid_pages_in_ndc = (fetch.x | fetch.y | fetch.z | fetch.w) == 0;
     return no_valid_pages_in_ndc;
@@ -306,7 +318,7 @@ bool is_meshlet_occluded(
 }
 
 bool is_meshlet_occluded_vsm(
-    CameraInfo camera,
+    daxa_BufferPtr(VSMClipProjection) projections,
     MeshletInstance meshlet_inst,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
@@ -322,7 +334,7 @@ bool is_meshlet_occluded_vsm(
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
-    if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    if (is_sphere_out_of_frustum(deref_i(projections, cascade).camera, model_matrix, model_bounding_sphere))
     {
         #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
             ShaderDebugCircleDraw circle;
@@ -334,11 +346,10 @@ bool is_meshlet_occluded_vsm(
         #endif
         return true;
     }
-    return false;
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
+    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(deref_i(projections, cascade).camera, meshlet_inst, model_matrix, meshlet_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(projections, meshlet_ndc_aabb, hiz, cascade);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
     if (page_opacity_cull)

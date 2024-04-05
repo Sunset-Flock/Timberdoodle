@@ -636,7 +636,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
             daxa::attachment_view(CullAndDrawPagesH::AT.material_manifest, info.material_manifest),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, info.vsm_state->dirty_pages_hiz),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
         },
