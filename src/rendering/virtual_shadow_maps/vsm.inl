@@ -81,6 +81,7 @@ DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz, 8)
 DAXA_DECL_TASK_HEAD_END
@@ -621,6 +622,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     info.tg->add_task(GenDirtyBitHizTask{
         .views = std::array{
             daxa::attachment_view(GenDirtyBitHizH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(GenDirtyBitHizH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(GenDirtyBitHizH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
         },

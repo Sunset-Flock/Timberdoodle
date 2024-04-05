@@ -26,11 +26,16 @@ void downsample_64x64(
         int2 sub_i = int2(quad_i >> 1, quad_i & 1);
         int2 src_i = int2((grid_index * 16 + local_index.xy) * 2 + sub_i) * 2;
 
-        const uint4 fetch = Texture2DArray<uint>::get(push.attachments.vsm_page_table)
-            .Gather(
-                SamplerState::get(deref(push.attachments.globals).samplers.linear_clamp),
-                float3(make_gather_uv(inv_size, src_i), clip_level)
-            );
+        const int2 wrapped_coords_1 = vsm_page_coords_to_wrapped_coords(int3(src_i + int2(0,0), clip_level), push.attachments.vsm_clip_projections).xy;
+        const int2 wrapped_coords_2 = vsm_page_coords_to_wrapped_coords(int3(src_i + int2(1,0), clip_level), push.attachments.vsm_clip_projections).xy;
+        const int2 wrapped_coords_3 = vsm_page_coords_to_wrapped_coords(int3(src_i + int2(0,1), clip_level), push.attachments.vsm_clip_projections).xy;
+        const int2 wrapped_coords_4 = vsm_page_coords_to_wrapped_coords(int3(src_i + int2(1,1), clip_level), push.attachments.vsm_clip_projections).xy;
+
+        uint4 fetch;
+        fetch.x = Texture2DArray<uint>::get(push.attachments.vsm_page_table).Load(int4(wrapped_coords_1, clip_level, 0), int2(0)).x;
+        fetch.y = Texture2DArray<uint>::get(push.attachments.vsm_page_table).Load(int4(wrapped_coords_2, clip_level, 0), int2(0)).x;
+        fetch.z = Texture2DArray<uint>::get(push.attachments.vsm_page_table).Load(int4(wrapped_coords_3, clip_level, 0), int2(0)).x;
+        fetch.w = Texture2DArray<uint>::get(push.attachments.vsm_page_table).Load(int4(wrapped_coords_4, clip_level, 0), int2(0)).x;
 
         const bool is_dirty = 
             get_is_dirty(fetch.x) ||
@@ -40,11 +45,10 @@ void downsample_64x64(
         
         int2 dst_i = int2((grid_index * 16 + local_index.xy) * 2) + sub_i;
 
-        // texel gather component mapping - (00,w);(01,x);(11,y);(10,z)
-        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 0), clip_level)].x = uint(get_is_dirty(fetch.w));
-        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 0), clip_level)].x = uint(get_is_dirty(fetch.z));
-        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 1), clip_level)].x = uint(get_is_dirty(fetch.y));
-        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 1), clip_level)].x = uint(get_is_dirty(fetch.x));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 0), clip_level)].x = uint(get_is_dirty(fetch.x));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 0), clip_level)].x = uint(get_is_dirty(fetch.y));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(0, 1), clip_level)].x = uint(get_is_dirty(fetch.z));
+        RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[0])[uint3(src_i + uint2(1, 1), clip_level)].x = uint(get_is_dirty(fetch.w));
 
         RWTexture2DArray<uint>::get(push.attachments.vsm_dirty_bit_hiz[1])[uint3(dst_i, clip_level)].x = uint(is_dirty);
         quad_values[quad_i] = is_dirty;
