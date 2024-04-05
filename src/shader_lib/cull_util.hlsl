@@ -188,6 +188,7 @@ bool is_ndc_aabb_hiz_depth_occluded(
     return depth_cull;
 }
 
+#define PAGE_TABLE_CLAMP(X) clamp(X, daxa_i32vec3(0), daxa_i32vec3(VSM_PAGE_TABLE_RESOLUTION -1))
 // Used by Virtual Shadow Maps.
 bool is_ndc_aabb_hiz_opacity_occluded(
     daxa_BufferPtr(VSMClipProjection) projections,
@@ -202,38 +203,44 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
+    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1/* we want one mip lower, as we sample a quad */;
 
     // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
     // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
     // We check if the quad at its current position within that mip level fits that quad and if not we move up one mip.
     // This will give us the tightest fit.
     int imip = int(mip);
+
     const daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
     const daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
     if (any(greaterThan(max_corner_texel - min_corner_texel, daxa_i32vec2(1)))) {
         imip += 1;
     }
-    const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
-    const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
+    daxa_i32vec2 imin_texel_i = daxa_i32vec2(min_texel_i);
 
-    const daxa_i32 mip_0_texel_offset = 1 << imip;
-    const daxa_i32vec3 wrapped_coords_1 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(0,0), clip_level), projections);
-    const daxa_i32vec3 wrapped_coords_2 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(0,mip_0_texel_offset), clip_level), projections);
-    const daxa_i32vec3 wrapped_coords_3 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(mip_0_texel_offset,0), clip_level), projections);
-    const daxa_i32vec3 wrapped_coords_4 = vsm_page_coords_to_wrapped_coords(daxa_i32vec3(min_texel_i + daxa_i32vec2(mip_0_texel_offset, mip_0_texel_offset), clip_level), projections);
+    const daxa_i32 m0_offset = (1 << imip);
+    const daxa_i32vec3 wrapped_coords_1_ul = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(0        ,         0), clip_level)), projections);
+    const daxa_i32vec3 wrapped_coords_2_ul = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(0        , m0_offset), clip_level)), projections);
+    const daxa_i32vec3 wrapped_coords_3_ul = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(m0_offset,         0), clip_level)), projections);
+    const daxa_i32vec3 wrapped_coords_4_ul = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(m0_offset, m0_offset), clip_level)), projections);
 
-    const daxa_u32vec4 fetch = daxa_u32vec4(
-        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        // texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_1.xy >> imip, clip_level), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_2.xy >> imip, clip_level), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_3.xy >> imip, clip_level), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_4.xy >> imip, clip_level), imip).x
-    );
-    const bool no_valid_pages_in_ndc = (fetch.x | fetch.y | fetch.z | fetch.w) == 0;
+    // const daxa_i32vec3 wrapped_coords_1_lr = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(1            ,             1), clip_level)), projections);
+    // const daxa_i32vec3 wrapped_coords_2_lr = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(1            , m0_offset + 1), clip_level)), projections);
+    // const daxa_i32vec3 wrapped_coords_3_lr = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(m0_offset + 1,             1), clip_level)), projections);
+    // const daxa_i32vec3 wrapped_coords_4_lr = vsm_page_coords_to_wrapped_coords(PAGE_TABLE_CLAMP(daxa_i32vec3(imin_texel_i + daxa_i32vec2(m0_offset + 1, m0_offset + 1), clip_level)), projections);
+
+    daxa_u32 fetch = 0;
+    fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_1_ul.xy >> imip, clip_level), imip).x;
+    fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_2_ul.xy >> imip, clip_level), imip).x;
+    fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_3_ul.xy >> imip, clip_level), imip).x;
+    fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_4_ul.xy >> imip, clip_level), imip).x;
+
+    // fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_1_lr.xy >> imip, clip_level), imip).x;
+    // fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_2_lr.xy >> imip, clip_level), imip).x;
+    // fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_3_lr.xy >> imip, clip_level), imip).x;
+    // fetch |= texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(wrapped_coords_4_lr.xy >> imip, clip_level), imip).x;
+
+    const bool no_valid_pages_in_ndc = fetch == 0;
     return no_valid_pages_in_ndc;
 }
 

@@ -54,7 +54,7 @@ bool is_meshlet_occluded_vsm2(
             circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
             debug_draw_circle(GLOBALS.debug, circle);
         #endif
-        return true;
+        // return true;
     }
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);

@@ -851,7 +851,7 @@ void Renderer::render_frame(
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
         .clip_0_near = 0.01f,
         .clip_0_far = 10.0f,
-        .clip_0_height_offset = 10.0f,
+        .clip_0_height_offset = 5.0f,
         .debug_context = &context->shader_debug_context,
     });
 
