@@ -11,6 +11,7 @@
 #define daxa_utexture2DArray(TEX) Texture2DArray<uint>::get(TEX)
 #define daxa_image2D(TEX) RWTexture2D<float>::get(TEX)
 #define _mod(X, Y) (X - Y * floor(X/Y))
+#define _frac(X) frac(X)
 
 float4 texelFetch(Texture2D<float4> tex, int2 index, uint mip)
 {
@@ -52,6 +53,7 @@ uint _atomicMax(uint* dst, uint value)
 #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
 
 #define _mod(X, Y) mod(X,Y)
+#define _frac(X) fract(X)
 #define mul(M, V) (M * V)
 
 #endif // #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)

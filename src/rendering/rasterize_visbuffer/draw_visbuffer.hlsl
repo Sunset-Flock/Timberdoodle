@@ -70,6 +70,7 @@ struct MaskedVertex : VertexT
     [[vk::location(0)]] nointerpolation uint visibility_id;
     [[vk::location(1)]] float2 uv;
     [[vk::location(2)]] nointerpolation uint material_index;
+    [[vk::location(3)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
     IMPL_GET_SET(uint, visibility_id)
     static const uint DRAW_LIST_TYPE = DRAW_LIST_MASK;
@@ -143,6 +144,7 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
     if (V is MaskedVertex && daxa::u64(materials) != 0)
     {
         MaskedVertex mvertex = reinterpret<MaskedVertex>(vertex);
+        const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
         if (mvertex.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = deref_i(materials, mvertex.material_index);
@@ -153,7 +155,8 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
                         SamplerState::get(sampler), 
                         mvertex.uv
                     ).a; 
-                if (alpha < 0.5f)
+                const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
+                if (alpha < clamp(threshold, 0.001, 1.0))
                 {
                     discard;
                 }
@@ -233,6 +236,7 @@ struct MeshShaderMaskVertex : MeshShaderVertexT
 {
     float4 position : SV_Position;
     [[vk::location(1)]] float2 uv;
+    [[vk::location(2)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
     static const uint DRAW_LIST_TYPE = DRAW_LIST_MASK;
 }
@@ -284,6 +288,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         {
             var mvertex = reinterpret<MeshShaderMaskVertex>(vertex);
             mvertex.uv = float2(0,0);
+            mvertex.object_space_position = vertex_position.xyz;
             if (as_address(mesh.vertex_uvs) != 0)
             {
                 mvertex.uv = deref_i(mesh.vertex_uvs, in_mesh_vertex_index);
@@ -384,6 +389,7 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
     o_vert.visibility_id = prim.visibility_id;
     o_vert.uv = vert.uv;
     o_vert.material_index = prim.material_index;
+    o_vert.object_space_position = vert.object_space_position;
     return generic_fragment(o_vert, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat);
 }
 

@@ -3,6 +3,8 @@
 #include "vsm.inl"
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/vsm_util.glsl"
+#include "shader_lib/depth_util.glsl"
+#include "shader_lib/glsl_to_slang.glsl"
 #include "../rasterize_visbuffer/draw_visbuffer.hlsl"
 
 [[vk::push_constant]] CullAndDrawPagesPush vsm_push;
@@ -261,33 +263,6 @@ void vsm_entry_fragment_opaque(
     }
 }
 
-float MM_Hash2(float2 v)
-{
-  return frac(1e4 * sin(17.0 * v.x + 0.1 * v.y) * (0.1 + abs(sin(13.0 * v.y + v.x))));
-}
-
-float MM_Hash3(float3 v)
-{
-  return MM_Hash2(float2(MM_Hash2(v.xy), v.z));
-}
-
-// Hashed Alpha Testing
-// https://casual-effects.com/research/Wyman2017Hashed/Wyman2017Hashed.pdf
-// maxObjSpaceDerivLen = max(length(dFdx(i_objectSpacePos)), length(dFdy(i_objectSpacePos)));
-float compute_hashed_alpha_threshold(float3 object_space_pos, float max_obj_space_deriv_len, float hash_scale)
-{
-  float pix_scale = 1.0 / (hash_scale + max_obj_space_deriv_len);
-  float pix_scale_min = exp2(floor(log2(pix_scale)));
-  float pix_scale_max = exp2(ceil(log2(pix_scale)));
-  float2 alpha = float2(MM_Hash3(floor(pix_scale_min * object_space_pos)), MM_Hash3(floor(pix_scale_max * object_space_pos)));
-  float lerp_factor = frac(log2(pix_scale));
-  float x = (1.0 - lerp_factor) * alpha.x + lerp_factor * alpha.y;
-  float a = min(lerp_factor, 1.0 - lerp_factor);
-  float3 cases = float3(x * x / (2.0 * a * (1.0 - a)), (x - 0.5 * a) / (1.0 - a), 1.0 - ((1.0 - x) * (1.0 - x) / (2.0 * a * (1.0 - a))));
-  float threshold = (x < (1.0 - a)) ? ((x < a) ? cases.x : cases.y) : cases.z;
-  return clamp(threshold, 1e-6, 1.0);
-}
-
 // source https://github.com/JuanDiegoMontoya/Frogfood
 [shader("fragment")]
 void vsm_entry_fragment_masked(
@@ -302,7 +277,7 @@ void vsm_entry_fragment_masked(
         push.attachments.vsm_clip_projections);
 
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
-    const float maxObjSpaceDerivLen = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
+    const float max_obj_space_deriv_len = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
         if(prim.material_index != INVALID_MANIFEST_INDEX)
@@ -312,7 +287,7 @@ void vsm_entry_fragment_masked(
             {
                 float alpha = Texture2D<float>::get(material.diffuse_texture_id)
                     .Sample(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv).a;
-                const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, maxObjSpaceDerivLen, 1.0);
+                const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
                 if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
             }
         }
