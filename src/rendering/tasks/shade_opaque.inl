@@ -14,8 +14,8 @@ DAXA_DECL_TASK_HEAD_BEGIN(ShadeOpaqueH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, color_image)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY,  REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY,  REGULAR_2D, debug_image)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, sky)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, CUBE, sky_ibl)
@@ -30,7 +30,6 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_aver
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_DECL_TASK_HEAD_END
-
 
 struct ShadeOpaqueAttachments
 {
@@ -47,14 +46,21 @@ struct ShadeOpaquePush
 #define SHADE_OPAQUE_WG_X 16
 #define SHADE_OPAQUE_WG_Y 8
 
-#if __cplusplus
+#if defined(__cplusplus)
 
 #include "../../gpu_context.hpp"
 
 inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.glsl"}},
+        // .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.glsl"}},
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.hlsl"},
+            .compile_options = {
+                .entry_point = "main",
+                .language = daxa::ShaderLanguage::SLANG,
+            },
+        },
         .push_constant_size = s_cast<u32>(sizeof(ShadeOpaquePush)),
         .name = std::string{ShadeOpaqueH::NAME},
     };
@@ -73,8 +79,8 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ShadeOpaqueH::AttachmentShaderBlob));
         ShadeOpaquePush push = {
             .attachments = alloc->device_address,
-            .size = { static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y) },
-            .inv_size = { 1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y) },
+            .size = {static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y)},
+            .inv_size = {1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y)},
         };
 
         ti.recorder.push_constant(push);
