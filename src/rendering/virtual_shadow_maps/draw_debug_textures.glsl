@@ -3,6 +3,12 @@
 #include "shader_shared/vsm_shared.inl"
 #include "vsm.inl"
 
+vec3 hsv2rgb(vec3 c) {
+    vec4 k = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    vec3 p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    return c.z * mix(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
+}
+
 #if defined(DEBUG_PAGE_TABLE)
 DAXA_DECL_PUSH_CONSTANT(DebugVirtualPageTableH, push)
 layout(local_size_x = DEBUG_PAGE_TABLE_X_DISPATCH, local_size_y = DEBUG_PAGE_TABLE_Y_DISPATCH) in;
@@ -18,16 +24,17 @@ void main()
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 
         if      (get_requests_allocation(page_entry)) { color = vec4(0.0, 0.0, 1.0, 1.0); }
-        else if (get_is_allocated(page_entry))        { color = vec4(0.0, 1.0, 0.0, 1.0); }
-        else if (get_allocation_failed(page_entry))   { color = vec4(1.0, 0.0, 0.0, 1.0); }
-        else if (get_is_dirty(page_entry))            { color = vec4(0.0, 0.0, 1.0, 1.0); }
+        // else if (get_allocation_failed(page_entry))   { color = vec4(1.0, 0.0, 0.0, 1.0); }
+        // else if (get_is_dirty(page_entry))            { color = vec4(0.0, 0.0, 1.0, 1.0); }
+        else if (get_is_allocated(page_entry))
+        {
+            color.rgb = hsv2rgb(vec3(pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
+        }
 
         if (get_is_visited_marked(page_entry))
         { 
-            color.xyz = vec3(1.0, 1.0, 0.0);
+            color.rgb = hsv2rgb(vec3(pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
         }
-
-        if(color.x == 0 && color.y == 0 && color.z == 0) { return; }
 
         const ivec2 base_pix_pos = ivec2(gl_GlobalInvocationID.xy);
         imageStore(daxa_image2D(push.vsm_debug_page_table), base_pix_pos, color);
@@ -45,20 +52,23 @@ void main()
         const uint meta_entry = imageLoad(daxa_uimage2D(push.vsm_meta_memory_table), ivec2(gl_GlobalInvocationID.xy)).r;
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 
-        if (get_meta_memory_is_allocated(meta_entry)) { color = vec4(0.0, 1.0, 0.0, 1.0); }
+        if (get_meta_memory_is_allocated(meta_entry)) 
+        {
+            const ivec3 vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
+            color.rgb = hsv2rgb(vec3(pow(float(vsm_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
+        }
 
         if (get_meta_memory_is_visited(meta_entry))
         { 
-            color = vec4(1.0, 1.0, 0.0, 1.0);
             const uint is_visited_erased_entry = meta_entry & (~meta_memory_visited_mask()); 
             imageStore(daxa_uimage2D(push.vsm_meta_memory_table), ivec2(gl_GlobalInvocationID.xy), uvec4(is_visited_erased_entry));
 
             const ivec3 vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
+            color.rgb = hsv2rgb(vec3(pow(float(vsm_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
             const uint vsm_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), vsm_coords).r;
-            const uint visited_reset_vsm_entry = vsm_entry & (~(visited_marked_mask()));
+            const uint visited_reset_vsm_entry = vsm_entry & (~(visited_marked_mask() | dirty_mask() | requests_allocation_mask()));
             imageStore(daxa_uimage2DArray(push.vsm_page_table), vsm_coords, uvec4(visited_reset_vsm_entry));
         }
-        if(get_meta_memory_needs_clear(meta_entry)) { color += vec4(0.0, 0.0, 1.0, 1.0); }
 
         if(color.w != 0.0)
         {

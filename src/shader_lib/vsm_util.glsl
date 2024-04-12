@@ -140,7 +140,8 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_f32vec3 right_world_space = world_space_from_uv( right_side_texel_uvs, info.depth, info.inv_view_proj);
 
         const daxa_f32 texel_world_size = length(left_world_space - right_world_space);
-        clip_level = max(daxa_i32(ceil(log2(texel_world_size / deref(info.vsm_globals).clip_0_texel_world_size))), 0);
+        const daxa_f32 f_clip_level = log2(texel_world_size / deref(info.vsm_globals).clip_0_texel_world_size) + deref(info.globals).vsm_settings.clip_selection_bias;
+        clip_level = max(daxa_i32(ceil(f_clip_level)), 0);
         if(clip_level >= VSM_CLIP_LEVELS) 
         {
             return ClipInfo(clip_level, daxa_f32vec2(0.0));

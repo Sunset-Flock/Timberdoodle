@@ -128,9 +128,17 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
         if(texel_near_border)
         {
             color = float3(0.001, 0.001, 0.001);
-        } else {
-            color = hsv2rgb(float3(float(clip_info.clip_level) / float(VSM_CLIP_LEVELS), 1.0, 0.5));
-            if(get_is_visited_marked(page_entry)) {color = float3(1.0, 1.0, 0.0);}
+        }
+        else
+        {
+            if(get_is_visited_marked(page_entry)) 
+            {
+                color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
+            }
+            else 
+            {
+                color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
+            }
         }
     } else {
         color = float3(1.0, 0.0, 0.0);
@@ -147,7 +155,7 @@ int get_height_depth_offset(int3 vsm_page_texel_coords)
     return height_difference;
 }
 
-float get_vsm_shadow(float2 uv, float depth, float3 world_position)
+float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_norm_dot)
 {
     const bool level_forced = AT_FROM_PUSH.globals->vsm_settings.force_clip_level != 0;
     const int force_clip_level = level_forced ? AT_FROM_PUSH.globals->vsm_settings.forced_clip_level : -1;
@@ -194,7 +202,8 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position)
 
         const int height_offset = get_height_depth_offset(vsm_page_texel_coords);
 
-        const float view_space_offset = 0.004 * pow(2, clip_info.clip_level);
+        const float view_space_offset = 0.004 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.7);
+        // const float view_space_offset = 0.002 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.05);
         const float fp_remainder = frac(view_projected_world_pos.z) + view_space_offset;
         const int int_part = daxa_i32(floor(view_projected_world_pos.z));
         const int modified_view_depth = int_part + height_offset;
@@ -313,7 +322,7 @@ void main(
 
         const float3 sun_direction = AT_FROM_PUSH.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
-        const float vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position);
+        const float vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot);
         const float final_shadow = sun_norm_dot * vsm_shadow;
 
         const float3 atmo_camera_position = AT_FROM_PUSH.globals->camera.position * M_TO_KM_SCALE;

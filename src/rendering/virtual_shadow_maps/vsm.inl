@@ -854,8 +854,8 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
             page_size.x / 2.0f,
             -page_size.y / 2.0f,
             page_size.y / 2.0f,
-            1.0f,
-            100.0f);
+            0.1f,
+            10000.0f);
         if (info.draw_individual_pages)
         {
             auto const uv_page_size = s_cast<f32>(VSM_PAGE_SIZE) / s_cast<f32>(VSM_TEXTURE_RESOLUTION);
