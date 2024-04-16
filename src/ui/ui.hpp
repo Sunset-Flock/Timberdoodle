@@ -73,6 +73,7 @@ struct UIEngine
         int selected = {};
 
         std::vector<daxa::ImageId> icons = {};
+        std::vector<f32> vsm_timings_ewa = {};
         void ui_scenegraph(Scene const & scene);
         void ui_renderer_settings(Scene const & scene, Settings & settings);
 };

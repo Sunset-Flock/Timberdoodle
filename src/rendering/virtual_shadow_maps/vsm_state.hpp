@@ -30,13 +30,22 @@ struct VSMState
     daxa::TaskBufferView clear_dirty_bit_indirect = {};
     daxa::TaskBufferView meshlet_cull_arg_buckets_buffer_head = {};
 
+    daxa::TimelineQueryPool vsm_timeline_query_pool = {};
+
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections_cpu = {};
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
     std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
     VSMGlobals globals_cpu = {};
+    static constexpr u32 VSM_TASK_COUNT = 10;
+    static constexpr u32 PER_FRAME_TIMESTAMP_COUNT = VSM_TASK_COUNT * 2;
 
     void initialize_persitent_state(GPUContext * context)
     {
+        vsm_timeline_query_pool = context->device.create_timeline_query_pool({
+            .query_count = PER_FRAME_TIMESTAMP_COUNT * s_cast<u32>(context->swapchain.info().max_allowed_frames_in_flight),
+            .name = "vsm_timestamp_query_pool"
+        });
+
         globals = daxa::TaskBuffer({
             .initial_buffers = {
                 .buffers = std::array{

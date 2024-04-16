@@ -4,6 +4,36 @@
 #include <implot.h>
 #include "widgets/helpers.hpp"
 
+struct ScrollingBuffer
+{
+    int MaxSize;
+    int Offset;
+    ImVector<ImVec2> Data;
+    ScrollingBuffer(int max_size = 2000)
+    {
+        MaxSize = max_size;
+        Offset = 0;
+        Data.reserve(MaxSize);
+    }
+    void AddPoint(float x, float y)
+    {
+        if (Data.size() < MaxSize)
+            Data.push_back(ImVec2(x, y));
+        else
+        {
+            Data[Offset] = ImVec2(x, y);
+            Offset = (Offset + 1) % MaxSize;
+        }
+    }
+    void Erase()
+    {
+        if (Data.size() > 0)
+        {
+            Data.shrink(0);
+            Offset = 0;
+        }
+    }
+};
 void setup_colors()
 {
     ImVec4 * colors = ImGui::GetStyle().Colors;
@@ -120,6 +150,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     /// NOTE: Needs to after all the init functions
     imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context, false});
     setup_colors();
+    vsm_timings_ewa = std::vector<f32>(10);
 }
 
 void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
@@ -164,14 +195,14 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
     }
     if (vsm_debug_menu)
     {
-        if(ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
+        if (ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
         {
             bool visualize_clip_levels = s_cast<bool>(render_ctx.render_data.vsm_settings.visualize_clip_levels);
             bool force_clip_level = s_cast<bool>(render_ctx.render_data.vsm_settings.force_clip_level);
             bool enable_caching = s_cast<bool>(render_ctx.render_data.vsm_settings.enable_caching);
             ImGui::Checkbox("Visualize clip levels", &visualize_clip_levels);
-            ImGui::Checkbox("Force clip level",&force_clip_level);
-            ImGui::Checkbox("Enable caching",&enable_caching);
+            ImGui::Checkbox("Force clip level", &force_clip_level);
+            ImGui::Checkbox("Enable caching", &enable_caching);
             ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
             ImGui::SliderFloat("Clip selection bias", &render_ctx.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
             ImGui::BeginDisabled(!force_clip_level);
@@ -188,15 +219,13 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
                     .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
                     .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
                 }),
-                ImVec2(VSM_DEBUG_PAGE_TABLE_RESOLUTION, VSM_DEBUG_PAGE_TABLE_RESOLUTION)
-            );
+                ImVec2(VSM_DEBUG_PAGE_TABLE_RESOLUTION, VSM_DEBUG_PAGE_TABLE_RESOLUTION));
             ImGui::Image(
                 imgui_renderer.create_texture_id({
                     .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
                     .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
                 }),
-                ImVec2(VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION)
-            );
+                ImVec2(VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION));
             ImGui::End();
         }
     }
@@ -215,11 +244,69 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
     }
     if (widget_renderer_statistics)
     {
-        if (ImGui::Begin("Renderer Statistics", nullptr, ImGuiWindowFlags_NoCollapse))
+        auto get_exec_time_from_timestamp = [&render_ctx](u32 timestamp_start_index) -> u64
         {
-            ImGui::Text("fps: 100");
-            ImGui::End();
+            // Timestamps ready
+            if (render_ctx.vsm_timestamp_results.at(timestamp_start_index + 1) != 0u &&
+                render_ctx.vsm_timestamp_results.at(timestamp_start_index + 3) != 0u)
+            {
+                auto const end_timestamp = render_ctx.vsm_timestamp_results.at(timestamp_start_index + 2);
+                auto const start_timestamp = render_ctx.vsm_timestamp_results.at(timestamp_start_index);
+                return end_timestamp - start_timestamp;
+            }
+            else
+            {
+                return 0ull;
+            }
+        };
+        f32 const weight = 0.99;
+        static constexpr std::array task_names{
+            "Free wrapped pages:",
+            "Mark required pages:",
+            "Find free pages:",
+            "Allocate pages:",
+            "Clear pages:",
+            "Gen dirty bit hpb:",
+            "Cull and draw pages:",
+            "Clear dirty bit:",
+            "Debug virtual page table:",
+            "Debug physical page table:",
+        };
+        // static std::array<ScrollingBuffer, 10> scrolling_task_timings = {};
+        // static float t = 0;
+        // t += render_ctx.render_data.delta_time;
+        // static float history = 5.0f;
+        for (u32 i = 0; i < 10; i++)
+        {
+            u64 const timestamp_value = get_exec_time_from_timestamp(i * 4);
+            if (timestamp_value != 0)
+            {
+                vsm_timings_ewa.at(i) = vsm_timings_ewa.at(i) * weight + (1.0f - weight) * (s_cast<f32>(timestamp_value) / 1'000.0f);
+            }
+            // scrolling_task_timings.at(i).AddPoint(t, vsm_timings_ewa.at(i));
+            ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", task_names.at(i), vsm_timings_ewa.at(i)).c_str());
         }
+        // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+        // if (ImPlot::BeginPlot("##Scrolling"))
+        // {
+        //     ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+        //     ImPlot::SetupAxisLimits(ImAxis_X1,t - history, t, ImGuiCond_Always);
+        //     ImPlot::SetupAxisLimits(ImAxis_Y1,0,2000);
+        //     for(i32 i = 0; i < 10; i++)
+        //     {
+        //         ImPlot::PlotLine(
+        //             task_names.at(i),
+        //             &scrolling_task_timings.at(i).Data[0].x,
+        //             &scrolling_task_timings.at(i).Data[0].y,
+        //             scrolling_task_timings.at(i).Data.size(),
+        //             0,
+        //             scrolling_task_timings.at(i).Offset,
+        //             2 * sizeof(f32)
+        //         );
+        //     }
+        //     ImPlot::EndPlot();
+        // }
+        // ImPlot::ShowDemoWindow();
     }
     if (widget_scene_hierarchy)
     {

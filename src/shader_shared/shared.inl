@@ -138,8 +138,8 @@ struct VSMSettings
           force_clip_level{ 0 },
           enable_caching{ 0 },
           forced_clip_level{ 0 },
-          clip_0_frustum_scale{4.0f},
-          clip_selection_bias{0.1f}
+          clip_0_frustum_scale{2.0f},
+          clip_selection_bias{0.3f}
     {
     }
 #endif

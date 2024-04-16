@@ -203,6 +203,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
         const int height_offset = get_height_depth_offset(vsm_page_texel_coords);
 
         const float view_space_offset = 0.004 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.7);
+        // const float view_space_offset = -0.0005 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.7);
         // const float view_space_offset = 0.002 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.05);
         const float fp_remainder = frac(view_projected_world_pos.z) + view_space_offset;
         const int int_part = daxa_i32(floor(view_projected_world_pos.z));
