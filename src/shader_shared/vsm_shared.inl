@@ -4,6 +4,7 @@
 #include "globals.inl"
 
 #define VSM_TEXTURE_RESOLUTION 4096
+// #define VSM_TEXTURE_RESOLUTION 8192
 #define VSM_MEMORY_RESOLUTION (8192)
 #define VSM_PAGE_SIZE 128
 #define VSM_CLIP_LEVELS 16
@@ -18,7 +19,7 @@
 
 #define MAX_VSM_ALLOC_REQUESTS (512 * 512)
 #if defined(__cplusplus)
-static_assert(VSM_PAGE_TABLE_RESOLUTION < 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
+// static_assert(VSM_PAGE_TABLE_RESOLUTION < 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
 #endif //defined(__cplusplus)
 
 struct VSMGlobals

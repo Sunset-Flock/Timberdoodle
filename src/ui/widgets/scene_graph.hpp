@@ -28,8 +28,8 @@ namespace tido
             SceneGraph(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
             SceneGraph(SceneGraph const &) = delete;
             SceneGraph(SceneGraph const &&) = delete;
-            void begin();
-            void end();
+            bool begin();
+            void end(bool began);
             auto add_node(RenderEntity const & entity, Scene const & scene) -> RetNodeState;
             void add_level();
             void remove_level();

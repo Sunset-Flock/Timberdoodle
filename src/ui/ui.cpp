@@ -219,15 +219,15 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
                     .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
                     .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
                 }),
-                ImVec2(VSM_DEBUG_PAGE_TABLE_RESOLUTION, VSM_DEBUG_PAGE_TABLE_RESOLUTION));
+                ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
             ImGui::Image(
                 imgui_renderer.create_texture_id({
                     .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
                     .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
                 }),
-                ImVec2(VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION, VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION));
-            ImGui::End();
+                ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         }
+        ImGui::End();
     }
     if (widget_settings)
     {
@@ -239,8 +239,8 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::SliderFloat("indent", &scene_graph.indent, 1.0f, 50.0f);
             ImGui::Separator();
             ImGui::InputScalarN("resolution", ImGuiDataType_U32, &render_ctx.render_data.settings.render_target_size, 2);
-            ImGui::End();
         }
+        ImGui::End();
     }
     if (widget_renderer_statistics)
     {
@@ -272,41 +272,43 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             "Debug virtual page table:",
             "Debug physical page table:",
         };
-        // static std::array<ScrollingBuffer, 10> scrolling_task_timings = {};
-        // static float t = 0;
-        // t += render_ctx.render_data.delta_time;
-        // static float history = 5.0f;
-        for (u32 i = 0; i < 10; i++)
+        static std::array<ScrollingBuffer, 10> scrolling_task_timings = {};
+        static float t = 0;
+        t += render_ctx.render_data.delta_time;
+        static float history = 5.0f;
+        if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            u64 const timestamp_value = get_exec_time_from_timestamp(i * 4);
-            if (timestamp_value != 0)
+            for (u32 i = 0; i < 10; i++)
             {
-                vsm_timings_ewa.at(i) = vsm_timings_ewa.at(i) * weight + (1.0f - weight) * (s_cast<f32>(timestamp_value) / 1'000.0f);
+                u64 const timestamp_value = get_exec_time_from_timestamp(i * 4);
+                if (timestamp_value != 0)
+                {
+                    vsm_timings_ewa.at(i) = vsm_timings_ewa.at(i) * weight + (1.0f - weight) * (s_cast<f32>(timestamp_value) / 1'000.0f);
+                }
+                scrolling_task_timings.at(i).AddPoint(t, vsm_timings_ewa.at(i));
+                ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", task_names.at(i), vsm_timings_ewa.at(i)).c_str());
             }
-            // scrolling_task_timings.at(i).AddPoint(t, vsm_timings_ewa.at(i));
-            ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", task_names.at(i), vsm_timings_ewa.at(i)).c_str());
+            static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+            if (ImPlot::BeginPlot("##Scrolling"))
+            {
+                ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+                ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 2000);
+                for (i32 i = 0; i < 10; i++)
+                {
+                    ImPlot::PlotLine(
+                        task_names.at(i),
+                        &scrolling_task_timings.at(i).Data[0].x,
+                        &scrolling_task_timings.at(i).Data[0].y,
+                        scrolling_task_timings.at(i).Data.size(),
+                        0,
+                        scrolling_task_timings.at(i).Offset,
+                        2 * sizeof(f32));
+                }
+                ImPlot::EndPlot();
+            }
         }
-        // static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
-        // if (ImPlot::BeginPlot("##Scrolling"))
-        // {
-        //     ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
-        //     ImPlot::SetupAxisLimits(ImAxis_X1,t - history, t, ImGuiCond_Always);
-        //     ImPlot::SetupAxisLimits(ImAxis_Y1,0,2000);
-        //     for(i32 i = 0; i < 10; i++)
-        //     {
-        //         ImPlot::PlotLine(
-        //             task_names.at(i),
-        //             &scrolling_task_timings.at(i).Data[0].x,
-        //             &scrolling_task_timings.at(i).Data[0].y,
-        //             scrolling_task_timings.at(i).Data.size(),
-        //             0,
-        //             scrolling_task_timings.at(i).Offset,
-        //             2 * sizeof(f32)
-        //         );
-        //     }
-        //     ImPlot::EndPlot();
-        // }
-        // ImPlot::ShowDemoWindow();
+        ImGui::End();
     }
     if (widget_scene_hierarchy)
     {
@@ -335,82 +337,84 @@ void UIEngine::ui_scenegraph(Scene const & scene)
     {
         return;
     }
-    scene_graph.begin();
-
-    struct StackEntry
+    bool began = false;
+    if (scene_graph.begin())
     {
-        RenderEntityId id;
-        bool is_first_child;
-        bool is_last_child;
-        i32 accumulated_indent;
-    };
-    // ROOT - first/last - indent and accumulate
-    //  INNER - first - indent
-    //    LEAF - first - indent and unindent
-    //    INNER - last - indent and accumulate
-    //      LEAF - first/last - indent once and unindent twice (one accumulated from parent INNER )
-    //  INNER - middle - indent and unindent
-    //  INNER - last - indent and unindent twice (one accumulated from ROOT)
-    std::vector<StackEntry> entity_graph_stack;
-    entity_graph_stack.push_back({scene._gltf_asset_manifest.at(0).root_render_entity, true, true, -1});
-
-    while (!entity_graph_stack.empty())
-    {
-        auto const top_stack_entry = entity_graph_stack.back();
-        entity_graph_stack.pop_back();
-
-        auto const & entity = *scene._render_entities.slot(top_stack_entry.id);
-        // Indent if this is a first child and is not root - we don't want to indent root
-        if (top_stack_entry.is_first_child && entity.type != EntityType::ROOT)
+        began = true;
+        struct StackEntry
         {
-            scene_graph.add_level();
-        }
-        RetNodeState const result = scene_graph.add_node(entity, scene);
+            RenderEntityId id;
+            bool is_first_child;
+            bool is_last_child;
+            i32 accumulated_indent;
+        };
+        // ROOT - first/last - indent and accumulate
+        //  INNER - first - indent
+        //    LEAF - first - indent and unindent
+        //    INNER - last - indent and accumulate
+        //      LEAF - first/last - indent once and unindent twice (one accumulated from parent INNER )
+        //  INNER - middle - indent and unindent
+        //  INNER - last - indent and unindent twice (one accumulated from ROOT)
+        std::vector<StackEntry> entity_graph_stack;
+        entity_graph_stack.push_back({scene._gltf_asset_manifest.at(0).root_render_entity, true, true, -1});
 
-        // Check if we are both the last child and we will add no more of our own children to the stack
-        bool const should_remove_indentation = top_stack_entry.is_last_child && result == RetNodeState::CLOSED;
-        // If that is the case remove our own indentation + the accumulated indentation from our parents
-        if (should_remove_indentation)
+        while (!entity_graph_stack.empty())
         {
-            // Remove all the previous indentations that were accumulated as well as our own
-            for (u32 pop_count = 0; pop_count < top_stack_entry.accumulated_indent + 1; pop_count++)
+            auto const top_stack_entry = entity_graph_stack.back();
+            entity_graph_stack.pop_back();
+
+            auto const & entity = *scene._render_entities.slot(top_stack_entry.id);
+            // Indent if this is a first child and is not root - we don't want to indent root
+            if (top_stack_entry.is_first_child && entity.type != EntityType::ROOT)
             {
-                scene_graph.remove_level();
+                scene_graph.add_level();
             }
-        }
-        // If this node was not opened on previous frame or it is a leaf (aka has no more children)
-        // it is CLOSED (maybe COLLAPSED is a better name) and we don't want to continue to the next entry on stack
-        if (result != RetNodeState::OPEN) { continue; }
+            RetNodeState const result = scene_graph.add_node(entity, scene);
 
-        // Otherwise we find collect all of our children into a vector
-        /// NOTE: We collect into a vector because we want our children to be processed in the order
-        //        of first -> last, but if we just pushed them directly to the stack we would have the inverse order
-        //        as the first child will be pushed first and latter children would be stacked on top of it
-        RenderEntityId curr_child_index = entity.first_child.value();
-        std::vector<StackEntry> child_entries = {};
-        while (true)
-        {
-            RenderEntity const * curr_child = scene._render_entities.slot(curr_child_index);
-            bool const is_first_child = child_entries.empty();
-            bool const is_last_child = !curr_child->next_sibling.has_value();
-            // If the curenntly processed (pop from stack) node was a last child and we are adding
-            // it's own last child we should accumulate the indentation so that the leaf then knows
-            // how many levels of indentation it should remove
-            bool const should_accumulate_remove_indent = top_stack_entry.is_last_child && is_last_child;
-            i32 const accumulated_indent = should_accumulate_remove_indent ? top_stack_entry.accumulated_indent + 1 : 0;
-            child_entries.push_back({.id = curr_child_index,
-                .is_first_child = is_first_child,
-                .is_last_child = is_last_child,
-                .accumulated_indent = accumulated_indent});
-            if (is_last_child) { break; }
-            // Move on to the next child
-            curr_child_index = curr_child->next_sibling.value();
+            // Check if we are both the last child and we will add no more of our own children to the stack
+            bool const should_remove_indentation = top_stack_entry.is_last_child && result == RetNodeState::CLOSED;
+            // If that is the case remove our own indentation + the accumulated indentation from our parents
+            if (should_remove_indentation)
+            {
+                // Remove all the previous indentations that were accumulated as well as our own
+                for (u32 pop_count = 0; pop_count < top_stack_entry.accumulated_indent + 1; pop_count++)
+                {
+                    scene_graph.remove_level();
+                }
+            }
+            // If this node was not opened on previous frame or it is a leaf (aka has no more children)
+            // it is CLOSED (maybe COLLAPSED is a better name) and we don't want to continue to the next entry on stack
+            if (result != RetNodeState::OPEN) { continue; }
+
+            // Otherwise we find collect all of our children into a vector
+            /// NOTE: We collect into a vector because we want our children to be processed in the order
+            //        of first -> last, but if we just pushed them directly to the stack we would have the inverse order
+            //        as the first child will be pushed first and latter children would be stacked on top of it
+            RenderEntityId curr_child_index = entity.first_child.value();
+            std::vector<StackEntry> child_entries = {};
+            while (true)
+            {
+                RenderEntity const * curr_child = scene._render_entities.slot(curr_child_index);
+                bool const is_first_child = child_entries.empty();
+                bool const is_last_child = !curr_child->next_sibling.has_value();
+                // If the curenntly processed (pop from stack) node was a last child and we are adding
+                // it's own last child we should accumulate the indentation so that the leaf then knows
+                // how many levels of indentation it should remove
+                bool const should_accumulate_remove_indent = top_stack_entry.is_last_child && is_last_child;
+                i32 const accumulated_indent = should_accumulate_remove_indent ? top_stack_entry.accumulated_indent + 1 : 0;
+                child_entries.push_back({.id = curr_child_index,
+                    .is_first_child = is_first_child,
+                    .is_last_child = is_last_child,
+                    .accumulated_indent = accumulated_indent});
+                if (is_last_child) { break; }
+                // Move on to the next child
+                curr_child_index = curr_child->next_sibling.value();
+            }
+            entity_graph_stack.reserve(entity_graph_stack.size() + child_entries.size());
+            entity_graph_stack.insert(entity_graph_stack.end(), child_entries.rbegin(), child_entries.rend());
         }
-        entity_graph_stack.reserve(entity_graph_stack.size() + child_entries.size());
-        entity_graph_stack.insert(entity_graph_stack.end(), child_entries.rbegin(), child_entries.rend());
     }
-
-    scene_graph.end();
+    scene_graph.end(began);
 }
 
 void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
@@ -424,8 +428,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             "AA_MODE_DVM",
         };
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
-        ImGui::End();
     }
+    ImGui::End();
 }
 
 UIEngine::~UIEngine()

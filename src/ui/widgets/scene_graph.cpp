@@ -18,7 +18,7 @@ namespace tido
         {
         }
 
-        void SceneGraph::begin()
+        bool SceneGraph::begin()
         {
             /// NOTE: For now we count the number of stylevars changed with a constexpr value
             //        this MUST match the number of pushes we do here otherwise we get style leaking
@@ -27,27 +27,31 @@ namespace tido
             ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, {4, 5});
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
-            ImGui::Begin("Scene Hierarchy", nullptr, ImGuiWindowFlags_NoCollapse);
-            static ImGuiTableFlags flags =
-                ImGuiTableFlags_BordersOuterV |
-                ImGuiTableFlags_BordersOuterH |
-                ImGuiTableFlags_Resizable |
-                ImGuiTableFlags_RowBg |
-                ImGuiTableFlags_NoBordersInBody;
-            ImGui::BeginTable("Scene Hierarchy", 1, flags);
-            context = ImGui::GetCurrentContext();
-            table = context->CurrentTable;
-            window = context->CurrentWindow;
-            ImGui::TableSetupScrollFreeze(0, 1); // Make top row always visible
-            ImGui::TableSetupColumn("Name");
+            if (ImGui::Begin("Scene Hierarchy", nullptr, ImGuiWindowFlags_NoCollapse))
+            {
+                static ImGuiTableFlags flags =
+                    ImGuiTableFlags_BordersOuterV |
+                    ImGuiTableFlags_BordersOuterH |
+                    ImGuiTableFlags_Resizable |
+                    ImGuiTableFlags_RowBg |
+                    ImGuiTableFlags_NoBordersInBody;
+                ImGui::BeginTable("Scene Hierarchy", 1, flags);
+                context = ImGui::GetCurrentContext();
+                table = context->CurrentTable;
+                window = context->CurrentWindow;
+                ImGui::TableSetupScrollFreeze(0, 1); // Make top row always visible
+                ImGui::TableSetupColumn("Name");
 
-            f32 const icon_y_size = icon_size + context->Style.CellPadding.y * 2.0f;
-            f32 const label_y_size = ImGui::CalcTextSize("x").y + context->Style.CellPadding.y * 2.0f;
-            f32 const real_cell_max_y = std::max(icon_y_size, label_y_size);
-            row_min_height = real_cell_max_y;
-            clipper.Begin(current_row ? current_row : INT_MAX, real_cell_max_y);
-            current_row = {};
-            clipper_ret = clipper.Step();
+                f32 const icon_y_size = icon_size + context->Style.CellPadding.y * 2.0f;
+                f32 const label_y_size = ImGui::CalcTextSize("x").y + context->Style.CellPadding.y * 2.0f;
+                f32 const real_cell_max_y = std::max(icon_y_size, label_y_size);
+                row_min_height = real_cell_max_y;
+                clipper.Begin(current_row ? current_row : INT_MAX, real_cell_max_y);
+                current_row = {};
+                clipper_ret = clipper.Step();
+                return true;
+            }
+            return false;
         }
 
         auto SceneGraph::get_cell_bounds() -> ImRect
@@ -66,11 +70,14 @@ namespace tido
                     cell_row_bb.Min.y + label_height + context->Style.CellPadding.y * 2.0f));
         }
 
-        void SceneGraph::end()
+        void SceneGraph::end(bool began)
         {
             /// NOTE: Make sure this value matches the number of stylevars we pushed in begin()
-            clipper.End();
-            ImGui::EndTable();
+            if(began)
+            {
+                clipper.End();
+                ImGui::EndTable();
+            }
             ImGui::End(); // Scene graph widget window
             ImGui::PopStyleVar(stylevar_change_count);
         }

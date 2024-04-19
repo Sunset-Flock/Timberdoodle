@@ -23,6 +23,27 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
+static const uint PCF_NUM_SAMPLES = 16;
+// https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
+static const float2 poisson_disk[16] = {
+    float2( -0.94201624, -0.39906216 ),
+    float2( 0.94558609, -0.76890725 ),
+    float2( -0.094184101, -0.92938870 ),
+    float2( 0.34495938, 0.29387760 ),
+    float2( -0.91588581, 0.45771432 ),
+    float2( -0.81544232, -0.87912464 ),
+    float2( -0.38277543, 0.27676845 ),
+    float2( 0.97484398, 0.75648379 ),
+    float2( 0.44323325, -0.97511554 ),
+    float2( 0.53742981, -0.47373420 ),
+    float2( -0.26496911, -0.41893023 ),
+    float2( 0.79197514, 0.19090188 ),
+    float2( -0.24188840, 0.99706507 ),
+    float2( -0.81409955, 0.91437590 ),
+    float2( 0.19984126, 0.78641367 ),
+    float2( 0.14383161, -0.14100790 )
+};
+
 struct AtmosphereLightingInfo
 {
     // illuminance from atmosphere along normal vector
@@ -155,6 +176,43 @@ int get_height_depth_offset(int3 vsm_page_texel_coords)
     return height_difference;
 }
 
+float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position, int height_offset)
+{
+    const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
+    const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
+    const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+
+    const float vsm_sample = Texture2D<float>::get(AT_FROM_PUSH.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
+
+    const float4x4 vsm_shadow_view = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.view;
+    const float4x4 vsm_shadow_proj = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.proj;
+
+    const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
+
+    const float view_space_offset = 0.004 * pow(1.7, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset + height_offset);
+
+    const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
+    const float vsm_projected_depth = vsm_projected_world.z / vsm_projected_world.w;
+
+    const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT_FROM_PUSH.vsm_clip_projections);
+    const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
+    return is_in_shadow ? 0.0 : 1.0;
+}
+
+static uint _rand_state;
+void rand_seed(uint seed) {
+    _rand_state = seed;
+}
+
+float rand() {
+    // https://www.pcg-random.org/
+    _rand_state = _rand_state * 747796405u + 2891336453u;
+    uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
+    result = (result >> 22u) ^ result;
+    return result / 4294967295.0;
+}
+
 float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_norm_dot)
 {
     const bool level_forced = AT_FROM_PUSH.globals->vsm_settings.force_clip_level != 0;
@@ -172,7 +230,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
         real_uv = (ndc + float2(1.0)) / float2(2.0);
         real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
     }
-    clip_info = clip_info_from_uvs(ClipFromUVsInfo(
+    let base_clip_info = ClipFromUVsInfo(
         real_uv,
         render_target_size,
         real_depth,
@@ -181,44 +239,56 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
         AT_FROM_PUSH.vsm_clip_projections,
         AT_FROM_PUSH.vsm_globals,
         AT_FROM_PUSH.globals
-    ));
+    );
+    clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT_FROM_PUSH.vsm_clip_projections);
-    const uint page_entry = Texture2DArray<uint>::get(AT_FROM_PUSH.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
+    const float filter_radius = 0.004;
+    const int clip_levels[3] = {
+        clip_info.clip_level,
+        max(clip_info.clip_level - 1, 0),
+        min(clip_info.clip_level + 1, VSM_CLIP_LEVELS - 1)
+    };
+    float sum = 0.0;
 
-    if(get_is_allocated(page_entry))
+    rand_seed(asuint(uv.x + uv.y * 13136.1235f));
+    float rand_angle = rand();
+    for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
-        const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
-        const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
-        const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+        let filter_rot_offset = float2(
+            poisson_disk[sample].x * cos(rand_angle) - poisson_disk[sample].y * sin(rand_angle),
+            poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
+        );
 
-        const float vsm_sample = Texture2D<float>::get(AT_FROM_PUSH.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
+        for(int level = 0; level < 3; level++)
+        {
+            let filter_view_space_offset = float4(filter_rot_offset * filter_radius * pow(1.6, clip_levels[level]), 0.0, 0.0);
+            const daxa_f32vec3 center_world_space = world_space_from_uv( real_uv, real_depth, inv_projection_view);
 
-        const float4x4 vsm_shadow_view = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.view;
-        const float4x4 vsm_shadow_proj = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.proj;
+            let clip_proj = AT_FROM_PUSH.vsm_clip_projections[clip_levels[level]].camera.proj;
+            let clip_view = AT_FROM_PUSH.vsm_clip_projections[clip_levels[level]].camera.view;
 
-        const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
+            let view_space_world_pos = mul(clip_view, float4(world_position, 1.0));
+            let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
+            let proj_filter_offset_world = mul(clip_proj, view_space_offset_world_pos);
 
-        const int height_offset = get_height_depth_offset(vsm_page_texel_coords);
+            let clip_uv = ((proj_filter_offset_world.xy / proj_filter_offset_world.w) + 1.0) / 2.0;
+            let offset_info = ClipInfo(clip_levels[level], clip_uv);
 
-        const float view_space_offset = 0.004 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.7);
-        // const float view_space_offset = -0.0005 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.7);
-        // const float view_space_offset = 0.002 * pow(2, clip_info.clip_level) / max(abs(sun_norm_dot), 0.05);
-        const float fp_remainder = frac(view_projected_world_pos.z) + view_space_offset;
-        const int int_part = daxa_i32(floor(view_projected_world_pos.z));
-        const int modified_view_depth = int_part + height_offset;
-    
-        const float3 offset_view_pos = float3(view_projected_world_pos.xy, float(modified_view_depth) + fp_remainder);
-
-        const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
-        const float vsm_projected_depth = vsm_projected_world.z / vsm_projected_world.w;
-
-        const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT_FROM_PUSH.vsm_clip_projections);
-        const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
-        return is_in_shadow ? 0.0 : 1.0;
+            if(all(greaterThanEqual(offset_info.clip_depth_uv, 0.0)) && all(lessThan(offset_info.clip_depth_uv, 1.0)))
+            {
+                let vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(offset_info, AT_FROM_PUSH.vsm_clip_projections);
+                let page_entry = Texture2DArray<uint>::get(AT_FROM_PUSH.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
+                let height_offset = get_height_depth_offset(vsm_page_texel_coords);
+                if(get_is_allocated(page_entry))
+                {
+                    sum += vsm_shadow_test(offset_info, page_entry, world_position, height_offset);
+                    break;
+                }
+            }
+        }
     }
-    return 1.0;
+    return sum / PCF_NUM_SAMPLES;
 }
 
 

@@ -335,8 +335,8 @@ void Application::update()
                 auto const width = ImGui::GetContentRegionMax().x;
                 ImGui::Image(debug_lens_image_view_id, ImVec2(width,width));
             }
-            ImGui::End();
         }
+        ImGui::End();
     }
     if (reset_observer)
     {
