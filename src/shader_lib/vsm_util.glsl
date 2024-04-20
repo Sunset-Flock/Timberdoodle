@@ -123,13 +123,13 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
     if(info.force_clip_level == -1)
     {
         const daxa_f32vec2 center_texel_coords = info.uv * info.screen_resolution;
-        #if 0
+        #if 1
         const daxa_f32vec2 texel_coords = center_texel_coords;
         const daxa_f32vec2 texel_uvs = texel_coords / daxa_f32vec2(info.screen_resolution);
         const daxa_f32vec3 world_space = world_space_from_uv(texel_uvs, info.depth, info.inv_view_proj);
 
         const daxa_f32 dist = length(world_space - deref(info.globals).camera.position);
-        clip_level = clamp(daxa_i32(ceil(log2(max(2.0 * dist / deref(info.globals).vsm_settings.clip_0_frustum_scale, 1.0)))), 0, VSM_CLIP_LEVELS - 1);
+        clip_level = daxa_i32(clamp(ceil(log2((dist / deref(info.globals).vsm_settings.clip_0_frustum_scale))), 0, VSM_CLIP_LEVELS - 1));
         #else 
         const daxa_f32vec2 left_side_texel_coords = center_texel_coords - daxa_f32vec2(0.5, 0.0);
         const daxa_f32vec2 left_side_texel_uvs = left_side_texel_coords / daxa_f32vec2(info.screen_resolution);

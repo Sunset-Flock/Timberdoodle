@@ -211,8 +211,11 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_com
             .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
-        .raster = {
-            .depth_clamp_enable = true 
+        .raster = { 
+            .depth_clamp_enable = true,
+            .depth_bias_enable = true,
+            .depth_bias_constant_factor = 10.0f,
+            .depth_bias_slope_factor = 2.0f,
         },
         .push_constant_size = s_cast<u32>(sizeof(CullAndDrawPagesPush)),
     };
@@ -468,6 +471,11 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
         });
 
+        render_cmd.set_depth_bias({
+            .constant_factor = render_context->render_data.vsm_settings.constant_bias,
+            .clamp = 0.0,
+            .slope_factor = render_context->render_data.vsm_settings.slope_bias,
+        });
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
             render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));

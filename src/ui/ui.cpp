@@ -205,6 +205,8 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::Checkbox("Enable caching", &enable_caching);
             ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
             ImGui::SliderFloat("Clip selection bias", &render_ctx.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
+            ImGui::SliderFloat("Slope bias", &render_ctx.render_data.vsm_settings.slope_bias, 0.0, 10.0);
+            ImGui::SliderFloat("Constant bias", &render_ctx.render_data.vsm_settings.constant_bias, 0.0, 20.0);
             ImGui::BeginDisabled(!force_clip_level);
             i32 forced_clip_level = render_ctx.render_data.vsm_settings.forced_clip_level;
             ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);

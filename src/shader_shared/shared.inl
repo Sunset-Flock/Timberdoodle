@@ -132,6 +132,8 @@ struct VSMSettings
     daxa_i32 forced_clip_level;
     daxa_f32 clip_0_frustum_scale;
     daxa_f32 clip_selection_bias;
+    daxa_f32 slope_bias;
+    daxa_f32 constant_bias;
 #if defined(__cplusplus)
     VSMSettings()
         : visualize_clip_levels{ 0 },
@@ -139,7 +141,9 @@ struct VSMSettings
           enable_caching{ 0 },
           forced_clip_level{ 0 },
           clip_0_frustum_scale{2.0f},
-          clip_selection_bias{0.3f}
+          clip_selection_bias{0.3f},
+          slope_bias{2.0f},
+          constant_bias{10.0f}
     {
     }
 #endif
