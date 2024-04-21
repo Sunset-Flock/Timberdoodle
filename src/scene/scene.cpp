@@ -46,9 +46,9 @@ Scene::~Scene()
             _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().mesh_buffer));
         }
     }
-    for(auto & texture : _material_texture_manifest)
+    for (auto & texture : _material_texture_manifest)
     {
-        if(texture.runtime.has_value())
+        if (texture.runtime.has_value())
         {
             _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime.value()));
         }
@@ -69,8 +69,8 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
-static void start_async_loads_of_diry_meshes(Scene & scene, Scene::LoadManifestInfo const & info);
-static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifestInfo const & info);
+static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info);
+static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
 static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & ctx) -> RenderEntityId;
@@ -100,8 +100,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
             .root_render_entity = root_r_ent_id,
         });
     }
-    start_async_loads_of_diry_meshes(*this, info);
-    start_async_loads_of_diry_textures(*this, info);
+    start_async_loads_of_dirty_meshes(*this, info);
+    start_async_loads_of_dirty_textures(*this, info);
 
     return root_r_ent_id;
 }
@@ -110,7 +110,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 {
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{ fastgltf::Extensions::KHR_texture_basisu };
+    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu};
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -188,12 +188,11 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
             gltf_image_idx_opt.has_value(),
             fmt::format(
                 "[ERROR] Texture \"{}\" has no supported gltf image index!\n",
-                load_ctx.asset.textures[i].name.c_str())
-            );
+                load_ctx.asset.textures[i].name.c_str()));
         u32 gltf_image_index = gltf_image_idx_opt.value();
         DEBUG_MSG(
             fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  asset local index: {}\n  manifest index:  {}",
-            load_ctx.asset.images[i].name, i, texture_manifest_index));
+                load_ctx.asset.images[i].name, i, texture_manifest_index));
         // KTX_TTF_BC7_RGBA
         scene._material_texture_manifest.push_back(TextureManifestEntry{
             .type = TextureMaterialType::NONE, // Set by material manifest.
@@ -302,10 +301,8 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
             u32 const mesh_manifest_entry = scene._mesh_manifest.size();
             auto const & gltf_primitive = gltf_mesh.primitives.at(mesh_index);
             scene._mesh_manifest_indices_new.at(mesh_manifest_indices_array_offset + mesh_index) = mesh_manifest_entry;
-            std::optional<u32> material_manifest_index = 
-                gltf_primitive.materialIndex.has_value() ? 
-                std::optional{s_cast<u32>(gltf_primitive.materialIndex.value()) + load_ctx.material_manifest_offset} : 
-                std::nullopt;
+            std::optional<u32> material_manifest_index =
+                gltf_primitive.materialIndex.has_value() ? std::optional{s_cast<u32>(gltf_primitive.materialIndex.value()) + load_ctx.material_manifest_offset} : std::nullopt;
             scene._mesh_manifest.push_back(MeshManifestEntry{
                 .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
                 // Gltf calls a meshgroup a mesh because these local indices are only used for loading we use the gltf naming
@@ -432,7 +429,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
             }
             else // We have other root children already
             {
-               scene._render_entities.slot(root_r_ent_prev_child.value())->next_sibling = r_ent_id;
+                scene._render_entities.slot(root_r_ent_prev_child.value())->next_sibling = r_ent_id;
             }
             root_r_ent_prev_child = r_ent_id;
         }
@@ -440,7 +437,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
     return root_r_ent_id;
 }
 
-static void start_async_loads_of_diry_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
+static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
 {
     struct LoadMeshTask : Task
     {
@@ -497,7 +494,7 @@ static void start_async_loads_of_diry_meshes(Scene & scene, Scene::LoadManifestI
     }
 }
 
-static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifestInfo const & info)
+static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info)
 {
     struct LoadTextureTask : Task
     {
@@ -533,7 +530,7 @@ static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifes
     };
     auto gltf_texture_to_image_index = [&](u32 const texture_index) -> std::optional<u32>
     {
-        std::unique_ptr<fastgltf::Asset> const & asset = 
+        std::unique_ptr<fastgltf::Asset> const & asset =
             scene._gltf_asset_manifest.at(scene._material_texture_manifest.at(texture_index).gltf_asset_manifest_index).gltf_asset;
         if (asset->textures.at(texture_index).basisuImageIndex.has_value())
         {
@@ -560,8 +557,7 @@ static void start_async_loads_of_diry_textures(Scene & scene, Scene::LoadManifes
             gltf_image_idx_opt.has_value(),
             fmt::format(
                 "[ERROR] Texture \"{}\" has no supported gltf image index!\n",
-                texture_manifest_entry.name)
-            );
+                texture_manifest_entry.name));
         if (!texture_manifest_entry.material_manifest_indices.empty())
         {
             // Launch loading of this texture
@@ -611,8 +607,8 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
                     }
                 }
                 auto mesh_draw = MeshDrawTuple{
-                    .entity_index = entity_i, 
-                    .mesh_index = mesh_index, 
+                    .entity_index = entity_i,
+                    .mesh_index = mesh_index,
                     .in_mesh_group_index = in_meshgroup_mesh_i,
                 };
                 scene._scene_draw.opaque_draw_lists[opaque_draw_list_type].push_back(mesh_draw);
@@ -725,38 +721,32 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             std::array{
                 std::span{_scene_draw.opaque_draw_lists[0]},
                 std::span{_scene_draw.opaque_draw_lists[1]},
-            }
-        );
+            });
         auto staging = _device.create_buffer({
-            .size = 
-                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
-                    _scene_draw.opaque_draw_lists[0].size() + 
-                    _scene_draw.opaque_draw_lists[1].size()
-                ),
+            .size =
+                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (_scene_draw.opaque_draw_lists[0].size() +
+                                                                                   _scene_draw.opaque_draw_lists[1].size()),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "opaque draw lists buffer upload",
         });
         recorder.destroy_buffer_deferred(staging);
         auto staging_ptr = _device.get_host_address(staging).value();
-        *reinterpret_cast<OpaqueMeshDrawListBufferHead*>(staging_ptr) = opaque_draw_list_buffer_head;
+        *reinterpret_cast<OpaqueMeshDrawListBufferHead *>(staging_ptr) = opaque_draw_list_buffer_head;
         std::memcpy(
-            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead), 
-            _scene_draw.opaque_draw_lists[0].data(), 
-            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple)
-        );
+            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead),
+            _scene_draw.opaque_draw_lists[0].data(),
+            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple));
         std::memcpy(
-            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead) + 
-            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple), 
-            _scene_draw.opaque_draw_lists[1].data(), 
-            _scene_draw.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple)
-        );
+            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead) +
+                _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple),
+            _scene_draw.opaque_draw_lists[1].data(),
+            _scene_draw.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple));
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging,
             .dst_buffer = _scene_draw.opaque_draw_list_buffer.get_state().buffers[0],
-            .size = 
-                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (
-                _scene_draw.opaque_draw_lists[0].size() +
-                _scene_draw.opaque_draw_lists[1].size()),
+            .size =
+                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (_scene_draw.opaque_draw_lists[0].size() +
+                                                                                   _scene_draw.opaque_draw_lists[1].size()),
         });
     }
 
@@ -801,8 +791,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         for (u32 new_mesh_group_idx = 0; new_mesh_group_idx < _new_mesh_group_manifest_entries; new_mesh_group_idx++)
         {
             u32 const mesh_group_manifest_idx = mesh_group_manifest_offset + new_mesh_group_idx;
-            staging_ptr[new_mesh_group_idx].mesh_indices = 
-                mesh_group_indices_array_addr + 
+            staging_ptr[new_mesh_group_idx].mesh_indices =
+                mesh_group_indices_array_addr +
                 sizeof(daxa_u32) * _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_manifest_indices_array_offset;
             staging_ptr[new_mesh_group_idx].count = _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_count;
         }
@@ -882,19 +872,27 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                     MaterialManifestEntry & material_entry = _material_manifest.at(material_using_texture_info.material_manifest_index);
                     switch (texture_manifest_entry.type)
                     {
-                        case TextureMaterialType::DIFFUSE: {
+                        case TextureMaterialType::DIFFUSE:
+                        {
                             material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                        } break;
-                        case TextureMaterialType::DIFFUSE_OPACITY: {
+                        }
+                        break;
+                        case TextureMaterialType::DIFFUSE_OPACITY:
+                        {
                             material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                        } break;
-                        case TextureMaterialType::NORMAL: {
+                        }
+                        break;
+                        case TextureMaterialType::NORMAL:
+                        {
                             material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
                             material_entry.normal_compressed_bc5_rg = texture_upload.compressed_bc5_rg;
-                        } break;
-                        case TextureMaterialType::ROUGHNESS_METALNESS: {
+                        }
+                        break;
+                        case TextureMaterialType::ROUGHNESS_METALNESS:
+                        {
                             material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                        } break;
+                        }
+                        break;
                         default: DBG_ASSERT_TRUE_M(false, "unimplemented"); break;
                     }
                     /// NOTE: Add material index only if it was not added previously
@@ -927,8 +925,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 daxa::ImageId diffuse_id = {};
                 daxa::ImageId normal_id = {};
                 daxa::ImageId roughness_metalness_id = {};
-                /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this 
-                //        info is present - It might be that diffuse texture was uploaded marking this material as dirty, but 
+                /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this
+                //        info is present - It might be that diffuse texture was uploaded marking this material as dirty, but
                 //        the normal texture is not yet present thus we don't yet have the runtime info
                 if (material.diffuse_info.has_value())
                 {
@@ -950,7 +948,6 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
                 staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
                 staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
-                
 
                 daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
                 recorder.copy_buffer_to_buffer({

@@ -411,4 +411,13 @@ void Application::load_sky_settings(std::filesystem::path const path_to_settings
 
 Application::~Application()
 {
+    _threadpool.reset();
+    auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
+    auto manifest_update_commands = _scene->record_gpu_manifest_update({
+        .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
+        .uploaded_textures = asset_data_upload_info.uploaded_textures,
+    });
+    auto cmd_lists = std::array{std::move(asset_data_upload_info.upload_commands), std::move(manifest_update_commands)};
+    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
+    _gpu_context->device.wait_idle();
 }
