@@ -100,5 +100,7 @@ struct RenderContext
     SkySettings prev_sky_settings = {};
     VSMSettings prev_vsm_settings = {};
     RenderGlobalData render_data = {};
+    std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
+    std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum_pages = {};
     std::vector<u64> vsm_timestamp_results = {};
 };

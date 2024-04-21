@@ -200,6 +200,30 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             bool visualize_clip_levels = s_cast<bool>(render_ctx.render_data.vsm_settings.visualize_clip_levels);
             bool force_clip_level = s_cast<bool>(render_ctx.render_data.vsm_settings.force_clip_level);
             bool enable_caching = s_cast<bool>(render_ctx.render_data.vsm_settings.enable_caching);
+            ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
+            {
+                ImGui::Text("Draw cascade frustum");
+                ImGui::SetWindowFontScale(0.5);
+                for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+                {
+                    ImGui::Checkbox(fmt::format("##clips{}",clip).c_str(), &render_ctx.draw_clip_frustum.at(clip));
+                    ImGui::SameLine();
+                }
+                ImGui::SetWindowFontScale(1.0);
+                ImGui::Dummy({});
+                ImGui::Text("Draw cascade frustum pages");
+                ImGui::SetWindowFontScale(0.5);
+                for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+                {
+                    ImGui::BeginDisabled(!render_ctx.draw_clip_frustum.at(clip));
+                    ImGui::Checkbox(fmt::format("##pages{}",clip).c_str(), &render_ctx.draw_clip_frustum_pages.at(clip));
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+                }
+                ImGui::SetWindowFontScale(1.0);
+            }
+            ImGui::EndChild();
+
             ImGui::Checkbox("Visualize clip levels", &visualize_clip_levels);
             ImGui::Checkbox("Force clip level", &force_clip_level);
             ImGui::Checkbox("Enable caching", &enable_caching);

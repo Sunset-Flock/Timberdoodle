@@ -51,7 +51,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile
         .depth_bias_constant_factor = 0.0f,
         .depth_bias_clamp = 0.0f,
         .depth_bias_slope_factor = 0.0f,
-        .line_width = 1.0f,
+        .line_width = 1.7f,
     };
     return ret;
 }

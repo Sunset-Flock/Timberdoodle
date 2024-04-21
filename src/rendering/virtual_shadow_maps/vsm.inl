@@ -211,7 +211,7 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_com
             .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
-        .raster = { 
+        .raster = {
             .depth_clamp_enable = true,
             .depth_bias_enable = true,
             .depth_bias_constant_factor = 10.0f,
@@ -302,7 +302,7 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -313,9 +313,9 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
         FreeWrappedPagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::BOTTOM_OF_PIPE, .query_index = 0 + timestamp_start_index });
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::BOTTOM_OF_PIPE, .query_index = 0 + timestamp_start_index});
         ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 1 + timestamp_start_index });
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 1 + timestamp_start_index});
     }
 };
 
@@ -324,7 +324,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -340,9 +340,9 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
         MarkRequiredPagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 2 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 2 + timestamp_start_index});
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 3 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 3 + timestamp_start_index});
     }
 };
 
@@ -351,7 +351,7 @@ struct FindFreePagesTask : FindFreePagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     static constexpr i32 meta_memory_pix_count = VSM_META_MEMORY_TABLE_RESOLUTION * VSM_META_MEMORY_TABLE_RESOLUTION;
     static constexpr i32 dispatch_x_size = (meta_memory_pix_count + FIND_FREE_PAGES_X_DISPATCH - 1) / FIND_FREE_PAGES_X_DISPATCH;
@@ -365,9 +365,9 @@ struct FindFreePagesTask : FindFreePagesH::Task
         FindFreePagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 4 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 4 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_x_size, 1, 1});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 5 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 5 + timestamp_start_index});
     }
 };
 
@@ -376,7 +376,7 @@ struct AllocatePagesTask : AllocatePagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -387,12 +387,12 @@ struct AllocatePagesTask : AllocatePagesH::Task
         AllocatePagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 6 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 6 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.get(AT.vsm_allocate_indirect).ids[0],
             .offset = 0u,
         });
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 7 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 7 + timestamp_start_index});
     }
 };
 
@@ -401,7 +401,7 @@ struct ClearPagesTask : ClearPagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -412,12 +412,12 @@ struct ClearPagesTask : ClearPagesH::Task
         ClearPagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 8 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 8 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.get(AT.vsm_clear_indirect).ids[0],
             .offset = 0u,
         });
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 9 + timestamp_start_index });
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 9 + timestamp_start_index});
     }
 };
 
@@ -426,7 +426,7 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -441,9 +441,9 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
         };
         assign_blob(push.attachments, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 10 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 10 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 11 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 11 + timestamp_start_index});
     }
 };
 
@@ -452,7 +452,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -466,7 +466,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .name = "vsm memory daxa_u32 view",
         });
 
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 12 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 12 + timestamp_start_index});
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
             .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
         });
@@ -497,7 +497,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 13 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 13 + timestamp_start_index});
         ti.recorder.destroy_image_view_deferred(memory_block_view);
     }
 };
@@ -507,7 +507,7 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -518,12 +518,12 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
         ClearDirtyBitH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 14 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 14 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.get(AT.vsm_clear_dirty_bit_indirect).ids[0],
             .offset = 0u,
         });
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 15 + timestamp_start_index });
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 15 + timestamp_start_index});
     }
 };
 
@@ -532,7 +532,7 @@ struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
     static constexpr auto dispatch_size = u32vec2{
         (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_X_DISPATCH - 1) / DEBUG_PAGE_TABLE_X_DISPATCH,
         (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_Y_DISPATCH - 1) / DEBUG_PAGE_TABLE_Y_DISPATCH,
@@ -547,9 +547,9 @@ struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
         DebugVirtualPageTableH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 16 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 16 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 17 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 17 + timestamp_start_index});
     }
 };
 
@@ -558,7 +558,7 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     daxa::TimelineQueryPool timeline_pool = {};
-    const u32 per_frame_timestamp_count = {};
+    u32 const per_frame_timestamp_count = {};
     static constexpr auto dispatch_size = u32vec2{
         (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_X_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_X_DISPATCH,
         (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_Y_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_Y_DISPATCH,
@@ -573,9 +573,9 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
         DebugMetaMemoryTableH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 18 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 18 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
-        ti.recorder.write_timestamp({ .query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 19 + timestamp_start_index});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 19 + timestamp_start_index});
     }
 };
 
@@ -938,34 +938,50 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
 struct DebugDrawClipFrustiInfo
 {
-    std::span<VSMClipProjection const> clip_projections;
-    bool draw_individual_pages = {};
+    GetVSMProjectionsInfo const * proj_info = {};
+    std::array<VSMClipProjection, VSM_CLIP_LEVELS> * clip_projections = {};
+    std::array<bool, VSM_CLIP_LEVELS> * draw_clip_frustum = {};
+    std::array<bool, VSM_CLIP_LEVELS> * draw_clip_frustum_pages = {};
     ShaderDebugDrawContext * debug_context = {};
     f32vec3 vsm_view_direction = {};
 };
 
 inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
 {
+
+    auto  hsv2rgb = [](f32vec3 c) -> f32vec3 {
+        f32vec4 k = f32vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        f32vec3 p = f32vec3(
+            std::abs(glm::fract(c.x + k.x) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.y) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.z) * 6.0 - k.w)
+        );
+        return c.z * glm::mix(f32vec3(k.x), glm::clamp(p - f32vec3(k.x), f32vec3(0.0), f32vec3(1.0)), f32vec3(c.y));
+    };
+
     static constexpr std::array offsets = {
         glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
         glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
 
-    for (auto const & clip_projection : info.clip_projections)
+    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
-        auto const left_right_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[0][0])) * 2.0f;
-        auto const top_bottom_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[1][1])) * 2.0f;
-        auto const near_far_size = (1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[2][2]) * 2.0f;
-        auto const page_size = glm::vec2(left_right_size / VSM_PAGE_TABLE_RESOLUTION, top_bottom_size / VSM_PAGE_TABLE_RESOLUTION);
+        auto const & clip_projection = info.clip_projections->at(clip);
+        if (!info.draw_clip_frustum->at(clip)) { continue; }
 
-        auto const page_proj = glm::ortho(
-            -page_size.x / 2.0f,
-            page_size.x / 2.0f,
-            -page_size.y / 2.0f,
-            page_size.y / 2.0f,
-            0.1f,
-            10000.0f);
-        if (info.draw_individual_pages)
+
+        if (info.draw_clip_frustum_pages->at(clip))
         {
+            auto const left_right_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[0][0])) * 2.0f;
+            auto const top_bottom_size = std::abs((1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[1][1])) * 2.0f;
+            auto const near_far_size = (1.0f / std::bit_cast<glm::mat4x4>(clip_projection.camera.proj)[2][2]) * 2.0f;
+            auto const page_size = glm::vec2(left_right_size / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION), top_bottom_size / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION));
+            auto const page_proj = glm::ortho(
+                -page_size.x / 2.0f,
+                page_size.x / 2.0f,
+                -page_size.y / 2.0f,
+                page_size.y / 2.0f,
+                info.proj_info->clip_0_near * s_cast<i32>(std::pow(2.0f, clip)),
+                info.proj_info->clip_0_far * s_cast<i32>(std::pow(2.0f, clip)));
             auto const uv_page_size = s_cast<f32>(VSM_PAGE_SIZE) / s_cast<f32>(VSM_TEXTURE_RESOLUTION);
             for (i32 page_u_index = 0; page_u_index < VSM_PAGE_TABLE_RESOLUTION; page_u_index++)
             {
@@ -988,7 +1004,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
 
                     ShaderDebugBoxDraw box_draw = {};
                     box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-                    box_draw.color = daxa_f32vec3{0.0, 0.0, 1.0};
+                    box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(f32vec3(std::pow(s_cast<f32>(clip) / (VSM_CLIP_LEVELS - 1), 0.5f), 1.0f, 1.0f)));
                     for (i32 i = 0; i < 8; i++)
                     {
                         auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
@@ -1003,7 +1019,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
         {
             ShaderDebugBoxDraw box_draw = {};
             box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            box_draw.color = daxa_f32vec3{0.0, 0.0, 1.0};
+            box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(f32vec3(std::pow(s_cast<f32>(clip) / (VSM_CLIP_LEVELS - 1), 0.5f), 1.0f, 1.0f)));
             for (i32 i = 0; i < 8; i++)
             {
                 auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
