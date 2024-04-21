@@ -253,11 +253,14 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            ti.recorder.clear_buffer({
-                .buffer = ti.get(ent_to_mesh_inst_offsets_offsets).ids[0],
-                .size = sizeof(daxa_u32) * info.render_context->scene_draw.max_entity_index,
-                .clear_value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
-            });
+            if(info.render_context->scene_draw.max_entity_index > 0)
+            {
+                ti.recorder.clear_buffer({
+                    .buffer = ti.get(ent_to_mesh_inst_offsets_offsets).ids[0],
+                    .size = sizeof(daxa_u32) * info.render_context->scene_draw.max_entity_index,
+                    .clear_value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
+                });
+            }
         },
         .name = "clear entity_to_mesh_group_offsets_buffer",
     });

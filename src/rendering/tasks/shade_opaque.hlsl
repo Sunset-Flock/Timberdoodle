@@ -312,7 +312,14 @@ void main(
         AT_FROM_PUSH.globals->debug->gpu_output.debug_ivec4.x = int(AT_FROM_PUSH.instantiated_meshlets->first_count);
         AT_FROM_PUSH.globals->debug->gpu_output.debug_ivec4.y = int(AT_FROM_PUSH.instantiated_meshlets->second_count);
     }
-    const uint triangle_id = Texture2D<uint>::get(AT_FROM_PUSH.vis_image).Load(int3(index, 0), int2(0)).x;
+    uint triangle_id;
+    if(all(lessThan(index, AT_FROM_PUSH.globals->settings.render_target_size)))
+    {
+        triangle_id = Texture2D<uint>::get(AT_FROM_PUSH.vis_image).Load(int3(index, 0), int2(0)).x;
+    } else {
+        triangle_id = INVALID_TRIANGLE_ID;
+    }
+
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
 

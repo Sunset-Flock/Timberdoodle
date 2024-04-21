@@ -650,18 +650,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "color_image",
     });
-    task_list.add_task(DecodeVisbufferTestTask{
-        .views = std::array{
-            daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.debug_image, debug_image),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.vis_image, visbuffer),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.material_manifest, scene->_gpu_material_manifest),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.instantiated_meshlets, meshlet_instances),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.meshes, scene->_gpu_mesh_manifest),
-            daxa::attachment_view(DecodeVisbufferTestH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
-        },
-        .context = context,
-    });
+    // task_list.add_task(DecodeVisbufferTestTask{
+    //     .views = std::array{
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.debug_image, debug_image),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.vis_image, visbuffer),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.material_manifest, scene->_gpu_material_manifest),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.instantiated_meshlets, meshlet_instances),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.meshes, scene->_gpu_mesh_manifest),
+    //         daxa::attachment_view(DecodeVisbufferTestH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
+    //     },
+    //     .context = context,
+    // });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     task_list.add_task(ShadeOpaqueTask{

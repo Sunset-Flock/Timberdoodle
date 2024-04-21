@@ -37,7 +37,10 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_scene_draw.opaque_draw_list_buffer.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
+    if(!_gpu_mesh_group_indices_array_buffer.is_empty())
+    {
+        _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
+    }
 
     for (auto & mesh : _mesh_manifest)
     {
