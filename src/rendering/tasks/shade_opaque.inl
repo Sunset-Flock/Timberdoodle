@@ -49,6 +49,7 @@ struct ShadeOpaquePush
 #if defined(__cplusplus)
 
 #include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 
 inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
 {
@@ -68,10 +69,16 @@ inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
 struct ShadeOpaqueTask : ShadeOpaqueH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    RenderContext * render_context = {};
+    daxa::TimelineQueryPool timeline_pool = {};
+    u32 const per_frame_timestamp_count = {};
+    
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
+
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
         auto const color_image_id = ti.get(AT.color_image).ids[0];
         auto const color_image_info = ti.device.info_image(color_image_id).value();
 
@@ -86,7 +93,9 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         ti.recorder.push_constant(push);
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS, .query_index = 20 + timestamp_start_index});
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
     }
 };
 #endif

@@ -33,57 +33,46 @@ using namespace tido::ui;
 
 struct PerfMeasurements
 {
+    template<typename T, i32 size>
     struct ScrollingBuffer
     {
-        int MaxSize;
-        int Offset;
-        ImVector<ImVec2> Data;
-        ScrollingBuffer(int max_size = 10000)
+        bool wrapped = {};
+        i32 offset = {};
+        std::array<T, size> data = {};
+        ScrollingBuffer() = default;
+        void add_point(T point)
         {
-            MaxSize = max_size;
-            Offset = 0;
-            Data.reserve(MaxSize);
+            data[offset] = point;
+            wrapped |= (offset + 1) == size;
+            offset = (offset + 1) % size;
         }
-        void AddPoint(float x, float y)
+        void erase()
         {
-            if (Data.size() < MaxSize)
-                Data.push_back(ImVec2(x, y));
-            else
-            {
-                Data[Offset] = ImVec2(x, y);
-                Offset = (Offset + 1) % MaxSize;
-            }
+            data.fill(T());
+            wrapped = false;
+            offset = 0;
         }
-        void Erase()
+        auto back() 
         {
-            if (Data.size() > 0)
-            {
-                Data.shrink(0);
-                Offset = 0;
-            }
+            i32 back_index = s_cast<i32>(glm::mod(s_cast<f32>(offset - 1), s_cast<f32>(size)));
+            return data[back_index]; 
         }
-        auto Back()
-        {
-            if(Data.size() > 0)
+        auto front() 
+        { 
+            if(wrapped)
             {
-                if(Data.size() < MaxSize)
-                {
-                    return Data.back();
-                }
-                else
-                {
-                    return Data[Offset - 1];
-                }
+                return data[(offset)]; 
+            } else {
+                return data[0];
             }
-            return ImVec2{0, 0};
         }
     };
-    std::array<ScrollingBuffer, 3> scrolling_ewa = {};
-    std::array<ScrollingBuffer, 3> scrolling_mean = {};
-    std::array<ScrollingBuffer, 3> scrolling_raw = {};
-    std::array<f32, 10> vsm_timings_ewa = {};
-    std::array<f32, 10> vsm_timings_mean = {};
-    std::array<f32, 10> vsm_timings_raw = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_ewa = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_mean = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_raw = {};
+    std::array<f32, 11> vsm_timings_ewa = {};
+    std::array<f32, 11> vsm_timings_mean = {};
+    std::array<f32, 11> vsm_timings_raw = {};
     i32 mean_sample_count = {};
 };
 
@@ -127,6 +116,8 @@ struct UIEngine
             "deps\\timberdoodle_assets\\ui\\icons\\sun.png",
         };
         GPUContext * context;
+        bool gather_perm_measurements = true;
+        bool show_entire_interval = false;
         f32 text_font_size = 15.0f;
         int selected = {};
 

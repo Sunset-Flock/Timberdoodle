@@ -685,7 +685,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
         },
-        .context = context,
+        .render_context = render_context.get(),
+        .timeline_pool = vsm_state.vsm_timeline_query_pool,
+        .per_frame_timestamp_count = vsm_state.PER_FRAME_TIMESTAMP_COUNT,
     });
 
     task_clear_buffer(task_list, luminance_histogram, 0);
@@ -744,9 +746,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 }
 
 void Renderer::render_frame(
-    CameraController const & camera_info,
-    CinematicCamera const & cinematic_camera_info,
-    CameraController const & observer_camera_info,
+    CameraInfo const & camera_info,
+    CameraInfo const & observer_camera_info,
     f32 const delta_time,
     SceneDraw scene_draw)
 {
@@ -791,9 +792,8 @@ void Renderer::render_frame(
         }
 
         // Set Render Data.
-        // render_context->render_data.camera = camera_info.make_camera_info(render_context->render_data.settings);
-        render_context->render_data.camera = cinematic_camera_info.make_camera_info(render_context->render_data.settings);
-        render_context->render_data.observer_camera = observer_camera_info.make_camera_info(render_context->render_data.settings);
+        render_context->render_data.camera = camera_info;
+        render_context->render_data.observer_camera = observer_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
         render_context->render_data.delta_time = delta_time;
         render_context->render_data.test[0] = daxa_f32mat4x3{
@@ -858,47 +858,47 @@ void Renderer::render_frame(
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
 
-for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-{
-    auto const clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
-    vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
-}
-for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-{
-    vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
-    vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_PAGE_TABLE_RESOLUTION;
-    vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
-}
-vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
+    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        auto const clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
+        vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
+    }
+    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    {
+        vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
+        vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_PAGE_TABLE_RESOLUTION;
+        vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
+    }
+    vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
 
-debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
-    .proj_info = &vsm_projections_info,
-    .clip_projections = &vsm_state.clip_projections_cpu,
-    .draw_clip_frustum = &render_context->draw_clip_frustum,
-    .draw_clip_frustum_pages = &render_context->draw_clip_frustum_pages,
-    .debug_context = &context->shader_debug_context,
-    .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
-});
+    debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
+        .proj_info = &vsm_projections_info,
+        .clip_projections = &vsm_state.clip_projections_cpu,
+        .draw_clip_frustum = &render_context->draw_clip_frustum,
+        .draw_clip_frustum_pages = &render_context->draw_clip_frustum_pages,
+        .debug_context = &context->shader_debug_context,
+        .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
+    });
 
-auto new_swapchain_image = context->swapchain.acquire_next_image();
-if (new_swapchain_image.is_empty()) { return; }
-swapchain_image.set_images({.images = std::array{new_swapchain_image}});
-meshlet_instances.swap_buffers(meshlet_instances_last_frame);
+    auto new_swapchain_image = context->swapchain.acquire_next_image();
+    if (new_swapchain_image.is_empty()) { return; }
+    swapchain_image.set_images({.images = std::array{new_swapchain_image}});
+    meshlet_instances.swap_buffers(meshlet_instances_last_frame);
 
-if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
+    if (static_cast<daxa_u32>(context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
-// Draw Frustum Camera.
-context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
-    .position = daxa_f32vec3(0, 0, 0.5),
-    .size = daxa_f32vec3(2.01, 2.01, 0.999),
-    .color = daxa_f32vec3(1, 0, 0),
-    .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
-});
+    // Draw Frustum Camera.
+    context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
+        .position = daxa_f32vec3(0, 0, 0.5),
+        .size = daxa_f32vec3(2.01, 2.01, 0.999),
+        .color = daxa_f32vec3(1, 0, 0),
+        .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
+    });
 
-context->shader_debug_context.update(context->device, render_target_size, window->size);
+    context->shader_debug_context.update(context->device, render_target_size, window->size);
 
-u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
-u32 const timestamp_start_index = vsm_state.PER_FRAME_TIMESTAMP_COUNT * fif_index;
-render_context->vsm_timestamp_results = vsm_state.vsm_timeline_query_pool.get_query_results(timestamp_start_index, vsm_state.PER_FRAME_TIMESTAMP_COUNT);
-main_task_graph.execute({});
+    u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+    u32 const timestamp_start_index = vsm_state.PER_FRAME_TIMESTAMP_COUNT * fif_index;
+    render_context->vsm_timestamp_results = vsm_state.vsm_timeline_query_pool.get_query_results(timestamp_start_index, vsm_state.PER_FRAME_TIMESTAMP_COUNT);
+    main_task_graph.execute({});
 }

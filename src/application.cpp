@@ -177,10 +177,13 @@ auto Application::run() -> i32
         if(_window->size.x != 0 && _window->size.y != 0) 
         {
             update();
+            auto const camera_info = use_preset_camera ?
+                    cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
+                    camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
+
             _renderer->render_frame(
-                this->camera_controller, 
-                this->cinematic_camera,
-                this->observer_camera_controller, 
+                camera_info,
+                observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings), 
                 delta_time,
                 this->_scene->_scene_draw);
         }
@@ -202,7 +205,10 @@ void Application::update()
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
     _ui_engine->main_update(*_renderer->render_context, *_scene);
-    cinematic_camera.process_input(*_window, this->delta_time);
+    if(use_preset_camera)
+    {
+        cinematic_camera.process_input(*_window, this->delta_time);
+    }
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);
@@ -218,14 +224,19 @@ void Application::update()
             ImGui::SeparatorText("Observer Camera");
             {
                 IMGUI_UINT_CHECKBOX2("draw from observer (H)", _renderer->render_context->render_data.settings.draw_from_observer);
+                ImGui::Checkbox("use preset camera", &use_preset_camera);
                 ImGui::Checkbox("control observer   (J)", &control_observer);
                 auto const view_quat = glm::quat_cast(observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings).view);
                 ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
-                ImGui::Checkbox("Override keyframe", &cinematic_camera.override_keyframe);
+                ImGui::BeginDisabled(!use_preset_camera);
+                ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
+                ImGui::EndDisabled();
+                cinematic_camera.override_keyframe = _window->key_just_pressed(GLFW_KEY_I) ? !cinematic_camera.override_keyframe : cinematic_camera.override_keyframe;
+                cinematic_camera.override_keyframe &= use_preset_camera;
                 ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
                 i32 current_keyframe = cinematic_camera.current_keyframe_index;
                 f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size());
+                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
                 ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
                 if(cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
                 ImGui::EndDisabled();

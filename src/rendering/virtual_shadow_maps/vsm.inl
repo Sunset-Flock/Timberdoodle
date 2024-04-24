@@ -306,7 +306,7 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
@@ -328,7 +328,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         auto const depth_resolution = render_context->gpuctx->device.info_image(ti.get(AT.depth).ids[0]).value().size;
@@ -358,7 +358,7 @@ struct FindFreePagesTask : FindFreePagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
@@ -380,7 +380,7 @@ struct AllocatePagesTask : AllocatePagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
@@ -405,7 +405,7 @@ struct ClearPagesTask : ClearPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
@@ -430,7 +430,7 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
@@ -456,7 +456,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         auto const memory_block_view = render_context->gpuctx->device.create_image_view({
@@ -511,7 +511,7 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
@@ -540,7 +540,7 @@ struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_virtual_page_table_pipeline_compile_info().name));
@@ -566,7 +566,7 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_meta_memory_table_pipeline_compile_info().name));
@@ -612,7 +612,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         },
         .task = [info](daxa::TaskInterface ti)
         {
-            u32 const fif_index = info.render_context->render_data.frame_index % info.render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight;
+            u32 const fif_index = info.render_context->render_data.frame_index % (info.render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
             u32 const timestamp_start_index = info.vsm_state->PER_FRAME_TIMESTAMP_COUNT * fif_index;
             ti.recorder.reset_timestamps({
                 .query_pool = info.vsm_state->vsm_timeline_query_pool,

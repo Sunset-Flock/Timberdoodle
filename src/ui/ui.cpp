@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <imgui.h>
 #include <implot.h>
+#include <algorithm>
 #include "widgets/helpers.hpp"
 
 void setup_colors()
@@ -173,19 +174,19 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             {
                 ImGui::Text("Draw cascade frustum");
                 ImGui::SetWindowFontScale(0.5);
-                for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+                for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
                 {
-                    ImGui::Checkbox(fmt::format("##clips{}",clip).c_str(), &render_ctx.draw_clip_frustum.at(clip));
+                    ImGui::Checkbox(fmt::format("##clips{}", clip).c_str(), &render_ctx.draw_clip_frustum.at(clip));
                     ImGui::SameLine();
                 }
                 ImGui::SetWindowFontScale(1.0);
                 ImGui::Dummy({});
                 ImGui::Text("Draw cascade frustum pages");
                 ImGui::SetWindowFontScale(0.5);
-                for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+                for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
                 {
                     ImGui::BeginDisabled(!render_ctx.draw_clip_frustum.at(clip));
-                    ImGui::Checkbox(fmt::format("##pages{}",clip).c_str(), &render_ctx.draw_clip_frustum_pages.at(clip));
+                    ImGui::Checkbox(fmt::format("##pages{}", clip).c_str(), &render_ctx.draw_clip_frustum_pages.at(clip));
                     ImGui::EndDisabled();
                     ImGui::SameLine();
                 }
@@ -252,34 +253,55 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             }
             else
             {
+                DEBUG_MSG(fmt::format("[WARN] Unwritten timestamp {}", timestamp_start_index));
                 return 0ull;
             }
         };
         f32 const weight = 0.99;
         static constexpr std::array task_names{
             "Bookkeeping",
-            "Cull and draw pages:",
-            "Sampling"
-        };
+            "VSM draw",
+            "Sampling"};
+
+        static float t = 0;
+        t += gather_perm_measurements ? render_ctx.render_data.delta_time : 0.0f;
+        bool auto_reset_timings = false;
         if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            if(ImGui::Button("Reset timings"))
+            if (gather_perm_measurements)
             {
-                for(i32 i = 0; i < 10; i++)
+                if (ImGui::Button("Stop gathering")) { gather_perm_measurements = false; }
+            }
+            else
+            {
+                if (ImGui::Button("Start gathering"))
+                {
+                    gather_perm_measurements = true;
+                    auto_reset_timings = true;
+                }
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Reset timings") || auto_reset_timings)
+            {
+                t = 0;
+                for (i32 i = 0; i < 10; i++)
                 {
                     measurements.vsm_timings_ewa.at(i) = 0.0f;
                     measurements.vsm_timings_mean.at(i) = 0.0f;
                     measurements.mean_sample_count = 0;
                 }
-                for(i32 i = 0; i < 3; i++)
+                for (i32 i = 0; i < 3; i++)
                 {
-                    measurements.scrolling_ewa.at(i).Erase();
-                    measurements.scrolling_mean.at(i).Erase();
-                    measurements.scrolling_raw.at(i).Erase();
+                    measurements.scrolling_ewa.at(i).erase();
+                    measurements.scrolling_mean.at(i).erase();
+                    measurements.scrolling_raw.at(i).erase();
                 }
             }
+            ImGui::SameLine();
+            ImGui::Checkbox("Show entire measured interval", &show_entire_interval);
             f32 rolling_mean_weight = s_cast<f32>(measurements.mean_sample_count) / s_cast<f32>(measurements.mean_sample_count + 1);
-            for (u32 i = 0; i < 10; i++)
+            for (u32 i = 0; i < 11; i++)
             {
                 u64 const timestamp_value = s_cast<f32>(get_exec_time_from_timestamp(i * 4)) / 1'000.0f;
                 measurements.vsm_timings_raw.at(i) = timestamp_value;
@@ -294,71 +316,114 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             f32 bookkeeping_ewa = 0.0;
             f32 bookkeeping_average = 0.0;
             f32 bookkeeping_raw = 0.0;
-            for(u32 i = 0; i < 6; i++)
+            for (u32 i = 0; i < 6; i++)
             {
                 bookkeeping_raw += measurements.vsm_timings_raw.at(i);
                 bookkeeping_ewa += measurements.vsm_timings_ewa.at(i);
                 bookkeeping_average += measurements.vsm_timings_mean.at(i);
             }
-            static float t = 0;
-            t += render_ctx.render_data.delta_time;
-            measurements.scrolling_raw.at(0).AddPoint(t, bookkeeping_raw == 0.0 ? measurements.scrolling_raw.at(0).Back().y : bookkeeping_raw);
-            measurements.scrolling_ewa.at(0).AddPoint(t, bookkeeping_ewa);
-            measurements.scrolling_mean.at(0).AddPoint(t, bookkeeping_average);
+            if (gather_perm_measurements)
+            {
+                measurements.scrolling_raw.at(0).add_point(ImVec2(t, bookkeeping_raw == 0.0 ? measurements.scrolling_raw.at(0).back().y : bookkeeping_raw));
+                measurements.scrolling_ewa.at(0).add_point(ImVec2(t, bookkeeping_ewa));
+                measurements.scrolling_mean.at(0).add_point(ImVec2(t, bookkeeping_average));
+            }
             // ========================== DRAW ==============================================
             f32 draw_raw = measurements.vsm_timings_raw.at(6);
-            f32 draw_ewa = measurements.vsm_timings_ewa.at(6) * weight + (1.0f - weight) * draw_raw;
-            f32 draw_average = measurements.vsm_timings_mean.at(6) * rolling_mean_weight + draw_raw * (1.0f - rolling_mean_weight);
-            measurements.scrolling_raw.at(1).AddPoint(t, draw_raw == 0.0 ? measurements.scrolling_raw.at(1).Back().y : draw_raw);
-            measurements.scrolling_ewa.at(1).AddPoint(t, draw_ewa);
-            measurements.scrolling_mean.at(1).AddPoint(t, draw_average);
+            f32 draw_ewa = measurements.vsm_timings_ewa.at(6);
+            f32 draw_average = measurements.vsm_timings_mean.at(6);
+            if (gather_perm_measurements)
+            {
+                measurements.scrolling_raw.at(1).add_point(ImVec2(t, draw_raw == 0.0 ? measurements.scrolling_raw.at(1).back().y : draw_raw));
+                measurements.scrolling_ewa.at(1).add_point(ImVec2(t, draw_ewa));
+                measurements.scrolling_mean.at(1).add_point(ImVec2(t, draw_average));
+            }
+            // ========================== SAMPLE =============================================
+            f32 sample_raw = measurements.vsm_timings_raw.at(10);
+            f32 sample_ewa = measurements.vsm_timings_ewa.at(10);
+            f32 sample_average = measurements.vsm_timings_mean.at(10);
+            if (gather_perm_measurements)
+            {
+                measurements.scrolling_raw.at(2).add_point(ImVec2(t, sample_raw == 0.0 ? measurements.scrolling_raw.at(2).back().y : sample_raw));
+                measurements.scrolling_ewa.at(2).add_point(ImVec2(t, sample_ewa));
+                measurements.scrolling_mean.at(2).add_point(ImVec2(t, sample_average));
+            }
+            // ================================================================================
 
             static i32 selected_item = 0;
-            std::array<const char *, 3> items = {"exp. weight average", "rolling average", "raw values"};
-            if(ImGui::BeginCombo("##combo", items.at(selected_item)))
+            std::array<char const *, 3> items = {"exp. weight average", "rolling average", "raw values"};
+            if (ImGui::BeginCombo("##combo", items.at(selected_item)))
             {
-                for(int i = 0; i < 3; i++)
+                for (int i = 0; i < 3; i++)
                 {
                     bool is_selected = (selected_item == i);
-                    if(ImGui::Selectable(items[i], is_selected))
+                    if (ImGui::Selectable(items[i], is_selected))
                     {
                         selected_item = i;
                     }
-                    if(is_selected)
+                    if (is_selected)
                     {
                         ImGui::SetItemDefaultFocus();
                     }
                 }
                 ImGui::EndCombo();
             }
-            if      (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping ewa: ", bookkeeping_ewa).c_str()); }
-            else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping average: ", bookkeeping_average).c_str()); }
-            else                         { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping raw: ", bookkeeping_raw).c_str()); }
+            static bool calculate_percentiles = false;
+            if (selected_item == 2)
+            {
+                ImGui::SameLine();
+                ImGui::Checkbox("calculate percentiles", &calculate_percentiles);
+            }
+            else
+            {
+                calculate_percentiles = false;
+            }
 
-            if      (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw ewa: ", draw_ewa).c_str()); }
-            else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw average: ", draw_average).c_str()); }
-            else                         { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw raw: ", draw_raw).c_str()); }
+            for(i32 stat = 0; stat < 3; stat++)
+            {
+                if (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} ewa: ", task_names.at(stat)).c_str(), measurements.scrolling_ewa.at(stat).back().y).c_str()); }
+                else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} average: ",task_names.at(stat)).c_str(), measurements.scrolling_mean.at(stat).back().y).c_str()); }
+                else
+                {
+                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} raw: ", task_names.at(stat)).c_str(), measurements.scrolling_raw.at(stat).back().y).c_str());
+                    if (calculate_percentiles)
+                    {
+                        auto sorted_values = measurements.scrolling_raw.at(stat).data;
+                        std::sort(sorted_values.begin(), sorted_values.end(),
+                            [](auto const & a, auto const & b) -> bool
+                            { return a.y < b.y; });
+                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
+                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
+                    }
+                }
+            }
 
             static float history = 20.0f;
             if (ImPlot::BeginPlot("##Scrolling"))
             {
-                ImPlot::SetupAxes("Exec time", "Timeline", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
-                ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+                decltype(measurements.scrolling_ewa) * measurements_scrolling_selected;
+                if (selected_item == 0) { measurements_scrolling_selected = &measurements.scrolling_ewa; }
+                else if (selected_item == 1) { measurements_scrolling_selected = &measurements.scrolling_mean; }
+                else { measurements_scrolling_selected = &measurements.scrolling_raw; }
+                ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+                if(!show_entire_interval)
+                {
+                    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+                } else {
+                    ImPlot::SetupAxisLimits(ImAxis_X1, measurements_scrolling_selected->at(0).front().x, measurements_scrolling_selected->at(0).back().x, ImGuiCond_Always);
+                }
                 ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
                 ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
-                std::array<PerfMeasurements::ScrollingBuffer, 3> * measurements_scrolling_selected;
-                if      (selected_item == 0) {measurements_scrolling_selected = &measurements.scrolling_ewa; }
-                else if (selected_item == 1) {measurements_scrolling_selected = &measurements.scrolling_mean; }
-                else                         {measurements_scrolling_selected = &measurements.scrolling_raw; }
-                for (i32 i = 0; i < 2; i++)
+                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
+                for (i32 i = 0; i < 3; i++)
                 {
                     ImPlot::PlotLine(
                         task_names.at(i),
-                        &measurements_scrolling_selected->at(i).Data[0].x,
-                        &measurements_scrolling_selected->at(i).Data[0].y,
-                        measurements_scrolling_selected->at(i).Data.size(),
+                        &measurements_scrolling_selected->at(i).data[0].x,
+                        &measurements_scrolling_selected->at(i).data[0].y,
+                        measurements_scrolling_selected->at(i).data.size(),
                         0,
-                        measurements_scrolling_selected->at(i).Offset,
+                        measurements_scrolling_selected->at(i).offset,
                         2 * sizeof(f32));
                 }
                 ImPlot::EndPlot();

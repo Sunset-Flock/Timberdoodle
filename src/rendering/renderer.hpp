@@ -29,9 +29,8 @@ struct Renderer
     auto create_sky_lut_task_graph() -> daxa::TaskGraph;
     void recreate_sky_luts();
     void render_frame(
-        CameraController const &camera_info, 
-        CinematicCamera const & cinematic_camera_info,
-        CameraController const &observer_camera_info, 
+        CameraInfo const &camera_info, 
+        CameraInfo const &observer_camera_info, 
         f32 const delta_time,
         SceneDraw scene_draw);
 
