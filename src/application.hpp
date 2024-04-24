@@ -50,6 +50,7 @@ private:
     std::unique_ptr<ThreadPool> _threadpool = {};
     CameraController camera_controller = {};
     CameraController observer_camera_controller = {};
+    CinematicCamera cinematic_camera = {};
     bool draw_observer = false;
     bool control_observer = false;
     bool keep_running = true;

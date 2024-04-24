@@ -788,7 +788,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 struct CameraController;
 struct GetVSMProjectionsInfo
 {
-    CameraController const * camera_info = {};
+    CameraInfo const * camera_info = {};
     f32vec3 sun_direction = {};
     f32 clip_0_scale = {};
     f32 clip_0_near = {};

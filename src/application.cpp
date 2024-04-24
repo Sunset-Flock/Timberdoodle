@@ -6,114 +6,6 @@
 
 #include <intrin.h>
 
-void CameraController::process_input(Window & window, f32 dt)
-{
-    f32 speed = window.key_pressed(GLFW_KEY_LEFT_SHIFT) ? translationSpeed * 4.0f : translationSpeed;
-    speed = window.key_pressed(GLFW_KEY_LEFT_CONTROL) ? speed * 0.25f : speed;
-
-    if (window.is_focused())
-    {
-        if (window.key_just_pressed(GLFW_KEY_ESCAPE))
-        {
-            if (window.is_cursor_captured()) { window.release_cursor(); }
-            else { window.capture_cursor(); }
-        }
-    }
-    else if (window.is_cursor_captured()) { window.release_cursor(); }
-
-    auto cameraSwaySpeed = this->cameraSwaySpeed;
-    if (window.key_pressed(GLFW_KEY_C))
-    {
-        cameraSwaySpeed *= 0.25;
-        bZoom = true;
-    }
-    else { bZoom = false; }
-
-    glm::vec3 right = glm::cross(forward, up);
-    glm::vec3 fake_up = glm::cross(right, forward);
-    if (window.is_cursor_captured())
-    {
-        if (window.key_pressed(GLFW_KEY_W)) { position += forward * speed * dt; }
-        if (window.key_pressed(GLFW_KEY_S)) { position -= forward * speed * dt; }
-        if (window.key_pressed(GLFW_KEY_A)) { position -= glm::normalize(glm::cross(forward, up)) * speed * dt; }
-        if (window.key_pressed(GLFW_KEY_D)) { position += glm::normalize(glm::cross(forward, up)) * speed * dt; }
-        if (window.key_pressed(GLFW_KEY_SPACE)) { position += fake_up * speed * dt; }
-        if (window.key_pressed(GLFW_KEY_LEFT_ALT)) { position -= fake_up * speed * dt; }
-        pitch += window.get_cursor_change_y() * cameraSwaySpeed;
-        pitch = std::clamp(pitch, -85.0f, 85.0f);
-        yaw += window.get_cursor_change_x() * cameraSwaySpeed;
-    }
-    forward.x = -glm::cos(glm::radians(yaw - 90.0f)) * glm::cos(glm::radians(pitch));
-    forward.y = glm::sin(glm::radians(yaw - 90.0f)) * glm::cos(glm::radians(pitch));
-    forward.z = -glm::sin(glm::radians(pitch));
-}
-
-auto CameraController::make_camera_info(Settings const & settings) const -> CameraInfo
-{
-    auto fov = this->fov;
-    if (bZoom) { fov *= 0.25f; }
-    auto inf_depth_reverse_z_perspective = [](auto fov_rads, auto aspect, auto zNear)
-    {
-        assert(abs(aspect - std::numeric_limits<f32>::epsilon()) > 0.0f);
-
-        f32 const tanHalfFovy = 1.0f / std::tan(fov_rads * 0.5f);
-
-        glm::mat4x4 ret(0.0f);
-        ret[0][0] = tanHalfFovy / aspect;
-        ret[1][1] = tanHalfFovy;
-        ret[2][2] = 0.0f;
-        ret[2][3] = -1.0f;
-        ret[3][2] = zNear;
-        return ret;
-    };
-    glm::mat4 prespective =
-        inf_depth_reverse_z_perspective(glm::radians(fov), f32(settings.render_target_size.x) / f32(settings.render_target_size.y), near);
-    prespective[1][1] *= -1.0f;
-    CameraInfo ret = {};
-    ret.proj = prespective;
-    ret.inv_proj = glm::inverse(prespective);
-    ret.view = glm::lookAt(position, position + forward, up);
-    ret.inv_view = glm::inverse(ret.view);
-    ret.view_proj = ret.proj * ret.view;
-    ret.inv_view_proj = glm::inverse(ret.view_proj);
-    ret.position = this->position;
-    ret.up = this->up;
-    glm::vec3 ws_ndc_corners[2][2][2];
-    glm::mat4 inv_view_proj = glm::inverse(ret.proj * ret.view);
-    for (u32 z = 0; z < 2; ++z)
-    {
-        for (u32 y = 0; y < 2; ++y)
-        {
-            for (u32 x = 0; x < 2; ++x)
-            {
-                glm::vec3 corner = glm::vec3((glm::vec2(x, y) - 0.5f) * 2.0f, 1.0f - z * 0.5f);
-                glm::vec4 proj_corner = inv_view_proj * glm::vec4(corner, 1);
-                ws_ndc_corners[x][y][z] = glm::vec3(proj_corner) / proj_corner.w;
-            }
-        }
-    }
-    ret.is_orthogonal = 0u;
-    ret.orthogonal_half_ws_width = 0.0f;
-    ret.near_plane_normal = glm::normalize(
-        glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
-    ret.right_plane_normal = glm::normalize(
-        glm::cross(ws_ndc_corners[1][1][0] - ws_ndc_corners[1][0][0], ws_ndc_corners[1][0][1] - ws_ndc_corners[1][0][0]));
-    ret.left_plane_normal = glm::normalize(
-        glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][0][1], ws_ndc_corners[0][0][0] - ws_ndc_corners[0][0][1]));
-    ret.top_plane_normal = glm::normalize(
-        glm::cross(ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[0][0][1] - ws_ndc_corners[0][0][0]));
-    ret.bottom_plane_normal = glm::normalize(
-        glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
-    int i = 0;
-    ret.screen_size = { settings.render_target_size.x, settings.render_target_size.y };
-    ret.inv_screen_size = {
-        1.0f / static_cast<f32>(settings.render_target_size.x),
-        1.0f / static_cast<f32>(settings.render_target_size.y),
-    };
-    ret.near_plane = this->near;
-    return ret;
-}
-
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(7);
@@ -127,6 +19,91 @@ Application::Application()
     // Renderer needs these to be loaded to know what size the look up tables have to be
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _renderer->render_context->render_data.sky_settings);
+
+    std::vector<AnimationKeyframe> keyframes = {
+        AnimationKeyframe{
+            .start_rotation = { -0.30450, 0.275662, 0.611860, 0.6759723},
+            .end_rotation   = { 0.141418, -0.15007, 0.712131, 0.6710799},
+            .start_position       = { 2.86,  25.80, 12.00},
+            .first_control_point  = {-3.45 , 28.96, 12.04},
+            .second_control_point = {-13.84,  9.95,  1.74},
+            .end_position         = {-14.07, 2.20, 2.12},
+            .transition_time = 4.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { 0.141418, -0.15007, 0.712131, 0.6710799},
+            .end_rotation   = { 0.38337, -0.382710, 0.593852, 0.5948849},
+            .start_position         = {-14.07,  2.20, 2.12},
+            .first_control_point    = {-14.31, -5.54, 2.48},
+            .second_control_point   = {-11.46, -7.74, 1.13},
+            .end_position           = {-8.88, -9.17, 1.41},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { 0.38337, -0.382710, 0.593852, 0.5948849},
+            .end_rotation   = { 0.341726, -0.374238, 0.636601, 0.581297},
+            .start_position         = {-8.88, -9.17, 1.41},
+            .first_control_point    = {-6.30, -10.59, 0.94},
+            .second_control_point   = {50.59, -30.63, 1.80},
+            .end_position           = {54.51, -35.18, 1.14},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { 0.341726, -0.374238, 0.636601, 0.581297},
+            .end_rotation   = { -0.536079, 0.5606119, -0.4617242, -0.4370127},
+            .start_position         = {54.51, -35.18, 1.14},
+            .first_control_point    = {58.43, -39.73, 0.47},
+            .second_control_point   = {54.23, -46.38, 3.83},
+            .end_position           = {64.29, -52.73, 3.83},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { -0.536079, 0.5606119, -0.4617242, -0.4370127},
+            .end_rotation   = { 0.7877, -0.4515774, -0.208418, -0.363549},
+            .start_position         = {64.29, -52.73, 3.83},
+            .first_control_point    = {74.34, -58.95, 3.83},
+            .second_control_point   = {80.60, -53.08, 8.85},
+            .end_position           = {84.23, -45.45, 10.64},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { 0.7877, -0.4515774, -0.208418, -0.363549},
+            .end_rotation   = { -0.1558, 0.0928755, 0.503549, 0.8447122},
+            .start_position         = {84.23, -45.45, 10.64},
+            .first_control_point    = {87.93, -37.94, 12.49},
+            .second_control_point   = {84.22, -26.02, 14.57},
+            .end_position           = {72.97, -25.84, 10.65},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { -0.1558, 0.0928755, 0.503549, 0.8447122},
+            .end_rotation   = { 0.604737, -0.585519, -0.3755327, -0.3878583},
+            .start_position         = {72.97, -25.84, 10.65},
+            .first_control_point    = {61.71, -25.67, 6.73},
+            .second_control_point   = {62.31, -34.58, 4.07},
+            .end_position           = {51.06, -30.80, 3.04},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { 0.604737, -0.585519, -0.3755327, -0.3878583},
+            .end_rotation   = { -0.646975, 0.756841, -0.0705465, -0.0603057},
+            .start_position         = {51.06, -30.80, 3.04},
+            .first_control_point    = {39.80, -27.02, 2.00},
+            .second_control_point   = {-0.32, -14.83, 3.63},
+            .end_position           = {-7.36, -5.53, 3.97},
+            .transition_time = 3.0f,
+        },
+        AnimationKeyframe{
+            .start_rotation = { -0.646975, 0.756841, -0.0705465, -0.0603057},
+            .end_rotation   = { -0.30450, 0.275662, 0.611860, 0.6759723},
+            .start_position         = {-7.36, -5.53, 3.97},
+            .first_control_point    = {-14.39, 3.76, 4.31},
+            .second_control_point   = {9.44,  22.51, 11.27},
+            .end_position           = {2.86,  25.80, 12.00},
+            .transition_time = 3.0f,
+        },
+    };
+    cinematic_camera.update_keyframes(std::move(keyframes));
 
     struct CompPipelinesTask : Task
     {
@@ -202,6 +179,7 @@ auto Application::run() -> i32
             update();
             _renderer->render_frame(
                 this->camera_controller, 
+                this->cinematic_camera,
                 this->observer_camera_controller, 
                 delta_time,
                 this->_scene->_scene_draw);
@@ -224,6 +202,7 @@ void Application::update()
     bool reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0) { return; }
     _ui_engine->main_update(*_renderer->render_context, *_scene);
+    cinematic_camera.process_input(*_window, this->delta_time);
     if (control_observer)
     {
         observer_camera_controller.process_input(*_window, this->delta_time);
@@ -240,7 +219,21 @@ void Application::update()
             {
                 IMGUI_UINT_CHECKBOX2("draw from observer (H)", _renderer->render_context->render_data.settings.draw_from_observer);
                 ImGui::Checkbox("control observer   (J)", &control_observer);
+                auto const view_quat = glm::quat_cast(observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings).view);
+                ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
+                ImGui::Checkbox("Override keyframe", &cinematic_camera.override_keyframe);
+                ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
+                i32 current_keyframe = cinematic_camera.current_keyframe_index;
+                f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
+                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size());
+                ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
+                if(cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
+                ImGui::EndDisabled();
                 reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
+                if(ImGui::Button("snap observer to cinematic"))
+                {
+                    observer_camera_controller.position = cinematic_camera.position;
+                }
                 std::array<char const * const, 3> modes = { 
                     "redraw meshlets visible last frame",
                     "redraw meshlet post cull", 

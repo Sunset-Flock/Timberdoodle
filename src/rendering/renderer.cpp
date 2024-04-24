@@ -745,6 +745,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
 void Renderer::render_frame(
     CameraController const & camera_info,
+    CinematicCamera const & cinematic_camera_info,
     CameraController const & observer_camera_info,
     f32 const delta_time,
     SceneDraw scene_draw)
@@ -790,7 +791,8 @@ void Renderer::render_frame(
         }
 
         // Set Render Data.
-        render_context->render_data.camera = camera_info.make_camera_info(render_context->render_data.settings);
+        // render_context->render_data.camera = camera_info.make_camera_info(render_context->render_data.settings);
+        render_context->render_data.camera = cinematic_camera_info.make_camera_info(render_context->render_data.settings);
         render_context->render_data.observer_camera = observer_camera_info.make_camera_info(render_context->render_data.settings);
         render_context->render_data.frame_index = static_cast<u32>(context->swapchain.current_cpu_timeline_value());
         render_context->render_data.delta_time = delta_time;
@@ -846,7 +848,7 @@ void Renderer::render_frame(
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{
-        .camera_info = &camera_info,
+        .camera_info = &render_context->render_data.camera,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
         .clip_0_near = 0.1f,

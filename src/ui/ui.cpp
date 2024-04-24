@@ -4,36 +4,6 @@
 #include <implot.h>
 #include "widgets/helpers.hpp"
 
-struct ScrollingBuffer
-{
-    int MaxSize;
-    int Offset;
-    ImVector<ImVec2> Data;
-    ScrollingBuffer(int max_size = 2000)
-    {
-        MaxSize = max_size;
-        Offset = 0;
-        Data.reserve(MaxSize);
-    }
-    void AddPoint(float x, float y)
-    {
-        if (Data.size() < MaxSize)
-            Data.push_back(ImVec2(x, y));
-        else
-        {
-            Data[Offset] = ImVec2(x, y);
-            Offset = (Offset + 1) % MaxSize;
-        }
-    }
-    void Erase()
-    {
-        if (Data.size() > 0)
-        {
-            Data.shrink(0);
-            Offset = 0;
-        }
-    }
-};
 void setup_colors()
 {
     ImVec4 * colors = ImGui::GetStyle().Colors;
@@ -150,7 +120,6 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     /// NOTE: Needs to after all the init functions
     imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context, false});
     setup_colors();
-    vsm_timings_ewa = std::vector<f32>(10);
 }
 
 void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
@@ -270,6 +239,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
     }
     if (widget_renderer_statistics)
     {
+        perf_sample_count += 1;
         auto get_exec_time_from_timestamp = [&render_ctx](u32 timestamp_start_index) -> u64
         {
             // Timestamps ready
@@ -287,48 +257,108 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
         };
         f32 const weight = 0.99;
         static constexpr std::array task_names{
-            "Free wrapped pages:",
-            "Mark required pages:",
-            "Find free pages:",
-            "Allocate pages:",
-            "Clear pages:",
-            "Gen dirty bit hpb:",
+            "Bookkeeping",
             "Cull and draw pages:",
-            "Clear dirty bit:",
-            "Debug virtual page table:",
-            "Debug physical page table:",
+            "Sampling"
         };
-        static std::array<ScrollingBuffer, 10> scrolling_task_timings = {};
-        static float t = 0;
-        t += render_ctx.render_data.delta_time;
-        static float history = 5.0f;
         if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            if(ImGui::Button("Reset timings"))
+            {
+                for(i32 i = 0; i < 10; i++)
+                {
+                    measurements.vsm_timings_ewa.at(i) = 0.0f;
+                    measurements.vsm_timings_mean.at(i) = 0.0f;
+                    measurements.mean_sample_count = 0;
+                }
+                for(i32 i = 0; i < 3; i++)
+                {
+                    measurements.scrolling_ewa.at(i).Erase();
+                    measurements.scrolling_mean.at(i).Erase();
+                    measurements.scrolling_raw.at(i).Erase();
+                }
+            }
+            f32 rolling_mean_weight = s_cast<f32>(measurements.mean_sample_count) / s_cast<f32>(measurements.mean_sample_count + 1);
             for (u32 i = 0; i < 10; i++)
             {
-                u64 const timestamp_value = get_exec_time_from_timestamp(i * 4);
+                u64 const timestamp_value = s_cast<f32>(get_exec_time_from_timestamp(i * 4)) / 1'000.0f;
+                measurements.vsm_timings_raw.at(i) = timestamp_value;
                 if (timestamp_value != 0)
                 {
-                    vsm_timings_ewa.at(i) = vsm_timings_ewa.at(i) * weight + (1.0f - weight) * (s_cast<f32>(timestamp_value) / 1'000.0f);
+                    measurements.vsm_timings_ewa.at(i) = measurements.vsm_timings_ewa.at(i) * weight + (1.0f - weight) * timestamp_value;
+                    measurements.vsm_timings_mean.at(i) = measurements.vsm_timings_mean.at(i) * rolling_mean_weight + timestamp_value * (1.0f - rolling_mean_weight);
                 }
-                scrolling_task_timings.at(i).AddPoint(t, vsm_timings_ewa.at(i));
-                ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", task_names.at(i), vsm_timings_ewa.at(i)).c_str());
             }
-            static ImPlotAxisFlags flags = ImPlotAxisFlags_NoTickLabels;
+            measurements.mean_sample_count += 1;
+            //  ========================= BOOKKEEPING =======================================
+            f32 bookkeeping_ewa = 0.0;
+            f32 bookkeeping_average = 0.0;
+            f32 bookkeeping_raw = 0.0;
+            for(u32 i = 0; i < 6; i++)
+            {
+                bookkeeping_raw += measurements.vsm_timings_raw.at(i);
+                bookkeeping_ewa += measurements.vsm_timings_ewa.at(i);
+                bookkeeping_average += measurements.vsm_timings_mean.at(i);
+            }
+            static float t = 0;
+            t += render_ctx.render_data.delta_time;
+            measurements.scrolling_raw.at(0).AddPoint(t, bookkeeping_raw == 0.0 ? measurements.scrolling_raw.at(0).Back().y : bookkeeping_raw);
+            measurements.scrolling_ewa.at(0).AddPoint(t, bookkeeping_ewa);
+            measurements.scrolling_mean.at(0).AddPoint(t, bookkeeping_average);
+            // ========================== DRAW ==============================================
+            f32 draw_raw = measurements.vsm_timings_raw.at(6);
+            f32 draw_ewa = measurements.vsm_timings_ewa.at(6) * weight + (1.0f - weight) * draw_raw;
+            f32 draw_average = measurements.vsm_timings_mean.at(6) * rolling_mean_weight + draw_raw * (1.0f - rolling_mean_weight);
+            measurements.scrolling_raw.at(1).AddPoint(t, draw_raw == 0.0 ? measurements.scrolling_raw.at(1).Back().y : draw_raw);
+            measurements.scrolling_ewa.at(1).AddPoint(t, draw_ewa);
+            measurements.scrolling_mean.at(1).AddPoint(t, draw_average);
+
+            static i32 selected_item = 0;
+            std::array<const char *, 3> items = {"exp. weight average", "rolling average", "raw values"};
+            if(ImGui::BeginCombo("##combo", items.at(selected_item)))
+            {
+                for(int i = 0; i < 3; i++)
+                {
+                    bool is_selected = (selected_item == i);
+                    if(ImGui::Selectable(items[i], is_selected))
+                    {
+                        selected_item = i;
+                    }
+                    if(is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            if      (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping ewa: ", bookkeeping_ewa).c_str()); }
+            else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping average: ", bookkeeping_average).c_str()); }
+            else                         { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Bookkeeping raw: ", bookkeeping_raw).c_str()); }
+
+            if      (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw ewa: ", draw_ewa).c_str()); }
+            else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw average: ", draw_average).c_str()); }
+            else                         { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "Draw raw: ", draw_raw).c_str()); }
+
+            static float history = 20.0f;
             if (ImPlot::BeginPlot("##Scrolling"))
             {
-                ImPlot::SetupAxes(nullptr, nullptr, flags, flags);
+                ImPlot::SetupAxes("Exec time", "Timeline", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
                 ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 2000);
-                for (i32 i = 0; i < 10; i++)
+                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
+                ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
+                std::array<PerfMeasurements::ScrollingBuffer, 3> * measurements_scrolling_selected;
+                if      (selected_item == 0) {measurements_scrolling_selected = &measurements.scrolling_ewa; }
+                else if (selected_item == 1) {measurements_scrolling_selected = &measurements.scrolling_mean; }
+                else                         {measurements_scrolling_selected = &measurements.scrolling_raw; }
+                for (i32 i = 0; i < 2; i++)
                 {
                     ImPlot::PlotLine(
                         task_names.at(i),
-                        &scrolling_task_timings.at(i).Data[0].x,
-                        &scrolling_task_timings.at(i).Data[0].y,
-                        scrolling_task_timings.at(i).Data.size(),
+                        &measurements_scrolling_selected->at(i).Data[0].x,
+                        &measurements_scrolling_selected->at(i).Data[0].y,
+                        measurements_scrolling_selected->at(i).Data.size(),
                         0,
-                        scrolling_task_timings.at(i).Offset,
+                        measurements_scrolling_selected->at(i).Offset,
                         2 * sizeof(f32));
                 }
                 ImPlot::EndPlot();

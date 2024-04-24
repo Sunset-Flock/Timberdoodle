@@ -9,26 +9,10 @@
 #include "../scene/asset_processor.hpp"
 
 #include "../gpu_context.hpp"
+#include "../camera.hpp"
 #include "scene_renderer_context.hpp"
 #include "virtual_shadow_maps/vsm_state.hpp"
 
-struct CameraController
-{
-    void process_input(Window &window, f32 dt);
-    void update_matrices(Settings const & settings);
-    auto make_camera_info(Settings const & settings) const -> CameraInfo;
-
-    bool bZoom = false;
-    f32 fov = 70.0f;
-    f32 near = 0.1f;
-    f32 cameraSwaySpeed = 0.05f;
-    f32 translationSpeed = 10.0f;
-    f32vec3 up = {0.f, 0.f, 1.0f};
-    f32vec3 forward = {0.962, -0.25, -0.087};
-    f32vec3 position = {-22.f, 4.f, 6.f};
-    f32 yaw = 0.0f;
-    f32 pitch = 0.0f;
-};
 
 // Renderer struct.
 // This should idealy handle all rendering related information and functionality.
@@ -46,6 +30,7 @@ struct Renderer
     void recreate_sky_luts();
     void render_frame(
         CameraController const &camera_info, 
+        CinematicCamera const & cinematic_camera_info,
         CameraController const &observer_camera_info, 
         f32 const delta_time,
         SceneDraw scene_draw);

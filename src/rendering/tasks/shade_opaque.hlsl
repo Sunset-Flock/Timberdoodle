@@ -23,7 +23,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 8;
+static const uint PCF_NUM_SAMPLES = 16;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -188,7 +188,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
     const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
-    const float view_space_offset = 0.00;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float view_space_offset = 0.01;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
     const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset + height_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
@@ -242,7 +242,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const float filter_radius = 0.01;
+    const float filter_radius = 0.02;
     const int clip_levels[3] = {
         clip_info.clip_level,
         max(clip_info.clip_level - 1, 0),

@@ -26,6 +26,7 @@ endif()
 add_executable(${PROJECT_NAME} 
     "src/main.cpp"
     "src/window.cpp"
+    "src/camera.cpp"
     "src/application.cpp"
     "src/gpu_context.cpp"
     "src/ui/ui.cpp"

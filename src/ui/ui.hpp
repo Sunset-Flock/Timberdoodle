@@ -31,6 +31,62 @@ using namespace tido::ui;
     VALUE = bvalue ? 1 : 0;\
 }
 
+struct PerfMeasurements
+{
+    struct ScrollingBuffer
+    {
+        int MaxSize;
+        int Offset;
+        ImVector<ImVec2> Data;
+        ScrollingBuffer(int max_size = 10000)
+        {
+            MaxSize = max_size;
+            Offset = 0;
+            Data.reserve(MaxSize);
+        }
+        void AddPoint(float x, float y)
+        {
+            if (Data.size() < MaxSize)
+                Data.push_back(ImVec2(x, y));
+            else
+            {
+                Data[Offset] = ImVec2(x, y);
+                Offset = (Offset + 1) % MaxSize;
+            }
+        }
+        void Erase()
+        {
+            if (Data.size() > 0)
+            {
+                Data.shrink(0);
+                Offset = 0;
+            }
+        }
+        auto Back()
+        {
+            if(Data.size() > 0)
+            {
+                if(Data.size() < MaxSize)
+                {
+                    return Data.back();
+                }
+                else
+                {
+                    return Data[Offset - 1];
+                }
+            }
+            return ImVec2{0, 0};
+        }
+    };
+    std::array<ScrollingBuffer, 3> scrolling_ewa = {};
+    std::array<ScrollingBuffer, 3> scrolling_mean = {};
+    std::array<ScrollingBuffer, 3> scrolling_raw = {};
+    std::array<f32, 10> vsm_timings_ewa = {};
+    std::array<f32, 10> vsm_timings_mean = {};
+    std::array<f32, 10> vsm_timings_raw = {};
+    i32 mean_sample_count = {};
+};
+
 struct UIEngine
 {
     public:
@@ -42,11 +98,13 @@ struct UIEngine
         bool demo_window = false;
         bool vsm_debug_menu = false;
         u32 magnify_pixels = 7;
+        u32 perf_sample_count = 0;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;
         daxa::ImGuiRenderer imgui_renderer = {};
         SceneGraph scene_graph = {};
         PropertyViewer property_viewer = {};
+        PerfMeasurements measurements = {};
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
@@ -73,7 +131,6 @@ struct UIEngine
         int selected = {};
 
         std::vector<daxa::ImageId> icons = {};
-        std::vector<f32> vsm_timings_ewa = {};
         void ui_scenegraph(Scene const & scene);
         void ui_renderer_settings(Scene const & scene, Settings & settings);
 };
