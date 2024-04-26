@@ -1,4 +1,5 @@
 cmake_minimum_required (VERSION 3.21)
+include(cmake/vcpkg.cmake)
 
 # Clone daxa if it's not present in the deps directory
 if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/deps/daxa/CMakeLists.txt")
