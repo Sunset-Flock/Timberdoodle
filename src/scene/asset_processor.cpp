@@ -768,24 +768,34 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
 /// NOTE: Load vertex UVs
 #pragma region UVS
     auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
+    bool has_uv = true;
     if (texcoord0_attrib_iter == gltf_prim.attributes.end())
     {
-        return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
+        has_uv = false;
+        // return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
     }
     fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
     bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;
-    if (!gltf_vertex_texcoord0_accessor_valid)
+    if (!gltf_vertex_texcoord0_accessor_valid && has_uv)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
-    auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
-    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
+    std::vector<glm::vec2> vert_texcoord0;
+    if(has_uv)
     {
-        return *err;
+        auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
+        if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
+        {
+            return *err;
+        }
+        vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
     }
-    std::vector<glm::vec2> vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
+    else
+    {
+        vert_texcoord0 = std::vector<glm::vec2>(vert_positions.size());
+    }
     DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 

@@ -143,6 +143,13 @@ struct Scene
     daxa::TaskBuffer _gpu_entity_mesh_groups = {};
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
+    struct ModifiedEntityInfo
+    {
+        RenderEntityId entity = {};
+        glm::mat4x4 prev_transform = {};
+        glm::mat4x4 curr_transform = {};
+    };
+    std::vector<ModifiedEntityInfo> _modified_render_entities = {};
 
     /**
      * NOTES:
@@ -173,6 +180,9 @@ struct Scene
     u32 _new_texture_manifest_entries = {};
 
     SceneDraw _scene_draw = {};
+
+    // TODO(msakmary) REMOVE ME - this is a giant hack
+    std::vector<AABB> REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = {};
 
     Scene(daxa::Device device);
     ~Scene();

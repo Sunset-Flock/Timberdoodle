@@ -22,84 +22,84 @@ Application::Application()
 
     std::vector<AnimationKeyframe> keyframes = {
         AnimationKeyframe{
-            .start_rotation = { -0.30450, 0.275662, 0.611860, 0.6759723},
-            .end_rotation   = { 0.141418, -0.15007, 0.712131, 0.6710799},
-            .start_position       = { 2.86,  25.80, 12.00},
-            .first_control_point  = {-3.45 , 28.96, 12.04},
-            .second_control_point = {-13.84,  9.95,  1.74},
-            .end_position         = {-14.07, 2.20, 2.12},
+            .start_rotation = {-0.30450, 0.275662, 0.611860, 0.6759723},
+            .end_rotation = {0.141418, -0.15007, 0.712131, 0.6710799},
+            .start_position = {2.86, 25.80, 12.00},
+            .first_control_point = {-3.45, 28.96, 12.04},
+            .second_control_point = {-13.84, 9.95, 1.74},
+            .end_position = {-14.07, 2.20, 2.12},
             .transition_time = 4.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { 0.141418, -0.15007, 0.712131, 0.6710799},
-            .end_rotation   = { 0.38337, -0.382710, 0.593852, 0.5948849},
-            .start_position         = {-14.07,  2.20, 2.12},
-            .first_control_point    = {-14.31, -5.54, 2.48},
-            .second_control_point   = {-11.46, -7.74, 1.13},
-            .end_position           = {-8.88, -9.17, 1.41},
+            .start_rotation = {0.141418, -0.15007, 0.712131, 0.6710799},
+            .end_rotation = {0.38337, -0.382710, 0.593852, 0.5948849},
+            .start_position = {-14.07, 2.20, 2.12},
+            .first_control_point = {-14.31, -5.54, 2.48},
+            .second_control_point = {-11.46, -7.74, 1.13},
+            .end_position = {-8.88, -9.17, 1.41},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { 0.38337, -0.382710, 0.593852, 0.5948849},
-            .end_rotation   = { 0.341726, -0.374238, 0.636601, 0.581297},
-            .start_position         = {-8.88, -9.17, 1.41},
-            .first_control_point    = {-6.30, -10.59, 0.94},
-            .second_control_point   = {50.59, -30.63, 1.80},
-            .end_position           = {54.51, -35.18, 1.14},
+            .start_rotation = {0.38337, -0.382710, 0.593852, 0.5948849},
+            .end_rotation = {0.341726, -0.374238, 0.636601, 0.581297},
+            .start_position = {-8.88, -9.17, 1.41},
+            .first_control_point = {-6.30, -10.59, 0.94},
+            .second_control_point = {50.59, -30.63, 1.80},
+            .end_position = {54.51, -35.18, 1.14},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { 0.341726, -0.374238, 0.636601, 0.581297},
-            .end_rotation   = { -0.536079, 0.5606119, -0.4617242, -0.4370127},
-            .start_position         = {54.51, -35.18, 1.14},
-            .first_control_point    = {58.43, -39.73, 0.47},
-            .second_control_point   = {54.23, -46.38, 3.83},
-            .end_position           = {64.29, -52.73, 3.83},
+            .start_rotation = {0.341726, -0.374238, 0.636601, 0.581297},
+            .end_rotation = {-0.536079, 0.5606119, -0.4617242, -0.4370127},
+            .start_position = {54.51, -35.18, 1.14},
+            .first_control_point = {58.43, -39.73, 0.47},
+            .second_control_point = {54.23, -46.38, 3.83},
+            .end_position = {64.29, -52.73, 3.83},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { -0.536079, 0.5606119, -0.4617242, -0.4370127},
-            .end_rotation   = { 0.7877, -0.4515774, -0.208418, -0.363549},
-            .start_position         = {64.29, -52.73, 3.83},
-            .first_control_point    = {74.34, -58.95, 3.83},
-            .second_control_point   = {80.60, -53.08, 8.85},
-            .end_position           = {84.23, -45.45, 10.64},
+            .start_rotation = {-0.536079, 0.5606119, -0.4617242, -0.4370127},
+            .end_rotation = {0.7877, -0.4515774, -0.208418, -0.363549},
+            .start_position = {64.29, -52.73, 3.83},
+            .first_control_point = {74.34, -58.95, 3.83},
+            .second_control_point = {80.60, -53.08, 8.85},
+            .end_position = {84.23, -45.45, 10.64},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { 0.7877, -0.4515774, -0.208418, -0.363549},
-            .end_rotation   = { -0.1558, 0.0928755, 0.503549, 0.8447122},
-            .start_position         = {84.23, -45.45, 10.64},
-            .first_control_point    = {87.93, -37.94, 12.49},
-            .second_control_point   = {84.22, -26.02, 14.57},
-            .end_position           = {72.97, -25.84, 10.65},
+            .start_rotation = {0.7877, -0.4515774, -0.208418, -0.363549},
+            .end_rotation = {-0.1558, 0.0928755, 0.503549, 0.8447122},
+            .start_position = {84.23, -45.45, 10.64},
+            .first_control_point = {87.93, -37.94, 12.49},
+            .second_control_point = {84.22, -26.02, 14.57},
+            .end_position = {72.97, -25.84, 10.65},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { -0.1558, 0.0928755, 0.503549, 0.8447122},
-            .end_rotation   = { 0.604737, -0.585519, -0.3755327, -0.3878583},
-            .start_position         = {72.97, -25.84, 10.65},
-            .first_control_point    = {61.71, -25.67, 6.73},
-            .second_control_point   = {62.31, -34.58, 4.07},
-            .end_position           = {51.06, -30.80, 3.04},
+            .start_rotation = {-0.1558, 0.0928755, 0.503549, 0.8447122},
+            .end_rotation = {0.604737, -0.585519, -0.3755327, -0.3878583},
+            .start_position = {72.97, -25.84, 10.65},
+            .first_control_point = {61.71, -25.67, 6.73},
+            .second_control_point = {62.31, -34.58, 4.07},
+            .end_position = {51.06, -30.80, 3.04},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { 0.604737, -0.585519, -0.3755327, -0.3878583},
-            .end_rotation   = { -0.646975, 0.756841, -0.0705465, -0.0603057},
-            .start_position         = {51.06, -30.80, 3.04},
-            .first_control_point    = {39.80, -27.02, 2.00},
-            .second_control_point   = {-0.32, -14.83, 3.63},
-            .end_position           = {-7.36, -5.53, 3.97},
+            .start_rotation = {0.604737, -0.585519, -0.3755327, -0.3878583},
+            .end_rotation = {-0.646975, 0.756841, -0.0705465, -0.0603057},
+            .start_position = {51.06, -30.80, 3.04},
+            .first_control_point = {39.80, -27.02, 2.00},
+            .second_control_point = {-0.32, -14.83, 3.63},
+            .end_position = {-7.36, -5.53, 3.97},
             .transition_time = 3.0f,
         },
         AnimationKeyframe{
-            .start_rotation = { -0.646975, 0.756841, -0.0705465, -0.0603057},
-            .end_rotation   = { -0.30450, 0.275662, 0.611860, 0.6759723},
-            .start_position         = {-7.36, -5.53, 3.97},
-            .first_control_point    = {-14.39, 3.76, 4.31},
-            .second_control_point   = {9.44,  22.51, 11.27},
-            .end_position           = {2.86,  25.80, 12.00},
+            .start_rotation = {-0.646975, 0.756841, -0.0705465, -0.0603057},
+            .end_rotation = {-0.30450, 0.275662, 0.611860, 0.6759723},
+            .start_position = {-7.36, -5.53, 3.97},
+            .first_control_point = {-14.39, 3.76, 4.31},
+            .second_control_point = {9.44, 22.51, 11.27},
+            .end_position = {2.86, 25.80, 12.00},
             .transition_time = 3.0f,
         },
     };
@@ -126,11 +126,9 @@ Application::Application()
     // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "suzanne\\suzanne.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "old_sponza\\old_sponza.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "new_sponza\\NewSponza_Main_glTF_002.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
 
@@ -150,6 +148,34 @@ Application::Application()
     {
         auto const r_id = std::get<RenderEntityId>(result);
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
+
+        auto child = r_ent.first_child;
+        RenderEntity * bistro_exterior = {};
+        while (child.has_value())
+        {
+            auto child_node = *_scene->_render_entities.slot(child.value());
+            if (child_node.name == "BistroExterior")
+            {
+                bistro_exterior = &child_node;
+                break;
+            }
+            child = child_node.next_sibling;
+        }
+        if (bistro_exterior)
+        {
+            child = bistro_exterior->first_child;
+            while (child.has_value())
+            {
+                auto child_node = *_scene->_render_entities.slot(child.value());
+                if (child_node.name == "DYNAMIC_sphere")
+                {
+                    dynamic_ball = child.value();
+                    break;
+                }
+                child = child_node.next_sibling;
+            }
+        }
+
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
@@ -174,16 +200,14 @@ auto Application::run() -> i32
             this->_window->size = new_window_size;
             _renderer->window_resized();
         }
-        if(_window->size.x != 0 && _window->size.y != 0) 
+        if (_window->size.x != 0 && _window->size.y != 0)
         {
             update();
-            auto const camera_info = use_preset_camera ?
-                    cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
-                    camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
+            auto const camera_info = use_preset_camera ? cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) : camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
 
             _renderer->render_frame(
                 camera_info,
-                observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings), 
+                observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
                 delta_time,
                 this->_scene->_scene_draw);
         }
@@ -194,6 +218,27 @@ auto Application::run() -> i32
 
 void Application::update()
 {
+    auto * dynamic_ball_ent = _scene->_render_entities.slot(dynamic_ball);
+    auto prev_transform = glm::mat4(
+        glm::vec4(dynamic_ball_ent->transform[0], 0.0f),
+        glm::vec4(dynamic_ball_ent->transform[1], 0.0f),
+        glm::vec4(dynamic_ball_ent->transform[2], 0.0f),
+        glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
+    
+    static f32 total_time = 0.0f;
+    total_time += delta_time;
+    auto new_position = f32vec4{
+        std::sin(total_time) * 100.0f,
+        std::cos(total_time) * 100.0f,
+        prev_transform[3].z,
+        1.0f
+    };
+    auto curr_transform = prev_transform;
+    curr_transform[3] = new_position;
+
+    dynamic_ball_ent->transform = curr_transform;
+    _scene->_modified_render_entities.push_back({dynamic_ball, prev_transform, curr_transform});
+
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
     auto manifest_update_commands = _scene->record_gpu_manifest_update({
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
@@ -203,7 +248,8 @@ void Application::update()
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;
-    if (_window->size.x == 0 || _window->size.y == 0) { return; }
+    if (_window->size.x == 0 || _window->size.y == 0) {
+        return; }
     _ui_engine->main_update(*_renderer->render_context, *_scene);
     if(use_preset_camera)
     {
@@ -238,16 +284,16 @@ void Application::update()
                 f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
                 ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
                 ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
-                if(cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
+                if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
                 ImGui::EndDisabled();
                 reset_observer = reset_observer || (ImGui::Button("reset observer     (K)"));
-                if(ImGui::Button("snap observer to cinematic"))
+                if (ImGui::Button("snap observer to cinematic"))
                 {
                     observer_camera_controller.position = cinematic_camera.position;
                 }
-                std::array<char const * const, 3> modes = { 
+                std::array<char const * const, 3> modes = {
                     "redraw meshlets visible last frame",
-                    "redraw meshlet post cull", 
+                    "redraw meshlet post cull",
                     "redraw all drawn meshlets",
                 };
                 ImGui::Combo("observer draw pass mode", &_renderer->render_context->render_data.settings.observer_show_pass, modes.data(), modes.size());
@@ -274,12 +320,12 @@ void Application::update()
             {
                 ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
                 ImGui::DragFloat4(
-                    "debug f32vec4", 
-                    reinterpret_cast<f32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
+                    "debug f32vec4",
+                    reinterpret_cast<f32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
                     _ui_engine->debug_f32vec4_drag_speed);
                 ImGui::DragInt4(
-                    "debug i32vec4", 
-                    reinterpret_cast<i32*>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
+                    "debug i32vec4",
+                    reinterpret_cast<i32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
                 ImGui::Text(
                     "out debug f32vec4: (%f,%f,%f,%f)",
                     _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
@@ -324,20 +370,20 @@ void Application::update()
                 ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
                 ImGui::Text(
                     "detector texel position: (%i,%i)",
-                    _renderer->context->shader_debug_context.detector_window_position.x, 
+                    _renderer->context->shader_debug_context.detector_window_position.x,
                     _renderer->context->shader_debug_context.detector_window_position.y);
                 ImGui::Text(
                     "detector center value: (%f,%f,%f,%f)",
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x, 
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y, 
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z, 
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
+                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
                     _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
                 auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
                     .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
                     .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->render_context->render_data.samplers.nearest_clamp),
                 });
                 auto const width = ImGui::GetContentRegionMax().x;
-                ImGui::Image(debug_lens_image_view_id, ImVec2(width,width));
+                ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
             }
         }
         ImGui::End();
@@ -363,10 +409,10 @@ void Application::load_sky_settings(std::filesystem::path const path_to_settings
     {
         val.x = json[name]["x"];
         val.y = json[name]["y"];
-        if constexpr (requires(decltype(val) x){x.z;}) val.z = json[name]["z"];
-        if constexpr (requires(decltype(val) x){x.w;}) val.w = json[name]["w"];
+        if constexpr (requires(decltype(val) x) { x.z; }) val.z = json[name]["z"];
+        if constexpr (requires(decltype(val) x) { x.w; }) val.w = json[name]["w"];
     };
-    
+
     auto read_density_profile_layer = [&json](auto const name, auto const layer, DensityProfileLayer & val)
     {
         val.layer_width = json[name][layer]["layer_width"];
@@ -405,11 +451,10 @@ void Application::load_sky_settings(std::filesystem::path const path_to_settings
     read_density_profile_layer("absorption_density", 1, settings.absorption_density[1]);
 
     settings.sun_direction =
-    {
-        daxa_f32(glm::cos(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
-        daxa_f32(glm::sin(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
-        daxa_f32(glm::cos(glm::radians(sun_angle.y)))
-    };
+        {
+            daxa_f32(glm::cos(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
+            daxa_f32(glm::sin(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
+            daxa_f32(glm::cos(glm::radians(sun_angle.y)))};
     settings.sun_brightness = 10.0f;
 }
 

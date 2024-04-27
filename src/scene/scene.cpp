@@ -630,13 +630,13 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     daxa::BufferId staging_buffer = {};
     usize staging_offset = 0;
     std::byte * host_ptr = {};
-    if (_dirty_render_entities.size() > 0)
+    if (_dirty_render_entities.size() > 0 || _modified_render_entities.size() > 0)
     {
         usize required_staging_size = 0;
         required_staging_size += sizeof(GPUEntityMetaData);                              // _gpu_entity_meta
-        required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_transforms
-        required_staging_size += sizeof(daxa_f32mat4x3) * _dirty_render_entities.size(); // _gpu_entity_combined_transforms
-        required_staging_size += sizeof(GPUMeshGroup) * _dirty_render_entities.size();   // _gpu_entity_mesh_groups
+        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_transforms
+        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_combined_transforms
+        required_staging_size += sizeof(GPUMeshGroup) * (_dirty_render_entities.size() + _modified_render_entities.size());   // _gpu_entity_mesh_groups
         staging_buffer = _device.create_buffer({
             .size = required_staging_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -661,17 +661,17 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
      * - write compute shader that reads both arrays, they then write the updates from staging to entity arrays
      */
     /// NOTE: Update dirty entities.
-    for (u32 i = 0; i < _dirty_render_entities.size(); ++i)
+    auto update_entity = [&](i32 i, RenderEntity const * entity, u32 entity_index) -> glm::mat4
     {
         usize offset = (staging_offset + (sizeof(glm::mat4x3) * 2 + sizeof(u32)) * i);
-        u32 entity_index = _dirty_render_entities[i].index;
         glm::mat4 transform4 = glm::mat4(
-            glm::vec4(_render_entities.slot(_dirty_render_entities[i])->transform[0], 0.0f),
-            glm::vec4(_render_entities.slot(_dirty_render_entities[i])->transform[1], 0.0f),
-            glm::vec4(_render_entities.slot(_dirty_render_entities[i])->transform[2], 0.0f),
-            glm::vec4(_render_entities.slot(_dirty_render_entities[i])->transform[3], 1.0f));
+            glm::vec4(entity->transform[0], 0.0f),
+            glm::vec4(entity->transform[1], 0.0f),
+            glm::vec4(entity->transform[2], 0.0f),
+            glm::vec4(entity->transform[3], 1.0f));
         glm::mat4 combined_transform4 = transform4;
-        std::optional<RenderEntityId> parent = _render_entities.slot(_dirty_render_entities[i])->parent;
+        glm::mat4 combined_parent_transform4 = glm::identity<glm::mat4>();
+        std::optional<RenderEntityId> parent = entity->parent;
         while (parent.has_value())
         {
             glm::mat4x3 parent_transform4 = glm::mat4(
@@ -680,9 +680,10 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 glm::vec4(_render_entities.slot(parent.value())->transform[2], 0.0f),
                 glm::vec4(_render_entities.slot(parent.value())->transform[3], 1.0f));
             combined_transform4 = parent_transform4 * combined_transform4;
+            combined_parent_transform4 = parent_transform4 * combined_parent_transform4;
             parent = _render_entities.slot(parent.value())->parent;
         }
-        u32 mesh_group_manifest_index = _render_entities.slot(_dirty_render_entities[i])->mesh_group_manifest_index.value_or(INVALID_MANIFEST_INDEX);
+        u32 mesh_group_manifest_index = entity->mesh_group_manifest_index.value_or(INVALID_MANIFEST_INDEX);
         struct RenderEntityUpdateStagingMemoryView
         {
             glm::mat4x3 transform;
@@ -714,6 +715,27 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .src_offset = offset + offsetof(RenderEntityUpdateStagingMemoryView, mesh_group_manifest_index),
             .dst_offset = sizeof(u32) * entity_index,
             .size = sizeof(u32),
+        });
+        return combined_parent_transform4;
+    };
+    for (u32 i = 0; i < _dirty_render_entities.size(); ++i)
+    {
+        u32 entity_index = _dirty_render_entities[i].index;
+        auto * entity = _render_entities.slot(_dirty_render_entities[i]);
+        update_entity(i, entity, entity_index);
+    }
+
+    _scene_draw.dynamic_meshes.clear();
+    for(u32 i = 0; i < _modified_render_entities.size(); ++i)
+    {
+        u32 entity_index = _modified_render_entities[i].entity.index;
+        auto * entity = _render_entities.slot(_modified_render_entities[i].entity);
+        auto combined_parent_transform = update_entity(i, entity, entity_index);
+
+        _scene_draw.dynamic_meshes.push_back({
+            combined_parent_transform * _modified_render_entities[i].prev_transform,
+            combined_parent_transform * _modified_render_entities[i].curr_transform,
+            REMOVE_ME_dynamic_object_aabbs_REMOVE_ME
         });
     }
 #pragma region TEMP_UPLOAD_OPAQUE_DRAW_LISTS
@@ -755,6 +777,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 
 #pragma endregion
     _dirty_render_entities.clear();
+    _modified_render_entities.clear();
 
     if (_new_mesh_group_manifest_entries > 0)
     {
@@ -984,6 +1007,17 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             {
                 auto const & upload = info.uploaded_meshes[upload_index];
                 _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
+                // TODO(msakmary) REMOVE ME GIANT HACK ========================================
+                //=============================================================================
+                if(_mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
+                {
+                    auto data_ptr = _device.get_host_address(upload.staging_buffer).value();
+                    u32 offset = {};
+                    offset += upload.mesh.meshlet_count * sizeof(Meshlet);
+                    offset += upload.mesh.meshlet_count * sizeof(BoundingSphere);
+                    REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = std::vector<AABB>(upload.mesh.meshlet_count);
+                    std::memcpy(REMOVE_ME_dynamic_object_aabbs_REMOVE_ME.data(), data_ptr + offset, sizeof(AABB) * upload.mesh.meshlet_count);
+                }
                 std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
                 recorder.copy_buffer_to_buffer({
                     .src_buffer = staging_buffer,

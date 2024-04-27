@@ -684,6 +684,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_clip_projections, vsm_state.clip_projections),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_wrapped_pages, vsm_state.free_wrapped_pages_info),
         },
         .render_context = render_context.get(),
         .timeline_pool = vsm_state.vsm_timeline_query_pool,
@@ -857,6 +858,7 @@ void Renderer::render_frame(
         .debug_context = &context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
+    fill_vsm_invalidation_mask(scene_draw.dynamic_meshes, vsm_state, context->shader_debug_context);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {

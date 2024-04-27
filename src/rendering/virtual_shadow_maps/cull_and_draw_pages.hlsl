@@ -77,19 +77,24 @@ func vsm_entry_task(
 interface VSMMeshShaderPrimitiveT
 {
     DECL_GET_SET(uint, clip_level)
+    DECL_GET_SET(bool, cull_primitive)
 }
 
 struct VSMOpaqueMeshShaderPrimitive : VSMMeshShaderPrimitiveT
 {
+    bool cull_primitive : SV_CullPrimitive;
+    IMPL_GET_SET(bool, cull_primitive)
     nointerpolation [[vk::location(0)]] uint clip_level;
     IMPL_GET_SET(uint, clip_level)
 };
 
 struct VSMMaskMeshShaderPrimitive : VSMMeshShaderPrimitiveT
 {
+    bool cull_primitive : SV_CullPrimitive;
+    IMPL_GET_SET(bool, cull_primitive)
     nointerpolation [[vk::location(0)]] uint clip_level;
-    nointerpolation [[vk::location(1)]] uint material_index;
     IMPL_GET_SET(uint, clip_level)
+    nointerpolation [[vk::location(1)]] uint material_index;
 }
 
 struct VSMMeshShaderMaskVertex : MeshShaderVertexT
@@ -161,8 +166,48 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         
         out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
 
+        const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attachments.entity_combined_transforms, meshlet_inst.entity_index);
+        const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
+
+        const uint in_meshlet_vertex_index_0 = tri_in_meshlet_vertex_indices.x;
+        const uint in_mesh_vertex_index_0 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_0);
+        let vert_0_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_0), 1);
+        let vert_0_ndc_pos = mul(view_proj, mul(model_mat, vert_0_world_pos)).xyz;
+
+        const uint in_meshlet_vertex_index_1 = tri_in_meshlet_vertex_indices.y;
+        const uint in_mesh_vertex_index_1 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_1);
+        let vert_1_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_1), 1);
+        let vert_1_ndc_pos = mul(view_proj, mul(model_mat, vert_1_world_pos)).xyz;
+
+        const uint in_meshlet_vertex_index_2 = tri_in_meshlet_vertex_indices.z;
+        const uint in_mesh_vertex_index_2 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_2);
+        let vert_2_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_2), 1);
+        let vert_2_ndc_pos = mul(view_proj, mul(model_mat, vert_2_world_pos)).xyz;
+
+        NdcAABB tri_aabb = {
+            min(vert_0_ndc_pos, min(vert_1_ndc_pos, vert_2_ndc_pos)),
+            max(vert_0_ndc_pos, max(vert_1_ndc_pos, vert_2_ndc_pos))
+        };
+
+        let tri_norm = cross(vert_1_ndc_pos - vert_0_ndc_pos, vert_2_ndc_pos - vert_0_ndc_pos);
+        let is_backface = dot(tri_norm.xyz, float3(0,0,-1)) < 0.0;
+        
         P primitive;
         primitive.set_clip_level(clip_level);
+        if(!is_backface)
+        {
+            let is_oppacity_occluded = is_ndc_aabb_hiz_opacity_occluded(
+                deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
+                tri_aabb,
+                push.attachments.vsm_dirty_bit_hiz,
+                clip_level
+            );
+            primitive.set_cull_primitive(is_oppacity_occluded);
+        } else {
+            // triangle is backface
+            primitive.set_cull_primitive(true);
+        }
+
         if (P is VSMMaskMeshShaderPrimitive)
         {
             var mprim = reinterpret<VSMMaskMeshShaderPrimitive>(primitive);
@@ -287,10 +332,10 @@ void vsm_entry_fragment_masked(
             {
                 float alpha = Texture2D<float>::get(material.diffuse_texture_id)
                     // .Sample(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv).a;
-                    .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 0).a;
+                    .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).a;
                 const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
-                // if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
-                if(alpha < 0.5) { discard; }
+                if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
+                // if(alpha < 0.5) { discard; }
             }
         }
 

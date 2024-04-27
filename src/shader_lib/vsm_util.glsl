@@ -191,3 +191,13 @@ daxa_i32vec2 virtual_uv_to_physical_texel(daxa_f32vec2 virtual_uv, daxa_i32vec2 
     const daxa_i32vec2 memory_texel_coord = in_memory_offset + in_page_texel_coord;
     return memory_texel_coord;
 }
+
+daxa_u32 unwrap_vsm_page_from_mask(daxa_i32vec3 vsm_page_coords, daxa_BufferPtr(FreeWrappedPagesInfo) info)
+{
+    const daxa_u32 linear_index = vsm_page_coords.x * VSM_PAGE_TABLE_RESOLUTION + vsm_page_coords.y;
+    const daxa_u32 index_offset = linear_index / 32;
+    const daxa_u32 in_uint_offset = daxa_u32(_mod(daxa_f32(linear_index),daxa_f32(32)));
+    const daxa_u32 mask_entry = deref_i(info, vsm_page_coords.z).mask[index_offset];
+    const daxa_u32 decoded_bit = mask_entry & (1 << in_uint_offset);
+    return decoded_bit;
+}

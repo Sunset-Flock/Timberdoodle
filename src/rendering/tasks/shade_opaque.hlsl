@@ -136,6 +136,8 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     ));
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return color; }
 
+    const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(clip_info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), clip_info.clip_level);
+    const uint is_dynamic_invalidated = unwrap_vsm_page_from_mask(vsm_page_pix_coords, AT_FROM_PUSH.vsm_wrapped_pages);
     const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT_FROM_PUSH.vsm_clip_projections);
     const uint page_entry = Texture2DArray<uint>::get(AT_FROM_PUSH.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
 
@@ -149,6 +151,10 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
         if(texel_near_border)
         {
             color = float3(0.001, 0.001, 0.001);
+        }
+        else if(is_dynamic_invalidated != 0)
+        {
+            color.rgb = float3(1.0, 0.0, 1.0);
         }
         else
         {
@@ -188,7 +194,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
     const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
-    const float view_space_offset = 0.04;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float view_space_offset = 0.01;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
     const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset + height_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));

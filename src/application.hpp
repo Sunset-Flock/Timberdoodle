@@ -51,6 +51,7 @@ private:
     CameraController camera_controller = {};
     CameraController observer_camera_controller = {};
     CinematicCamera cinematic_camera = {};
+    RenderEntityId dynamic_ball = {};
     bool draw_observer = false;
     bool control_observer = false;
     bool use_preset_camera = false;

@@ -12,10 +12,17 @@
 
 #include "../gpu_context.hpp"
 
+struct DynamicMesh
+{
+    glm::mat4x4 prev_transform;
+    glm::mat4x4 curr_transform;
+    std::vector<AABB> meshlet_aabbs;
+};
 struct SceneDraw
 {
     std::array<std::vector<MeshDrawTuple>, 2> opaque_draw_lists = {};
     daxa::TaskBuffer opaque_draw_list_buffer = daxa::TaskBuffer{{.name = "opaque draw lists"}};
+    std::vector<DynamicMesh> dynamic_meshes = {};
     // Total maximum entity index.
     // NOT max entity_index of this draw.
     u32 max_entity_index = {};

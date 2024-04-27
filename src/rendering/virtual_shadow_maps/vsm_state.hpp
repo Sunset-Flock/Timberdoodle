@@ -23,6 +23,7 @@ struct VSMState
     daxa::TaskBufferView not_visited_page_buffer = {};
     daxa::TaskBufferView find_free_pages_header = {};
     daxa::TaskBufferView clip_projections = {};
+    daxa::TaskBufferView dirty_page_masks = {};
     daxa::TaskImageView dirty_pages_hiz = {};
 
     daxa::TaskBufferView allocate_indirect = {};
