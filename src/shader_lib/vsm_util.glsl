@@ -165,20 +165,16 @@ daxa_i32vec3 vsm_page_coords_to_wrapped_coords(daxa_i32vec3 page_coords, daxa_Bu
 {
     const daxa_i32vec2 vsm_toroidal_offset = deref_i(clip_projections, page_coords.z).page_offset;
     const daxa_i32vec2 vsm_toroidal_pix_coords = page_coords.xy - vsm_toroidal_offset.xy;
-    if( 
-        (page_coords.x < 0) ||
-        (page_coords.x > (VSM_PAGE_TABLE_RESOLUTION - 1)) ||
-        (page_coords.y < 0) ||
-        (page_coords.y > (VSM_PAGE_TABLE_RESOLUTION - 1)))
-    {
-        return daxa_i32vec3(-1, -1, page_coords.z);
-    }
     const daxa_i32vec2 vsm_wrapped_pix_coords = daxa_i32vec2(_mod(vsm_toroidal_pix_coords.xy, daxa_f32vec2(VSM_PAGE_TABLE_RESOLUTION)));
     return daxa_i32vec3(vsm_wrapped_pix_coords, page_coords.z);
 }
 
 daxa_i32vec3 vsm_clip_info_to_wrapped_coords(ClipInfo info, daxa_BufferPtr(VSMClipProjection) clip_projections)
 {
+    if(any(lessThan(info.clip_depth_uv, daxa_f32vec2(0.0))) || any(greaterThanEqual(info.clip_depth_uv, daxa_f32vec2(1.0))))
+    {
+        return daxa_i32vec3(-1, -1, info.clip_level);
+    }
     const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), info.clip_level);
     return vsm_page_coords_to_wrapped_coords(vsm_page_pix_coords, clip_projections);
 }

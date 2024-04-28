@@ -51,9 +51,13 @@ Scene::~Scene()
     }
     for (auto & texture : _material_texture_manifest)
     {
-        if (texture.runtime.has_value())
+        if (texture.runtime_texture.has_value())
         {
-            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime.value()));
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_texture.value()));
+        }
+        if (texture.secondary_runtime_texture.has_value())
+        {
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.secondary_runtime_texture.value()));
         }
     }
 }
@@ -203,7 +207,8 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
             .asset_local_index = i,
             .asset_local_image_index = gltf_image_index,
             .material_manifest_indices = {}, // Filled when reading in materials
-            .runtime = {},                   // Filled when the texture data are uploaded to the GPU
+            .runtime_texture = {},           // Filled when the texture data are uploaded to the GPU
+            .secondary_runtime_texture = {}, // Filled when the texture data are uploaded to the GPU
             .name = load_ctx.asset.textures[i].name.c_str(),
         });
         scene._new_texture_manifest_entries += 1;
@@ -220,12 +225,17 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
         bool const has_diffuse_texture = material.pbrData.baseColorTexture.has_value();
         bool const has_roughness_metalness_texture = material.pbrData.metallicRoughnessTexture.has_value();
         std::optional<MaterialManifestEntry::TextureInfo> diffuse_texture_info = {};
+        std::optional<MaterialManifestEntry::TextureInfo> opacity_texture_info = {};
         std::optional<MaterialManifestEntry::TextureInfo> normal_texture_info = {};
         std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
         if (has_diffuse_texture)
         {
             u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
             diffuse_texture_info = {
+                .tex_manifest_index = gltf_texture_index + load_ctx.texture_manifest_offset,
+                .sampler_index = {}, // TODO(msakmary) ADD SAMPLERS
+            };
+            opacity_texture_info = {
                 .tex_manifest_index = gltf_texture_index + load_ctx.texture_manifest_offset,
                 .sampler_index = {}, // TODO(msakmary) ADD SAMPLERS
             };
@@ -275,11 +285,12 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
         }
         scene._material_manifest.push_back(MaterialManifestEntry{
             .diffuse_info = diffuse_texture_info,
+            .opacity_mask_info = opacity_texture_info,
             .normal_info = normal_texture_info,
             .roughness_metalness_info = roughness_metalness_info,
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = material_index,
-            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask || material.alphaMode == fastgltf::AlphaMode::Blend,
+            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask,// || material.alphaMode == fastgltf::AlphaMode::Blend,
             .name = material.name.c_str(),
         });
         scene._new_material_manifest_entries += 1;
@@ -891,7 +902,13 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             // 1) Update CPU Manifest
             for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
             {
-                _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime = texture_upload.dst_image;
+                if(texture_upload.secondary_texture)
+                {
+                    _material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.dst_image;
+                } else 
+                {
+                    _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.dst_image;
+                }
                 TextureManifestEntry const & texture_manifest_entry = _material_texture_manifest.at(texture_upload.texture_manifest_index);
                 for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
                 {
@@ -900,7 +917,14 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                     {
                         case TextureMaterialType::DIFFUSE:
                         {
-                            material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                            if(texture_upload.secondary_texture)
+                            {
+                                material_entry.opacity_mask_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                            } 
+                            else
+                            {
+                                material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                            }
                         }
                         break;
                         case TextureMaterialType::DIFFUSE_OPACITY:
@@ -949,6 +973,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             {
                 MaterialManifestEntry const & material = _material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
                 daxa::ImageId diffuse_id = {};
+                daxa::ImageId opacity_id = {};
                 daxa::ImageId normal_id = {};
                 daxa::ImageId roughness_metalness_id = {};
                 /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this
@@ -957,19 +982,25 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 if (material.diffuse_info.has_value())
                 {
                     auto const & texture_entry = _material_texture_manifest.at(material.diffuse_info.value().tex_manifest_index);
-                    diffuse_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                    diffuse_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
+                }
+                if(material.opacity_mask_info.has_value())
+                {
+                    auto const & texture_entry = _material_texture_manifest.at(material.opacity_mask_info.value().tex_manifest_index);
+                    opacity_id = texture_entry.secondary_runtime_texture.value_or(daxa::ImageId{});
                 }
                 if (material.normal_info.has_value())
                 {
                     auto const & texture_entry = _material_texture_manifest.at(material.normal_info.value().tex_manifest_index);
-                    normal_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                    normal_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
                 }
                 if (material.roughness_metalness_info.has_value())
                 {
                     auto const & texture_entry = _material_texture_manifest.at(material.roughness_metalness_info.value().tex_manifest_index);
-                    roughness_metalness_id = texture_entry.runtime.value_or(daxa::ImageId{});
+                    roughness_metalness_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
                 }
                 staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
+                staging_origin_ptr[dirty_materials_index].opacity_texture_id = opacity_id.default_view();
                 staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
                 staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
                 staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;

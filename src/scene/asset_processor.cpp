@@ -420,31 +420,35 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     return ret;
 }
 
-static auto ktx_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
+static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
 {
-    bool const load_as_srgb = type == TextureMaterialType::DIFFUSE;
+    bool const load_as_srgb = (type == TextureMaterialType::DIFFUSE) || (type == TextureMaterialType::DIFFUSE_OPACITY);
     ktx_transcode_fmt_e transcode_format;
     switch (type)
     {
         case TextureMaterialType::NORMAL: transcode_format = KTX_TTF_BC5_RG; break;
+        case TextureMaterialType::DIFFUSE_OPACITY: transcode_format = KTX_TTF_BC4_R; break;
         default: transcode_format = KTX_TTF_BC7_RGBA; break;
     }
-    // KTX handles image. Mister sexy. We load now. loading
+
     ktxTexture2* texture;
     KTX_error_code result;
     ktx_size_t offset;
     
-    result = ktxTexture2_CreateFromNamedFile(
-        raw_data.image_path.string().c_str(),
+    result = ktxTexture2_CreateFromMemory(
+        r_cast<ktx_uint8_t*>(raw_data.raw_data.data()),
+        raw_data.raw_data.size(),
         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
-        &texture);     
+        &texture);
     if (result != KTX_SUCCESS)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
     defer{ktxTexture_Destroy(ktxTexture(texture));};
 
-    result = ktxTexture2_TranscodeBasis(texture, transcode_format, KTX_TF_HIGH_QUALITY);
+    ktx_transcode_flags flags = KTX_TF_HIGH_QUALITY;
+    flags |= type == TextureMaterialType::DIFFUSE_OPACITY ? KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS : 0u;
+    result = ktxTexture2_TranscodeBasis(texture, transcode_format, flags);
     if (result != KTX_SUCCESS)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
@@ -597,10 +601,15 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
         return *error;
     }
     ImageFromRawInfo & raw_image_data = std::get<ImageFromRawInfo>(ret);
-    ParsedImageRet parsed_data_ret;
+    ParsedImageRet parsed_data_ret = {};
+    ParsedImageRet opaque_data_ret = {std::monostate{}};
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
-        parsed_data_ret = ktx_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
+        parsed_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, info.texture_material_type);
+        if(info.texture_material_type == TextureMaterialType::DIFFUSE)
+        {
+            opaque_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, TextureMaterialType::DIFFUSE_OPACITY);
+        }
     }
     else
     {
@@ -611,6 +620,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
         return *error;
     }
     ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
+    ParsedImageData const * opaque_data = std::get_if<ParsedImageData>(&opaque_data_ret);
     /// NOTE: Append the processed texture to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
@@ -622,6 +632,18 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
             .texture_manifest_index = info.texture_manifest_index,
             .compressed_bc5_rg = parsed_data.compressed_bc5_rg,
         });
+        if(opaque_data)
+        {
+            _upload_texture_queue.push_back(LoadedTextureInfo{
+                .staging_buffer = opaque_data->src_buffer,
+                .dst_image = opaque_data->dst_image,
+                .mips_to_copy = opaque_data->mips_to_copy,
+                .mip_copy_offsets = opaque_data->mip_copy_offsets,
+                .texture_manifest_index = info.texture_manifest_index,
+                .secondary_texture = true,
+                .compressed_bc5_rg = false,
+            });
+        }
     }
     return AssetLoadResultCode::SUCCESS;
 }
