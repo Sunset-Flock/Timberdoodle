@@ -814,8 +814,10 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             info.clip_0_scale * clip_scale,  // right
             -info.clip_0_scale * clip_scale, // bottom
             info.clip_0_scale * clip_scale,  // top
-            info.clip_0_near * clip_scale,   // near
-            info.clip_0_far * clip_scale     // far
+            //info.clip_0_near * clip_scale,   // near
+            -100.f,   // near
+            //info.clip_0_far * clip_scale     // far
+            100.f // far
         );
         // Switch from OpenGL default to Vulkan default (invert the Y clip coordinate)
         clip_projection[1][1] *= -1.0;
@@ -831,7 +833,9 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
     {
         auto const curr_clip_proj = calculate_clip_projection(clip);
         auto const clip_projection_view = curr_clip_proj * default_vsm_view;
+        auto const curr_clip_scale = std::pow(2.0f, s_cast<f32>(clip));
 
+#if 0
         // Project the target position into VSM ndc coordinates and calculate a page alligned position
         auto const clip_projected_target_pos = clip_projection_view * target_camera_position;
         auto const ndc_target_pos = glm::vec3(clip_projected_target_pos) / clip_projected_target_pos.w;
@@ -846,7 +850,6 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
         // Inverse projection from ndc -> world does not account for near plane offset, thus we need to add it manually
         // we simply shift the position in the oppposite of view direction by near plane distance
-        auto const curr_clip_scale = std::pow(2.0f, s_cast<f32>(clip));
         auto const curr_clip_near = info.clip_0_near * curr_clip_scale;
         auto const ndc_u_in_world = glm::vec3(near_offset_ndc_u_in_world) + curr_clip_near * -default_vsm_forward;
         auto const ndc_v_in_world = glm::vec3(near_offset_ndc_v_in_world) + curr_clip_near * -default_vsm_forward;
@@ -880,6 +883,21 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const origin_shift = (final_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
         auto const page_u_depth_offset = (final_clip_projection_view * glm::vec4(u_offset_vector, 1.0)).z - origin_shift;
         auto const page_v_depth_offset = (final_clip_projection_view * glm::vec4(v_offset_vector, 1.0)).z - origin_shift;
+#else
+        // Find the offset from the un-translated view matrix
+        //uniforms_.clipmapStableViewProjections[i] = stableProjections[i] * stableViewMatrix;
+        auto const pos_clip = curr_clip_proj * default_vsm_view * glm::vec4(info.camera_info->position, 1);
+        auto const pos_ndc = pos_clip / pos_clip.w;
+        auto const pos_uv = glm::vec2(pos_ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
+        auto const ndc_page_scaled_aligned_target_pos = glm::ivec2(pos_uv * glm::vec2(VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION));
+
+        auto const ndcShift = 2.0f * glm::vec2((float)ndc_page_scaled_aligned_target_pos.x / VSM_PAGE_TABLE_RESOLUTION, (float)ndc_page_scaled_aligned_target_pos.y / VSM_PAGE_TABLE_RESOLUTION);
+
+        // Shift rendering projection matrix by opposite of page offset in clip space, then apply *only* that shift to the view matrix
+        auto const shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * curr_clip_proj;
+        auto const final_clip_view = glm::inverse(curr_clip_proj) * shiftedProjection * default_vsm_view;
+        auto const clip_position = glm::vec3{};
+#endif
 
         auto clip_camera = CameraInfo{
             .view = final_clip_view,
@@ -924,8 +942,10 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
         clip_projections.at(clip) = VSMClipProjection{
-            .height_offset = view_offset_scale,
-            .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
+            //.height_offset = view_offset_scale,
+            .height_offset = 0,
+            //.depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
+            .depth_page_offset = {0, 0},
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
