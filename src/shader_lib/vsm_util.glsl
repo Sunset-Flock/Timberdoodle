@@ -129,7 +129,12 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_f32vec3 world_space = world_space_from_uv(texel_uvs, info.depth, info.inv_view_proj);
 
         const daxa_f32 dist = length(world_space - deref(info.globals).camera.position);
-        clip_level = daxa_i32(clamp(ceil(log2((dist / deref(info.globals).vsm_settings.clip_0_frustum_scale))), 0, VSM_CLIP_LEVELS - 1));
+        // The shadow camera is not strictly aligned to the player position. Instead it can be up to
+        // one page away from the player, thus we must propriately scale the heuristic, to account for this
+        const daxa_i32 page_count = (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
+        const daxa_f32 scale_ratio = daxa_f32(page_count - 2) / daxa_f32(page_count);
+        const daxa_f32 base_scale = deref(info.globals).vsm_settings.clip_0_frustum_scale * scale_ratio;
+        clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale))), 0, VSM_CLIP_LEVELS - 1));
         #else 
         const daxa_f32vec2 left_side_texel_coords = center_texel_coords - daxa_f32vec2(0.5, 0.0);
         const daxa_f32vec2 left_side_texel_uvs = left_side_texel_coords / daxa_f32vec2(info.screen_resolution);

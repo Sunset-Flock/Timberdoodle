@@ -127,8 +127,8 @@ Application::Application()
     // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
@@ -220,25 +220,28 @@ auto Application::run() -> i32
 void Application::update()
 {
     auto * dynamic_ball_ent = _scene->_render_entities.slot(dynamic_ball);
-    auto prev_transform = glm::mat4(
-        glm::vec4(dynamic_ball_ent->transform[0], 0.0f),
-        glm::vec4(dynamic_ball_ent->transform[1], 0.0f),
-        glm::vec4(dynamic_ball_ent->transform[2], 0.0f),
-        glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
+    if(dynamic_ball_ent)
+    {
+        auto prev_transform = glm::mat4(
+            glm::vec4(dynamic_ball_ent->transform[0], 0.0f),
+            glm::vec4(dynamic_ball_ent->transform[1], 0.0f),
+            glm::vec4(dynamic_ball_ent->transform[2], 0.0f),
+            glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
     
-    static f32 total_time = 0.0f;
-    total_time += delta_time;
-    auto new_position = f32vec4{
-        std::sin(total_time) * 100.0f,
-        std::cos(total_time) * 100.0f,
-        prev_transform[3].z,
-        1.0f
-    };
-    auto curr_transform = prev_transform;
-    curr_transform[3] = new_position;
+        static f32 total_time = 0.0f;
+        total_time += delta_time;
+        auto new_position = f32vec4{
+            std::sin(total_time) * 100.0f,
+            std::cos(total_time) * 100.0f,
+            prev_transform[3].z,
+            1.0f
+        };
+        auto curr_transform = prev_transform;
+        curr_transform[3] = new_position;
 
-    dynamic_ball_ent->transform = curr_transform;
-    _scene->_modified_render_entities.push_back({dynamic_ball, prev_transform, curr_transform});
+        dynamic_ball_ent->transform = curr_transform;
+        _scene->_modified_render_entities.push_back({dynamic_ball, prev_transform, curr_transform});
+    }
 
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
     auto manifest_update_commands = _scene->record_gpu_manifest_update({
