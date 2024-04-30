@@ -104,7 +104,6 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_c
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_debug_overdraw)
 DAXA_DECL_TASK_HEAD_END
 struct CullAndDrawPagesPush
 {
@@ -742,7 +741,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_debug_overdraw, info.vsm_state->overdraw_debug_image),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,

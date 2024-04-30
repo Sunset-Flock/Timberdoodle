@@ -14,7 +14,6 @@ struct VSMState
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
-    daxa::TaskImage overdraw_debug_image = {};
 
     // Transient state
     daxa::TaskBufferView allocation_count = {};
@@ -74,22 +73,6 @@ struct VSMState
             },
             .name = "vsm memory block",
         });
-
-        overdraw_debug_image = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    context->device.create_image({
-                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
-                        .format = daxa::Format::R32_UINT,
-                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
-                        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                        .name = "vsm debug draw image",
-                    }),
-                },
-            },
-            .name = "vsm debug draw image",
-        });
-
 
         meta_memory_table = daxa::TaskImage({
             .initial_images = {

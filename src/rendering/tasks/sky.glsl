@@ -595,7 +595,6 @@ void main() {
         const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
         const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
         imageStore(daxa_image2DArray(push.ibl_cube), ivec3(sg_pix_pos, gl_WorkGroupID.z), vec4(luminance * inv_mult, 1.0/inv_mult));
-        // imageStore(daxa_image2DArray(push.ibl_cube), ivec3(sg_pix_pos, gl_WorkGroupID.z), vec4(rand_hemi_dir(output_dir) * 0.5 + 0.5, 1.0));
     }
 }
 #endif //CUBEMAP
