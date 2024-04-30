@@ -198,7 +198,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
             }
         }
         {
-            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 16.0);
+            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
             color.rgb = overdraw_color;
         }
     } else {
@@ -452,6 +452,7 @@ void main(
         const bool visualize_clip_levels = AT_FROM_PUSH.globals->vsm_settings.visualize_clip_levels == 1;
         const float3 vsm_debug_color = visualize_clip_levels ? get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position) : float3(1.0f);
         output_value.rgb = albedo.rgb * lighting * vsm_debug_color;
+        // output_value.rgb = vsm_debug_color;
     }
     else 
     {

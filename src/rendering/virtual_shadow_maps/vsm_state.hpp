@@ -14,6 +14,7 @@ struct VSMState
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
+    daxa::TaskImage overdraw_debug_image = {};
 
     // Transient state
     daxa::TaskBufferView allocation_count = {};

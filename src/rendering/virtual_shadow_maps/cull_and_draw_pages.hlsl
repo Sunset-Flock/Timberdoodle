@@ -207,6 +207,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             // triangle is backface
             primitive.set_cull_primitive(true);
         }
+        // primitive.set_cull_primitive(false);
         if (P is VSMMaskMeshShaderPrimitive)
         {
             var mprim = reinterpret<VSMMaskMeshShaderPrimitive>(primitive);
@@ -355,5 +356,6 @@ void vsm_entry_fragment_masked(
                 push.attachments.vsm_clip_projections
             ))
         );
+        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
     }
 }
