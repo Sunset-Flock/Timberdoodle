@@ -872,9 +872,11 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         // Clip offset from the xy plane - essentially clip_xy_plane_world_position gives us the position on a world xy plane positioned
         // at the height 0. We want to shift the clip camera up so that it observes the player position from the above. The height from
         // which the camera observes this player should be set according to the info.height_offset
-        auto const view_offset_scale = s_cast<i32>(
-            std::floor(info.camera_info->position.z / -default_vsm_forward.z) +
-            (std::floor(info.clip_0_height_offset / - default_vsm_forward.z) * curr_clip_scale));
+        f32 const height_offset_scaling_factor = std::min(1.0f/ -default_vsm_forward.z, 100.0f);
+        auto const unclamped_view_offset_scale = s_cast<i32>(
+            std::floor(info.camera_info->position.z * height_offset_scaling_factor) +
+            (std::floor(info.clip_0_height_offset * height_offset_scaling_factor) * curr_clip_scale));
+        auto const view_offset_scale = std::min(unclamped_view_offset_scale, 10000);
         auto const view_offset = s_cast<f32>(view_offset_scale) * -default_vsm_forward;
         auto const clip_position = clip_xy_plane_world_position + view_offset;
 
