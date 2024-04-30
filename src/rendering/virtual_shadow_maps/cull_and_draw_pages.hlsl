@@ -304,6 +304,7 @@ void vsm_entry_fragment_opaque(
                 push.attachments.vsm_clip_projections
             ))
         );
+        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
     }
 }
 

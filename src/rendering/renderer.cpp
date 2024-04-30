@@ -684,6 +684,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_clip_projections, vsm_state.clip_projections),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_overdraw_debug, vsm_state.overdraw_debug_image),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_wrapped_pages, vsm_state.free_wrapped_pages_info),
         },
         .render_context = render_context.get(),

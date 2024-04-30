@@ -23,6 +23,35 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
+// Copyright 2019 Google LLC.
+// SPDX-License-Identifier: Apache-2.0
+
+// Polynomial approximation in GLSL for the Turbo colormap
+// Original LUT: https://gist.github.com/mikhailov-work/ee72ba4191942acecc03fe6da94fc73f
+
+// Authors:
+//   Colormap Design: Anton Mikhailov (mikhailov@google.com)
+//   GLSL Approximation: Ruofei Du (ruofei@google.com)
+
+float3 TurboColormap(float x)
+{
+    const float4 kRedVec4 = float4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
+    const float4 kGreenVec4 = float4(0.09140261, 2.19418839, 4.84296658, -14.18503333);
+    const float4 kBlueVec4 = float4(0.10667330, 12.64194608, -60.58204836, 110.36276771);
+    const float2 kRedVec2 = float2(-152.94239396, 59.28637943);
+    const float2 kGreenVec2 = float2(4.27729857, 2.82956604);
+    const float2 kBlueVec2 = float2(-89.90310912, 27.34824973);
+
+    x = clamp(x, 0, 1);
+    float4 v4 = float4( 1.0, x, x * x, x * x * x);
+    float2 v2 = v4.zw * v4.z;
+    return float3(
+      dot(v4, kRedVec4)   + dot(v2, kRedVec2),
+      dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
+      dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
+    );
+}
+
 static const uint PCF_NUM_SAMPLES = 8;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
@@ -145,6 +174,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
+        const uint overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords].x;
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
         bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                                  any(lessThan(in_page_texel_coords, int2(1)));
@@ -166,6 +196,10 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
             {
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
+        }
+        {
+            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 16.0);
+            color.rgb = overdraw_color;
         }
     } else {
         color = float3(1.0, 0.0, 0.0);
