@@ -426,6 +426,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
+    task_list.use_persistent_image(vsm_state.overdraw_debug_image);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_page_table);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
@@ -684,6 +685,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_clip_projections, vsm_state.clip_projections),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_overdraw_debug, vsm_state.overdraw_debug_image),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_wrapped_pages, vsm_state.free_wrapped_pages_info),
         },
         .render_context = render_context.get(),

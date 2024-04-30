@@ -145,6 +145,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
+        const uint overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords];
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
         bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                                  any(lessThan(in_page_texel_coords, int2(1)));
@@ -167,6 +168,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
         }
+        color *= float3(1.0 - float(saturate(overdraw_amount)) / 255.0);
     } else {
         color = float3(1.0, 0.0, 0.0);
         if(get_is_dirty(page_entry)) {color = float3(0.0, 0.0, 1.0);}
