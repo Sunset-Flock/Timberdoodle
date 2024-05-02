@@ -197,10 +197,10 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
         }
-        {
-            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
-            color.rgb = overdraw_color;
-        }
+        // {
+        //     const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
+        //     color.rgb = overdraw_color;
+        // }
     } else {
         color = float3(1.0, 0.0, 0.0);
         if(get_is_dirty(page_entry)) {color = float3(0.0, 0.0, 1.0);}
@@ -228,7 +228,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
     const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
-    const float view_space_offset = 0.01;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float view_space_offset = 0.04;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
     const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset + height_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
@@ -398,12 +398,13 @@ void main(
         material.roughnes_metalness_id.value = 0;
         material.alpha_discard_enabled = false;
         material.normal_compressed_bc5_rg = false;
+        material.base_color = float3(1.0);
         if(tri_data.meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
             material = AT_FROM_PUSH.material_manifest[tri_data.meshlet_instance.material_index];
         }
 
-        float3 albedo = float3(0.5f);
+        float3 albedo = float3(material.base_color);
         if(material.diffuse_texture_id.value != 0)
         {
             albedo = Texture2D<float>::get(material.diffuse_texture_id).SampleGrad(

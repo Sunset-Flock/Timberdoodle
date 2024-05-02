@@ -291,6 +291,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = material_index,
             .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask,// || material.alphaMode == fastgltf::AlphaMode::Blend,
+            .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
             .name = material.name.c_str(),
         });
         scene._new_material_manifest_entries += 1;
@@ -875,7 +876,11 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         recorder.destroy_buffer_deferred(material_staging_buffer);
         GPUMaterial * staging_ptr = _device.get_host_address_as<GPUMaterial>(material_staging_buffer).value();
         std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
-        std::memcpy(staging_ptr, tmp_materials.data(), _new_material_manifest_entries);
+        for(i32 i = 0; i < _new_material_manifest_entries; i++)
+        {
+            tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(_material_manifest.at(i + material_manifest_offset).base_color);
+        }
+        std::memcpy(staging_ptr, tmp_materials.data(), _new_material_manifest_entries * sizeof(GPUMaterial));
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = material_staging_buffer,
@@ -1005,6 +1010,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
                 staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
                 staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
+                staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
 
                 daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
                 recorder.copy_buffer_to_buffer({

@@ -60,6 +60,7 @@ struct MaterialManifestEntry
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
+    f32vec3 base_color = {};
     std::string name = {};
 };
 
