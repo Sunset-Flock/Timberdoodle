@@ -846,10 +846,13 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             info.clip_0_scale * clip_scale,  // right
             -info.clip_0_scale * clip_scale, // bottom
             info.clip_0_scale * clip_scale,  // top
-            //info.clip_0_near * clip_scale,   // near
-            -100.f,   // near
-            //info.clip_0_far * clip_scale     // far
-            100.f // far
+#if USE_ALTERNATE_LIGHT_MATRIX
+            -1000.f,   // near
+            1000.f // far
+#else
+            info.clip_0_near * clip_scale,   // near
+            info.clip_0_far * clip_scale     // far
+#endif
         );
         // Switch from OpenGL default to Vulkan default (invert the Y clip coordinate)
         clip_projection[1][1] *= -1.0;
@@ -992,8 +995,13 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
         clip_projections.at(clip) = VSMClipProjection{
+#if USE_ALTERNATE_LIGHT_MATRIX
+            .height_offset = {},
+            .depth_page_offset = {},
+#else
             .height_offset = view_offset_scale,
             .depth_page_offset = page_depth_offset,
+#endif
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
