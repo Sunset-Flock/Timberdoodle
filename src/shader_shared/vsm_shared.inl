@@ -3,6 +3,8 @@
 #include "daxa/daxa.inl"
 #include "globals.inl"
 
+#define PAGE_ALIGN_AXIS_X 0
+#define PAGE_ALIGN_AXIS_Z 2
 // #define VSM_TEXTURE_RESOLUTION 2048
 #define VSM_TEXTURE_RESOLUTION 4096
 // #define VSM_TEXTURE_RESOLUTION 8192
@@ -32,8 +34,9 @@ DAXA_DECL_BUFFER_PTR(VSMGlobals)
 
 struct VSMClipProjection
 {
+    daxa_i32 page_align_axis;
     daxa_i32 height_offset;
-    daxa_f32vec2 depth_page_offset;
+    daxa_f32 depth_page_offset;
     daxa_i32vec2 page_offset;
     CameraInfo camera;
 };

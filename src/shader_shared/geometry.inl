@@ -85,10 +85,12 @@ DAXA_DECL_BUFFER_PTR_ALIGN(GPUMesh, 8)
 struct GPUMaterial
 {
     daxa_ImageViewId diffuse_texture_id;
+    daxa_ImageViewId opacity_texture_id;
     daxa_ImageViewId normal_texture_id;
     daxa_ImageViewId roughnes_metalness_id;
     daxa_b32 alpha_discard_enabled;  
     daxa_b32 normal_compressed_bc5_rg;
+    daxa_f32vec3 base_color;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 

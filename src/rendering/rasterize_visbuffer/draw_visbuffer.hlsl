@@ -134,33 +134,27 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
 {
     FragmentOut ret;
     ret.visibility_id = vertex.get_visibility_id();
-    if (vertex is MaskedVertex)
-    {
-        if (WaveIsFirstLane())
-        {
-            // printf("am masked\n");
-        }
-    }
     if (V is MaskedVertex && daxa::u64(materials) != 0)
     {
         MaskedVertex mvertex = reinterpret<MaskedVertex>(vertex);
-        const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
         if (mvertex.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = deref_i(materials, mvertex.material_index);
-            if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            float alpha = 1.0;
+            if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                float alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .Sample(
-                        SamplerState::get(sampler), 
-                        mvertex.uv
-                    ).a; 
-                const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
-                if (alpha < clamp(threshold, 0.001, 1.0))
-                {
-                    discard;
-                }
+                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .SampleLevel( SamplerState::get(sampler), mvertex.uv, 2).a; 
             }
+            else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .SampleLevel( SamplerState::get(sampler), mvertex.uv, 2).a; 
+            }
+            // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
+            // const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
+            // if (alpha < clamp(threshold, 0.001, 1.0)) // { discard; }
+            if(alpha < 0.5) { discard; }
         }
     }
     return ret;

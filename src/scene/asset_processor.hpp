@@ -101,6 +101,7 @@ struct AssetProcessor
         u32 mips_to_copy = {};
         std::array<u32, 16> mip_copy_offsets = {};
         u32 texture_manifest_index = {};
+        bool secondary_texture = {};
         bool compressed_bc5_rg = {};
     };
     struct LoadTextureInfo

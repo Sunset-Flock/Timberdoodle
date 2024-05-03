@@ -426,6 +426,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
+    task_list.use_persistent_image(vsm_state.overdraw_debug_image);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_page_table);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
@@ -684,6 +685,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_clip_projections, vsm_state.clip_projections),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_globals, vsm_state.globals),
             daxa::attachment_view(ShadeOpaqueH::AT.debug_image, debug_image),
+            daxa::attachment_view(ShadeOpaqueH::AT.vsm_overdraw_debug, vsm_state.overdraw_debug_image),
             daxa::attachment_view(ShadeOpaqueH::AT.vsm_wrapped_pages, vsm_state.free_wrapped_pages_info),
         },
         .render_context = render_context.get(),
@@ -852,7 +854,7 @@ void Renderer::render_frame(
         .camera_info = &render_context->render_data.camera,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
-        .clip_0_near = 0.1f,
+        .clip_0_near = 0.01f,
         .clip_0_far = 10.0f,
         .clip_0_height_offset = 5.0f,
         .debug_context = &context->shader_debug_context,

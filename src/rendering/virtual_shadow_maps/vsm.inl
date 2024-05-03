@@ -22,6 +22,7 @@
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
+#define USE_ALTERNATE_LIGHT_MATRIX 1
 
 DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -77,6 +78,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_a
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
+DAXA_TH_IMAGE_ID(TRANSFER_WRITE, REGULAR_2D, vsm_overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH)
@@ -103,7 +105,8 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_m
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_memory_block)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
 DAXA_DECL_TASK_HEAD_END
 struct CullAndDrawPagesPush
 {
@@ -111,6 +114,7 @@ struct CullAndDrawPagesPush
     daxa_u32 draw_list_type;
     daxa_u32 bucket_index;
     daxa_ImageViewId daxa_u32_vsm_memory_view;
+    daxa_ImageViewId daxa_u32_vsm_overdraw_view;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
@@ -136,6 +140,7 @@ DAXA_DECL_TASK_HEAD_END
 #if defined(__cplusplus)
 #include "../tasks/misc.hpp"
 #include "vsm_state.hpp"
+#include <glm/gtx/vector_angle.hpp>
 #include "../scene_renderer_context.hpp"
 
 inline daxa::ComputePipelineCompileInfo vsm_free_wrapped_pages_pipeline_compile_info()
@@ -408,6 +413,12 @@ struct ClearPagesTask : ClearPagesH::Task
         u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
+        ti.recorder.clear_image({
+            .dst_image_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .clear_value = std::array{0u, 0u, 0u, 0u},
+            .dst_image = ti.get(AT.vsm_overdraw_image).ids[0],
+            .dst_slice = {},
+        });
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
         ClearPagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
@@ -465,6 +476,12 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .image = ti.get(AT.vsm_memory_block).ids[0],
             .name = "vsm memory daxa_u32 view",
         });
+        auto const overdraw_image_view = render_context->gpuctx->device.create_image_view({
+            .type = daxa::ImageViewType::REGULAR_2D,
+            .format = daxa::Format::R32_UINT,
+            .image = ti.get(AT.vsm_overdraw_debug).ids[0],
+            .name = "vsm overdraw daxa_u32 view",
+        });
 
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 12 + timestamp_start_index});
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
@@ -485,6 +502,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
                     .draw_list_type = opaque_draw_list_type,
                     .bucket_index = i,
                     .daxa_u32_vsm_memory_view = memory_block_view,
+                    .daxa_u32_vsm_overdraw_view = overdraw_image_view,
                 };
                 ti.assign_attachment_shader_blob(push.attachments.value);
                 render_cmd.push_constant(push);
@@ -499,6 +517,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
         ti.recorder = std::move(render_cmd).end_renderpass();
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 13 + timestamp_start_index});
         ti.recorder.destroy_image_view_deferred(memory_block_view);
+        ti.recorder.destroy_image_view_deferred(overdraw_image_view);
     }
 };
 
@@ -711,6 +730,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
+            daxa::attachment_view(ClearPagesH::AT.vsm_overdraw_image, info.vsm_state->overdraw_debug_image),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,
@@ -741,6 +761,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
+            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_overdraw_debug, info.vsm_state->overdraw_debug_image),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,
@@ -790,10 +811,11 @@ struct GetVSMProjectionsInfo
 {
     CameraInfo const * camera_info = {};
     f32vec3 sun_direction = {};
+    f32 sun_x_angle = {};
     f32 clip_0_scale = {};
     f32 clip_0_near = {};
     f32 clip_0_far = {};
-    f32 clip_0_height_offset = {};
+    f64 clip_0_height_offset = {};
 
     ShaderDebugDrawContext * debug_context = {};
 };
@@ -805,6 +827,16 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
     auto const default_vsm_up = glm::vec3{0.0, 0.0, 1.0};
     auto const default_vsm_forward = -info.sun_direction;
     auto const default_vsm_view = glm::lookAt(default_vsm_pos, default_vsm_forward, default_vsm_up);
+
+    auto const xy_forward = f32vec4(glm::normalize(f32vec3(default_vsm_forward.x, default_vsm_forward.y, 0.0)), 0.0);
+    auto const xy_right = f32vec4(-xy_forward.y, xy_forward.x, 0.0, 0.0);
+
+    auto to_rotation_inv_matrix = glm::identity<f32mat4x4>();
+    to_rotation_inv_matrix[0] = f32vec4(xy_forward.x, xy_right.x, 0.0, 0.0);
+    to_rotation_inv_matrix[1] = f32vec4(xy_forward.y, xy_right.y, 0.0, 0.0);
+
+    f32vec3 const rotation_inv_vsm_forward = to_rotation_inv_matrix * f32vec4(default_vsm_forward, 0.0f);
+    auto const rotation_inv_vsm_view = glm::lookAt(default_vsm_pos, rotation_inv_vsm_forward, default_vsm_up);
 
     auto calculate_clip_projection = [&info](i32 clip) -> glm::mat4x4
     {
@@ -829,74 +861,92 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
     // thus we need to multiply by two to get the page size in ndc coordinates
     auto const ndc_page_size = uv_page_size * 2.0f;
 
+    // 0 == x, 2 == z
+    f32 const elevation_angle = glm::asin(rotation_inv_vsm_forward.z / std::sqrt(std::pow(rotation_inv_vsm_forward.x, 2.0f) + std::pow(rotation_inv_vsm_forward.z, 2.0f)));
+    auto const align_axis = (90.0f + glm::degrees(elevation_angle)) > 45.0f ? PAGE_ALIGN_AXIS_X : PAGE_ALIGN_AXIS_Z;
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
         auto const curr_clip_proj = calculate_clip_projection(clip);
         auto const clip_projection_view = curr_clip_proj * default_vsm_view;
         auto const curr_clip_scale = std::pow(2.0f, s_cast<f32>(clip));
 
-#if 0
         // Project the target position into VSM ndc coordinates and calculate a page alligned position
         auto const clip_projected_target_pos = clip_projection_view * target_camera_position;
         auto const ndc_target_pos = glm::vec3(clip_projected_target_pos) / clip_projected_target_pos.w;
         auto const ndc_page_scaled_target_pos = glm::vec2(ndc_target_pos) / ndc_page_size;
         auto const ndc_page_scaled_aligned_target_pos = glm::vec2(glm::ceil(ndc_page_scaled_target_pos));
-        // auto const ndc_page_scaled_aligned_target_pos = glm::vec2(glm::ivec2(ndc_page_scaled_target_pos));
 
         // Here we calculate the offsets that will be applied per page in the clip level
         // This is used to virtually offset the depth of each page so that we can actually snap the vsm position to the camera position
-        auto const near_offset_ndc_u_in_world = glm::inverse(clip_projection_view) * glm::vec4(ndc_page_size, 0.0, 0.0, 1.0);
-        auto const near_offset_ndc_v_in_world = glm::inverse(clip_projection_view) * glm::vec4(0.0, ndc_page_size, 0.0, 1.0);
+        auto const inv_rot_clip_projection_view = glm::inverse(curr_clip_proj * rotation_inv_vsm_view);
+        auto const near_offset_ndc_u_in_world = inv_rot_clip_projection_view * glm::vec4(ndc_page_size, 0.0, 0.0, 1.0);
+        auto const near_offset_ndc_v_in_world = inv_rot_clip_projection_view * glm::vec4(0.0, ndc_page_size, 0.0, 1.0);
 
         // Inverse projection from ndc -> world does not account for near plane offset, thus we need to add it manually
         // we simply shift the position in the oppposite of view direction by near plane distance
         auto const curr_clip_near = info.clip_0_near * curr_clip_scale;
-        auto const ndc_u_in_world = glm::vec3(near_offset_ndc_u_in_world) + curr_clip_near * -default_vsm_forward;
-        auto const ndc_v_in_world = glm::vec3(near_offset_ndc_v_in_world) + curr_clip_near * -default_vsm_forward;
+        auto const ndc_u_in_world = glm::vec3(near_offset_ndc_u_in_world) + curr_clip_near * -rotation_inv_vsm_forward;
+        auto const ndc_v_in_world = glm::vec3(near_offset_ndc_v_in_world) + curr_clip_near * -rotation_inv_vsm_forward;
 
         // Calculate the actual per page world space offsets
-        f32 const u_offset_scale = ndc_u_in_world.z / default_vsm_forward.z;
-        auto const u_offset_vector = u_offset_scale * -default_vsm_forward;
+        f32 const u_offset_scale = ndc_u_in_world[align_axis] / rotation_inv_vsm_forward[align_axis];
+        auto const u_offset_vector = u_offset_scale * -rotation_inv_vsm_forward;
 
-        f32 const v_offset_scale = ndc_v_in_world.z / default_vsm_forward.z;
-        auto const v_offset_vector = v_offset_scale * -default_vsm_forward;
+        f32 const v_offset_scale = ndc_v_in_world[align_axis] / rotation_inv_vsm_forward[align_axis];
+        auto const v_offset_vector = v_offset_scale * -rotation_inv_vsm_forward;
 
         // Get the per page offsets on a world space xy plane
-        auto const xy_plane_ndc_u_in_world = ndc_u_in_world + u_offset_vector;
-        auto const xy_plane_ndc_v_in_world = ndc_v_in_world + v_offset_vector;
+        f32vec3 const xy_plane_ndc_u_in_world = f32vec4(ndc_u_in_world + u_offset_vector, 0.0);
+        f32vec3 const xy_plane_ndc_v_in_world = f32vec4(ndc_v_in_world + v_offset_vector, 0.0);
 
-        // Clip position on the xy world plane
-        auto const clip_xy_plane_world_position = glm::vec3(
+        auto const rot_clip_xy_plane_world_position = glm::vec3(
             ndc_page_scaled_aligned_target_pos.x * xy_plane_ndc_u_in_world +
             ndc_page_scaled_aligned_target_pos.y * xy_plane_ndc_v_in_world);
 
+        f32vec3 const clip_xy_plane_world_position = f32vec4(rot_clip_xy_plane_world_position, 0.0);
         // Clip offset from the xy plane - essentially clip_xy_plane_world_position gives us the position on a world xy plane positioned
         // at the height 0. We want to shift the clip camera up so that it observes the player position from the above. The height from
         // which the camera observes this player should be set according to the info.height_offset
-        auto const view_offset_scale = s_cast<i32>(std::floor(info.camera_info->position.z / -default_vsm_forward.z) + info.clip_0_height_offset * curr_clip_scale);
-        auto const view_offset = s_cast<f32>(view_offset_scale) * -default_vsm_forward;
-        auto const clip_position = clip_xy_plane_world_position + view_offset;
+        f32 const height_offset_scaling_factor = std::min(1.0f / -rotation_inv_vsm_forward[align_axis], 100.0f);
+        f32vec3 const rot_camera_position = to_rotation_inv_matrix * f32vec4(info.camera_info->position, 0.0f);
+        auto const unclamped_view_offset_scale = s_cast<i32>(
+            std::floor(rot_camera_position[align_axis] * height_offset_scaling_factor) +
+            (std::floor(info.clip_0_height_offset * (align_axis == 0 ? -1.0f : 1.0f) * height_offset_scaling_factor) * curr_clip_scale));
 
+        auto const view_offset_scale = std::min(unclamped_view_offset_scale, 10000);
+        auto const view_offset = s_cast<f32>(view_offset_scale) * -rotation_inv_vsm_forward;
+        f32vec3 const clip_position = glm::inverse(to_rotation_inv_matrix) * f32vec4(clip_xy_plane_world_position + view_offset, 0.0);
+
+#if !USE_ALTERNATE_LIGHT_MATRIX
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
         auto const final_clip_projection_view = curr_clip_proj * final_clip_view;
+#endif
 
-        auto const origin_shift = (final_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
-        auto const page_u_depth_offset = (final_clip_projection_view * glm::vec4(u_offset_vector, 1.0)).z - origin_shift;
-        auto const page_v_depth_offset = (final_clip_projection_view * glm::vec4(v_offset_vector, 1.0)).z - origin_shift;
-#else
+        auto const rotation_invar_inv_proj_view = glm::inverse(curr_clip_proj * rotation_inv_vsm_view);
+        auto const near_offset_inv_ndc_v_in_world = rotation_invar_inv_proj_view * glm::vec4(0.0, ndc_page_size, 0.0, 1.0);
+        auto const inv_ndc_v_in_world = glm::vec3(near_offset_inv_ndc_v_in_world) + curr_clip_near * -rotation_inv_vsm_forward;
+        f32 const v_inv_offset_scale = inv_ndc_v_in_world[align_axis] / rotation_inv_vsm_forward[align_axis];
+        auto const v_inv_offset_vector = v_inv_offset_scale * -rotation_inv_vsm_forward;
+
+        auto const final_rot_inv_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(rotation_inv_vsm_forward), default_vsm_up);
+        auto const final_rot_inv_clip_projection_view = curr_clip_proj * final_rot_inv_clip_view;
+        auto const inv_origin_shift = (final_rot_inv_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
+        auto const page_depth_offset = (final_rot_inv_clip_projection_view * glm::vec4(v_inv_offset_vector, 1.0)).z - inv_origin_shift;
+
+#if USE_ALTERNATE_LIGHT_MATRIX
         // Find the offset from the un-translated view matrix
-        //uniforms_.clipmapStableViewProjections[i] = stableProjections[i] * stableViewMatrix;
+        // uniforms_.clipmapStableViewProjections[i] = stableProjections[i] * stableViewMatrix;
         auto const pos_clip = curr_clip_proj * default_vsm_view * glm::vec4(info.camera_info->position, 1);
         auto const pos_ndc = pos_clip / pos_clip.w;
         auto const pos_uv = glm::vec2(pos_ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
-        auto const ndc_page_scaled_aligned_target_pos = glm::ivec2(pos_uv * glm::vec2(VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION));
+        //auto const ndc_page_scaled_aligned_target_pos = glm::ivec2(pos_uv * glm::vec2(VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION));
 
-        auto const ndcShift = 2.0f * glm::vec2((float)ndc_page_scaled_aligned_target_pos.x / VSM_PAGE_TABLE_RESOLUTION, (float)ndc_page_scaled_aligned_target_pos.y / VSM_PAGE_TABLE_RESOLUTION);
+        auto const ndcShift = 2.0f * ndc_page_scaled_aligned_target_pos / s_cast<float>(VSM_PAGE_TABLE_RESOLUTION);
 
         // Shift rendering projection matrix by opposite of page offset in clip space, then apply *only* that shift to the view matrix
         auto const shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * curr_clip_proj;
         auto const final_clip_view = glm::inverse(curr_clip_proj) * shiftedProjection * default_vsm_view;
-        auto const clip_position = glm::vec3{};
+        //auto const clip_position = glm::vec3{};
 #endif
 
         auto clip_camera = CameraInfo{
@@ -942,10 +992,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
         clip_projections.at(clip) = VSMClipProjection{
-            //.height_offset = view_offset_scale,
-            .height_offset = 0,
-            //.depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
-            .depth_page_offset = {0, 0},
+            .height_offset = view_offset_scale,
+            .depth_page_offset = page_depth_offset,
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
@@ -1011,9 +1059,15 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
                     auto const virtual_uv = corner_virtual_uv + page_center_virtual_uv_offset;
 
                     auto const page_index = glm::ivec2(virtual_uv * s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION));
-                    f32 const depth =
-                        ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.x) * clip_projection.depth_page_offset.x +
-                        ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset.y;
+                    f32 depth;
+                    if (clip_projection.page_align_axis == PAGE_ALIGN_AXIS_X)
+                    {
+                        depth = -page_index.y * clip_projection.depth_page_offset;
+                    }
+                    else
+                    {
+                        depth = ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset;
+                    }
                     auto const virtual_page_ndc = (virtual_uv * 2.0f) - glm::vec2(1.0f);
                     auto const page_ndc_position = glm::vec4(virtual_page_ndc, -depth, 1.0);
                     auto const new_position = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * page_ndc_position;
@@ -1066,7 +1120,7 @@ inline void fill_vsm_invalidation_mask(std::vector<DynamicMesh> const & meshes, 
             f32vec3{1, 1, 1},
         };
 
-    for(i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
         std::memset(&state.free_wrapped_pages_info_cpu.at(clip).mask, 0, sizeof(state.free_wrapped_pages_info_cpu.at(0).mask));
     }

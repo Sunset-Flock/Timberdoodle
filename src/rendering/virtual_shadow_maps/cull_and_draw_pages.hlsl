@@ -207,7 +207,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             // triangle is backface
             primitive.set_cull_primitive(true);
         }
-
+        // primitive.set_cull_primitive(false);
         if (P is VSMMaskMeshShaderPrimitive)
         {
             var mprim = reinterpret<VSMMaskMeshShaderPrimitive>(primitive);
@@ -305,10 +305,10 @@ void vsm_entry_fragment_opaque(
                 push.attachments.vsm_clip_projections
             ))
         );
+        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
     }
 }
 
-// source https://github.com/JuanDiegoMontoya/Frogfood
 [shader("fragment")]
 void vsm_entry_fragment_masked(
     in VSMMeshShaderMaskVertex vert,
@@ -322,21 +322,27 @@ void vsm_entry_fragment_masked(
         push.attachments.vsm_clip_projections);
 
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
-    const float max_obj_space_deriv_len = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
         if(prim.material_index != INVALID_MANIFEST_INDEX)
         {
             const GPUMaterial material = deref_i(push.attachments.material_manifest, prim.material_index);
-            if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            float alpha = 1.0;
+            if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                float alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    // .Sample(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv).a;
-                    .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).a;
-                const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
-                if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
-                // if(alpha < 0.5) { discard; }
+                alpha = Texture2D<float>::get(material.opacity_texture_id)
+                    .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).r;
             }
+            else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).a;
+            }
+            // source https://github.com/JuanDiegoMontoya/Frogfood
+            // const float max_obj_space_deriv_len = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
+            // const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
+            // if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
+            if(alpha < 0.5) { discard; }
         }
 
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
@@ -350,5 +356,6 @@ void vsm_entry_fragment_masked(
                 push.attachments.vsm_clip_projections
             ))
         );
+        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
     }
 }

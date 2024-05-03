@@ -39,7 +39,9 @@ struct TextureManifestEntry
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
     std::vector<MaterialManifestIndex> material_manifest_indices = {};
-    std::optional<daxa::ImageId> runtime = {};
+    std::optional<daxa::ImageId> runtime_texture = {};
+    // This is used for separate oppacity mask when we generate one
+    std::optional<daxa::ImageId> secondary_runtime_texture = {};
     std::string name = {};
 };
 
@@ -51,12 +53,14 @@ struct MaterialManifestEntry
         u32 sampler_index = {};
     };
     std::optional<TextureInfo> diffuse_info = {};
+    std::optional<TextureInfo> opacity_mask_info = {};
     std::optional<TextureInfo> normal_info = {};
     std::optional<TextureInfo> roughness_metalness_info = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
+    f32vec3 base_color = {};
     std::string name = {};
 };
 

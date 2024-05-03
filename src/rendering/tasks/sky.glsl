@@ -511,38 +511,35 @@ mat3 CUBE_MAP_FACE_ROTATION(uint face)
     }
 }
 
-// Jenkins hash function
-uint good_rand_hash(uint x) 
-{
-    x += (x << 10u);
-    x ^= (x >> 6u);
-    x += (x << 3u);
-    x ^= (x >> 11u);
-    x += (x << 15u);
-    return x;
-}
-uint hash1(uint x) { return good_rand_hash(x); }
-
-uint hash_combine2(uint x, uint y) 
-{
-    const uint M = 1664525u, C = 1013904223u;
-    uint seed = (x * M + y + C) * M;
-    // Tempering (from Matsumoto)
-    seed ^= (seed >> 11u);
-    seed ^= (seed << 7u) & 0x9d2c5680u;
-    seed ^= (seed << 15u) & 0xefc60000u;
-    seed ^= (seed >> 18u);
-    return seed;
+uint _rand_state;
+void rand_seed(uint seed) {
+    _rand_state = seed;
 }
 
-uint hash2(uvec2 v) { return hash_combine2(v.x, hash1(v.y)); }
+float rand() {
+    // https://www.pcg-random.org/
+    _rand_state = _rand_state * 747796405u + 2891336453u;
+    uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
+    result = (result >> 22u) ^ result;
+    return result / 4294967295.0;
+}
 
-vec3 uniform_sample_cone(vec2 urand, float cos_theta_max) 
-{
-    float cos_theta = (1.0 - urand.x) + urand.x * cos_theta_max;
-    float sin_theta = sqrt(clamp(1.0 - cos_theta * cos_theta, 0.0, 1.0));
-    float phi = urand.y * (PI * 2.0);
-    return vec3(sin_theta * cos(phi), sin_theta * sin(phi), cos_theta);
+float rand_normal_dist() {
+    float theta = 2.0 * PI * rand();
+    float rho = sqrt(-2.0 * log(rand()));
+    return rho * cos(theta);
+}
+
+vec3 rand_dir() {
+    return normalize(vec3(
+        rand_normal_dist(),
+        rand_normal_dist(),
+        rand_normal_dist()));
+}
+
+vec3 rand_hemi_dir(vec3 nrm) {
+    vec3 result = rand_dir();
+    return result * sign(dot(nrm, result));
 }
 
 void main() {
@@ -567,9 +564,12 @@ void main() {
     const uint sample_count = 128;
     const uint subgroup_size = 32;
     const uint iter_count = sample_count / subgroup_size;
+    const uint global_thread_index = (gl_GlobalInvocationID.x * IBL_CUBE_RES * IBL_CUBE_RES + gl_GlobalInvocationID.y * IBL_CUBE_RES + gl_GlobalInvocationID.z);
+    const uint seed = global_thread_index + deref(push.globals).frame_index * IBL_CUBE_RES * IBL_CUBE_RES * 6;
+
     for (uint i = 0; i < iter_count; ++i) {
-        vec2 urand = hammersley(i * subgroup_size + gl_SubgroupInvocationID, sample_count);
-        vec3 input_dir = basis * uniform_sample_cone(urand, 0.01);
+        rand_seed((i * subgroup_size + gl_SubgroupInvocationID + seed * sample_count));
+        vec3 input_dir = rand_hemi_dir(output_dir);
         // TODO: Now that we sample the atmosphere directly, computing this IBL is really slow.
         // We should cache the IBL cubemap, and only re-render it when necessary.
         const vec3 result = get_atmosphere_illuminance_along_ray(
@@ -586,7 +586,12 @@ void main() {
     // Only last thread in each subgroup contains the correct accumulated result
     if(gl_SubgroupInvocationID == 31)
     {
-        const vec3 luminance = accumulated_result / sample_count;
+        const vec3 this_frame_luminance = accumulated_result / sample_count;
+        const vec4 compressed_accumulated_luminance = imageLoad(daxa_image2DArray(push.ibl_cube), ivec3(sg_pix_pos, gl_WorkGroupID.z));
+        // Could be nan for some reason
+        const vec3 unsafe_accumulated_luminance = compressed_accumulated_luminance.rgb * compressed_accumulated_luminance.a;
+        const vec3 accumulated_luminance = isnan(unsafe_accumulated_luminance.x) ? vec3(0.0) : unsafe_accumulated_luminance;
+        const vec3 luminance = 0.995 * accumulated_luminance + 0.005 * this_frame_luminance;
         const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
         const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
         imageStore(daxa_image2DArray(push.ibl_cube), ivec3(sg_pix_pos, gl_WorkGroupID.z), vec4(luminance * inv_mult, 1.0/inv_mult));

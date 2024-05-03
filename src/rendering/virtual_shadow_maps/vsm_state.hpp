@@ -14,6 +14,7 @@ struct VSMState
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
+    daxa::TaskImage overdraw_debug_image = {};
 
     // Transient state
     daxa::TaskBufferView allocation_count = {};
@@ -128,6 +129,22 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
+        overdraw_debug_image = daxa::TaskImage({
+            .initial_images = {
+                .images = std::array{
+                    context->device.create_image({
+                        .format = daxa::Format::R32_UINT,
+                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
+                        .usage =
+                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_DST,
+                        .name = "vsm overdraw debug image",
+                    })
+                }
+            },
+            .name = "vsm overdraw debug image"
+        });
+
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = context->device,
@@ -167,6 +184,7 @@ struct VSMState
         context->device.destroy_image(meta_memory_table.get_state().images[0]);
         context->device.destroy_image(page_table.get_state().images[0]);
         context->device.destroy_image(page_height_offsets.get_state().images[0]);
+        context->device.destroy_image(overdraw_debug_image.get_state().images[0]);
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg)

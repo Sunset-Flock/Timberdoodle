@@ -18,11 +18,11 @@ daxa_u32 allocation_failed_mask()   { return 1 << 29; }
 daxa_u32 dirty_mask()               { return 1 << 28; }
 daxa_u32 visited_marked_mask()      { return 1 << 27; }
 
-bool get_is_allocated(daxa_u32 page_entry)        { return (page_entry & allocated_mask()) != 0; }
-bool get_requests_allocation(daxa_u32 page_entry) { return (page_entry & requests_allocation_mask()) != 0; }
-bool get_allocation_failed(daxa_u32 page_entry)   { return (page_entry & allocation_failed_mask()) != 0; }
-bool get_is_dirty(daxa_u32 page_entry)            { return (page_entry & dirty_mask()) != 0; }
-bool get_is_visited_marked(daxa_u32 page_entry)   { return (page_entry & visited_marked_mask()) != 0; }
+bool get_is_allocated(daxa_u32 page_entry)           { return (page_entry & allocated_mask()) != 0; }
+bool get_requests_allocation(daxa_u32 page_entry)    { return (page_entry & requests_allocation_mask()) != 0; }
+bool get_allocation_failed(daxa_u32 page_entry)      { return (page_entry & allocation_failed_mask()) != 0; }
+bool get_is_dirty(daxa_u32 page_entry)               { return (page_entry & dirty_mask()) != 0; }
+bool get_is_visited_marked(daxa_u32 page_entry)      { return (page_entry & visited_marked_mask()) != 0; }
 
 // BIT 0 - 7  page entry x coord
 // BIT 8 - 15 page entry y coord
@@ -99,11 +99,17 @@ struct ClipFromUVsInfo
 daxa_f32 get_page_offset_depth(ClipInfo info, daxa_f32 current_depth, daxa_BufferPtr(VSMClipProjection) clip_projections)
 {
     const daxa_i32vec2 non_wrapped_page_coords = daxa_i32vec2(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION);
-    const daxa_i32vec2 inverted_page_coords = daxa_i32vec2((VSM_PAGE_TABLE_RESOLUTION - 1) - non_wrapped_page_coords);
-    const daxa_f32vec2 per_inv_page_depth_offset = deref_i(clip_projections, info.clip_level).depth_page_offset;
-    const daxa_f32 depth_offset = 
-        inverted_page_coords.x * per_inv_page_depth_offset.x +
-        inverted_page_coords.y * per_inv_page_depth_offset.y;
+    const daxa_f32 per_inv_page_depth_offset = deref_i(clip_projections, info.clip_level).depth_page_offset;
+    daxa_f32 depth_offset;
+    if(deref_i(clip_projections, info.clip_level).page_align_axis == PAGE_ALIGN_AXIS_X)
+    {
+        depth_offset = -non_wrapped_page_coords.y * per_inv_page_depth_offset;
+    }
+    else
+    {
+        const daxa_i32 inverted_page_coord = daxa_i32((VSM_PAGE_TABLE_RESOLUTION - 1) - non_wrapped_page_coords.y);
+        depth_offset = inverted_page_coord * per_inv_page_depth_offset;
+    }
     return clamp(current_depth + depth_offset, 0.0, 1.0);
 }
 
@@ -129,7 +135,12 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_f32vec3 world_space = world_space_from_uv(texel_uvs, info.depth, info.inv_view_proj);
 
         const daxa_f32 dist = length(world_space - deref(info.globals).camera.position);
-        clip_level = daxa_i32(clamp(ceil(log2((dist / deref(info.globals).vsm_settings.clip_0_frustum_scale))), 0, VSM_CLIP_LEVELS - 1));
+        // The shadow camera is not strictly aligned to the player position. Instead it can be up to
+        // one page away from the player, thus we must propriately scale the heuristic, to account for this
+        const daxa_i32 page_count = (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
+        const daxa_f32 scale_ratio = daxa_f32(page_count - 2) / daxa_f32(page_count);
+        const daxa_f32 base_scale = deref(info.globals).vsm_settings.clip_0_frustum_scale * scale_ratio;
+        clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale))), 0, VSM_CLIP_LEVELS - 1));
         #else 
         const daxa_f32vec2 left_side_texel_coords = center_texel_coords - daxa_f32vec2(0.5, 0.0);
         const daxa_f32vec2 left_side_texel_uvs = left_side_texel_coords / daxa_f32vec2(info.screen_resolution);
@@ -165,20 +176,16 @@ daxa_i32vec3 vsm_page_coords_to_wrapped_coords(daxa_i32vec3 page_coords, daxa_Bu
 {
     const daxa_i32vec2 vsm_toroidal_offset = deref_i(clip_projections, page_coords.z).page_offset;
     const daxa_i32vec2 vsm_toroidal_pix_coords = page_coords.xy - vsm_toroidal_offset.xy;
-    if( 
-        (page_coords.x < 0) ||
-        (page_coords.x > (VSM_PAGE_TABLE_RESOLUTION - 1)) ||
-        (page_coords.y < 0) ||
-        (page_coords.y > (VSM_PAGE_TABLE_RESOLUTION - 1)))
-    {
-        return daxa_i32vec3(-1, -1, page_coords.z);
-    }
     const daxa_i32vec2 vsm_wrapped_pix_coords = daxa_i32vec2(_mod(vsm_toroidal_pix_coords.xy, daxa_f32vec2(VSM_PAGE_TABLE_RESOLUTION)));
     return daxa_i32vec3(vsm_wrapped_pix_coords, page_coords.z);
 }
 
 daxa_i32vec3 vsm_clip_info_to_wrapped_coords(ClipInfo info, daxa_BufferPtr(VSMClipProjection) clip_projections)
 {
+    if(any(lessThan(info.clip_depth_uv, daxa_f32vec2(0.0))) || any(greaterThanEqual(info.clip_depth_uv, daxa_f32vec2(1.0))))
+    {
+        return daxa_i32vec3(-1, -1, info.clip_level);
+    }
     const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), info.clip_level);
     return vsm_page_coords_to_wrapped_coords(vsm_page_pix_coords, clip_projections);
 }
