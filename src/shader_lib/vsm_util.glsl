@@ -18,11 +18,11 @@ daxa_u32 allocation_failed_mask()   { return 1 << 29; }
 daxa_u32 dirty_mask()               { return 1 << 28; }
 daxa_u32 visited_marked_mask()      { return 1 << 27; }
 
-bool get_is_allocated(daxa_u32 page_entry)        { return (page_entry & allocated_mask()) != 0; }
-bool get_requests_allocation(daxa_u32 page_entry) { return (page_entry & requests_allocation_mask()) != 0; }
-bool get_allocation_failed(daxa_u32 page_entry)   { return (page_entry & allocation_failed_mask()) != 0; }
-bool get_is_dirty(daxa_u32 page_entry)            { return (page_entry & dirty_mask()) != 0; }
-bool get_is_visited_marked(daxa_u32 page_entry)   { return (page_entry & visited_marked_mask()) != 0; }
+bool get_is_allocated(daxa_u32 page_entry)           { return (page_entry & allocated_mask()) != 0; }
+bool get_requests_allocation(daxa_u32 page_entry)    { return (page_entry & requests_allocation_mask()) != 0; }
+bool get_allocation_failed(daxa_u32 page_entry)      { return (page_entry & allocation_failed_mask()) != 0; }
+bool get_is_dirty(daxa_u32 page_entry)               { return (page_entry & dirty_mask()) != 0; }
+bool get_is_visited_marked(daxa_u32 page_entry)      { return (page_entry & visited_marked_mask()) != 0; }
 
 // BIT 0 - 7  page entry x coord
 // BIT 8 - 15 page entry y coord
@@ -101,9 +101,8 @@ daxa_f32 get_page_offset_depth(ClipInfo info, daxa_f32 current_depth, daxa_Buffe
     const daxa_i32vec2 non_wrapped_page_coords = daxa_i32vec2(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION);
     const daxa_i32vec2 inverted_page_coords = daxa_i32vec2((VSM_PAGE_TABLE_RESOLUTION - 1) - non_wrapped_page_coords);
     const daxa_f32vec2 per_inv_page_depth_offset = deref_i(clip_projections, info.clip_level).depth_page_offset;
-    const daxa_f32 depth_offset = 
-        inverted_page_coords.x * per_inv_page_depth_offset.x +
-        inverted_page_coords.y * per_inv_page_depth_offset.y;
+    const daxa_f32 depth_offset = -non_wrapped_page_coords.y * per_inv_page_depth_offset.y;//+
+        // inverted_page_coords.y * per_inv_page_depth_offset.y;
     return clamp(current_depth + depth_offset, 0.0, 1.0);
 }
 

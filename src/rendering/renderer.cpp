@@ -854,9 +854,9 @@ void Renderer::render_frame(
         .camera_info = &render_context->render_data.camera,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
-        .clip_0_near = 1.0f,
-        .clip_0_far = 5000.0f,
-        .clip_0_height_offset = 50.0f,
+        .clip_0_near = 0.01f,
+        .clip_0_far = 10.0f,
+        .clip_0_height_offset = 5.0f,
         .debug_context = &context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);

@@ -213,6 +213,7 @@ int get_height_depth_offset(int3 vsm_page_texel_coords)
     const int page_draw_camera_height = Texture2DArray<int>::get(AT_FROM_PUSH.vsm_page_height_offsets).Load(int4(vsm_page_texel_coords, 0)).r;
     const int current_camera_height = deref_i(AT_FROM_PUSH.vsm_clip_projections, vsm_page_texel_coords.z).height_offset;
     const int height_difference = current_camera_height - page_draw_camera_height;
+    // const int height_difference =  page_draw_camera_height - current_camera_height;
     return height_difference;
 }
 

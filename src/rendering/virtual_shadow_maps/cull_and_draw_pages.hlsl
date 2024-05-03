@@ -309,7 +309,6 @@ void vsm_entry_fragment_opaque(
     }
 }
 
-// source https://github.com/JuanDiegoMontoya/Frogfood
 [shader("fragment")]
 void vsm_entry_fragment_masked(
     in VSMMeshShaderMaskVertex vert,
@@ -339,6 +338,7 @@ void vsm_entry_fragment_masked(
                 alpha = Texture2D<float>::get(material.diffuse_texture_id)
                     .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).a;
             }
+            // source https://github.com/JuanDiegoMontoya/Frogfood
             // const float max_obj_space_deriv_len = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
             // const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
             // if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
