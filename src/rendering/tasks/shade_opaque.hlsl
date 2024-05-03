@@ -298,6 +298,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
 
     rand_seed(asuint(uv.x + uv.y * 13136.1235f));
     float rand_angle = rand();
+    [[unroll]]
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
         let filter_rot_offset = float2(
@@ -305,8 +306,9 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
             poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
         );
 
-        for(int level = 0; level < 3; level++)
-        {
+        // for(int level = 0; level < 1; level++)
+        // {
+            let level = 0;
             let filter_view_space_offset = float4(filter_rot_offset * filter_radius * pow(1.0, clip_levels[level]), 0.0, 0.0);
             const daxa_f32vec3 center_world_space = world_space_from_uv( real_uv, real_depth, inv_projection_view);
 
@@ -328,10 +330,10 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
                 if(get_is_allocated(page_entry))
                 {
                     sum += vsm_shadow_test(offset_info, page_entry, world_position, height_offset, sun_norm_dot);
-                    break;
+                    // break;
                 }
             }
-        }
+        // }
     }
     return sum / PCF_NUM_SAMPLES;
 }

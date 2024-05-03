@@ -38,6 +38,8 @@ struct VSMClipProjection
     daxa_i32 height_offset;
     daxa_f32 depth_page_offset;
     daxa_i32vec2 page_offset;
+    daxa_f32 near_to_far_range;
+    daxa_f32 near_dist;
     CameraInfo camera;
 };
 DAXA_DECL_BUFFER_PTR(VSMClipProjection)
@@ -51,6 +53,7 @@ DAXA_DECL_BUFFER_PTR(AllocationCount)
 struct AllocationRequest
 {
     daxa_i32vec3 coords;
+    daxa_u32 already_allocated;
 };
 DAXA_DECL_BUFFER_PTR(AllocationRequest)
 

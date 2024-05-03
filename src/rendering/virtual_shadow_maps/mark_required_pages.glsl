@@ -43,12 +43,16 @@ void main()
         uint prev_page_state;
         bool active_thread = true;
         bool first_to_see = false;
+        float sg_min_depth;
+        float sg_max_depth;
         while(active_thread)
         {
             const ivec3 sg_uniform_page_wrapped_coords = subgroupBroadcastFirst(vsm_page_wrapped_coords);
 
             if(all(equal(sg_uniform_page_wrapped_coords, vsm_page_wrapped_coords)))
             {
+                sg_min_depth = subgroupMin(clip_info.clip_depth);
+                sg_max_depth = subgroupMax(clip_info.clip_depth);
                 if(subgroupElect())
                 {
                     first_to_see = true;
@@ -56,7 +60,6 @@ void main()
                 active_thread = false;
             }
         }
-
 
         if(first_to_see)
         {
@@ -71,11 +74,41 @@ void main()
                 uint idx = atomicAdd(deref(push.vsm_allocation_count).count, 1);
                 if(idx < MAX_VSM_ALLOC_REQUESTS)
                 {
-                    deref_i(push.vsm_allocation_requests, idx) = AllocationRequest(vsm_page_wrapped_coords);
+                    deref_i(push.vsm_allocation_requests, idx) = AllocationRequest(vsm_page_wrapped_coords, 0);
                 }
             }
             else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
             {
+                if(!get_is_dirty(prev_page_state))
+                {
+                    const int page_height_offset = imageLoad(daxa_iimage2DArray(push.vsm_page_height_offsets), vsm_page_wrapped_coords).r;
+                    const int camera_height_offset = deref_i(push.vsm_clip_projections, clip_info.clip_level).height_offset;
+                    const float near_dist = deref_i(push.vsm_clip_projections, clip_info.clip_level).near_dist;
+                    const float near_to_far_range = deref_i(push.vsm_clip_projections, clip_info.clip_level).near_to_far_range;
+                    const vec4 min_ndc_pos = vec4(0.0f, 0.0f, sg_min_depth, 1.0);
+                    const vec4 max_ndc_pos = vec4(0.0f, 0.0f, sg_max_depth, 1.0);
+                    const float min_vs_dist = -(deref_i(push.vsm_clip_projections, clip_info.clip_level).camera.inv_proj * min_ndc_pos).z;// - near_dist;
+                    const float max_vs_dist = -(deref_i(push.vsm_clip_projections, clip_info.clip_level).camera.inv_proj * max_ndc_pos).z;// - near_dist;
+                    const float height_offset = camera_height_offset - page_height_offset;                                               
+                    const float bias = pow(2.0, clip_info.clip_level) * 0.3;
+                    const vec2 valid_page_vs_range = vec2(/*near_dist +*/ height_offset + bias, /*near_dist +*/ height_offset + near_to_far_range - bias);
+                    if(min_vs_dist < valid_page_vs_range.x || max_vs_dist > valid_page_vs_range.y)
+                    {
+                        uint dirty_state = imageAtomicOr(
+                            daxa_access(r32uiImageArray, push.vsm_page_table),
+                            vsm_page_wrapped_coords,
+                            dirty_mask()
+                        );
+                        if(!get_is_dirty(dirty_state))
+                        {
+                            uint idx = atomicAdd(deref(push.vsm_allocation_count).count, 1);
+                            if(idx < MAX_VSM_ALLOC_REQUESTS)
+                            {
+                                deref_i(push.vsm_allocation_requests, idx) = AllocationRequest(vsm_page_wrapped_coords, 1);
+                            }
+                        }
+                    }
+                }
                 imageAtomicOr(
                     daxa_access(r32uiImage, push.vsm_meta_memory_table),
                     get_meta_coords_from_vsm_entry(prev_page_state),

@@ -39,6 +39,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_height_offsets)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
@@ -663,6 +664,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(MarkRequiredPagesH::AT.depth, info.depth),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_height_offsets, vsm_page_height_offsets_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
         },
         .render_context = info.render_context,
@@ -956,6 +958,9 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         clip_camera.bottom_plane_normal = glm::normalize(
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
+        const f32 near_plane = info.clip_0_near * curr_clip_scale;
+        const f32 far_plane = info.clip_0_far * curr_clip_scale;
+        const f32 near_to_far_range = far_plane - near_plane;
         clip_projections.at(clip) = VSMClipProjection{
             .page_align_axis = align_axis,
             .height_offset = view_offset_scale,
@@ -964,6 +969,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
             },
+            .near_to_far_range = near_to_far_range,
+            .near_dist = near_plane,
             .camera = clip_camera,
         };
     }
