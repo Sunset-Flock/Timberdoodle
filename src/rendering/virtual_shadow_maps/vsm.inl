@@ -77,7 +77,6 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_a
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
-DAXA_TH_IMAGE_ID(TRANSFER_WRITE, REGULAR_2D, vsm_overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH)
@@ -113,7 +112,6 @@ struct CullAndDrawPagesPush
     daxa_u32 draw_list_type;
     daxa_u32 bucket_index;
     daxa_ImageViewId daxa_u32_vsm_memory_view;
-    daxa_ImageViewId daxa_u32_vsm_overdraw_view;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
@@ -411,13 +409,6 @@ struct ClearPagesTask : ClearPagesH::Task
     {
         u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
-
-        ti.recorder.clear_image({
-            .dst_image_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .clear_value = std::array{0u, 0u, 0u, 0u},
-            .dst_image = ti.get(AT.vsm_overdraw_image).ids[0],
-            .dst_slice = {},
-        });
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
         ClearPagesH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
@@ -475,12 +466,6 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .image = ti.get(AT.vsm_memory_block).ids[0],
             .name = "vsm memory daxa_u32 view",
         });
-        auto const overdraw_image_view = render_context->gpuctx->device.create_image_view({
-            .type = daxa::ImageViewType::REGULAR_2D,
-            .format = daxa::Format::R32_UINT,
-            .image = ti.get(AT.vsm_overdraw_debug).ids[0],
-            .name = "vsm overdraw daxa_u32 view",
-        });
 
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 12 + timestamp_start_index});
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
@@ -501,7 +486,6 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
                     .draw_list_type = opaque_draw_list_type,
                     .bucket_index = i,
                     .daxa_u32_vsm_memory_view = memory_block_view,
-                    .daxa_u32_vsm_overdraw_view = overdraw_image_view,
                 };
                 ti.assign_attachment_shader_blob(push.attachments.value);
                 render_cmd.push_constant(push);
@@ -516,7 +500,6 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
         ti.recorder = std::move(render_cmd).end_renderpass();
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 13 + timestamp_start_index});
         ti.recorder.destroy_image_view_deferred(memory_block_view);
-        ti.recorder.destroy_image_view_deferred(overdraw_image_view);
     }
 };
 
@@ -723,13 +706,16 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .per_frame_timestamp_count = info.vsm_state->PER_FRAME_TIMESTAMP_COUNT,
     });
 
+    if (!info.vsm_state->overdraw_debug_image.is_null())
+    {
+        task_clear_image(*info.tg, info.vsm_state->overdraw_debug_image, std::array{0,0,0,0});
+    }
     info.tg->add_task(ClearPagesTask{
         .views = std::array{
             daxa::attachment_view(ClearPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
-            daxa::attachment_view(ClearPagesH::AT.vsm_overdraw_image, info.vsm_state->overdraw_debug_image),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,

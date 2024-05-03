@@ -174,7 +174,11 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
-        const uint overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords].x;
+        uint overdraw_amount = 0;
+        if (AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0)
+        {
+            overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords].x;
+        }
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
         bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                                  any(lessThan(in_page_texel_coords, int2(1)));
@@ -197,10 +201,11 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
         }
-        // {
-        //     const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
-        //     color.rgb = overdraw_color;
-        // }
+        if (AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0)
+        {
+            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
+            color.rgb = overdraw_color;
+        }
     } else {
         color = float3(1.0, 0.0, 0.0);
         if(get_is_dirty(page_entry)) {color = float3(0.0, 0.0, 1.0);}
@@ -453,7 +458,7 @@ void main(
 
         const bool visualize_clip_levels = AT_FROM_PUSH.globals->vsm_settings.visualize_clip_levels == 1;
         const float3 vsm_debug_color = visualize_clip_levels ? get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position) : float3(1.0f);
-        output_value.rgb = albedo.rgb * lighting * vsm_debug_color;
+        output_value.rgb = AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0 ? vsm_debug_color : albedo.rgb * lighting * vsm_debug_color;
         // output_value.rgb = vsm_debug_color;
     }
     else 
@@ -480,7 +485,7 @@ void main(
         AT_FROM_PUSH.globals->debug,
         AT_FROM_PUSH.debug_lens_image,
         index,
-        debug_value / float4(128),
+        float4(exposed_color, 1.0f),
     );
     RWTexture2D<float>::get(AT_FROM_PUSH.color_image)[index] = float4(exposed_color, output_value.a);
 }

@@ -4,6 +4,7 @@
 #include "../../gpu_context.hpp"
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/vsm_shared.inl"
+#include "../../shader_shared/vsm_shared.inl"
 
 struct VSMState
 {
@@ -14,7 +15,6 @@ struct VSMState
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
-    daxa::TaskImage overdraw_debug_image = {};
 
     // Transient state
     daxa::TaskBufferView allocation_count = {};
@@ -26,6 +26,7 @@ struct VSMState
     daxa::TaskBufferView clip_projections = {};
     daxa::TaskBufferView dirty_page_masks = {};
     daxa::TaskImageView dirty_pages_hiz = {};
+    daxa::TaskImageView overdraw_debug_image = {};
 
     daxa::TaskBufferView allocate_indirect = {};
     daxa::TaskBufferView clear_indirect = {};
@@ -40,6 +41,7 @@ struct VSMState
     VSMGlobals globals_cpu = {};
     static constexpr u32 VSM_TASK_COUNT = 11;
     static constexpr u32 PER_FRAME_TIMESTAMP_COUNT = VSM_TASK_COUNT * 2;
+
 
     void initialize_persitent_state(GPUContext * context)
     {
@@ -129,22 +131,6 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
-        overdraw_debug_image = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    context->device.create_image({
-                        .format = daxa::Format::R32_UINT,
-                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm overdraw debug image",
-                    })
-                }
-            },
-            .name = "vsm overdraw debug image"
-        });
-
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = context->device,
@@ -184,10 +170,9 @@ struct VSMState
         context->device.destroy_image(meta_memory_table.get_state().images[0]);
         context->device.destroy_image(page_table.get_state().images[0]);
         context->device.destroy_image(page_height_offsets.get_state().images[0]);
-        context->device.destroy_image(overdraw_debug_image.get_state().images[0]);
     }
 
-    void initialize_transient_state(daxa::TaskGraph & tg)
+    void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
     {
         free_wrapped_pages_info = tg.create_transient_buffer({
             .size = static_cast<daxa_u32>(sizeof(FreeWrappedPagesInfo) * VSM_CLIP_LEVELS),
@@ -241,7 +226,7 @@ struct VSMState
 
         meshlet_cull_arg_buckets_buffer_head = tg.create_transient_buffer({
             .size = static_cast<u32>(sizeof(MeshletCullArgBucketsBufferHead)),
-            .name = "vsm meshlett cull arg buckets buffers"
+            .name = "vsm meshlett cull arg buckets buffers",
         });
 
         auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};
@@ -252,7 +237,18 @@ struct VSMState
             .size = hiz_size,
             .mip_level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
             .array_layer_count = VSM_CLIP_LEVELS,
-            .name = "vsm dirty hiz"
+            .name = "vsm dirty hiz",
         });
+
+        overdraw_debug_image = daxa::NullTaskImage;
+        if (rgd.vsm_settings.enable_overdraw_visualization)
+        {
+            overdraw_debug_image = tg.create_transient_image({
+                .dimensions = 2,
+                .format = daxa::Format::R32_UINT,
+                .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
+                .name = "vsm overdraw debug image",
+            }); 
+        }
     }
 };

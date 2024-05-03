@@ -305,7 +305,10 @@ void vsm_entry_fragment_opaque(
                 push.attachments.vsm_clip_projections
             ))
         );
-        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
+        if (push.attachments.vsm_overdraw_debug.index() != 0)
+        {
+            InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
+        }
     }
 }
 
@@ -356,6 +359,9 @@ void vsm_entry_fragment_masked(
                 push.attachments.vsm_clip_projections
             ))
         );
-        InterlockedAdd(RWTexture2D_utable[push.daxa_u32_vsm_overdraw_view.index()][physical_texel_coords], 1);
+        if (push.attachments.vsm_overdraw_debug.index() != 0)
+        {
+            InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
+        }
     }
 }

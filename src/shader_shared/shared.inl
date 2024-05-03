@@ -134,6 +134,7 @@ struct VSMSettings
     daxa_f32 clip_selection_bias;
     daxa_f32 slope_bias;
     daxa_f32 constant_bias;
+    daxa_i32 enable_overdraw_visualization; 
 #if defined(__cplusplus)
     VSMSettings()
         : visualize_clip_levels{ 0 },
@@ -143,7 +144,8 @@ struct VSMSettings
           clip_0_frustum_scale{2.0f},
           clip_selection_bias{0.3f},
           slope_bias{2.0f},
-          constant_bias{10.0f}
+          constant_bias{10.0f},
+          enable_overdraw_visualization{0}
     {
     }
 #endif

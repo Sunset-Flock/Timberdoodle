@@ -426,7 +426,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
-    task_list.use_persistent_image(vsm_state.overdraw_debug_image);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_page_table);
     task_list.use_persistent_image(context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
@@ -591,7 +590,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .dvmaa_depth_image = dvmaa_depth,
     });
 
-    vsm_state.initialize_transient_state(task_list);
+    vsm_state.initialize_transient_state(task_list, render_context->render_data);
     task_clear_buffer(task_list, vsm_state.allocation_count, 0);
     task_clear_buffer(task_list, vsm_state.find_free_pages_header, 0);
     task_draw_vsms({
@@ -824,8 +823,9 @@ void Renderer::render_frame(
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
+    bool const vsm_settings_changed = render_context->render_data.vsm_settings.enable_overdraw_visualization != render_context->prev_vsm_settings.enable_overdraw_visualization;
     // Sky is transient of main task graph
-    if (settings_changed || sky_res_changed_flags.sky_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed)
     {
         main_task_graph = create_main_task_graph();
     }
