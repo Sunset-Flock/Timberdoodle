@@ -20,8 +20,7 @@ void downsample_64x64(
     uvec2 grid_index,
     uvec2 min_mip_size,
     int src_mip,
-    int mip_count
-)
+    int mip_count)
 {
     const vec2 invSize = 1.0f / vec2(min_mip_size);
     vec4 quad_values = vec4(0,0,0,0);
@@ -91,7 +90,7 @@ shared bool s_last_workgroup;
 layout(local_size_x = GEN_HIZ_X, local_size_y = GEN_HIZ_Y) in;
 void main()
 {
-    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, deref(push.uses.globals).settings.render_target_size, -1, 6);
+    downsample_64x64(gl_LocalInvocationID.xy, gl_WorkGroupID.xy, (deref(push.uses.globals).settings.next_lower_po2_render_target_size * 2), -1, 6);
 
     if (gl_LocalInvocationID.x == 0 && gl_LocalInvocationID.y == 0)
     {
@@ -103,6 +102,6 @@ void main()
 
     if (s_last_workgroup)
     {
-        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), deref(push.uses.globals).settings.render_target_size >> 6, 5, int(push.mip_count - 6));
+        downsample_64x64(gl_LocalInvocationID.xy, uvec2(0,0), (deref(push.uses.globals).settings.next_lower_po2_render_target_size * 2) >> 6, 5, int(push.mip_count - 6));
     }
 }

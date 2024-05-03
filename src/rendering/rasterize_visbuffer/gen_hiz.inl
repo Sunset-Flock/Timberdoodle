@@ -31,6 +31,7 @@ struct GenHizPush
 
 #include <format>
 #include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 
 inline daxa::ComputePipelineCompileInfo gen_hiz_pipeline_compile_info()
 {
@@ -48,8 +49,12 @@ struct GenHizTask : GenHizTH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_hiz_pipeline_compile_info().name));
-        auto const dispatch_x = round_up_div(render_context->render_data.settings.render_target_size.x, GEN_HIZ_WINDOW_X);
-        auto const dispatch_y = round_up_div(render_context->render_data.settings.render_target_size.y, GEN_HIZ_WINDOW_Y);
+        daxa_u32vec2 next_higher_po2_render_target_size = {
+            render_context->render_data.settings.next_lower_po2_render_target_size.x,
+            render_context->render_data.settings.next_lower_po2_render_target_size.y,
+        };
+        auto const dispatch_x = round_up_div(next_higher_po2_render_target_size.x * 2, GEN_HIZ_WINDOW_X);
+        auto const dispatch_y = round_up_div(next_higher_po2_render_target_size.y * 2, GEN_HIZ_WINDOW_Y);
         GenHizPush push = {
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
             .mip_count = ti.get(AT.mips).view.slice.level_count,
@@ -71,10 +76,14 @@ struct TaskGenHizSinglePassInfo
 };
 void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
 {
+    // daxa_u32vec2 const hiz_size =
+    //     daxa_u32vec2(info.render_context->render_data.settings.render_target_size.x / 2, 
+    //     info.render_context->render_data.settings.render_target_size.y / 2);
     daxa_u32vec2 const hiz_size =
-        daxa_u32vec2(info.render_context->render_data.settings.render_target_size.x / 2, info.render_context->render_data.settings.render_target_size.y / 2);
+        daxa_u32vec2(info.render_context->render_data.settings.next_lower_po2_render_target_size.x, 
+        info.render_context->render_data.settings.next_lower_po2_render_target_size.y);
     daxa_u32 mip_count = static_cast<daxa_u32>(std::ceil(std::log2(std::max(hiz_size.x, hiz_size.y))));
-    mip_count = std::min(mip_count, u32(GEN_HIZ_LEVELS_PER_DISPATCH)) - 1;
+    mip_count = std::min(mip_count, u32(GEN_HIZ_LEVELS_PER_DISPATCH));
     *info.hiz = info.task_graph.create_transient_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = {hiz_size.x, hiz_size.y, 1},

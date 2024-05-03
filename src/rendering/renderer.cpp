@@ -776,8 +776,14 @@ void Renderer::render_frame(
         render_context->render_data.settings.render_target_size.x = render_target_size.x;
         render_context->render_data.settings.render_target_size.y = render_target_size.y;
         render_context->render_data.settings.render_target_size_inv = {
-            1.0f / render_target_size.x,
-            1.0f / render_target_size.y,
+            1.0f / render_context->render_data.settings.render_target_size.x,
+            1.0f / render_context->render_data.settings.render_target_size.y,
+        };
+        render_context->render_data.settings.next_lower_po2_render_target_size.x = find_next_lower_po2(render_target_size.x);
+        render_context->render_data.settings.next_lower_po2_render_target_size.y = find_next_lower_po2(render_target_size.y);
+        render_context->render_data.settings.next_lower_po2_render_target_size_inv = {
+            1.0f / render_context->render_data.settings.next_lower_po2_render_target_size.x,
+            1.0f / render_context->render_data.settings.next_lower_po2_render_target_size.y,
         };
         render_context->scene_draw = scene_draw;
 

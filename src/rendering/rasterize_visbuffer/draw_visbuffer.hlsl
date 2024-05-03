@@ -427,6 +427,7 @@ func entry_task_cull_draw_opaque_and_mask(
             push.uses.first_pass_meshlets_bitfield_arena,
             push.uses.entity_combined_transforms,
             push.uses.meshes,
+            push.uses.globals->settings.next_lower_po2_render_target_size,
             push.uses.hiz);
     }
 #endif

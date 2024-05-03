@@ -153,10 +153,11 @@ NdcAABB calculate_meshlet_ndc_aabb(
 bool is_ndc_aabb_hiz_depth_occluded(
     CameraInfo camera,
     NdcAABB meshlet_ndc_aabb,
+    daxa_u32vec2 hiz_res,
     daxa_ImageViewId hiz
 )
 {
-    const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
+    const daxa_f32vec2 f_hiz_resolution = hiz_res;
     const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
@@ -233,6 +234,7 @@ bool is_meshlet_occluded(
     U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
+    daxa_u32vec2 hiz_res,
     daxa_ImageViewId hiz
 )
 {
@@ -265,7 +267,7 @@ bool is_meshlet_occluded(
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
-    const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz);
+    const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz_res, hiz);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
     if (depth_cull)
