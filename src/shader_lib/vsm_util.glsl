@@ -81,6 +81,7 @@ struct ClipInfo
 {
     daxa_i32 clip_level;
     daxa_f32vec2 clip_depth_uv;
+    daxa_f32 clip_depth;
 };
 
 struct ClipFromUVsInfo
@@ -169,7 +170,7 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
     const daxa_f32vec4 sun_projected_world_position = mul(deref_i(info.clip_projections, clip_level).camera.view_proj, daxa_f32vec4(center_world_space, 1.0)); 
     const daxa_f32vec3 sun_ndc_position = sun_projected_world_position.xyz / sun_projected_world_position.w; 
     const daxa_f32vec2 sun_depth_uv = (sun_ndc_position.xy + daxa_f32vec2(1.0)) / daxa_f32vec2(2.0); 
-    return ClipInfo(clip_level, sun_depth_uv);
+    return ClipInfo(clip_level, sun_depth_uv, sun_ndc_position.z);
 }
 
 daxa_i32vec3 vsm_page_coords_to_wrapped_coords(daxa_i32vec3 page_coords, daxa_BufferPtr(VSMClipProjection) clip_projections)

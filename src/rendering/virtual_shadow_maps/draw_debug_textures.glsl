@@ -23,18 +23,18 @@ void main()
         const uint page_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), page_entry_coords).r;
         vec4 color = vec4(0.0, 0.0, 0.0, 1.0);
 
-        if      (get_requests_allocation(page_entry)) { color = vec4(0.0, 0.0, 1.0, 1.0); }
+        // if      (get_requests_allocation(page_entry)) { color = vec4(0.0, 0.0, 1.0, 1.0); }
         // else if (get_allocation_failed(page_entry))   { color = vec4(1.0, 0.0, 0.0, 1.0); }
-        // else if (get_is_dirty(page_entry))            { color = vec4(0.0, 0.0, 1.0, 1.0); }
+        if (get_is_dirty(page_entry))            { color = vec4(0.0, 0.0, 1.0, 1.0); }
         else if (get_is_allocated(page_entry))
         {
             color.rgb = hsv2rgb(vec3(pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
         }
 
-        if (get_is_visited_marked(page_entry))
-        { 
-            color.rgb = hsv2rgb(vec3(pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
-        }
+        // if (get_is_visited_marked(page_entry))
+        // { 
+        //     color.rgb = hsv2rgb(vec3(pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
+        // }
 
         const ivec2 base_pix_pos = ivec2(gl_GlobalInvocationID.xy);
         imageStore(daxa_image2D(push.vsm_debug_page_table), base_pix_pos, color);

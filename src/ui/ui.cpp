@@ -170,6 +170,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             bool visualize_clip_levels = s_cast<bool>(render_ctx.render_data.vsm_settings.visualize_clip_levels);
             bool force_clip_level = s_cast<bool>(render_ctx.render_data.vsm_settings.force_clip_level);
             bool enable_caching = s_cast<bool>(render_ctx.render_data.vsm_settings.enable_caching);
+            bool enable_overdraw_visualization = s_cast<bool>(render_ctx.render_data.vsm_settings.enable_overdraw_visualization);
             ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
             {
                 ImGui::Text("Draw cascade frustum");
@@ -197,6 +198,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::Checkbox("Visualize clip levels", &visualize_clip_levels);
             ImGui::Checkbox("Force clip level", &force_clip_level);
             ImGui::Checkbox("Enable caching", &enable_caching);
+            ImGui::Checkbox("Enable overdraw debug visualization", &enable_overdraw_visualization);
             ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
             ImGui::SliderFloat("Clip selection bias", &render_ctx.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
             ImGui::SliderFloat("Slope bias", &render_ctx.render_data.vsm_settings.slope_bias, 0.0, 10.0);
@@ -209,6 +211,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             render_ctx.render_data.vsm_settings.force_clip_level = force_clip_level;
             render_ctx.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
             render_ctx.render_data.vsm_settings.enable_caching = enable_caching;
+            render_ctx.render_data.vsm_settings.enable_overdraw_visualization = enable_overdraw_visualization;
 
             ImGui::Image(
                 imgui_renderer.create_texture_id({

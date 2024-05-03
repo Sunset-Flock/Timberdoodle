@@ -136,3 +136,20 @@ template <class F> deferrer<F> operator*(defer_dummy, F f)
 
 #define SANE_STATIC_END \
     return value; } 
+
+inline constexpr auto find_msb(daxa::u32 v) -> daxa::u32
+{
+    daxa::u32 index = 0;
+    while (v != 0)
+    {
+        v = v >> 1;
+        index = index + 1;
+    }
+    return index;
+}
+
+inline constexpr auto find_next_lower_po2(daxa::u32 v) -> daxa::u32
+{
+    auto const msb = find_msb(v);
+    return 1u << ((msb == 0 ? 1 : msb) - 1);
+}

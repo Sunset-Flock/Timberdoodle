@@ -134,6 +134,7 @@ struct VSMSettings
     daxa_f32 clip_selection_bias;
     daxa_f32 slope_bias;
     daxa_f32 constant_bias;
+    daxa_i32 enable_overdraw_visualization; 
 #if defined(__cplusplus)
     VSMSettings()
         : visualize_clip_levels{ 0 },
@@ -143,7 +144,8 @@ struct VSMSettings
           clip_0_frustum_scale{2.0f},
           clip_selection_bias{0.3f},
           slope_bias{2.0f},
-          constant_bias{10.0f}
+          constant_bias{10.0f},
+          enable_overdraw_visualization{0}
     {
     }
 #endif
@@ -152,8 +154,11 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 struct Settings
 {
     daxa_u32vec2 render_target_size;
-    daxa_u32vec2 window_size;
     daxa_f32vec2 render_target_size_inv;
+    // Used by occlusion cull textures:
+    daxa_u32vec2 next_lower_po2_render_target_size;
+    daxa_f32vec2 next_lower_po2_render_target_size_inv;
+    daxa_u32vec2 window_size;
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
     daxa_i32 anti_aliasing_mode;
@@ -168,8 +173,10 @@ struct Settings
     }
     Settings()
         : render_target_size{16, 16},
-          window_size{16, 16},
           render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
+          next_lower_po2_render_target_size{render_target_size.x, render_target_size.y},
+          next_lower_po2_render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
+          window_size{16, 16},
           draw_from_observer{0},
           observer_show_pass{0},
           anti_aliasing_mode{AA_MODE_NONE}
