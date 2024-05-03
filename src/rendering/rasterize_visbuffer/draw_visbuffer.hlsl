@@ -9,6 +9,8 @@
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
 
+#define CULL_BACKFACES 1
+
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 [[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
@@ -208,6 +210,7 @@ interface MeshShaderVertexT
 interface MeshShaderPrimitiveT
 {
     DECL_GET_SET(uint, visibility_id)
+    DECL_GET_SET(bool, cull_primitive)
 }
 
 
@@ -222,6 +225,8 @@ struct MeshShaderOpaquePrimitive : MeshShaderPrimitiveT
 {
     nointerpolation [[vk::location(0)]] uint visibility_id;
     IMPL_GET_SET(uint, visibility_id)
+    bool cull_primitive : SV_CullPrimitive;
+    IMPL_GET_SET(bool, cull_primitive)
 };
 
 
@@ -238,9 +243,14 @@ struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
 {
     nointerpolation [[vk::location(0)]] uint visibility_id;
     nointerpolation [[vk::location(1)]] uint material_index;
+    bool cull_primitive : SV_CullPrimitive;
+    IMPL_GET_SET(bool, cull_primitive)
     IMPL_GET_SET(uint, visibility_id)
 };
 
+#if CULL_BACKFACES
+    groupshared float4 clip_vert_positions[MAX_VERTICES_PER_MESHLET];
+#endif
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     DrawVisbufferPush push,
     in uint3 svtid,
@@ -248,7 +258,8 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     uint meshlet_inst_index,
-    MeshletInstance meshlet_inst)
+    MeshletInstance meshlet_inst,
+    bool cull_backfaces)
 {    
     const GPUMesh mesh = deref_i(push.uses.meshes, meshlet_inst.mesh_index);
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
@@ -277,6 +288,9 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
         V vertex;
+    #if CULL_BACKFACES
+        clip_vert_positions[in_meshlet_vertex_index] = pos;
+    #endif
         vertex.set_position(pos);
         if (V is MeshShaderMaskVertex)
         {
@@ -301,6 +315,20 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
+
+    #if CULL_BACKFACES
+        const float4[3] tri_vert_ndc_positions = float4[3](
+            clip_vert_positions[tri_in_meshlet_vertex_indices[0]],
+            clip_vert_positions[tri_in_meshlet_vertex_indices[1]],
+            clip_vert_positions[tri_in_meshlet_vertex_indices[2]]
+        );
+        // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
+        const bool is_backface =
+            determinant(float3x3(
+                tri_vert_ndc_positions[0].xyw,
+                tri_vert_ndc_positions[1].xyw,
+                tri_vert_ndc_positions[2].xyw)) >= 0;
+    #endif
         
         out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
         uint visibility_id;
@@ -308,6 +336,12 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
         P primitive;
         primitive.set_visibility_id(visibility_id);
+    #if CULL_BACKFACES
+        let cull_primitive = is_backface && cull_backfaces;
+    #else
+        let cull_primitive = false;
+    #endif
+        primitive.set_cull_primitive(cull_primitive);
         if (P is MeshShaderMaskPrimitive)
         {
             var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
@@ -334,7 +368,17 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
         deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
     const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
-    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst);
+
+    bool cull_backfaces = false;
+    #if CULL_BACKFACES
+        if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
+        {
+            // cull_backfaces = false;
+            GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
+            cull_backfaces = !material.alpha_discard_enabled;
+        }
+    #endif
+    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
 }
 
 // --- Mesh shader opaque ---
@@ -396,6 +440,7 @@ struct CullMeshletsDrawVisbufferPayload
     uint task_shader_wg_meshlet_args_offset;
     uint task_shader_meshlet_instances_offset;
     uint task_shader_surviving_meshlets_mask;
+    bool enable_backface_culling;
 };
 
 [shader("amplification")]
@@ -460,6 +505,18 @@ func entry_task_cull_draw_opaque_and_mask(
         deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = meshlet_instance_idx;
     }
 
+    payload.enable_backface_culling = false;
+    #if CULL_BACKFACES
+        if (WaveIsFirstLane() && valid_meshlet)
+        {
+            if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
+            {
+                GPUMaterial material = push.uses.material_manifest[instanced_meshlet.material_index];
+                payload.enable_backface_culling = !material.alpha_discard_enabled;
+            }
+        }
+    #endif
+
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
 
@@ -516,9 +573,8 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     
-
-    // SetMeshOutputCounts(0,0);
-    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst);
+    let cull_backfaces = payload.enable_backface_culling;
+    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
 }
 
 [outputtopology("triangle")]
