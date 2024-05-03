@@ -834,9 +834,6 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
     to_rotation_inv_matrix[0] = f32vec4(xy_forward.x, xy_right.x, 0.0, 0.0);
     to_rotation_inv_matrix[1] = f32vec4(xy_forward.y, xy_right.y, 0.0, 0.0);
 
-    // auto const to_rotation_inv_matrix = glm::inverse(rotation_matrix);
-    auto const ablůskjd = to_rotation_inv_matrix * xy_forward;
-
     f32vec3 const rotation_inv_vsm_forward = to_rotation_inv_matrix * f32vec4(default_vsm_forward, 0.0f);
     auto const rotation_inv_vsm_view = glm::lookAt(default_vsm_pos, rotation_inv_vsm_forward, default_vsm_up);
 
@@ -863,7 +860,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
 
     // 0 == x, 2 == z
     f32 const elevation_angle = glm::asin(rotation_inv_vsm_forward.z / std::sqrt(std::pow(rotation_inv_vsm_forward.x, 2.0f) + std::pow(rotation_inv_vsm_forward.z, 2.0f)));
-    auto const align_axis = (90.0f + glm::degrees(elevation_angle)) > 45.0f ? 0 : 2;
+    auto const align_axis = (90.0f + glm::degrees(elevation_angle)) > 45.0f ? PAGE_ALIGN_AXIS_X : PAGE_ALIGN_AXIS_Z;
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
         auto const curr_clip_proj = calculate_clip_projection(clip);
@@ -920,8 +917,6 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
         auto const final_clip_projection_view = curr_clip_proj * final_clip_view;
 
-        auto const page_u_depth_offset = 0.0f;
-
         auto const rotation_invar_inv_proj_view = glm::inverse(curr_clip_proj * rotation_inv_vsm_view);
         auto const near_offset_inv_ndc_v_in_world = rotation_invar_inv_proj_view * glm::vec4(0.0, ndc_page_size, 0.0, 1.0);
         auto const inv_ndc_v_in_world = glm::vec3(near_offset_inv_ndc_v_in_world) + curr_clip_near * -rotation_inv_vsm_forward;
@@ -931,7 +926,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const final_rot_inv_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(rotation_inv_vsm_forward), default_vsm_up);
         auto const final_rot_inv_clip_projection_view = curr_clip_proj * final_rot_inv_clip_view;
         auto const inv_origin_shift = (final_rot_inv_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
-        auto const page_v_depth_offset = (final_rot_inv_clip_projection_view * glm::vec4(v_inv_offset_vector, 1.0)).z - inv_origin_shift;
+        auto const page_depth_offset = (final_rot_inv_clip_projection_view * glm::vec4(v_inv_offset_vector, 1.0)).z - inv_origin_shift;
 
         auto clip_camera = CameraInfo{
             .view = final_clip_view,
@@ -976,8 +971,9 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
         clip_projections.at(clip) = VSMClipProjection{
+            .page_align_axis = align_axis,
             .height_offset = view_offset_scale,
-            .depth_page_offset = {page_u_depth_offset, page_v_depth_offset},
+            .depth_page_offset = page_depth_offset,
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
@@ -1043,10 +1039,15 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
                     auto const virtual_uv = corner_virtual_uv + page_center_virtual_uv_offset;
 
                     auto const page_index = glm::ivec2(virtual_uv * s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION));
-                    // f32 const depth =
-                    //     ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.x) * clip_projection.depth_page_offset.x +
-                    //     ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset.y;
-                    f32 const depth = -page_index.y * clip_projection.depth_page_offset.y;
+                    f32 depth;
+                    if (clip_projection.page_align_axis == PAGE_ALIGN_AXIS_X)
+                    {
+                        depth = -page_index.y * clip_projection.depth_page_offset;
+                    }
+                    else
+                    {
+                        depth = ((VSM_PAGE_TABLE_RESOLUTION - 1) - page_index.y) * clip_projection.depth_page_offset;
+                    }
                     auto const virtual_page_ndc = (virtual_uv * 2.0f) - glm::vec2(1.0f);
                     auto const page_ndc_position = glm::vec4(virtual_page_ndc, -depth, 1.0);
                     auto const new_position = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * page_ndc_position;
