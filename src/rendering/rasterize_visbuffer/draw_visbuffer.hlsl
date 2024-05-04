@@ -51,122 +51,6 @@ struct FragmentOut
     [[vk::location(0)]] uint visibility_id;
 };
 
-interface VertexT
-{
-    DECL_GET_SET(float4, position)
-    DECL_GET_SET(uint, visibility_id)
-    static const uint DRAW_LIST_TYPE;
-}
-
-struct OpaqueVertex : VertexT
-{
-    float4 position : SV_Position;
-    [[vk::location(0)]] nointerpolation uint visibility_id;
-    IMPL_GET_SET(float4, position)
-    IMPL_GET_SET(uint, visibility_id)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_OPAQUE;
-};
-
-struct MaskedVertex : VertexT
-{
-    float4 position : SV_Position;
-    [[vk::location(0)]] nointerpolation uint visibility_id;
-    [[vk::location(1)]] float2 uv;
-    [[vk::location(2)]] nointerpolation uint material_index;
-    [[vk::location(3)]] float3 object_space_position;
-    IMPL_GET_SET(float4, position)
-    IMPL_GET_SET(uint, visibility_id)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASK;
-}
-
-func generic_vertex<V : VertexT>(
-    uint sv_vertex_index,
-    uint sv_instance_index) -> V
-{
-    const uint triangle_corner_index = sv_vertex_index % 3;
-    const uint inst_meshlet_index = get_meshlet_instance_index(
-        draw_p.uses.globals,
-        draw_p.uses.meshlet_instances, 
-        draw_p.pass, 
-        V::DRAW_LIST_TYPE,
-        sv_instance_index);
-    const uint triangle_index = sv_vertex_index / 3;
-    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
-    const GPUMesh mesh = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index);
-    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
-
-    // Discard triangle indices that are out of bounds of the meshlets triangle list.
-    if (triangle_index >= meshlet.triangle_count)
-    {
-        V vertex;
-        vertex.set_position(float4(2, 2, 2, 1));
-        return vertex;
-    }
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(draw_p.uses.meshes, meshlet_inst.mesh_index).micro_indices;
-    const uint micro_index = get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + triangle_corner_index);
-    uint vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + micro_index);
-
-    vertex_index = min(vertex_index, mesh.vertex_count - 1);
-    const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, vertex_index), 1);
-    const daxa_f32mat4x4 view_proj = (draw_p.pass > PASS1_DRAW_POST_CULL) ? deref(draw_p.uses.globals).observer_camera.view_proj : deref(draw_p.uses.globals).camera.view_proj;
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(draw_p.uses.entity_combined_transforms, meshlet_inst.entity_index);
-    const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
-    const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
-
-    uint vis_id = 0;
-    encode_triangle_id(inst_meshlet_index, triangle_index, vis_id);
-    V vertex;
-    vertex.set_position(pos);
-    vertex.set_visibility_id(vis_id);
-    if (V is MaskedVertex)
-    {
-        MaskedVertex mvertex = reinterpret<MaskedVertex>(vertex);
-        mvertex.material_index = meshlet_inst.material_index;
-        mvertex.uv = float2(0,0);
-        if (as_address(mesh.vertex_uvs) != 0)
-        {
-            mvertex.uv = deref_i(mesh.vertex_uvs, vertex_index);
-        }
-        vertex = reinterpret<V>(mvertex);
-    }
-    return vertex;
-}
-
-func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::SamplerId sampler, daxa::ImageViewId overdraw_image) -> FragmentOut
-{
-    FragmentOut ret;
-    ret.visibility_id = vertex.get_visibility_id();
-    if (V is MaskedVertex && daxa::u64(materials) != 0)
-    {
-        MaskedVertex mvertex = reinterpret<MaskedVertex>(vertex);
-        if (mvertex.material_index != INVALID_MANIFEST_INDEX)
-        {
-            GPUMaterial material = deref_i(materials, mvertex.material_index);
-            float alpha = 1.0;
-            if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
-            {
-                alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .SampleLevel( SamplerState::get(sampler), mvertex.uv, 2).a; 
-            }
-            else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
-            {
-                alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .SampleLevel( SamplerState::get(sampler), mvertex.uv, 2).a; 
-            }
-            // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
-            // const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
-            // if (alpha < clamp(threshold, 0.001, 1.0)) // { discard; }
-            if(alpha < 0.5) { discard; }
-        }
-    }
-    if (overdraw_image.value != 0)
-    {
-        uint prev_val;
-        InterlockedAdd(RWTexture2D_utable[overdraw_image.index()][vertex.get_position().xy], 1, prev_val);
-    }
-    return ret;
-}
-
 interface FragmentExtraData
 {
 
@@ -182,7 +66,7 @@ struct NoFragmentExtraData : FragmentExtraData
 {
 
 };
-func generic_fragment2<ExtraData : FragmentExtraData>(uint2 index, uint vis_id, daxa::ImageViewId overdraw_image, ExtraData extra) -> FragmentOut
+func generic_fragment<ExtraData : FragmentExtraData>(uint2 index, uint vis_id, daxa::ImageViewId overdraw_image, ExtraData extra) -> FragmentOut
 {
     FragmentOut ret;
     ret.visibility_id = vis_id;
@@ -409,7 +293,7 @@ func entry_mesh_opaque(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    return generic_fragment2(
+    return generic_fragment(
         uint2(vert.position.xy),
         prim.visibility_id,
         draw_p.uses.overdraw_image,
@@ -436,7 +320,7 @@ func entry_mesh_mask(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
 {
-    return generic_fragment2(
+    return generic_fragment(
         uint2(vert.position.xy),
         prim.visibility_id,
         draw_p.uses.overdraw_image,
@@ -653,7 +537,7 @@ func entry_mesh_cull_draw_mask(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    return generic_fragment2(
+    return generic_fragment(
         uint2(vert.position.xy),
         prim.visibility_id,
         cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
@@ -664,7 +548,7 @@ FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert,
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
 {  
-    return generic_fragment2(
+    return generic_fragment(
         uint2(vert.position.xy),
         prim.visibility_id,
         cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
