@@ -24,7 +24,7 @@ void CameraController::process_input(Window & window, f32 dt)
     else { bZoom = false; }
 
     glm::vec3 right = glm::cross(forward, up);
-    glm::vec3 fake_up = glm::cross(right, forward);
+    glm::vec3 fake_up = glm::normalize(glm::cross(right, forward));
     if (window.is_cursor_captured())
     {
         if (window.key_pressed(GLFW_KEY_W)) { position += forward * speed * dt; }
@@ -33,6 +33,8 @@ void CameraController::process_input(Window & window, f32 dt)
         if (window.key_pressed(GLFW_KEY_D)) { position += glm::normalize(glm::cross(forward, up)) * speed * dt; }
         if (window.key_pressed(GLFW_KEY_SPACE)) { position += fake_up * speed * dt; }
         if (window.key_pressed(GLFW_KEY_LEFT_ALT)) { position -= fake_up * speed * dt; }
+        if (window.key_pressed(GLFW_KEY_Q)) { position -= up * speed * dt; }
+        if (window.key_pressed(GLFW_KEY_E)) { position += up * speed * dt; }
         pitch += window.get_cursor_change_y() * cameraSwaySpeed;
         pitch = std::clamp(pitch, -85.0f, 85.0f);
         yaw += window.get_cursor_change_x() * cameraSwaySpeed;
