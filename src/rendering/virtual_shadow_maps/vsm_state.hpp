@@ -5,6 +5,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/vsm_shared.inl"
+#include "../tasks/misc.hpp"
 
 struct VSMState
 {
@@ -250,5 +251,25 @@ struct VSMState
                 .name = "vsm overdraw debug image",
             }); 
         }
+
+        task_clear_buffer(tg, allocation_count, 0);
+        task_clear_buffer(tg, find_free_pages_header, 0);
+    }
+
+    void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
+    {
+        free_wrapped_pages_info = daxa::NullTaskBuffer;
+        allocation_count = daxa::NullTaskBuffer;
+        allocation_requests = daxa::NullTaskBuffer;
+        free_page_buffer = daxa::NullTaskBuffer;
+        not_visited_page_buffer = daxa::NullTaskBuffer;
+        find_free_pages_header = daxa::NullTaskBuffer;
+        clip_projections = daxa::NullTaskBuffer;
+        allocate_indirect = daxa::NullTaskBuffer;
+        clear_indirect = daxa::NullTaskBuffer;
+        clear_dirty_bit_indirect = daxa::NullTaskBuffer;
+        meshlet_cull_arg_buckets_buffer_head = daxa::NullTaskBuffer;
+        dirty_pages_hiz = daxa::NullTaskImage;
+        overdraw_debug_image = daxa::NullTaskImage;
     }
 };

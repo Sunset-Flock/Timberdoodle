@@ -67,8 +67,15 @@ void main()
     uvec4 meshlet_instance_indices;
     [[unroll]] for (uint i = 0; i < 4; ++i)
     {
-        triangle_masks[i] = triangle_mask_bit_from_triangle_index(triangle_index_from_triangle_id(vis_ids[i]));
         meshlet_instance_indices[i] = meshlet_instance_index_from_triangle_id(vis_ids[i]);
+        triangle_masks[i] = triangle_mask_bit_from_triangle_index(triangle_index_from_triangle_id(vis_ids[i]));
+        #if SHADER_DEBUG_VISBUFFER
+            if (meshlet_instance_indices[i] >= MAX_MESHLET_INSTANCES && vis_ids[i] != INVALID_TRIANGLE_ID)
+            {
+                debugPrintfEXT("Detected invalid meshlet instance index: %i\n", meshlet_instance_indices[i]);
+                list_mask = list_mask & (~(1u << i));
+            }
+        #endif
     }
     uint assigned_meshlet_instance_index = ~0;
     uint assigned_triangle_mask = 0;

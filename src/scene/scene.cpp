@@ -16,13 +16,13 @@ Scene::Scene(daxa::Device device)
 {
     /// TODO: THIS IS TEMPORARY! Make manifest and entity buffers growable!
     _gpu_entity_meta = tido::make_task_buffer(_device, sizeof(GPUEntityMetaData), "_gpu_entity_meta");
-    _gpu_entity_parents = tido::make_task_buffer(_device, sizeof(RenderEntityId) * MAX_ENTITY_COUNT, "_gpu_entity_parents");
-    _gpu_entity_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITY_COUNT, "_gpu_entity_transforms");
-    _gpu_entity_combined_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITY_COUNT, "_gpu_entity_combined_transforms");
-    _gpu_entity_mesh_groups = tido::make_task_buffer(_device, sizeof(u32) * MAX_ENTITY_COUNT, "_gpu_entity_mesh_groups");
-    _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_ENTITY_COUNT, "_gpu_mesh_manifest");
-    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_ENTITY_COUNT, "_gpu_mesh_group_manifest");
-    _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIAL_COUNT, "_gpu_material_manifest");
+    _gpu_entity_parents = tido::make_task_buffer(_device, sizeof(RenderEntityId) * MAX_ENTITIES, "_gpu_entity_parents");
+    _gpu_entity_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITIES, "_gpu_entity_transforms");
+    _gpu_entity_combined_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITIES, "_gpu_entity_combined_transforms");
+    _gpu_entity_mesh_groups = tido::make_task_buffer(_device, sizeof(u32) * MAX_ENTITIES, "_gpu_entity_mesh_groups");
+    _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_ENTITIES, "_gpu_mesh_manifest");
+    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_ENTITIES, "_gpu_mesh_group_manifest");
+    _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _scene_draw.opaque_draw_list_buffer = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
 }
 

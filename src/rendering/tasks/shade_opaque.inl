@@ -95,9 +95,17 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         ti.recorder.push_constant(push);
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
-        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS, .query_index = 20 + timestamp_start_index});
+        // TODO(msakmary): make nicer:
+        if (render_context->render_data.vsm_settings.enable)
+        {
+            ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS, .query_index = 20 + timestamp_start_index});
+        }
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
+        // TODO(msakmary): make nicer:
+        if (render_context->render_data.vsm_settings.enable)
+        {
+            ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
+        }
     }
 };
 #endif

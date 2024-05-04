@@ -237,7 +237,7 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     // Each entities list has entries for each mesh instance of that entity.
     // THe entries are offsets into the arena, pointing to that mesh instances bitfield.
     auto ent_to_mesh_inst_offsets_offsets = info.task_graph.create_transient_buffer({
-        .size = sizeof(daxa_u32) * MAX_ENTITY_COUNT,
+        .size = sizeof(daxa_u32) * MAX_ENTITIES,
         .name = "entity_to_mesh_group_offsets_buffer",
     });
     auto first_pass_meshlets_bitfield_arena = info.task_graph.create_transient_buffer({

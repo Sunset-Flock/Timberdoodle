@@ -876,6 +876,8 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     // TODO: Compute OBBs
     std::vector<BoundingSphere> meshlet_bounds(meshlet_count);
     std::vector<AABB> meshlet_aabbs(meshlet_count);
+    glm::vec3 mesh_min_pos;
+    glm::vec3 mesh_max_pos;
     for (size_t meshlet_i = 0; meshlet_i < meshlet_count; ++meshlet_i)
     {
         meshopt_Bounds raw_bounds = meshopt_computeMeshletBounds(
@@ -893,16 +895,27 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         glm::vec3 min_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
         glm::vec3 max_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
 
+        if (meshlet_i == 0)
+        {
+            mesh_min_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+            mesh_max_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+        }
+
         for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
         {
             glm::vec3 pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
             min_pos = glm::min(min_pos, pos);
             max_pos = glm::max(max_pos, pos);
         }
+        mesh_min_pos = glm::min(mesh_min_pos, min_pos);
+        mesh_max_pos = glm::max(mesh_max_pos, max_pos);
 
         meshlet_aabbs[meshlet_i].center = std::bit_cast<daxa_f32vec3>( (max_pos + min_pos) * 0.5f );
         meshlet_aabbs[meshlet_i].size = std::bit_cast<daxa_f32vec3>( max_pos - min_pos );
     }
+    AABB mesh_aabb;
+    mesh_aabb.center = std::bit_cast<daxa_f32vec3>( (mesh_max_pos + mesh_min_pos) * 0.5f );
+    mesh_aabb.size = std::bit_cast<daxa_f32vec3>( mesh_max_pos - mesh_min_pos );
     // Trimm array sizes.
     meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
     meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
@@ -922,6 +935,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     /// NOTE: Fill GPUMesh runtime data
     GPUMesh mesh = {};
 
+    mesh.aabb = mesh_aabb;
     daxa::DeviceAddress mesh_bda = {};
     daxa::BufferId staging_buffer = {};
     {

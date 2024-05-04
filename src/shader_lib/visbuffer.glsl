@@ -20,7 +20,16 @@
 
 void encode_triangle_id(uint instantiated_meshlet_index, uint triangle_index, out uint id)
 {
-    id = (instantiated_meshlet_index << 7) | (triangle_index);
+    #if SHADER_DEBUG_VISBUFFER
+        if (instantiated_meshlet_index >= MAX_MESHLET_INSTANCES)
+        {
+            id = INVALID_TRIANGLE_ID;
+        }
+        else
+    #endif
+    {
+        id = (instantiated_meshlet_index << 7) | (triangle_index);
+    }
 }
 
 uint meshlet_instance_index_from_triangle_id(uint id)

@@ -371,7 +371,14 @@ void main(
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
 
-    if(triangle_id != INVALID_TRIANGLE_ID)
+    bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
+
+    #if SHADER_DEBUG_VISBUFFER
+        let instantiated_meshlet_index = meshlet_instance_index_from_triangle_id(triangle_id);
+        triangle_id_valid = triangle_id_valid && (instantiated_meshlet_index < MAX_MESHLET_INSTANCES);
+    #endif
+
+    if(triangle_id_valid)
     {
         float4x4 view_proj;
         float3 camera_position;
@@ -448,7 +455,7 @@ void main(
 
         const float3 sun_direction = AT_FROM_PUSH.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
-        const float vsm_shadow = get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot);
+        const float vsm_shadow = AT_FROM_PUSH.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * vsm_shadow.x;
 
         const float3 atmo_camera_position = AT_FROM_PUSH.globals->camera.position * M_TO_KM_SCALE;
@@ -458,10 +465,11 @@ void main(
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         const float3 lighting = direct_lighting + indirect_lighting;
 
-        const bool visualize_clip_levels = AT_FROM_PUSH.globals->vsm_settings.visualize_clip_levels == 1;
+        const bool visualize_clip_levels = AT_FROM_PUSH.globals->vsm_settings.visualize_clip_levels == 1 && AT_FROM_PUSH.globals->vsm_settings.enable != 0;
         const float3 vsm_debug_color = visualize_clip_levels ? get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position) : float3(1.0f);
         output_value.rgb = AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0 ? vsm_debug_color : albedo.rgb * lighting * vsm_debug_color;
         // output_value.rgb = vsm_debug_color;
+        // output_value.rgb = hsv2rgb(float3(tri_data.meshlet_instance.meshlet_index * 0.1, 1, 1));
     }
     else 
     {

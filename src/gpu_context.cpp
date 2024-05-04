@@ -58,7 +58,7 @@ GPUContext::GPUContext(Window const & window)
                   .write_out_shader_binary = "./spv_raw",
                   .spirv_cache_folder = "spv",
                   .language = daxa::ShaderLanguage::GLSL,
-                  .enable_debug_info = true,
+                  //.enable_debug_info = true,
               };
           }(),
           .register_null_pipelines_when_first_compile_fails = true,

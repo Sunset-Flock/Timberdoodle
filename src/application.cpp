@@ -20,6 +20,7 @@ Application::Application()
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _renderer->render_context->render_data.sky_settings);
 
+    // TODO(msakmary): make nicer:
     std::vector<AnimationKeyframe> keyframes = {
         AnimationKeyframe{
             .start_rotation = {-0.30450, 0.275662, 0.611860, 0.6759723},
@@ -128,7 +129,8 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies2.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";

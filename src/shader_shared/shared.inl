@@ -7,15 +7,14 @@
 #define MAX_SURFACE_RES_X 3840
 #define MAX_SURFACE_RES_Y 2160
 
-#define MAX_INSTANTIATED_MESHES 100000
-#define MAX_MESHLET_INSTANCES 1000000
+#define MAX_MESHLET_INSTANCES 100000
 #define MAX_MESH_INSTANCES 100000
 #define VISIBLE_ENTITY_MESHLETS_BITFIELD_SCRATCH 1000000
 #define MAX_DRAWN_TRIANGLES (MAX_SURFACE_RES_X * MAX_SURFACE_RES_Y)
 #define TRIANGLE_SIZE 12
 #define WARP_SIZE 32
-#define MAX_ENTITY_COUNT (1u << 20u)
-#define MAX_MATERIAL_COUNT (1u << 8u)
+#define MAX_ENTITIES (1u << 20u)
+#define MAX_MATERIALS (1u << 8u)
 #define MESH_SHADER_WORKGROUP_X 32
 #define ENABLE_MESHLET_CULLING 1
 #define ENABLE_TRIANGLE_CULLING 0
@@ -23,6 +22,7 @@
 #define COMPILE_IN_MESH_SHADER 1
 #define COMPILE_IN_SLANG 1
 #define CULLING_DEBUG_DRAWS 1
+#define SHADER_DEBUG_VISBUFFER 0
 
 #if defined(__cplusplus)
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE 1
@@ -126,6 +126,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 
 struct VSMSettings
 {
+    daxa_i32 enable;
     daxa_u32 visualize_clip_levels;
     daxa_u32 force_clip_level;
     daxa_u32 enable_caching;
@@ -138,7 +139,8 @@ struct VSMSettings
     daxa_i32 use_simplified_light_matrix;
 #if defined(__cplusplus)
     VSMSettings()
-        : visualize_clip_levels{ 0 },
+        : enable{ 0 },
+          visualize_clip_levels{ 0 },
           force_clip_level{ 0 },
           enable_caching{ 0 },
           forced_clip_level{ 0 },

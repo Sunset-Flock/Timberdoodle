@@ -9,8 +9,6 @@
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
 
-#define CULL_BACKFACES 1
-
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 [[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
@@ -27,6 +25,7 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             push.uses.meshlet_instances,
             push.pass,
             draw_list_type);
+        meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
             DispatchIndirectStruct command;
             command.x = 1;
             command.y = meshlets_to_draw;
@@ -248,9 +247,7 @@ struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
     IMPL_GET_SET(uint, visibility_id)
 };
 
-#if CULL_BACKFACES
-    groupshared float4 clip_vert_positions[MAX_VERTICES_PER_MESHLET];
-#endif
+groupshared float4 gs_generic_mesh_clip_vert_positions[MAX_VERTICES_PER_MESHLET];
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     DrawVisbufferPush push,
     in uint3 svtid,
@@ -270,6 +267,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(push.uses.globals).camera.view_proj;
 
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
+    if (meshlet_inst_index >= MAX_MESHLET_INSTANCES)
+    {
+        printf("fuck\n");
+    }
 
     for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
     {
@@ -288,9 +289,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
         V vertex;
-    #if CULL_BACKFACES
-        clip_vert_positions[in_meshlet_vertex_index] = pos;
-    #endif
+        gs_generic_mesh_clip_vert_positions[in_meshlet_vertex_index] = pos;
         vertex.set_position(pos);
         if (V is MeshShaderMaskVertex)
         {
@@ -316,11 +315,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
 
-    #if CULL_BACKFACES
         const float4[3] tri_vert_ndc_positions = float4[3](
-            clip_vert_positions[tri_in_meshlet_vertex_indices[0]],
-            clip_vert_positions[tri_in_meshlet_vertex_indices[1]],
-            clip_vert_positions[tri_in_meshlet_vertex_indices[2]]
+            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[0]],
+            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[1]],
+            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[2]]
         );
         // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
         const bool is_backface =
@@ -328,7 +326,6 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                 tri_vert_ndc_positions[0].xyw,
                 tri_vert_ndc_positions[1].xyw,
                 tri_vert_ndc_positions[2].xyw)) >= 0;
-    #endif
         
         out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
         uint visibility_id;
@@ -336,11 +333,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
         P primitive;
         primitive.set_visibility_id(visibility_id);
-    #if CULL_BACKFACES
         let cull_primitive = is_backface && cull_backfaces;
-    #else
-        let cull_primitive = false;
-    #endif
         primitive.set_cull_primitive(cull_primitive);
         if (P is MeshShaderMaskPrimitive)
         {
@@ -364,20 +357,24 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         draw_p.pass, 
         V::DRAW_LIST_TYPE,
         svtid.y);
+    if (inst_meshlet_index >= MAX_MESHLET_INSTANCES)
+    {
+        printf("OOOOOH\n");
+        SetMeshOutputCounts(0,0);
+        return;
+    }
     const uint total_meshlet_count = 
         deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
         deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
     const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
 
     bool cull_backfaces = false;
-    #if CULL_BACKFACES
-        if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
-        {
-            // cull_backfaces = false;
-            GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
-            cull_backfaces = !material.alpha_discard_enabled;
-        }
-    #endif
+    if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
+    {
+        // cull_backfaces = false;
+        GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
+        cull_backfaces = !material.alpha_discard_enabled;
+    }
     generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
 }
 
@@ -479,7 +476,7 @@ func entry_task_cull_draw_opaque_and_mask(
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  
-    let surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
+    uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
     uint global_draws_offsets;
@@ -495,27 +492,50 @@ func entry_task_cull_draw_opaque_and_mask(
     payload.task_shader_meshlet_instances_offset = WaveBroadcastLaneAt(payload.task_shader_meshlet_instances_offset, 0);
     global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
     
+    bool allocation_failed = false;
     if (draw_meshlet)
     {
         const uint meshlet_instance_idx = payload.task_shader_meshlet_instances_offset + local_survivor_index;
-        deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
+        // When we fail to push back into the meshlet instances we dont need to do anything extra.
+        // get_meshlet_instance_from_arg_buckets will make sure that no meshlet indices past the max number are attempted to be drawn.
+        if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
+        {
+            deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
+        }
+        else
+        {
+            allocation_failed = true;
+            //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", instanced_meshlet.entity_index);
+        }
 
         // Only needed for observer:
         const uint draw_list_element_index = global_draws_offsets + local_survivor_index;
-        deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = meshlet_instance_idx;
+        if (draw_list_element_index < MAX_MESHLET_INSTANCES)
+        {
+            deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = 
+                (meshlet_instance_idx < MAX_MESHLET_INSTANCES) ? 
+                meshlet_instance_idx : 
+                (~0u);
+        }
+    }
+
+    // Remove all meshlets that couldnt be allocated.
+    draw_meshlet = draw_meshlet && !allocation_failed;
+    if (WaveActiveAnyTrue(allocation_failed))
+    {
+        payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  
+        surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     }
 
     payload.enable_backface_culling = false;
-    #if CULL_BACKFACES
-        if (WaveIsFirstLane() && valid_meshlet)
+    if (WaveIsFirstLane() && valid_meshlet)
+    {
+        if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
-            if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
-            {
-                GPUMaterial material = push.uses.material_manifest[instanced_meshlet.material_index];
-                payload.enable_backface_culling = !material.alpha_discard_enabled;
-            }
+            GPUMaterial material = push.uses.material_manifest[instanced_meshlet.material_index];
+            payload.enable_backface_culling = !material.alpha_discard_enabled;
         }
-    #endif
+    }
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
@@ -550,6 +570,13 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let local_meshlet_instance_index = group_index;
     // Meshlet instance indices are the task allocated offset into the meshlet instances + the packed survivor index.
     let meshlet_instance_index = payload.task_shader_meshlet_instances_offset + local_meshlet_instance_index;
+
+    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
+    {
+        printf("OOOOOH\n");
+        SetMeshOutputCounts(0,0);
+        return;
+    }
 
     // We need to know the thread index of the task shader that ran for this meshlet.
     // With its thread id we can read the argument buffer just like the task shader did.

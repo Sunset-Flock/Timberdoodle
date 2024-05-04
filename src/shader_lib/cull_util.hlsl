@@ -414,7 +414,7 @@ void write_meshlet_cull_arg_buckets(
     }
     // Now bit by bit, do one writeout of an indirect command:
     uint bucket_bit_mask = clipped_bits_meshlet_count;
-    // Each time we write out a command we add on the number of meshlets processed by that arg.
+    // Each time we write out a command we add on the number of meshlets processed by that arg. 
     uint meshlet_offset = 0;
     while (bucket_bit_mask != 0)
     {
@@ -424,6 +424,12 @@ void write_meshlet_cull_arg_buckets(
         bucket_bit_mask &= ~indirect_arg_meshlet_count;
 
         const uint arg_array_offset = atomicAdd(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].indirect_arg_counts[bucket_index], 1);
+        const uint arg_bucket_max_arguments = min((MAX_MESHLET_INSTANCES >> bucket_index), MAX_MESH_INSTANCES);
+        if (arg_array_offset >= arg_bucket_max_arguments)
+        {
+            // Exceeded arg bucket size. Can not appent argument!
+            continue;
+        }
         // Update indirect args for meshlet cull
         {
             const uint threads_per_indirect_arg = 1 << bucket_index;
@@ -460,10 +466,13 @@ bool get_meshlet_instance_from_arg_buckets(
     out MeshletInstance meshlet_inst)
 {
     const uint indirect_arg_index = thread_id >> arg_bucket_index;
-    const uint valid_arg_count = 
+    const uint bucket_size =  min(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES >> arg_bucket_index);
+    const uint valid_arg_count = min(
         deref(meshlet_cull_indirect_args)
-        .draw_list_arg_buckets[opaque_draw_list_type]
-        .indirect_arg_counts[arg_bucket_index];
+            .draw_list_arg_buckets[opaque_draw_list_type]
+            .indirect_arg_counts[arg_bucket_index],
+        bucket_size
+    );
     // As work groups are launched in multiples of 128 (or 32 in the case of task shaders), 
     // there may be threads with indices greater then the arg count for a bucket.
     if (indirect_arg_index >= valid_arg_count)
@@ -484,5 +493,5 @@ bool get_meshlet_instance_from_arg_buckets(
     meshlet_inst.in_mesh_group_index = arg.in_mesh_group_index;
     // Work argument may work on less then 1<<bucket_index meshlets.
     // In this case we cull threads with an index over meshlet_count.
-    return in_arg_meshlet_index < arg.meshlet_count;
+    return in_arg_meshlet_index < arg.meshlet_count && meshlet_inst.meshlet_index < MAX_MESHLET_INSTANCES;
 }

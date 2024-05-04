@@ -71,6 +71,7 @@ struct GPUMesh
     daxa_u32 material_index;
     daxa_u32 meshlet_count;
     daxa_u32 vertex_count;
+    AABB aabb;
     daxa_BufferPtr(Meshlet) meshlets;
     daxa_BufferPtr(BoundingSphere) meshlet_bounds;
     daxa_BufferPtr(AABB) meshlet_aabbs;

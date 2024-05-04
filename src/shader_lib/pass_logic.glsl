@@ -57,6 +57,10 @@ uint get_meshlet_instance_index(
     }
     
     const uint draw_list_index = draw_list_offset + draw_instance_index;
+    if (draw_list_index >= MAX_MESHLET_INSTANCES)
+    {
+        return (~0u);
+    }
     const uint meshlet_instance_index = deref_i(deref(meshlet_instances).draw_lists[draw_list_type].instances, draw_list_index);
     return meshlet_instance_index;
 }
