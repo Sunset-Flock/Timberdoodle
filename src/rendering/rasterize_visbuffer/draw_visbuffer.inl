@@ -146,11 +146,6 @@ inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_masked_pipeline_comp
     return ret;
 };
 
-inline std::array<daxa::RasterPipelineCompileInfo, 2> slang_draw_visbuffer_pipelines = {
-    slang_draw_visbuffer_solid_pipeline_compile_info(),
-    slang_draw_visbuffer_masked_pipeline_compile_info()
-};
-
 inline daxa::RasterPipelineCompileInfo slang_draw_visbuffer_mesh_shader_solid_pipeline_compile_info()
 {
     auto ret = slang_draw_visbuffer_solid_pipeline_compile_info();

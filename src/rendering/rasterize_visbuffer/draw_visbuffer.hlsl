@@ -132,7 +132,6 @@ func generic_vertex<V : VertexT>(
     return vertex;
 }
 
-// SamplerState::get(deref(draw_p.uses.globals).samplers.linear_clamp), 
 func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::SamplerId sampler, daxa::ImageViewId overdraw_image) -> FragmentOut
 {
     FragmentOut ret;
@@ -168,46 +167,55 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
     return ret;
 }
 
-// --- Opaque ---
-[shader("vertex")]
-OpaqueVertex entry_vertex_opaque(
-    uint sv_vertex_index : SV_VertexID,
-    uint sv_instance_index : SV_InstanceID)
+interface FragmentExtraData
 {
-    return generic_vertex<OpaqueVertex>(
-        sv_vertex_index,
-        sv_instance_index
-    );
-}
 
-[shader("fragment")]
-FragmentOut entry_fragment_opaque(OpaqueVertex vertex)
+};
+struct FragmentMaskedData : FragmentExtraData
 {
-    /// WARNING: BROKEN!
-    return generic_fragment(vertex, (Ptr<GPUMaterial>)(0), daxa::SamplerId(0), daxa::ImageViewId(0));
-}
-// --- Opaque ---
-
-
-// --- Masked ---
-[shader("vertex")]
-MaskedVertex entry_vertex_masked(
-    uint sv_vertex_index : SV_VertexID,
-    uint sv_instance_index : SV_InstanceID)
+    uint material_index;
+    GPUMaterial* materials;
+    daxa::SamplerId sampler;
+    float2 uv;
+};
+struct NoFragmentExtraData : FragmentExtraData
 {
-    return generic_vertex<MaskedVertex>(
-        sv_vertex_index,
-        sv_instance_index
-    );
-}
 
-[shader("fragment")]
-FragmentOut entry_fragment_masked(MaskedVertex vertex)
+};
+func generic_fragment2<ExtraData : FragmentExtraData>(uint2 index, uint vis_id, daxa::ImageViewId overdraw_image, ExtraData extra) -> FragmentOut
 {
-    /// WARNING: BROKEN!
-    return generic_fragment(vertex, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat, daxa::ImageViewId(0));
+    FragmentOut ret;
+    ret.visibility_id = vis_id;
+    if (ExtraData is FragmentMaskedData)
+    {
+        let masked_data = reinterpret<FragmentMaskedData>(extra);
+        if (masked_data.material_index != INVALID_MANIFEST_INDEX)
+        {
+            GPUMaterial material = deref_i(masked_data.materials, masked_data.material_index);
+            float alpha = 1.0;
+            if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .SampleLevel( SamplerState::get(masked_data.sampler), masked_data.uv, 2).a; 
+            }
+            else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                    .SampleLevel( SamplerState::get(masked_data.sampler), masked_data.uv, 2).a; 
+            }
+            // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
+            // const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
+            // if (alpha < clamp(threshold, 0.001, 1.0)) // { discard; }
+            if(alpha < 0.5) { discard; }
+        }
+    }
+    if (overdraw_image.value != 0)
+    {
+        uint prev_val;
+        InterlockedAdd(RWTexture2D_utable[overdraw_image.index()][index], 1, prev_val);
+    }
+    return ret;
 }
-// --- Masked ---
 
 // Interface:
 interface MeshShaderVertexT
@@ -368,7 +376,6 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         svtid.y);
     if (inst_meshlet_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("OOOOOH\n");
         SetMeshOutputCounts(0,0);
         return;
     }
@@ -380,7 +387,6 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     bool cull_backfaces = false;
     if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
     {
-        // cull_backfaces = false;
         GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
@@ -403,10 +409,12 @@ func entry_mesh_opaque(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    OpaqueVertex o_vert;
-    o_vert.position = vert.position;
-    o_vert.visibility_id = prim.visibility_id;
-    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0), draw_p.uses.overdraw_image);
+    return generic_fragment2(
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        draw_p.uses.overdraw_image,
+        NoFragmentExtraData()
+    );
 }
 // --- Mesh shader opaque ---
 
@@ -428,13 +436,17 @@ func entry_mesh_mask(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
 {
-    MaskedVertex o_vert;
-    o_vert.position = vert.position;
-    o_vert.visibility_id = prim.visibility_id;
-    o_vert.uv = vert.uv;
-    o_vert.material_index = prim.material_index;
-    o_vert.object_space_position = vert.object_space_position;
-    return generic_fragment(o_vert, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat, draw_p.uses.overdraw_image);
+    return generic_fragment2(
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        draw_p.uses.overdraw_image,
+        FragmentMaskedData(
+            prim.material_index,
+            draw_p.uses.material_manifest,
+            draw_p.uses.globals->samplers.linear_repeat,
+            vert.uv
+        )
+    );
 }
 
 // --- Mesh shader mask ---
@@ -582,7 +594,6 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("OOOOOH\n");
         SetMeshOutputCounts(0,0);
         return;
     }
@@ -642,160 +653,26 @@ func entry_mesh_cull_draw_mask(
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    OpaqueVertex o_vert;
-    o_vert.position = vert.position;
-    o_vert.visibility_id = prim.visibility_id;
-    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0), cull_meshlets_draw_visbuffer_push.uses.overdraw_image);
+    return generic_fragment2(
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
+        NoFragmentExtraData()
+    );
 }
 
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
-{
-    MaskedVertex o_vert;
-    o_vert.position = vert.position;
-    o_vert.visibility_id = prim.visibility_id;
-    o_vert.uv = vert.uv;
-    o_vert.material_index = prim.material_index;
-    return generic_fragment(
-        o_vert, 
-        cull_meshlets_draw_visbuffer_push.uses.material_manifest, 
-        cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+{  
+    return generic_fragment2(
+        uint2(vert.position.xy),
+        prim.visibility_id,
         cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
+        FragmentMaskedData(
+            prim.material_index,
+            cull_meshlets_draw_visbuffer_push.uses.material_manifest,
+            cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+            vert.uv
+        )
     );
-
-    // OpaqueVertex o_vert;
-    // o_vert.position = vert.position;
-    // o_vert.visibility_id = prim.visibility_id;
-    // return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
 }
-
-
-// --- Cull Meshlets Draw Visbuffer
-
-// For future reference:
-// #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_MESH || !defined(DAXA_SHADER)
-// layout(local_size_x = MESH_SHADER_WORKGROUP_X) in;
-// layout(triangles) out;
-// layout(max_vertices = MAX_VERTICES_PER_MESHLET, max_primitives = MAX_TRIANGLES_PER_MESHLET) out;
-// shared uint s_local_meshlet_arg_offset;
-// layout(location = 0) perprimitiveEXT out uint fin_triangle_id[];
-// layout(location = 1) perprimitiveEXT out uint fin_instantiated_meshlet_index[];
-// #if MESH_SHADER_TRIANGLE_CULL
-// shared vec4 s_vertex_positions[MAX_VERTICES_PER_MESHLET];
-// #endif
-// void main()
-// {
-// #if MESH_SHADER_CULL_AND_DRAW
-//     const uint local_meshlet_instances_offset = gl_WorkGroupID.x;
-//     const uint test_thread_local_meshlet_arg_offset = gl_SubgroupInvocationID.x;
-//     const uint set_bits_prefix_sum = subgroupInclusiveAdd(((tps.task_shader_surviving_meshlets_mask & (1u << test_thread_local_meshlet_arg_offset)) != 0) ? 1 : 0);
-//     if (set_bits_prefix_sum == (local_meshlet_instances_offset + 1))
-//     {
-//         if (subgroupElect())
-//         {
-//             s_local_meshlet_arg_offset = test_thread_local_meshlet_arg_offset;
-//         }
-//     }
-//     barrier();
-//     const uint arg_index = tps.task_shader_wg_meshlet_args_offset + s_local_meshlet_arg_offset;
-//     const uint meshlet_instance_index = tps.task_shader_meshlet_instances_offset + local_meshlet_instances_offset;
-//     MeshletInstance meshlet_inst;
-//     bool active_thread = get_meshlet_instance_from_arg_buckets(arg_index, push.bucket_index, push.uses.meshlet_cull_indirect_args, meshlet_inst);
-// #else
-//     const uint meshlet_offset = get_meshlet_draw_offset_from_pass(push.uses.meshlet_instances, push.pass);
-//     const uint meshlet_instance_index = gl_WorkGroupID.x + meshlet_offset;
-//     MeshletInstance meshlet_inst = deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index];
-// #endif
-
-//     // GPUMesh:
-//     // daxa_BufferId mesh_buffer;
-//     // daxa_u32 meshlet_count;
-//     // daxa_BufferPtr(Meshlet) meshlets;
-//     // daxa_BufferPtr(BoundingSphere) meshlet_bounds;
-//     // daxa_BufferPtr(daxa_u32) micro_indices;
-//     // daxa_BufferPtr(daxa_u32) indirect_vertices;
-//     // daxa_BufferPtr(daxa_f32vec3) vertex_positions;
-//     GPUMesh mesh = deref((push.uses.meshes + meshlet_inst.mesh_index));
-
-//     // Meshlet:
-//     // daxa_u32 indirect_vertex_offset;
-//     // daxa_u32 micro_indices_offset;
-//     // daxa_u32 vertex_count;
-//     // daxa_u32 triangle_count;
-//     Meshlet meshlet = deref(mesh.meshlets + meshlet_inst.meshlet_index);
-
-//     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref(push.uses.meshes[meshlet_inst.mesh_index]).micro_indices;
-
-//     // Transform vertices:
-//     const mat4 model_matrix = mat_4x3_to_4x4deref(push.uses.entity_combined_transforms[meshlet_inst.entity_index]);
-// #if MESH_SHADER_CULL_AND_DRAW
-//     const mat4 view_proj_matrix = deref(push.uses.globals).camera.view_proj;
-// #else
-//     const mat4 view_proj_matrix = (push.pass > PASS1_DRAW_POST_CULL) ? deref(push.uses.globals).observer_camera.view_proj : deref(push.uses.globals).camera.view_proj;
-// #endif
-//     SetMeshOutputsEXT(meshlet.vertex_count, meshlet.triangle_count);
-//     // Write Vertices:
-//     for (uint offset = 0; offset < meshlet.vertex_count; offset += MESH_SHADER_WORKGROUP_X)
-//     {
-//         const uint meshlet_local_vertex_index = gl_LocalInvocationID.x + offset;
-//         if (meshlet_local_vertex_index >= meshlet.vertex_count)
-//         {
-//             break;
-//         }
-//         const uint vertex_index = mesh.indirect_vertices[meshlet.indirect_vertex_offset + meshlet_local_vertex_index].value;
-//         const vec4 vertex_pos = vec4(mesh.vertex_positions[vertex_index].value, 1);
-//         const vec4 vertex_pos_ws = model_matrix * vertex_pos;
-//         const vec4 vertex_pos_cs = view_proj_matrix * vertex_pos_ws;
-//         gl_MeshVerticesEXT[meshlet_local_vertex_index].gl_Position = vertex_pos_cs;
-// #if MESH_SHADER_TRIANGLE_CULL
-// #if !MESH_SHADER_CULL_AND_DRAW
-//         if (push.pass > PASS1_DRAW_POST_CULL)
-//         {
-//             s_vertex_positions[meshlet_local_vertex_index] = deref(push.uses.globals).camera.view_proj * model_matrix * vertex_pos;
-//         }
-//         else
-// #endif
-//         {
-//             s_vertex_positions[meshlet_local_vertex_index] = vertex_pos_cs;
-//         }
-// #endif
-//     }
-//     // Write Triangles:
-//     for (uint offset = 0; offset < meshlet.triangle_count; offset += MESH_SHADER_WORKGROUP_X)
-//     {
-//         const uint triangle_index = gl_LocalInvocationID.x + offset;
-//         if (triangle_index >= meshlet.triangle_count)
-//         {
-//             break;
-//         }
-//         const uvec3 triangle_micro_indices = uvec3(
-//             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + 0),
-//             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + 1),
-//             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + triangle_index * 3 + 2));
-//         gl_PrimitiveTriangleIndicesEXT[triangle_index] = triangle_micro_indices;
-//         uint triangle_id;
-//         encode_triangle_id(meshlet_instance_index, triangle_index, triangle_id);
-//         fin_triangle_id[triangle_index] = triangle_id;
-// #if MESH_SHADER_TRIANGLE_CULL
-// #if MESH_SHADER_TRIANGLE_CULL_FRUSTUM
-//         vec3 tri_ws_positions[3];
-//         for (uint i = 0; i < 3; ++i)
-//         {
-//             const uint vertex_index = mesh.indirect_vertices[meshlet.indirect_vertex_offset + triangle_micro_indices[i]].value;
-//             tri_ws_positions[i] = (model_matrix * vec4(mesh.vertex_positions[vertex_index].value, 1)).xyz;
-//         }
-//         const bool out_of_frustum = is_tri_out_of_frustum(tri_ws_positions);
-// #else
-//         const bool out_of_frustum = false;
-// #endif
-//         // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
-//         const bool is_backface =
-//             determinant(mat3(
-//                 s_vertex_positions[triangle_micro_indices.x].xyw,
-//                 s_vertex_positions[triangle_micro_indices.y].xyw,
-//                 s_vertex_positions[triangle_micro_indices.z].xyw)) <= 0;
-//         gl_MeshPrimitivesEXT[triangle_index].gl_CullPrimitiveEXT = out_of_frustum || is_backface;
-// #endif
-//     }
-// }
-// #endif

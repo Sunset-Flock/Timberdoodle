@@ -231,11 +231,6 @@ void main()
 {
     const ivec2 index = ivec2(gl_GlobalInvocationID.xy);
     const vec2 screen_uv = vec2(gl_GlobalInvocationID.xy) * deref(AT_FROM_PUSH.globals).settings.render_target_size_inv;
-    if ( all(equal(index, ivec2(0,0))) )
-    {
-        deref(deref(AT_FROM_PUSH.globals).debug).gpu_output.debug_ivec4.x = int(deref(AT_FROM_PUSH.instantiated_meshlets).first_count);
-        deref(deref(AT_FROM_PUSH.globals).debug).gpu_output.debug_ivec4.y = int(deref(AT_FROM_PUSH.instantiated_meshlets).second_count);
-    }
     const uint triangle_id = imageLoad(daxa_uimage2D(AT_FROM_PUSH.vis_image), index).x;
     vec4 output_value = vec4(0,0,0,0);
     vec4 debug_value = vec4(0, 0, 0, 0);

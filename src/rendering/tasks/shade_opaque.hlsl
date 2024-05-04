@@ -355,11 +355,6 @@ void main(
     const float3 bottom_atmo_offset = float3(0,0, AT_FROM_PUSH.globals->sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const float3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
 
-    if(all(equal(index, int2(0))))
-    {
-        AT_FROM_PUSH.globals->debug->gpu_output.debug_ivec4.x = int(AT_FROM_PUSH.instantiated_meshlets->first_count);
-        AT_FROM_PUSH.globals->debug->gpu_output.debug_ivec4.y = int(AT_FROM_PUSH.instantiated_meshlets->second_count);
-    }
     uint triangle_id;
     if(all(lessThan(index, AT_FROM_PUSH.globals->settings.render_target_size)))
     {
