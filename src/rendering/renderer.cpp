@@ -2,6 +2,7 @@
 
 #include "../shader_shared/scene.inl"
 #include "../shader_shared/debug.inl"
+#include "../shader_shared/readback.inl"
 
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
@@ -46,8 +47,15 @@ Renderer::Renderer(
     meshlet_instances_last_frame = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
     luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
+    general_readback_buffer = daxa::TaskBuffer{ context->device, { sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer" }};
 
-    buffers = {zero_buffer, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, luminance_average};
+    buffers = {
+        zero_buffer,
+        meshlet_instances,
+        meshlet_instances_last_frame,
+        visible_meshlet_instances,
+        luminance_average,
+        general_readback_buffer};
 
     swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
@@ -72,6 +80,7 @@ Renderer::~Renderer()
 {
     for (auto & tbuffer : buffers)
     {
+        if (tbuffer.is_owning()) continue;
         for (auto buffer : tbuffer.get_state().buffers)
         {
             this->context->device.destroy_buffer(buffer);
@@ -618,11 +627,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_buffer(task_list, visible_meshlet_instances, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
-            AnalyzeVisbuffer2H::AT.globals                      | render_context->tgpu_render_data,
-            AnalyzeVisbuffer2H::AT.visbuffer                    | visbuffer,
-            AnalyzeVisbuffer2H::AT.instantiated_meshlets        | meshlet_instances,
-            AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield  | visible_meshlets_bitfield,
-            AnalyzeVisbuffer2H::AT.visible_meshlets             | visible_meshlet_instances,
+            AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,
+            AnalyzeVisbuffer2H::AT.visbuffer | visbuffer,
+            AnalyzeVisbuffer2H::AT.instantiated_meshlets | meshlet_instances,
+            AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
+            AnalyzeVisbuffer2H::AT.visible_meshlets | visible_meshlet_instances,
         },
         .context = context,
     });
@@ -671,26 +680,26 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto const vsm_page_heigh_offsets_view = vsm_state.page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
-            ShadeOpaqueH::AT.debug_lens_image           | debug_lens_image,
-            ShadeOpaqueH::AT.globals                    | render_context->tgpu_render_data,
-            ShadeOpaqueH::AT.color_image                | color_image,
-            ShadeOpaqueH::AT.vis_image                  | visbuffer,
-            ShadeOpaqueH::AT.transmittance              | transmittance,
-            ShadeOpaqueH::AT.sky                        | sky,
-            ShadeOpaqueH::AT.sky_ibl                    | sky_ibl_view,
-            ShadeOpaqueH::AT.vsm_page_table             | vsm_page_table_view,
-            ShadeOpaqueH::AT.vsm_page_height_offsets    | vsm_page_heigh_offsets_view,
-            ShadeOpaqueH::AT.material_manifest          | scene->_gpu_material_manifest,
-            ShadeOpaqueH::AT.instantiated_meshlets      | meshlet_instances,
-            ShadeOpaqueH::AT.meshes                     | scene->_gpu_mesh_manifest,
-            ShadeOpaqueH::AT.combined_transforms        | scene->_gpu_entity_combined_transforms,
-            ShadeOpaqueH::AT.luminance_average          | luminance_average,
-            ShadeOpaqueH::AT.vsm_memory_block           | vsm_state.memory_block,
-            ShadeOpaqueH::AT.vsm_clip_projections       | vsm_state.clip_projections,
-            ShadeOpaqueH::AT.vsm_globals                | vsm_state.globals,
-            ShadeOpaqueH::AT.vsm_overdraw_debug         | vsm_state.overdraw_debug_image,
-            ShadeOpaqueH::AT.vsm_wrapped_pages          | vsm_state.free_wrapped_pages_info,
-            ShadeOpaqueH::AT.debug_image                | debug_image,
+            ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
+            ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
+            ShadeOpaqueH::AT.color_image | color_image,
+            ShadeOpaqueH::AT.vis_image | visbuffer,
+            ShadeOpaqueH::AT.transmittance | transmittance,
+            ShadeOpaqueH::AT.sky | sky,
+            ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
+            ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
+            ShadeOpaqueH::AT.vsm_page_height_offsets | vsm_page_heigh_offsets_view,
+            ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
+            ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
+            ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
+            ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            ShadeOpaqueH::AT.luminance_average | luminance_average,
+            ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
+            ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
+            ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
+            ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
+            ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
+            ShadeOpaqueH::AT.debug_image | debug_image,
         },
         .render_context = render_context.get(),
         .timeline_pool = vsm_state.vsm_timeline_query_pool,
@@ -746,8 +755,34 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "ImGui Draw",
     });
 
-    #if 0
-    #endif
+    task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, meshlet_instances),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, general_readback_buffer),
+        },
+        .task = [=, this](daxa::TaskInterface ti)
+        {
+            const u32 index = render_context->render_data.frame_index % 4;
+#define READBACK_HELPER_MACRO(SRC_BUF, SRC_STRUCT, SRC_FIELD, DST_FIELD)                    \
+    ti.recorder.copy_buffer_to_buffer({                                                     \
+        .src_buffer = ti.get(SRC_BUF).ids[0],                                               \
+        .dst_buffer = ti.get(general_readback_buffer).ids[0],                               \
+        .src_offset = offsetof(SRC_STRUCT, SRC_FIELD),                                      \
+        .dst_offset = offsetof(ReadbackValues, DST_FIELD) + sizeof(ReadbackValues) * index, \
+        .size = sizeof(SRC_STRUCT::SRC_FIELD),                                              \
+    })
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[0].first_count, first_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[0].second_count, second_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].first_count, first_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].second_count, second_pass_meshlet_count[1]);
+            
+            render_context->general_readback = ti.device.get_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
+        },
+        .name = "readback statistics",
+    });
+
+#if 0
+#endif
 
     task_list.submit({});
     task_list.present({});
@@ -831,8 +866,8 @@ void Renderer::render_frame(
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
-    bool const vsm_settings_changed = 
-        render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable || 
+    bool const vsm_settings_changed =
+        render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable ||
         render_context->render_data.vsm_settings.enable_overdraw_visualization != render_context->prev_vsm_settings.enable_overdraw_visualization;
     // Sky is transient of main task graph
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed)

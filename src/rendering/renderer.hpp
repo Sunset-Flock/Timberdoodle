@@ -5,6 +5,7 @@
 
 #include "../window.hpp"
 #include "../shader_shared/geometry.inl"
+#include "../shader_shared/readback.inl"
 #include "../scene/scene.hpp"
 #include "../scene/asset_processor.hpp"
 
@@ -33,8 +34,7 @@ struct Renderer
         CameraInfo const &observer_camera_info, 
         f32 const delta_time,
         SceneDraw scene_draw);
-
-    VSMState vsm_state = {};
+    void readback_statistics(daxa::TaskGraph & tg);
 
     daxa::TaskBuffer zero_buffer = {};
 
@@ -43,6 +43,7 @@ struct Renderer
     daxa::TaskBuffer meshlet_instances_last_frame = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
     daxa::TaskBuffer luminance_average = {};
+    daxa::TaskBuffer general_readback_buffer = {};
 
     std::vector<daxa::TaskBuffer> buffers = {};
     // Images:
@@ -55,6 +56,8 @@ struct Renderer
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
+
+    VSMState vsm_state = {};
 
     std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};

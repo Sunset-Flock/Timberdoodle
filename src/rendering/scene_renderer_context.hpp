@@ -9,6 +9,7 @@
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
+#include "../shader_shared/readback.inl"
 
 #include "../gpu_context.hpp"
 
@@ -103,6 +104,7 @@ struct RenderContext
     daxa::TaskBuffer tgpu_render_data = {};
 
     // Data
+    ReadbackValues general_readback;
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};
     VSMSettings prev_vsm_settings = {};

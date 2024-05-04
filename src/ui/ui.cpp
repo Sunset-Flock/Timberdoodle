@@ -277,6 +277,16 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
         bool auto_reset_timings = false;
         if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            ImGui::SeparatorText("General Statistics");
+            {
+                ImGui::Text("Max Meshlet Instances %i", MAX_MESHLET_INSTANCES);
+                ImGui::Text("Max Mesh Instances %i", MAX_MESH_INSTANCES);
+                u32 first_pass_meshlets = render_ctx.general_readback.first_pass_meshlet_count[0] + render_ctx.general_readback.first_pass_meshlet_count[1];
+                u32 second_pass_meshlets = render_ctx.general_readback.second_pass_meshlet_count[0] + render_ctx.general_readback.second_pass_meshlet_count[1];
+                ImGui::Text("Meshlets drawn first pass %i", first_pass_meshlets);
+                ImGui::Text("Meshlets drawn second pass %i", second_pass_meshlets);
+            }
+            ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)
             {
                 if (ImGui::Button("Stop gathering")) { gather_perm_measurements = false; }
