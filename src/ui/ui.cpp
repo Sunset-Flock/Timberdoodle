@@ -199,6 +199,9 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             ImGui::Checkbox("Force clip level", &force_clip_level);
             ImGui::Checkbox("Enable caching", &enable_caching);
             ImGui::Checkbox("Enable overdraw debug visualization", &enable_overdraw_visualization);
+            auto use_simplified_light_matrix = s_cast<bool>(render_ctx.render_data.vsm_settings.use_simplified_light_matrix);
+            ImGui::Checkbox("Use simplified light matrix", &use_simplified_light_matrix);
+            render_ctx.render_data.vsm_settings.use_simplified_light_matrix = use_simplified_light_matrix;
             ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
             ImGui::SliderFloat("Clip selection bias", &render_ctx.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
             ImGui::SliderFloat("Slope bias", &render_ctx.render_data.vsm_settings.slope_bias, 0.0, 10.0);

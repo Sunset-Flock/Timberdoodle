@@ -863,6 +863,7 @@ void Renderer::render_frame(
         .clip_0_near = 0.01f,
         .clip_0_far = 10.0f,
         .clip_0_height_offset = 5.0f,
+        .use_simplified_light_matrix = s_cast<bool>(render_context->render_data.vsm_settings.use_simplified_light_matrix),
         .debug_context = &context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);

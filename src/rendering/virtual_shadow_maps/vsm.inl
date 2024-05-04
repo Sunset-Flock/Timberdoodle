@@ -22,7 +22,6 @@
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
-#define USE_ALTERNATE_LIGHT_MATRIX 0
 
 DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -804,6 +803,7 @@ struct GetVSMProjectionsInfo
     f32 clip_0_near = {};
     f32 clip_0_far = {};
     f64 clip_0_height_offset = {};
+    bool use_simplified_light_matrix = false;
 
     ShaderDebugDrawContext * debug_context = {};
 };
@@ -834,13 +834,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             info.clip_0_scale * clip_scale,  // right
             -info.clip_0_scale * clip_scale, // bottom
             info.clip_0_scale * clip_scale,  // top
-#if USE_ALTERNATE_LIGHT_MATRIX
-            -1000.f,   // near
-            1000.f // far
-#else
-            info.clip_0_near * clip_scale,   // near
-            info.clip_0_far * clip_scale     // far
-#endif
+            info.use_simplified_light_matrix ? -1000.0f : info.clip_0_near * clip_scale,   // near
+            info.use_simplified_light_matrix ?  1000.0f : info.clip_0_far * clip_scale     // far
         );
         // Switch from OpenGL default to Vulkan default (invert the Y clip coordinate)
         clip_projection[1][1] *= -1.0;
@@ -908,11 +903,6 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const view_offset = s_cast<f32>(view_offset_scale) * -rotation_inv_vsm_forward;
         f32vec3 const clip_position = glm::inverse(to_rotation_inv_matrix) * f32vec4(clip_xy_plane_world_position + view_offset, 0.0);
 
-#if !USE_ALTERNATE_LIGHT_MATRIX
-        auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
-        auto const final_clip_projection_view = curr_clip_proj * final_clip_view;
-#endif
-
         auto const rotation_invar_inv_proj_view = glm::inverse(curr_clip_proj * rotation_inv_vsm_view);
         auto const near_offset_inv_ndc_v_in_world = rotation_invar_inv_proj_view * glm::vec4(0.0, ndc_page_size, 0.0, 1.0);
         auto const inv_ndc_v_in_world = glm::vec3(near_offset_inv_ndc_v_in_world) + curr_clip_near * -rotation_inv_vsm_forward;
@@ -924,21 +914,20 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const inv_origin_shift = (final_rot_inv_clip_projection_view * glm::vec4(0.0, 0.0, 0.0, 1.0)).z;
         auto const page_depth_offset = (final_rot_inv_clip_projection_view * glm::vec4(v_inv_offset_vector, 1.0)).z - inv_origin_shift;
 
-#if USE_ALTERNATE_LIGHT_MATRIX
-        // Find the offset from the un-translated view matrix
-        // uniforms_.clipmapStableViewProjections[i] = stableProjections[i] * stableViewMatrix;
-        auto const pos_clip = curr_clip_proj * default_vsm_view * glm::vec4(info.camera_info->position, 1);
-        auto const pos_ndc = pos_clip / pos_clip.w;
-        auto const pos_uv = glm::vec2(pos_ndc) * 0.5f; // Don't add the 0.5, since we want the center to be 0
-        //auto const ndc_page_scaled_aligned_target_pos = glm::ivec2(pos_uv * glm::vec2(VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION));
+        auto const final_clip_view = [&]
+        {
+            if (info.use_simplified_light_matrix)
+            {
+                // Find the offset from the un-translated view matrix
+                auto const ndcShift = 2.0f * ndc_page_scaled_aligned_target_pos / s_cast<float>(VSM_PAGE_TABLE_RESOLUTION);
 
-        auto const ndcShift = 2.0f * ndc_page_scaled_aligned_target_pos / s_cast<float>(VSM_PAGE_TABLE_RESOLUTION);
+                // Shift rendering projection matrix by opposite of page offset in clip space, then apply *only* that shift to the view matrix
+                auto const shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * curr_clip_proj;
+                return glm::inverse(curr_clip_proj) * shiftedProjection * default_vsm_view;
+            }
 
-        // Shift rendering projection matrix by opposite of page offset in clip space, then apply *only* that shift to the view matrix
-        auto const shiftedProjection = glm::translate(glm::mat4(1), glm::vec3(-ndcShift, 0)) * curr_clip_proj;
-        auto const final_clip_view = glm::inverse(curr_clip_proj) * shiftedProjection * default_vsm_view;
-        //auto const clip_position = glm::vec3{};
-#endif
+            return glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
+        }();
 
         auto clip_camera = CameraInfo{
             .view = final_clip_view,
@@ -986,13 +975,8 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         const f32 far_plane = info.clip_0_far * curr_clip_scale;
         const f32 near_to_far_range = far_plane - near_plane;
         clip_projections.at(clip) = VSMClipProjection{
-#if USE_ALTERNATE_LIGHT_MATRIX
-            .height_offset = {},
-            .depth_page_offset = {},
-#else
-            .height_offset = view_offset_scale,
-            .depth_page_offset = page_depth_offset,
-#endif
+            .height_offset = info.use_simplified_light_matrix ? 0 : view_offset_scale,
+            .depth_page_offset = info.use_simplified_light_matrix ? 0 : page_depth_offset,
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.y)),
