@@ -25,6 +25,7 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
@@ -42,6 +43,7 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 #endif
 
@@ -405,6 +407,7 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView dvmaa_vis_image = {};
     daxa::TaskImageView dvmaa_depth_image = {};
+    daxa::TaskImageView overdraw_image = {};
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
@@ -422,6 +425,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.material_manifest, info.material_manifest),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.vis_image, dvmaa ? info.dvmaa_vis_image : info.vis_image),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.depth_image, dvmaa ? info.dvmaa_depth_image : info.depth_image),
+            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.overdraw_image, info.overdraw_image),
 
         },
         .render_context = info.render_context,
@@ -454,6 +458,7 @@ struct TaskDrawVisbufferInfo
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView dvmaa_vis_image = {};
     daxa::TaskImageView dvmaa_depth_image = {};
+    daxa::TaskImageView overdraw_image = {};
 };
 
 inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
@@ -479,14 +484,15 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbufferTask draw_task = {
         .views = std::array{
-            daxa::attachment_view(DrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DrawVisbufferH::AT.draw_commands, draw_commands_array),
-            daxa::attachment_view(DrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(DrawVisbufferH::AT.meshes, info.meshes),
-            daxa::attachment_view(DrawVisbufferH::AT.material_manifest, info.material_manifest),
-            daxa::attachment_view(DrawVisbufferH::AT.entity_combined_transforms, info.combined_transforms),
-            daxa::attachment_view(DrawVisbufferH::AT.vis_image, dvmaa ? info.dvmaa_vis_image : info.vis_image),
-            daxa::attachment_view(DrawVisbufferH::AT.depth_image, dvmaa ? info.dvmaa_depth_image : info.depth_image),
+            DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
+            DrawVisbufferH::AT.draw_commands | draw_commands_array,
+            DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
+            DrawVisbufferH::AT.meshes | info.meshes,
+            DrawVisbufferH::AT.material_manifest | info.material_manifest,
+            DrawVisbufferH::AT.entity_combined_transforms | info.combined_transforms,
+            DrawVisbufferH::AT.vis_image | (dvmaa ? info.dvmaa_vis_image : info.vis_image),
+            DrawVisbufferH::AT.depth_image | (dvmaa ? info.dvmaa_depth_image : info.depth_image),
+            DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
         },
         .render_context = info.render_context,
         .pass = info.pass,

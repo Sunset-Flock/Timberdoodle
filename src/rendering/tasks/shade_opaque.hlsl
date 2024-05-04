@@ -175,7 +175,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
         uint overdraw_amount = 0;
-        if (AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0)
+        if (AT_FROM_PUSH.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
             overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords].x;
         }
@@ -201,7 +201,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
         }
-        if (AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0)
+        if (AT_FROM_PUSH.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
             const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
             color.rgb = overdraw_color;
@@ -465,11 +465,48 @@ void main(
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         const float3 lighting = direct_lighting + indirect_lighting;
 
-        const bool visualize_clip_levels = AT_FROM_PUSH.globals->vsm_settings.visualize_clip_levels == 1 && AT_FROM_PUSH.globals->vsm_settings.enable != 0;
-        const float3 vsm_debug_color = visualize_clip_levels ? get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position) : float3(1.0f);
-        output_value.rgb = AT_FROM_PUSH.globals->vsm_settings.enable_overdraw_visualization != 0 ? vsm_debug_color : albedo.rgb * lighting * vsm_debug_color;
-        // output_value.rgb = vsm_debug_color;
-        // output_value.rgb = hsv2rgb(float3(tri_data.meshlet_instance.meshlet_index * 0.1, 1, 1));
+        let shaded_color = albedo.rgb * lighting;
+
+        float3 dummy_color = float3(1,0,1);
+        uint id_to_visualize = ~0u;
+        switch(AT_FROM_PUSH.globals->settings.debug_draw_mode)
+        {
+            case DEBUG_DRAW_MODE_OVERDRAW:
+            {
+                if (AT_FROM_PUSH.overdraw_image.value != 0)
+                {
+                    let value = Texture2D<uint>::get(AT_FROM_PUSH.overdraw_image)[index].x;
+                    let scaled_value = float(value) * AT_FROM_PUSH.globals->settings.debug_overdraw_scale;
+                    let color = TurboColormap(scaled_value);
+                    output_value.rgb = color;
+                }
+                break;
+            }
+            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index * 10 + tri_data.triangle_index; break;
+            case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index; break;
+            case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_data.meshlet_instance.entity_index; break;
+            case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
+            {
+                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
+                output_value.rgb = vsm_debug_color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_VSM_CLIP_LEVEL: 
+            {
+                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
+                let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
+                output_value.rgb = debug_albedo;
+                break;
+            }
+            case DEBUG_DRAW_MODE_NONE:
+            default:
+            output_value.rgb = shaded_color;
+            break;
+        }
+        if (id_to_visualize != ~0u)
+        {
+            output_value.rgb = hsv2rgb(float3(float(id_to_visualize) * 0.1323f, 1, 1));
+        }
     }
     else 
     {

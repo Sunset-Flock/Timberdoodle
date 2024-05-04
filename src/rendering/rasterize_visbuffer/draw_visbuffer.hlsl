@@ -9,6 +9,8 @@
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
 
+[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
+
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 [[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
@@ -131,7 +133,7 @@ func generic_vertex<V : VertexT>(
 }
 
 // SamplerState::get(deref(draw_p.uses.globals).samplers.linear_clamp), 
-func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::SamplerId sampler) -> FragmentOut
+func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::SamplerId sampler, daxa::ImageViewId overdraw_image) -> FragmentOut
 {
     FragmentOut ret;
     ret.visibility_id = vertex.get_visibility_id();
@@ -158,6 +160,11 @@ func generic_fragment<V : VertexT>(V vertex, GPUMaterial* materials, daxa::Sampl
             if(alpha < 0.5) { discard; }
         }
     }
+    if (overdraw_image.value != 0)
+    {
+        uint prev_val;
+        InterlockedAdd(RWTexture2D_utable[overdraw_image.index()][vertex.get_position().xy], 1, prev_val);
+    }
     return ret;
 }
 
@@ -176,7 +183,8 @@ OpaqueVertex entry_vertex_opaque(
 [shader("fragment")]
 FragmentOut entry_fragment_opaque(OpaqueVertex vertex)
 {
-    return generic_fragment(vertex, (Ptr<GPUMaterial>)(0), daxa::SamplerId(0));
+    /// WARNING: BROKEN!
+    return generic_fragment(vertex, (Ptr<GPUMaterial>)(0), daxa::SamplerId(0), daxa::ImageViewId(0));
 }
 // --- Opaque ---
 
@@ -196,7 +204,8 @@ MaskedVertex entry_vertex_masked(
 [shader("fragment")]
 FragmentOut entry_fragment_masked(MaskedVertex vertex)
 {
-    return generic_fragment(vertex, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat);
+    /// WARNING: BROKEN!
+    return generic_fragment(vertex, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat, daxa::ImageViewId(0));
 }
 // --- Masked ---
 
@@ -397,7 +406,7 @@ FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshSh
     OpaqueVertex o_vert;
     o_vert.position = vert.position;
     o_vert.visibility_id = prim.visibility_id;
-    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
+    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0), draw_p.uses.overdraw_image);
 }
 // --- Mesh shader opaque ---
 
@@ -425,7 +434,7 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
     o_vert.uv = vert.uv;
     o_vert.material_index = prim.material_index;
     o_vert.object_space_position = vert.object_space_position;
-    return generic_fragment(o_vert, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat);
+    return generic_fragment(o_vert, draw_p.uses.material_manifest, draw_p.uses.globals->samplers.linear_repeat, draw_p.uses.overdraw_image);
 }
 
 // --- Mesh shader mask ---
@@ -636,7 +645,7 @@ FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert,
     OpaqueVertex o_vert;
     o_vert.position = vert.position;
     o_vert.visibility_id = prim.visibility_id;
-    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0));
+    return generic_fragment(o_vert, Ptr<GPUMaterial>(0), daxa::SamplerId(0), cull_meshlets_draw_visbuffer_push.uses.overdraw_image);
 }
 
 [shader("fragment")]
@@ -650,7 +659,8 @@ FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in 
     return generic_fragment(
         o_vert, 
         cull_meshlets_draw_visbuffer_push.uses.material_manifest, 
-        cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat
+        cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+        cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
     );
 
     // OpaqueVertex o_vert;

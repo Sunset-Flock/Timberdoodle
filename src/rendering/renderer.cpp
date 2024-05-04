@@ -453,6 +453,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug_image",
     });
 
+    auto overdraw_image = daxa::NullTaskImage;
+    if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_OVERDRAW)
+    {
+        overdraw_image = task_list.create_transient_image({
+            .format = daxa::Format::R32_UINT,
+            .size = {
+                render_context->render_data.settings.render_target_size.x,
+                render_context->render_data.settings.render_target_size.y,
+                1,
+            },
+            .name = "overdraw_image",
+        });
+        task_clear_image(task_list, overdraw_image, std::array{0,0,0,0});
+    }
+
     bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
     auto visbuffer = raster_visbuf::create_visbuffer(task_list, *render_context);
     daxa::TaskImageView depth = {};
@@ -556,6 +571,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .depth_image = depth,
         .dvmaa_vis_image = dvmaa_visbuffer,
         .dvmaa_depth_image = dvmaa_depth,
+        .overdraw_image = overdraw_image,
     });
 
     daxa::TaskImageView hiz = {};
@@ -597,6 +613,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .depth_image = depth,
         .dvmaa_vis_image = dvmaa_visbuffer,
         .dvmaa_depth_image = dvmaa_depth,
+        .overdraw_image = overdraw_image,
     });
 
     if (render_context->render_data.vsm_settings.enable)
@@ -700,6 +717,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
             ShadeOpaqueH::AT.debug_image | debug_image,
+            ShadeOpaqueH::AT.overdraw_image | overdraw_image,
         },
         .render_context = render_context.get(),
         .timeline_pool = vsm_state.vsm_timeline_query_pool,
@@ -867,8 +885,7 @@ void Renderer::render_frame(
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =
-        render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable ||
-        render_context->render_data.vsm_settings.enable_overdraw_visualization != render_context->prev_vsm_settings.enable_overdraw_visualization;
+        render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
     // Sky is transient of main task graph
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed)
     {

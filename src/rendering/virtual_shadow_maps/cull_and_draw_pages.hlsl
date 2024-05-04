@@ -277,8 +277,6 @@ func vsm_entry_mesh_masked(
     vsm_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
 }
 
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
-
 [shader("fragment")]
 void vsm_entry_fragment_opaque(
     in MeshShaderOpaqueVertex vert,

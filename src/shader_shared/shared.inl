@@ -127,7 +127,6 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 struct VSMSettings
 {
     daxa_i32 enable;
-    daxa_u32 visualize_clip_levels;
     daxa_u32 force_clip_level;
     daxa_u32 enable_caching;
     daxa_i32 forced_clip_level;
@@ -135,26 +134,32 @@ struct VSMSettings
     daxa_f32 clip_selection_bias;
     daxa_f32 slope_bias;
     daxa_f32 constant_bias;
-    daxa_i32 enable_overdraw_visualization;
     daxa_i32 use_simplified_light_matrix;
 #if defined(__cplusplus)
     VSMSettings()
-        : enable{ 0 },
-          visualize_clip_levels{ 0 },
+        : enable{ 1 },
           force_clip_level{ 0 },
-          enable_caching{ 0 },
+          enable_caching{ 1 },
           forced_clip_level{ 0 },
           clip_0_frustum_scale{2.0f},
           clip_selection_bias{0.3f},
           slope_bias{2.0f},
           constant_bias{10.0f},
-          enable_overdraw_visualization{0},
           use_simplified_light_matrix{0}
     {
     }
 #endif
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
+
+#define DEBUG_DRAW_MODE_NONE 0
+#define DEBUG_DRAW_MODE_OVERDRAW 1
+#define DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID 2
+#define DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID 3
+#define DEBUG_DRAW_MODE_ENTITY_ID 4
+#define DEBUG_DRAW_MODE_VSM_OVERDRAW 5
+#define DEBUG_DRAW_MODE_VSM_CLIP_LEVEL 6
+
 struct Settings
 {
     daxa_u32vec2 render_target_size;
@@ -166,6 +171,8 @@ struct Settings
     daxa_u32 draw_from_observer;
     daxa_i32 observer_show_pass;
     daxa_i32 anti_aliasing_mode;
+    daxa_i32 debug_draw_mode;
+    daxa_f32 debug_overdraw_scale;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -183,7 +190,9 @@ struct Settings
           window_size{16, 16},
           draw_from_observer{0},
           observer_show_pass{0},
-          anti_aliasing_mode{AA_MODE_NONE}
+          anti_aliasing_mode{AA_MODE_NONE},
+          debug_draw_mode{0},
+          debug_overdraw_scale{0.1}
     {
     }
 #endif

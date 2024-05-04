@@ -242,7 +242,7 @@ struct VSMState
         });
 
         overdraw_debug_image = daxa::NullTaskImage;
-        if (rgd.vsm_settings.enable_overdraw_visualization)
+        if (rgd.settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
             overdraw_debug_image = tg.create_transient_image({
                 .dimensions = 2,
