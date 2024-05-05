@@ -23,7 +23,7 @@ Scene::Scene(daxa::Device device)
     _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_ENTITIES, "_gpu_mesh_manifest");
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_ENTITIES, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
-    _scene_draw.opaque_draw_list_buffer = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
+    _scene_draw.opaque_mesh_instances = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
 }
 
 Scene::~Scene()
@@ -36,7 +36,7 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_mesh_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
-    _device.destroy_buffer(_scene_draw.opaque_draw_list_buffer.get_state().buffers[0]);
+    _device.destroy_buffer(_scene_draw.opaque_mesh_instances.get_state().buffers[0]);
     if(!_gpu_mesh_group_indices_array_buffer.is_empty())
     {
         _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
@@ -618,10 +618,10 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
                     MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
                     if (material.alpha_discard_enabled)
                     {
-                        opaque_draw_list_type = DRAW_LIST_MASK;
+                        opaque_draw_list_type = DRAW_LIST_MASKED;
                     }
                 }
-                auto mesh_draw = MeshDrawTuple{
+                auto mesh_draw = MeshInstance{
                     .entity_index = entity_i,
                     .mesh_index = mesh_index,
                     .in_mesh_group_index = in_meshgroup_mesh_i,
@@ -753,37 +753,24 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 #pragma region TEMP_UPLOAD_OPAQUE_DRAW_LISTS
     if (!_dirty_render_entities.empty())
     {
-        auto opaque_draw_list_buffer_head = make_opaque_draw_list_buffer_head(
-            _device.get_device_address(_scene_draw.opaque_draw_list_buffer.get_state().buffers[0]).value(),
-            std::array{
-                std::span{_scene_draw.opaque_draw_lists[0]},
-                std::span{_scene_draw.opaque_draw_lists[1]},
-            });
         auto staging = _device.create_buffer({
-            .size =
-                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (_scene_draw.opaque_draw_lists[0].size() +
-                                                                                   _scene_draw.opaque_draw_lists[1].size()),
+            .size = get_opaque_draw_list_buffer_size(),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "opaque draw lists buffer upload",
         });
         recorder.destroy_buffer_deferred(staging);
         auto staging_ptr = _device.get_host_address(staging).value();
-        *reinterpret_cast<OpaqueMeshDrawListBufferHead *>(staging_ptr) = opaque_draw_list_buffer_head;
-        std::memcpy(
-            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead),
-            _scene_draw.opaque_draw_lists[0].data(),
-            _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple));
-        std::memcpy(
-            staging_ptr + sizeof(OpaqueMeshDrawListBufferHead) +
-                _scene_draw.opaque_draw_lists[0].size() * sizeof(MeshDrawTuple),
-            _scene_draw.opaque_draw_lists[1].data(),
-            _scene_draw.opaque_draw_lists[1].size() * sizeof(MeshDrawTuple));
+        fill_opaque_draw_list_buffer_head(
+            _device.get_device_address(_scene_draw.opaque_mesh_instances.get_state().buffers[0]).value(),
+            reinterpret_cast<uint8_t*>(staging_ptr),
+            std::array{
+                std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[0]},
+                std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[1]},
+            });
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging,
-            .dst_buffer = _scene_draw.opaque_draw_list_buffer.get_state().buffers[0],
-            .size =
-                sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * (_scene_draw.opaque_draw_lists[0].size() +
-                                                                                   _scene_draw.opaque_draw_lists[1].size()),
+            .dst_buffer = _scene_draw.opaque_mesh_instances.get_state().buffers[0],
+            .size = get_opaque_draw_list_buffer_size(),
         });
     }
 

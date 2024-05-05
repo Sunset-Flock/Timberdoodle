@@ -3,7 +3,7 @@
 #include "daxa/daxa.inl"
 #include "../shader_shared/shared.inl"
 #include "../shader_shared/cull_util.inl"
-// #include "../shader_lib/debug.glsl"
+#include "../shader_lib/debug.glsl"
 #include "../shader_shared/globals.inl"
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
@@ -101,9 +101,9 @@ bool is_ws_sphere_out_of_frustum(CameraInfo camera, BoundingSphere ws_bounding_s
     return out_of_frustum;
 }
 
-bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32mat4x4 model_matrix, BoundingSphere ws_bounding_sphere)
+bool is_sphere_out_of_frustum(CameraInfo camera, daxa_f32mat4x4 model_matrix, BoundingSphere ms_bounding_sphere)
 {
-    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, ws_bounding_sphere);
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, ms_bounding_sphere);
     return is_ws_sphere_out_of_frustum(camera, ws_bs);
 }
 
@@ -113,11 +113,10 @@ struct NdcAABB
     daxa_f32vec3 ndc_max;
 };
 
-NdcAABB calculate_meshlet_ndc_aabb(
+NdcAABB calculate_ndc_aabb(
     CameraInfo camera,
-    MeshletInstance meshlet_inst,
     daxa_f32mat4x4 model_matrix,
-    AABB meshlet_aabb
+    AABB aabb
 )
 {
     bool initialized_min_max = false;
@@ -128,7 +127,7 @@ NdcAABB calculate_meshlet_ndc_aabb(
         {
             for (int x = -1; x <= 1; x += 2)
             {
-                const daxa_f32vec3 model_corner_position = meshlet_aabb.center + meshlet_aabb.size * daxa_f32vec3(x,y,z) * 0.5f;
+                const daxa_f32vec3 model_corner_position = aabb.center + aabb.size * daxa_f32vec3(x,y,z) * 0.5f;
                 const daxa_f32vec4 worldspace_corner_position = mul(model_matrix, daxa_f32vec4(model_corner_position,1));
                 const daxa_f32vec4 clipspace_corner_position = mul(camera.view_proj, worldspace_corner_position);
                 const daxa_f32vec3 ndc_corner_position = clipspace_corner_position.xyz / clipspace_corner_position.w;
@@ -228,6 +227,7 @@ bool is_ndc_aabb_hiz_opacity_occluded(
 }
 
 bool is_meshlet_occluded(
+    ShaderDebugBufferHead* debug,
     CameraInfo camera,
     MeshletInstance meshlet_inst,
     daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
@@ -241,6 +241,7 @@ bool is_meshlet_occluded(
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
     if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
     {
+        // printf("invalid meshlet index %i >= %i\n", meshlet_inst.meshlet_index, mesh_data.meshlet_count);
         return true;
     }
 
@@ -251,22 +252,24 @@ bool is_meshlet_occluded(
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
-    if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
+    if (is_ws_sphere_out_of_frustum(camera, ws_bs))
     {
-        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+        if (debug && false)
+        {
             ShaderDebugCircleDraw circle;
-            circle.position = ws_center;
-            circle.radius = scaled_radius;
+            circle.position = ws_bs.center;
+            circle.radius = ws_bs.radius;
             circle.color = daxa_f32vec3(1,1,0);
             circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.debug, circle);
-        #endif
+            debug_draw_circle(debug, circle);
+        }
         return true;
     }
 
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
+    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz_res, hiz);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
@@ -308,6 +311,90 @@ bool is_meshlet_occluded(
     return depth_cull;
 }
 
+bool is_mesh_occluded(
+    ShaderDebugBufferHead* debug,
+    CameraInfo camera,
+    MeshInstance mesh_inst,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_u32vec2 hiz_res,
+    daxa_ImageViewId hiz
+)
+{
+    GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
+
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
+    // BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, mesh_inst.meshlet_index);
+    // BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
+    // if (is_ws_sphere_out_of_frustum(camera, ws_bs))
+    // {
+    //     if (debug && false)
+    //     {
+    //         ShaderDebugCircleDraw circle;
+    //         circle.position = ws_bs.center;
+    //         circle.radius = ws_bs.radius;
+    //         circle.color = daxa_f32vec3(1,1,0);
+    //         circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    //         debug_draw_circle(debug, circle);
+    //     }
+    //     return true;
+    // }
+
+    AABB meshlet_aabb = mesh_data.aabb;
+    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
+    const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz_res, hiz);
+
+    if (false && depth_cull && debug)
+    {
+        ShaderDebugAABBDraw aabb1;
+        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        debug_draw_aabb(debug, aabb1);
+        {
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
+            rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(0, 1, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(debug, rectangle);
+        }
+        // {
+        //     const daxa_f32vec2 min_r = quad_corner_texel << imip;
+        //     const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+        //     const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+        //     const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+        //     const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+        //     const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+        //     ShaderDebugRectangleDraw rectangle;
+        //     const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
+        //     rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+        //     rectangle.span = rec_size.xy;
+        //     rectangle.color = daxa_f32vec3(1, 0, 1);
+        //     rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+        //     debug_draw_rectangle(debug, rectangle);
+        // }
+    }
+
+    return depth_cull;
+}
+
+bool is_ndc_triangle_occluded(
+    CameraInfo camera,
+    float3 ndc_positions[3],
+    daxa_u32vec2 hiz_res,
+    daxa_ImageViewId hiz
+)
+{
+    NdcAABB aabb;
+    aabb.ndc_max = max(ndc_positions[0].xyz, max(ndc_positions[1].xyz, ndc_positions[2].xyz));
+    aabb.ndc_min = min(ndc_positions[0].xyz, min(ndc_positions[1].xyz, ndc_positions[2].xyz));
+    const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, aabb, hiz_res, hiz);
+    return depth_cull;
+}
+
 bool is_meshlet_occluded_vsm(
     CameraInfo camera,
     MeshletInstance meshlet_inst,
@@ -339,7 +426,7 @@ bool is_meshlet_occluded_vsm(
     }
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
-    NdcAABB meshlet_ndc_aabb = calculate_meshlet_ndc_aabb(camera, meshlet_inst, model_matrix, meshlet_aabb);
+    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
@@ -379,119 +466,4 @@ bool is_meshlet_occluded_vsm(
     #endif
 
     return page_opacity_cull;
-}
-
-// How does this work?
-// - this is an asymertric work distribution problem
-// - each mesh cull thread needs x followup threads where x is the number of meshlets for the mesh
-// - writing x times to some argument buffer to dispatch over later is extreamly divergent and inefficient
-//   - solution is to combine writeouts in powers of two:
-//   - instead of x writeouts, only do log2(x), one writeout per set bit in the meshletcount.
-//   - when you want to write out 17 meshlet work units, instead of writing 7 args into a buffer,
-//     you write one 1x arg, no 2x arg, no 4x arg, no 8x arg and one 16x arg. the 1x and the 16x args together contain 17 work units.
-// - still not good enough, in large cases like 2^16 - 1 meshlets it would need 15 writeouts, that is too much!
-//   - solution is to limit the writeouts to some smaller number (i chose 5, as it has a max thread waste of < 5%)
-//   - A strong compromise is to round up invocation count from meshletcount in such a way that the round up value only has 4 bits set at most.
-//   - as we do one writeout per bit set in meshlet count, this limits the writeout to 5.
-// - in worst case this can go down from thousands of divergent writeouts down to 5 while only wasting < 5% of invocations.
-void write_meshlet_cull_arg_buckets(
-    GPUMesh mesh,
-    const MeshDrawTuple mesh_draw,
-    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead) cull_buckets,
-    const uint draw_list_type,
-    const uint meshlet_cull_shader_workgroup_x,
-    const uint cull_shader_workgroup_log2)
-{
-    const uint MAX_BITS = 5;
-    uint meshlet_count_msb = findMSB(mesh.meshlet_count);
-    const uint shift = uint(max(0, int(meshlet_count_msb) + 1 - int(MAX_BITS)));
-    // clip off all bits below the 5 most significant ones.
-    uint clipped_bits_meshlet_count = (mesh.meshlet_count >> shift) << shift;
-    // Need to round up if there were bits clipped.
-    if (clipped_bits_meshlet_count < mesh.meshlet_count)
-    {
-        clipped_bits_meshlet_count += (1 << shift);
-    }
-    // Now bit by bit, do one writeout of an indirect command:
-    uint bucket_bit_mask = clipped_bits_meshlet_count;
-    // Each time we write out a command we add on the number of meshlets processed by that arg. 
-    uint meshlet_offset = 0;
-    while (bucket_bit_mask != 0)
-    {
-        const uint bucket_index = findMSB(bucket_bit_mask);
-        const uint indirect_arg_meshlet_count = 1 << (bucket_index);
-        // Mask out bit.
-        bucket_bit_mask &= ~indirect_arg_meshlet_count;
-
-        const uint arg_array_offset = atomicAdd(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].indirect_arg_counts[bucket_index], 1);
-        const uint arg_bucket_max_arguments = min((MAX_MESHLET_INSTANCES >> bucket_index), MAX_MESH_INSTANCES);
-        if (arg_array_offset >= arg_bucket_max_arguments)
-        {
-            // Exceeded arg bucket size. Can not appent argument!
-            continue;
-        }
-        // Update indirect args for meshlet cull
-        {
-            const uint threads_per_indirect_arg = 1 << bucket_index;
-            const uint prev_indirect_arg_count = arg_array_offset;
-            const uint prev_needed_threads = threads_per_indirect_arg * prev_indirect_arg_count;
-            const uint prev_needed_workgroups = (prev_needed_threads + meshlet_cull_shader_workgroup_x - 1) >> cull_shader_workgroup_log2;
-            const uint cur_indirect_arg_count = arg_array_offset + 1;
-            const uint cur_needed_threads = threads_per_indirect_arg * cur_indirect_arg_count;
-            const uint cur_needed_workgroups = (cur_needed_threads + meshlet_cull_shader_workgroup_x - 1) >> cull_shader_workgroup_log2;
-
-            const bool update_cull_meshlets_dispatch = prev_needed_workgroups != cur_needed_workgroups;
-            if (update_cull_meshlets_dispatch)
-            {
-                atomicMax(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].commands[bucket_index].x, cur_needed_workgroups);
-            }
-        }
-        MeshletCullIndirectArg arg;
-        arg.entity_index = mesh_draw.entity_index;
-        arg.mesh_index = mesh_draw.mesh_index;
-        arg.material_index = mesh.material_index;
-        arg.in_mesh_group_index = mesh_draw.in_mesh_group_index;
-        arg.meshlet_indices_offset = meshlet_offset;
-        arg.meshlet_count = min(mesh.meshlet_count - meshlet_offset, indirect_arg_meshlet_count);
-        deref_i(deref(cull_buckets).draw_list_arg_buckets[draw_list_type].indirect_arg_ptrs[bucket_index],arg_array_offset) = arg;
-        meshlet_offset += indirect_arg_meshlet_count;
-    }
-}
-
-bool get_meshlet_instance_from_arg_buckets(
-    uint thread_id, 
-    uint arg_bucket_index, 
-    daxa_BufferPtr(MeshletCullArgBucketsBufferHead) meshlet_cull_indirect_args,
-    uint opaque_draw_list_type, 
-    out MeshletInstance meshlet_inst)
-{
-    const uint indirect_arg_index = thread_id >> arg_bucket_index;
-    const uint bucket_size =  min(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES >> arg_bucket_index);
-    const uint valid_arg_count = min(
-        deref(meshlet_cull_indirect_args)
-            .draw_list_arg_buckets[opaque_draw_list_type]
-            .indirect_arg_counts[arg_bucket_index],
-        bucket_size
-    );
-    // As work groups are launched in multiples of 128 (or 32 in the case of task shaders), 
-    // there may be threads with indices greater then the arg count for a bucket.
-    if (indirect_arg_index >= valid_arg_count)
-    {
-        return false;
-    }
-    const uint in_arg_meshlet_index = thread_id - (indirect_arg_index << arg_bucket_index);
-    daxa_RWBufferPtr(MeshletCullIndirectArg) args_ptr = 
-        (deref(meshlet_cull_indirect_args)
-        .draw_list_arg_buckets[opaque_draw_list_type]
-        .indirect_arg_ptrs[arg_bucket_index]);
-    const MeshletCullIndirectArg arg = deref_i(args_ptr, indirect_arg_index);
-    
-    meshlet_inst.entity_index = arg.entity_index;
-    meshlet_inst.material_index = arg.material_index;
-    meshlet_inst.mesh_index = arg.mesh_index;
-    meshlet_inst.meshlet_index = arg.meshlet_indices_offset + in_arg_meshlet_index;
-    meshlet_inst.in_mesh_group_index = arg.in_mesh_group_index;
-    // Work argument may work on less then 1<<bucket_index meshlets.
-    // In this case we cull threads with an index over meshlet_count.
-    return in_arg_meshlet_index < arg.meshlet_count && meshlet_inst.meshlet_index < MAX_MESHLET_INSTANCES;
 }

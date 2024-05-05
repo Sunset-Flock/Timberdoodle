@@ -28,6 +28,7 @@ uint triangle_mask_bit_from_triangle_index(uint triangle_index)
 }
 #endif // #if defined(DAXA_SHADER) && DAXA_SHADER
 
+// TODO: split this struct into multiple arrays!
 // !!NEEDS TO BE ABI COMPATIBLE WITH meshopt_Meshlet!!
 struct Meshlet
 {
@@ -48,6 +49,7 @@ struct MeshletInstance
     daxa_u32 mesh_index;
     daxa_u32 material_index;
     daxa_u32 in_mesh_group_index;
+    daxa_u32 mesh_instance_index;
 };
 DAXA_DECL_BUFFER_PTR(MeshletInstance)
 

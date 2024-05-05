@@ -14,7 +14,7 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(AllocEntToMeshInstOffsetsOffsetsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), opaque_mesh_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_mesh_groups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), mesh_groups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(IndirectMemsetBufferCommand), clear_arena_command)
@@ -279,7 +279,7 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     info.task_graph.add_task(AllocEntToMeshInstOffsetsOffsetsTask{
         .views = std::array{
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.opaque_mesh_draw_lists, info.render_context->scene_draw.opaque_draw_list_buffer),
+            daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.opaque_mesh_instances, info.render_context->scene_draw.opaque_mesh_instances),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.entity_mesh_groups, info.entity_mesh_groups),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.mesh_groups, info.mesh_group_manifest),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.clear_arena_command, clear_mesh_instance_bitfield_offsets_command),

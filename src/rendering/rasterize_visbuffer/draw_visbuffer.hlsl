@@ -8,8 +8,10 @@
 #include "shader_lib/depth_util.glsl"
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
+#include "shader_lib/po2_expansion.hlsl"
 
 [[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
+
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
@@ -137,7 +139,7 @@ struct MeshShaderMaskVertex : MeshShaderVertexT
     [[vk::location(1)]] float2 uv;
     [[vk::location(2)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASK;
+    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASKED;
 }
 struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
 {
@@ -150,6 +152,7 @@ struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
 
 groupshared float4 gs_generic_mesh_clip_vert_positions[MAX_VERTICES_PER_MESHLET];
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
+    daxa::ImageViewId hiz,
     DrawVisbufferPush push,
     in uint3 svtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
@@ -216,7 +219,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
             get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
 
-        const float4[3] tri_vert_ndc_positions = float4[3](
+        const float4[3] tri_vert_clip_positions = float4[3](
             gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[0]],
             gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[1]],
             gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[2]]
@@ -224,9 +227,25 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
         const bool is_backface =
             determinant(float3x3(
-                tri_vert_ndc_positions[0].xyw,
-                tri_vert_ndc_positions[1].xyw,
-                tri_vert_ndc_positions[2].xyw)) >= 0;
+                tri_vert_clip_positions[0].xyw,
+                tri_vert_clip_positions[1].xyw,
+                tri_vert_clip_positions[2].xyw)) >= 0;
+
+        const float3[3] tri_vert_ndc_positions = float3[3](
+            tri_vert_clip_positions[0].xyz * rcp(tri_vert_clip_positions[0].w),
+            tri_vert_clip_positions[1].xyz * rcp(tri_vert_clip_positions[1].w),
+            tri_vert_clip_positions[2].xyz * rcp(tri_vert_clip_positions[2].w)
+        );
+
+        bool hiz_occluded = false;
+        if (hiz.value != 0)
+        {
+            hiz_occluded = is_ndc_triangle_occluded(
+                push.uses.globals.camera,
+                tri_vert_ndc_positions,
+                push.uses.globals.settings.next_lower_po2_render_target_size,
+                hiz);
+        }
         
         out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
         uint visibility_id;
@@ -234,7 +253,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
         P primitive;
         primitive.set_visibility_id(visibility_id);
-        let cull_primitive = is_backface && cull_backfaces;
+        let cull_primitive = (is_backface && cull_backfaces) || hiz_occluded;
         primitive.set_cull_primitive(cull_primitive);
         if (P is MeshShaderMaskPrimitive)
         {
@@ -274,7 +293,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
-    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
+    generic_mesh(daxa::ImageViewId(0), draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
 }
 
 // --- Mesh shader opaque ---
@@ -345,6 +364,41 @@ struct CullMeshletsDrawVisbufferPayload
     bool enable_backface_culling;
 };
 
+struct MeshInstanceWorkItems : IPo2SrcWorkItems
+{
+    MeshInstance * mesh_instances;
+    GPUMesh * meshes;
+    func get_itemcount(uint src_item_index) -> uint
+    {
+        let mesh_instance = mesh_instances[src_item_index];
+        let mesh = meshes[mesh_instance.mesh_index];
+        return mesh.meshlet_count;
+    }
+}
+
+bool get_meshlet_instance_from_workitem(
+    Po2WorkExpansionBufferHead * po2expansion,
+    OpaqueMeshInstancesBufferHead * mesh_instances,
+    GPUMesh * meshes,
+    uint bucket_index,
+    uint thread_index, 
+    out MeshletInstance meshlet_instance)
+{
+    Po2ExpandedWorkItem workitem;
+    let valid_meshlet = get_expanded_work_item(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
+    if (valid_meshlet)
+    {
+        MeshInstance mesh_instance = mesh_instances.instances[workitem.src_work_item_index];
+        GPUMesh mesh = meshes[mesh_instance.mesh_index];
+        meshlet_instance.entity_index = mesh_instance.entity_index;
+        meshlet_instance.in_mesh_group_index = mesh_instance.in_mesh_group_index;
+        meshlet_instance.material_index = mesh.material_index;
+        meshlet_instance.mesh_index = mesh_instance.mesh_index;
+        meshlet_instance.meshlet_index = workitem.dst_work_item_index;
+    }
+    return valid_meshlet;
+}
+
 [shader("amplification")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_task_cull_draw_opaque_and_mask(
@@ -353,13 +407,18 @@ func entry_task_cull_draw_opaque_and_mask(
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
+
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
     MeshletInstance instanced_meshlet;
-    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
-        svtid.x,
+    let valid_meshlet = get_meshlet_instance_from_workitem(
+        po2expansion,
+        push.uses.mesh_instances,
+        push.uses.meshes,
         push.bucket_index,
-        push.uses.meshlets_cull_arg_buckets,
-        push.draw_list_type,
-        instanced_meshlet);
+        svtid.x,
+        instanced_meshlet
+    );
+    
     bool draw_meshlet = valid_meshlet;
 #if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
@@ -368,6 +427,7 @@ func entry_task_cull_draw_opaque_and_mask(
     if (valid_meshlet)
     {
         draw_meshlet = draw_meshlet && !is_meshlet_occluded(
+            push.uses.globals.debug,
             deref(push.uses.globals).camera,
             instanced_meshlet,
             push.uses.first_pass_meshlets_bitfield_offsets,
@@ -432,15 +492,20 @@ func entry_task_cull_draw_opaque_and_mask(
         surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     }
 
-    payload.enable_backface_culling = false;
+    bool enable_backface_culling = false;
     if (WaveIsFirstLane() && valid_meshlet)
     {
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = push.uses.material_manifest[instanced_meshlet.material_index];
-            payload.enable_backface_culling = !material.alpha_discard_enabled;
+            enable_backface_culling = !material.alpha_discard_enabled;
+        }
+        else
+        {
+            enable_backface_culling = false;
         }
     }
+    payload.enable_backface_culling = WaveActiveAnyTrue(enable_backface_culling);
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
@@ -487,15 +552,18 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // From the argument we construct the meshlet and any other data that we need.
     let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
-    MeshletInstance meshlet_inst;
     // The meshlet should always be valid here, 
     // as otherwise the task shader would not have dispatched this mesh shader.
-    let meshlet_valid = get_meshlet_instance_from_arg_buckets(
-        meshlet_cull_arg_index, 
-        push.bucket_index, 
-        push.uses.meshlets_cull_arg_buckets, 
-        push.draw_list_type, 
-        meshlet_inst);
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
+    MeshletInstance meshlet_inst;
+    let valid_meshlet = get_meshlet_instance_from_workitem(
+        po2expansion,
+        push.uses.mesh_instances,
+        push.uses.meshes,
+        push.bucket_index,
+        meshlet_cull_arg_index,
+        meshlet_inst
+    );
     DrawVisbufferPush fake_draw_p;
     fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
     fake_draw_p.uses.globals = push.uses.globals;
@@ -505,7 +573,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     
     let cull_backfaces = payload.enable_backface_culling;
-    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
+    generic_mesh(push.uses.hiz, fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
 }
 
 [outputtopology("triangle")]

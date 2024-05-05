@@ -216,7 +216,7 @@ layout(location = 0) out vec4 color;
 void main()
 {
     const float depth_bufer_depth = texelFetch(daxa_texture2D(push.attachments.depth_image), ivec2(gl_FragCoord.xy), 0).x;
-    if(depth_bufer_depth > gl_FragCoord.z) { discard; }
+    // if(depth_bufer_depth > gl_FragCoord.z) { discard; }
     color = vec4(vtf_color,1);
 }
 #endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT

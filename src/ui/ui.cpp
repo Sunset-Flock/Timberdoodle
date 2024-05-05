@@ -279,6 +279,7 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
                 u32 second_pass_meshlets = render_ctx.general_readback.second_pass_meshlet_count[0] + render_ctx.general_readback.second_pass_meshlet_count[1];
                 ImGui::Text("Meshlets drawn first pass %i", first_pass_meshlets);
                 ImGui::Text("Meshlets drawn second pass %i", second_pass_meshlets);
+                ImGui::Text("Visible Meshes %i", render_ctx.general_readback.visible_meshes);
             }
             ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)
@@ -562,6 +563,20 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             "AA_MODE_DVM",
         };
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
+        ImGui::SeparatorText("Debug Visualizations");
+        {
+            auto modes = std::array{
+                "None",
+                "Overdraw",
+                "Triangle Id",
+                "Meshlet Id",
+                "Entity Id",
+                "VSM Overdraw",
+                "VSM Clip Level",
+            };
+            ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
+            ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);
+        }
     }
     ImGui::End();
 }

@@ -25,7 +25,8 @@ void vsm_entry_write_commands(
 )
 {
     let push = write_command_push;
-    push.vsm_meshlets_cull_arg_buckets.draw_list_arg_buckets[svgid.x].commands[svgtid.x].y = VSM_CLIP_LEVELS;
+    push.meshlet_cull_po2expansion.bucket_dispatches[svgtid.x].y = VSM_CLIP_LEVELS;
+    push.masked_meshlet_cull_po2expansion.bucket_dispatches[svgtid.x].y = VSM_CLIP_LEVELS;
 }
 
 [shader("amplification")]
@@ -37,13 +38,18 @@ func vsm_entry_task(
 {
     let push = vsm_push;
     let clip_level = svgid.y;
+
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.attachments.po2expansion : (uint64_t)push.attachments.masked_po2expansion);
     MeshletInstance instanced_meshlet;
-    const bool valid_meshlet = get_meshlet_instance_from_arg_buckets(
-        svtid.x,
+    let valid_meshlet = get_meshlet_instance_from_workitem(
+        po2expansion,
+        push.attachments.mesh_instances,
+        push.attachments.meshes,
         push.bucket_index,
-        push.attachments.meshlets_cull_arg_buckets,
-        push.draw_list_type,
-        instanced_meshlet);
+        svtid.x,
+        instanced_meshlet
+    );
+    
     bool draw_meshlet = valid_meshlet;
 #if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
@@ -103,7 +109,7 @@ struct VSMMeshShaderMaskVertex : MeshShaderVertexT
     [[vk::location(1)]] float2 uv;
     [[vk::location(2)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASK;
+    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASKED;
 }
 
 func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
@@ -238,15 +244,17 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     // From the argument we construct the meshlet and any other data that we need.
     let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
+
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.attachments.po2expansion : (uint64_t)push.attachments.masked_po2expansion);
     MeshletInstance meshlet_inst;
-    // The meshlet should always be valid here, 
-    // as otherwise the task shader would not have dispatched this mesh shader.
-    let meshlet_valid = get_meshlet_instance_from_arg_buckets(
-        meshlet_cull_arg_index, 
-        push.bucket_index, 
-        push.attachments.meshlets_cull_arg_buckets, 
-        push.draw_list_type, 
-        meshlet_inst);
+    let valid_meshlet = get_meshlet_instance_from_workitem(
+        po2expansion,
+        push.attachments.mesh_instances,
+        push.attachments.meshes,
+        push.bucket_index,
+        meshlet_cull_arg_index,
+        meshlet_inst
+    );
     
     generic_vsm_mesh(svtid, out_indices, out_vertices, out_primitives, payload.task_shader_clip_level, meshlet_inst);
 }

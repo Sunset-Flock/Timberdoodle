@@ -273,20 +273,6 @@ void Application::update()
     {
         if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            ImGui::SeparatorText("Debug Visualizations");
-            {
-                auto modes = std::array{
-                    "None",
-                    "Overdraw",
-                    "Triangle Id",
-                    "Meshlet Id",
-                    "Entity Id",
-                    "VSM Overdraw",
-                    "VSM Clip Level",
-                };
-                ImGui::Combo("debug visualization", &_renderer->render_context->render_data.settings.debug_draw_mode, modes.data(), modes.size());
-                ImGui::InputFloat("debug visualization overdraw scale", &_renderer->render_context->render_data.settings.debug_overdraw_scale);
-            }
             ImGui::SeparatorText("Observer Camera");
             {
                 IMGUI_UINT_CHECKBOX2("draw from observer (H)", _renderer->render_context->render_data.settings.draw_from_observer);

@@ -12,38 +12,68 @@
 /// --- Mesh Instance Draw List Begin ---
 
 #define DRAW_LIST_OPAQUE 0
-#define DRAW_LIST_MASK 1
+#define DRAW_LIST_MASKED 1
 #define DRAW_LIST_TYPES 2
 
-struct MeshDrawTuple
+struct MeshDrawList
+{
+    daxa_u32 count;
+    daxa_RWBufferPtr(daxa_u32) instances;
+};
+
+#define MESH_INSTANCE_FLAG_OPAQUE (1 << 0)
+#define MESH_INSTANCE_FLAG_MASKED (1 << 1)
+
+struct MeshInstance
 {
     daxa_u32 entity_index;
     daxa_u32 mesh_index;
     daxa_u32 in_mesh_group_index;
+    daxa_u32 flags;
 };
-DAXA_DECL_BUFFER_PTR_ALIGN(MeshDrawTuple, 4);
+DAXA_DECL_BUFFER_PTR_ALIGN(MeshInstance, 4);
 
-struct OpaqueMeshDrawListBufferHead
-{
-    daxa_u32 list_sizes[2];
-    daxa_BufferPtr(MeshDrawTuple) mesh_draw_tuples[2];
+struct OpaqueMeshInstancesBufferHead
+{   
+    daxa_u32 count;
+    daxa_BufferPtr(MeshInstance) instances;
+    MeshDrawList draw_lists[2];
 }; 
-DAXA_DECL_BUFFER_PTR_ALIGN(OpaqueMeshDrawListBufferHead, 8)
+DAXA_DECL_BUFFER_PTR_ALIGN(OpaqueMeshInstancesBufferHead, 8)
 
 #if defined(__cplusplus)
 #include <span>
-inline auto make_opaque_draw_list_buffer_head(daxa::DeviceAddress address, std::array<std::span<MeshDrawTuple>, 2> draw_lists) -> OpaqueMeshDrawListBufferHead
+inline void fill_opaque_draw_list_buffer_head(daxa::DeviceAddress address, uint8_t* host_address, std::array<std::span<MeshInstance const>, 2> draw_lists)
 {
-    OpaqueMeshDrawListBufferHead ret = {};
-    ret.list_sizes[0] = static_cast<daxa::u32>(draw_lists[0].size());
-    ret.list_sizes[1] = static_cast<daxa::u32>(draw_lists[1].size());
-    ret.mesh_draw_tuples[0] = address + sizeof(OpaqueMeshDrawListBufferHead);
-    ret.mesh_draw_tuples[1] = address + sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * draw_lists[0].size();
-    return ret;
+    OpaqueMeshInstancesBufferHead ret = {};
+    auto device_address_back_offset = address + sizeof(OpaqueMeshInstancesBufferHead);
+    ret.instances = device_address_back_offset;
+    device_address_back_offset += sizeof(MeshInstance) * MAX_MESH_INSTANCES;
+    for (uint32_t draw_list = 0; draw_list < DRAW_LIST_TYPES; ++draw_list)
+    {
+        ret.draw_lists[draw_list].instances = device_address_back_offset;
+        device_address_back_offset += sizeof(daxa_u32) * MAX_MESH_INSTANCES;
+        for (uint32_t element = 0; element < draw_lists[draw_list].size(); ++element)
+        {
+            uint32_t mesh_instance_index = ret.count++;
+            uint32_t draw_list_element_index = ret.draw_lists[draw_list].count++;
+            MeshInstance mesh_instance = (draw_lists[draw_list])[element];
+            mesh_instance.flags = mesh_instance.flags | (draw_list == DRAW_LIST_OPAQUE ? MESH_INSTANCE_FLAG_OPAQUE : 0);
+            reinterpret_cast<MeshInstance*>(host_address + sizeof(OpaqueMeshInstancesBufferHead))[mesh_instance_index] = mesh_instance;
+            reinterpret_cast<uint32_t*>(
+                host_address + sizeof(OpaqueMeshInstancesBufferHead) + 
+                sizeof(MeshInstance) * MAX_MESH_INSTANCES + 
+                sizeof(uint32_t) * MAX_MESH_INSTANCES * draw_list)[element] = mesh_instance_index;
+        }
+    }
+    *reinterpret_cast<OpaqueMeshInstancesBufferHead*>(host_address) = ret;
 }
 inline auto get_opaque_draw_list_buffer_size() -> daxa::usize
 {
-    return sizeof(OpaqueMeshDrawListBufferHead) + sizeof(MeshDrawTuple) * MAX_MESH_INSTANCES * 2;
+    return 
+        sizeof(OpaqueMeshInstancesBufferHead) + 
+        sizeof(MeshInstance) * MAX_MESH_INSTANCES +
+        sizeof(uint32_t) * MAX_MESH_INSTANCES * 2;
 }
 #endif // #if defined(__cplusplus)
 
@@ -81,85 +111,23 @@ struct U32ArenaBuffer
 
 /// --- Mesh Instance Draw List End ---
 
-
-/// --- Culling Arguments ---
-
-struct MeshletCullIndirectArg
-{
-    daxa_u32 meshlet_indices_offset;
-    daxa_u32 entity_index;
-    daxa_u32 material_index;
-    daxa_u32 mesh_index;
-    daxa_u32 in_mesh_group_index; 
-    // Usually identical to buckets meshlet per arg count.
-    // Can be lower when a bigger bucket is used to cull the rest.
-    // For example bucket 1<<4 used to cull 10 meshlets.
-    daxa_u32 meshlet_count;
-};
-DAXA_DECL_BUFFER_PTR(MeshletCullIndirectArg)
-
-struct CullMeshletsArgBuckets
-{
-    DispatchIndirectStruct commands[32];
-    daxa_RWBufferPtr(MeshletCullIndirectArg) indirect_arg_ptrs[32];
-    daxa_u32 indirect_arg_counts[32];
-};
-
-// Table is set up in write command of cull_meshes.glsl.
-struct MeshletCullArgBucketsBufferHead
-{
-    CullMeshletsArgBuckets draw_list_arg_buckets[DRAW_LIST_TYPES];
-};
-DAXA_DECL_BUFFER_PTR(MeshletCullArgBucketsBufferHead)
-
-#if defined(__cplusplus)
-inline auto meshlet_cull_arg_bucket_size(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u32 bucket) -> daxa_u32
-{
-    // round_up(div(max_meshlets,pow(2,i)))
-    daxa_u32 const args_needed_for_max_meshlets_this_bucket = (max_meshlets + ((1 << bucket) - 1) ) >> bucket;
-    // Min with max_meshes, as each mesh can write up most one arg into each bucket!
-    return std::min(max_meshes, args_needed_for_max_meshlets_this_bucket) * static_cast<daxa_u32>(sizeof(MeshletCullIndirectArg));
-}
-
-inline auto meshlet_cull_arg_buckets_buffer_size(daxa_u32 max_meshes, daxa_u32 max_meshlets) -> daxa_u32
-{
-    daxa_u32 worst_case_size = {};
-    for (daxa_u32 draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
-    {
-        for (daxa_u32 i = 0; i < 32; ++i)
-        {
-            worst_case_size += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
-        }
-    }
-    return worst_case_size + static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
-}
-inline auto meshlet_cull_arg_buckets_buffer_make_head(daxa_u32 max_meshes, daxa_u32 max_meshlets, daxa_u64 address) -> MeshletCullArgBucketsBufferHead
-{
-    MeshletCullArgBucketsBufferHead ret = {};
-    daxa_u32 current_buffer_offset = static_cast<daxa_u32>(sizeof(MeshletCullArgBucketsBufferHead));
-    for (daxa_u32 draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
-    {
-        for (daxa_u32 i = 0; i < 32; ++i)
-        {
-            ret.draw_list_arg_buckets[draw_list_type].commands[i] = { 0, 1, 1 };
-            ret.draw_list_arg_buckets[draw_list_type].indirect_arg_ptrs[i] = static_cast<daxa_u64>(current_buffer_offset) + address;
-            current_buffer_offset += meshlet_cull_arg_bucket_size(max_meshes, max_meshlets, i);
-        }
-    }
-    return ret;
-}
-#endif
-
-/// --- End Culling Arguments ---
-
 /// --- Analyze Visbuffer Results Begin ---
 
 // TODO: Convert into buffer head.
 struct VisibleMeshletList
 {
     daxa_u32 count;
+    daxa_u32vec3 padd;
     daxa_u32 meshlet_ids[MAX_MESHLET_INSTANCES];
 };
 DAXA_DECL_BUFFER_PTR(VisibleMeshletList)
+
+struct VisibleMeshesList
+{
+    daxa_u32 count;
+    daxa_u32vec3 padd;
+    daxa_u32 mesh_ids[MAX_MESH_INSTANCES];
+};
+DAXA_DECL_BUFFER_PTR(VisibleMeshesList)
 
 /// --- Analyze Visbuffer Results End ---

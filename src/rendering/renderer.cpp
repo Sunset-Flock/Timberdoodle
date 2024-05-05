@@ -46,6 +46,7 @@ Renderer::Renderer(
     meshlet_instances = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     meshlet_instances_last_frame = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
+    visible_mesh_instances = create_task_buffer(context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
     general_readback_buffer = daxa::TaskBuffer{ context->device, { sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer" }};
 
@@ -54,6 +55,7 @@ Renderer::Renderer(
         meshlet_instances,
         meshlet_instances_last_frame,
         visible_meshlet_instances,
+        visible_mesh_instances,
         luminance_average,
         general_readback_buffer};
 
@@ -147,7 +149,7 @@ void Renderer::compile_pipelines()
         {gen_hiz_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info()},
         {shade_opaque_pipeline_compile_info()},
-        {cull_meshes_pipeline_compile_info()},
+        {expand_meshes_pipeline_compile_info()},
         {PrefixSumCommandWriteTask::pipeline_compile_info},
         {prefix_sum_upsweep_pipeline_compile_info()},
         {prefix_sum_downsweep_pipeline_compile_info()},
@@ -425,7 +427,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
-    task_list.use_persistent_buffer(render_context->scene_draw.opaque_draw_list_buffer);
+    task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
     task_list.use_persistent_image(vsm_state.memory_block);
     task_list.use_persistent_image(vsm_state.meta_memory_table);
@@ -495,6 +497,17 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
         },
         .name = "update global buffers",
+    });
+
+    task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, debug_image),
+            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, overdraw_image),
+            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, depth),
+            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, visbuffer),
+        },
+        .task = [=](daxa::TaskInterface ti) {},
+        .name = "dummy",
     });
 
     auto sky = task_list.create_transient_image({
@@ -573,12 +586,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView hiz = {};
     task_gen_hiz_single_pass({render_context.get(), task_list, depth, render_context->tgpu_render_data, &hiz});
 
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffers = {};
-    tasks_cull_meshes({
+    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
+    tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
         .render_context = render_context.get(),
         .task_list = task_list,
+        .cull_meshes = true,
+        .hiz = hiz,
         .globals = render_context->tgpu_render_data,
-        .opaque_draw_lists = render_context->scene_draw.opaque_draw_list_buffer,
+        .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
         .meshes = scene->_gpu_mesh_manifest,
         .materials = scene->_gpu_material_manifest,
         .entity_meta = scene->_gpu_entity_meta,
@@ -586,14 +601,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .meshgroups = scene->_gpu_mesh_group_manifest,
         .entity_transforms = scene->_gpu_entity_transforms,
         .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
-        .hiz = hiz,
-        .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
+        .opaque_meshlet_cull_po2expansions = meshlet_cull_po2expansion,
     });
 
     task_cull_and_draw_visbuffer({
         .render_context = render_context.get(),
         .task_graph = task_list,
-        .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
+        .meshlet_cull_po2expansion = meshlet_cull_po2expansion,
         .entity_meta_data = scene->_gpu_entity_meta,
         .entity_meshgroups = scene->_gpu_entity_mesh_groups,
         .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
@@ -604,6 +618,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         .hiz = hiz,
         .meshlet_instances = meshlet_instances,
+        .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
         .vis_image = visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
@@ -615,12 +630,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(task_list, render_context->render_data);
-        task_draw_vsms({
+        task_draw_vsms(TaskDrawVSMsInfo{
+            .scene = scene,
             .render_context = render_context.get(),
             .tg = &task_list,
             .vsm_state = &vsm_state,
-            .meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers,
+            .meshlet_cull_po2expansions = meshlet_cull_po2expansion,
             .meshlet_instances = meshlet_instances,
+            .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
             .meshes = scene->_gpu_mesh_manifest,
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
@@ -636,15 +653,24 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
         "visible meshlets bitfield",
     });
+    auto visible_meshes_bitfield = task_list.create_transient_buffer({
+        sizeof(daxa_u32) * static_cast<u64>(round_up_div(MAX_MESH_INSTANCES, 32)),
+        "visible meshes bitfield",
+    });
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlet_instances, 0);
+    task_clear_buffer(task_list, visible_meshes_bitfield, 0);
+    task_clear_buffer(task_list, visible_mesh_instances, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
             AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,
             AnalyzeVisbuffer2H::AT.visbuffer | visbuffer,
-            AnalyzeVisbuffer2H::AT.instantiated_meshlets | meshlet_instances,
+            AnalyzeVisbuffer2H::AT.meshlet_instances | meshlet_instances,
+            AnalyzeVisbuffer2H::AT.mesh_instances | render_context->scene_draw.opaque_mesh_instances,
             AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
             AnalyzeVisbuffer2H::AT.visible_meshlets | visible_meshlet_instances,
+            AnalyzeVisbuffer2H::AT.mesh_visibility_bitfield | visible_meshes_bitfield,
+            AnalyzeVisbuffer2H::AT.visible_meshes | visible_mesh_instances,
         },
         .context = context,
     });
@@ -664,6 +690,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .depth_image = depth,
             .dvmaa_vis_image = dvmaa_visbuffer,
             .dvmaa_depth_image = dvmaa_depth,
+            .overdraw_image = overdraw_image,
         });
     }
     task_list.submit({});
@@ -772,6 +799,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, meshlet_instances),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, visible_mesh_instances),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, general_readback_buffer),
         },
         .task = [=, this](daxa::TaskInterface ti)
@@ -789,10 +817,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[0].second_count, second_pass_meshlet_count[0]);
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].first_count, first_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].second_count, second_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
             
             render_context->general_readback = ti.device.get_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
         },
-        .name = "readback statistics",
+        .name = "general readback",
     });
 
 #if 0

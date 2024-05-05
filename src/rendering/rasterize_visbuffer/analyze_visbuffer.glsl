@@ -27,6 +27,20 @@ void update_visibility_masks_and_list(uint meshlet_instance_index, uint triangle
         // this thread in the position to uniquely write out this meshlets index to the visible meshlet list.
         const uint offset = atomicAdd(deref(push.uses.visible_meshlets).count, 1);
         deref(push.uses.visible_meshlets).meshlet_ids[offset] = meshlet_instance_index;
+
+        MeshletInstance meshlet_instance = deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_index);
+        
+        // TODO: Profile and optimize this:
+        uint mesh_instance_index = meshlet_instance.mesh_instance_index;
+        uint bitfield_index = mesh_instance_index / 32;
+        uint bitfield_mask = 1u << (mesh_instance_index % 32);
+        uint ret_bitfield_mask = atomicOr(deref_i(push.uses.mesh_visibility_bitfield, bitfield_index), bitfield_mask);
+        if ((bitfield_mask & ret_bitfield_mask) == 0)
+        {
+            // First to see mesh. Append to list of visible meshes.
+            uint visible_mesh_list_index = atomicAdd(deref(push.uses.visible_meshes).count, 1);
+            deref(push.uses.visible_meshes).mesh_ids[visible_mesh_list_index] = meshlet_instance.mesh_instance_index;
+        }
     }
 }
 

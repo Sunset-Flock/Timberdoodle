@@ -8,13 +8,13 @@
 #include "../../shader_shared/geometry.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
+#include "../../shader_shared/po2_expansion.inl"
 
 #define CULL_MESHES_WORKGROUP_X 128
 
-DAXA_DECL_TASK_HEAD_BEGIN(CullMeshesH)
+DAXA_DECL_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_u64, command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshDrawListBufferHead), opaque_mesh_draw_lists)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
@@ -23,16 +23,14 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(
-    COMPUTE_SHADER_READ_WRITE, 
-    daxa_RWBufferPtr(MeshletCullArgBucketsBufferHead), 
-    meshlets_cull_arg_buckets_buffers)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(Po2WorkExpansionBufferHead), opaque_po2expansion)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(Po2WorkExpansionBufferHead), masked_opaque_po2expansion)
 DAXA_DECL_TASK_HEAD_END
 
-struct CullMeshesPush
+struct ExpandMeshesToMeshletsPush
 {
-    DAXA_TH_BLOB(CullMeshesH, uses)
-    daxa_u32 dummy;
+    DAXA_TH_BLOB(ExpandMeshesToMeshletsH, uses)
+    daxa::b32 cull_meshes;
 };
 
 #if defined(__cplusplus)
@@ -40,25 +38,34 @@ struct CullMeshesPush
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
-static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.glsl";
+static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl";
 
-inline daxa::ComputePipelineCompileInfo cull_meshes_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo expand_meshes_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{.source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH}},
-        .push_constant_size = s_cast<u32>(sizeof(CullMeshesPush)),
-        .name = std::string{CullMeshesH::NAME},
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
+            .compile_options = {
+                .entry_point = "main",
+                .language = daxa::ShaderLanguage::SLANG,
+            },
+        },
+        .push_constant_size = s_cast<u32>(sizeof(ExpandMeshesToMeshletsPush)),
+        .name = std::string{ExpandMeshesToMeshletsH::NAME},
     };
 }
 
-struct CullMeshesTask : CullMeshesH::Task
+struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
+    bool cull_meshes = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(cull_meshes_pipeline_compile_info().name));
-        CullMeshesPush push = {};
+        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
+        ExpandMeshesToMeshletsPush push = {
+            .cull_meshes = cull_meshes,
+        };
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         auto const total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
@@ -66,12 +73,14 @@ struct CullMeshesTask : CullMeshesH::Task
     }
 };
 
-struct TaskCullMeshesInfo
+struct TaskExpandMeshesToMeshletsInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & task_list;
+    bool cull_meshes = {};
+    daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
-    daxa::TaskBufferView opaque_draw_lists = {};
+    daxa::TaskBufferView mesh_instances = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView materials = {};
     daxa::TaskBufferView entity_meta = {};
@@ -79,48 +88,58 @@ struct TaskCullMeshesInfo
     daxa::TaskBufferView meshgroups = {};
     daxa::TaskBufferView entity_transforms = {};
     daxa::TaskBufferView entity_combined_transforms = {};
-    daxa::TaskImageView hiz = {};
-    daxa::TaskBufferView & meshlets_cull_arg_buckets_buffers;
+    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> & opaque_meshlet_cull_po2expansions;
+    DispatchIndirectStruct dispatch_clear = {0,1,1};
+    std::string buffer_name_prefix = "";
 };
-void tasks_cull_meshes(TaskCullMeshesInfo const & info)
+void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
-    auto meshlets_cull_arg_buckets_buffers = info.task_list.create_transient_buffer({
-        .size = meshlet_cull_arg_buckets_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
-        .name = "meshlet_cull_arg_buckets_buffers",
+    auto opaque_po2expansion = info.task_list.create_transient_buffer({
+        .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
+        .name = info.buffer_name_prefix + "opaque_meshlet_cull_po2expansion",
     });
-
+    auto masked_opaque_po2expansion = info.task_list.create_transient_buffer({
+        .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
+        .name = info.buffer_name_prefix + "masked_opaque_meshlet_cull_po2expansion",
+    });
     info.task_list.add_task({
         .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlets_cull_arg_buckets_buffers),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, opaque_po2expansion),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, masked_opaque_po2expansion),
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            auto const opaque_solid_head = meshlet_cull_arg_buckets_buffer_make_head(
-                    MAX_MESH_INSTANCES, 
-                    MAX_MESHLET_INSTANCES, 
-                    ti.device.get_device_address(ti.get(meshlets_cull_arg_buckets_buffers).ids[0]).value());
-            allocate_fill_copy(ti, opaque_solid_head, ti.get(meshlets_cull_arg_buckets_buffers));
+            allocate_fill_copy(
+                ti, Po2WorkExpansionBufferHead::create(ti.device.get_device_address(ti.get(opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
+                ti.get(opaque_po2expansion)
+            );
+            allocate_fill_copy(
+                ti, Po2WorkExpansionBufferHead::create(ti.device.get_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
+                ti.get(masked_opaque_po2expansion)
+            );
         },
         .name = "init meshlet cull arg buckets buffer",
     });
 
-    info.task_list.add_task(CullMeshesTask{
+    info.task_list.add_task(ExpandMeshesToMeshletsTask{
         .views = std::array{
-            daxa::attachment_view(CullMeshesH::AT.globals, info.globals),
-            daxa::attachment_view(CullMeshesH::AT.opaque_mesh_draw_lists, info.opaque_draw_lists),
-            daxa::attachment_view(CullMeshesH::AT.meshes, info.meshes),
-            daxa::attachment_view(CullMeshesH::AT.materials, info.materials),
-            daxa::attachment_view(CullMeshesH::AT.entity_meta, info.entity_meta),
-            daxa::attachment_view(CullMeshesH::AT.entity_meshgroup_indices, info.entity_meshgroup_indices),
-            daxa::attachment_view(CullMeshesH::AT.meshgroups, info.meshgroups),
-            daxa::attachment_view(CullMeshesH::AT.entity_transforms, info.entity_transforms),
-            daxa::attachment_view(CullMeshesH::AT.entity_combined_transforms, info.entity_combined_transforms),
-            daxa::attachment_view(CullMeshesH::AT.hiz, info.hiz),
-            daxa::attachment_view(CullMeshesH::AT.meshlets_cull_arg_buckets_buffers, meshlets_cull_arg_buckets_buffers),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.globals, info.globals),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.mesh_instances, info.mesh_instances),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.meshes, info.meshes),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.materials, info.materials),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.entity_meta, info.entity_meta),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.entity_meshgroup_indices, info.entity_meshgroup_indices),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.meshgroups, info.meshgroups),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.entity_transforms, info.entity_transforms),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.opaque_po2expansion, opaque_po2expansion),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.masked_opaque_po2expansion, masked_opaque_po2expansion),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.hiz, info.hiz),
         },
         .render_context = info.render_context,
+        .cull_meshes = info.cull_meshes,
     });
-    info.meshlets_cull_arg_buckets_buffers = meshlets_cull_arg_buckets_buffers;
+    info.opaque_meshlet_cull_po2expansions = std::array{opaque_po2expansion, masked_opaque_po2expansion};
 }
 
 #endif

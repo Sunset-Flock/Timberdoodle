@@ -14,7 +14,7 @@ DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
 DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 #endif
 
-#include "shader_lib/cull_util.hlsl"
+// #include "shader_lib/cull_util.hlsl"
 
 #define WORKGROUP_SIZE PREPOPULATE_MESHLET_INSTANCES_X
 
@@ -22,27 +22,22 @@ DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
 void main()
 {
-    uint mesh_draw_index = gl_GlobalInvocationID.x;
-    uint opaque_draw_list_index = 0;
-    // We do a single dispatch to cull both lists, the shader threads simply check if their id overruns the first list,
-    // then assign themselves to an element in the second list.
-    if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[0])
+    uint mesh_instance_index = gl_GlobalInvocationID.x;
+    uint mesh_instance_count = deref(push.uses.opaque_mesh_instances).count;
+    if (mesh_instance_index >= mesh_instance_count)
     {
-        mesh_draw_index -= deref(push.uses.opaque_mesh_draw_lists).list_sizes[0];
-        opaque_draw_list_index = 1;
-        if (mesh_draw_index >= deref(push.uses.opaque_mesh_draw_lists).list_sizes[1])
-        {
-            return;
-        }
+        return;
     }
+    MeshInstance mesh_instance = deref_i(deref(push.uses.opaque_mesh_instances).instances, mesh_instance_index);
+    uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? DRAW_LIST_OPAQUE : DRAW_LIST_MASKED;
 
-    const MeshDrawTuple mesh_draw = deref(deref(push.uses.opaque_mesh_draw_lists).mesh_draw_tuples[opaque_draw_list_index][mesh_draw_index]);
-    const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_draw.entity_index]);
+    const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_instance.entity_index]);
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         // Entity has no mesh group.
         return;
     }
+    
     GPUMeshGroup mesh_group = deref(push.uses.mesh_groups[mesh_group_index]);
     if (mesh_group.count == 0)
     {
@@ -51,7 +46,7 @@ void main()
     }
 
     const bool locked_entities_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
-        deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_draw.entity_index]),
+        deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
     );
@@ -68,7 +63,7 @@ void main()
     if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - 2))
     {
         atomicExchange(
-            deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_draw.entity_index]),
+            deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
             allocation_offset
         );
         // Write indirect clear command, clearing the section used to store the mesh bitfield offsets.
@@ -150,7 +145,7 @@ void main()
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
                 GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
-                opaque_draw_list_type_index = material.alpha_discard_enabled ? DRAW_LIST_MASK : DRAW_LIST_OPAQUE;
+                opaque_draw_list_type_index = material.alpha_discard_enabled ? DRAW_LIST_MASKED : DRAW_LIST_OPAQUE;
             }
             // Scalarize appends to the draw lists.
             // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).

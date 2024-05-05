@@ -8,6 +8,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
+#include "../../shader_shared/po2_expansion.inl"
 
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -33,11 +34,13 @@ DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletCullArgBucketsBufferHead), meshlets_cull_arg_buckets)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
@@ -361,6 +364,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < DRAW_LIST_TYPES; ++opaque_draw_list_type)
         {
+            auto buffer = ti.get(opaque_draw_list_type == DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
             render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(slang_cull_meshlets_draw_visbuffer_pipelines[opaque_draw_list_type].name));
             for (u32 i = 0; i < 32; ++i)
             {
@@ -371,8 +375,8 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 assign_blob(push.uses, ti.attachment_shader_blob);
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = ti.get(AT.meshlets_cull_arg_buckets).ids[0],
-                    .offset = sizeof(DispatchIndirectStruct) * i + sizeof(CullMeshletsArgBuckets) * opaque_draw_list_type,
+                    .indirect_buffer = buffer,
+                    .offset = sizeof(DispatchIndirectStruct) * i,
                     .draw_count = 1,
                     .stride = sizeof(DispatchIndirectStruct),
                 });
@@ -386,7 +390,7 @@ struct TaskCullAndDrawVisbufferInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & task_graph;
-    daxa::TaskBufferView meshlets_cull_arg_buckets_buffers = {};
+    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
     daxa::TaskBufferView entity_meta_data = {};
     daxa::TaskBufferView entity_meshgroups = {};
     daxa::TaskBufferView entity_combined_transforms = {};
@@ -397,6 +401,7 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
     daxa::TaskBufferView meshlet_instances = {};
+    daxa::TaskBufferView mesh_instances = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
@@ -411,10 +416,12 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         .views = std::array{
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.hiz, info.hiz),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshlets_cull_arg_buckets, info.meshlets_cull_arg_buckets_buffers),
+            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.po2expansion, info.meshlet_cull_po2expansion[0]),
+            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.masked_po2expansion, info.meshlet_cull_po2expansion[1]),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.mesh_instances, info.mesh_instances),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshes, info.meshes),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.entity_combined_transforms, info.entity_combined_transforms),
             daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.material_manifest, info.material_manifest),
@@ -476,6 +483,11 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     info.task_graph.add_task(write_task);
 
     bool dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
+
+    if (info.overdraw_image != daxa::NullTaskImage)
+    {
+        task_clear_image(info.task_graph, info.overdraw_image, std::array{0u,0u,0u,0u});
+    }
 
     DrawVisbufferTask draw_task = {
         .views = std::array{

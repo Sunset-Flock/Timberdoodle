@@ -6,8 +6,6 @@
 
 DAXA_DECL_PUSH_CONSTANT(GenHizPush, push)
 
-#include "shader_lib/cull_util.hlsl"
-
 vec2 make_gather_uv(vec2 inv_size, uvec2 top_left_index)
 {
     return (vec2(top_left_index) + 1.0f) * inv_size;

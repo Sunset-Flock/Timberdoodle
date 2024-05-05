@@ -42,6 +42,7 @@ struct Renderer
     daxa::TaskBuffer meshlet_instances = {};
     daxa::TaskBuffer meshlet_instances_last_frame = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
+    daxa::TaskBuffer visible_mesh_instances = {};
     daxa::TaskBuffer luminance_average = {};
     daxa::TaskBuffer general_readback_buffer = {};
 
