@@ -681,6 +681,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
             .task_graph = task_list,
             .pass = PASS4_OBSERVER_DRAW_ALL,
+            .hiz = hiz,
             .meshlet_instances = meshlet_instances,
             .meshes = scene->_gpu_mesh_manifest,
             .material_manifest = scene->_gpu_material_manifest,

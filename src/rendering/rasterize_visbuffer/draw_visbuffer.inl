@@ -20,6 +20,8 @@ DAXA_DECL_TASK_HEAD_END
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
+// Used by observer to cull:
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
@@ -451,6 +453,7 @@ struct TaskDrawVisbufferInfo
     RenderContext * render_context = {};
     daxa::TaskGraph & task_graph;
     u32 const pass = {};
+    daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
@@ -500,6 +503,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             DrawVisbufferH::AT.vis_image | (dvmaa ? info.dvmaa_vis_image : info.vis_image),
             DrawVisbufferH::AT.depth_image | (dvmaa ? info.dvmaa_depth_image : info.depth_image),
             DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+            DrawVisbufferH::AT.hiz | info.hiz,
         },
         .render_context = info.render_context,
         .pass = info.pass,

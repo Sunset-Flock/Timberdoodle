@@ -381,7 +381,27 @@ bool is_mesh_occluded(
     return depth_cull;
 }
 
-bool is_ndc_triangle_occluded(
+func is_triangle_invisible_micro_triangle(float2 ndc_min, float2 ndc_max, float2 resolution) -> bool
+{
+    let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f;
+    let sample_grid_max = (ndc_max * 0.5f + 0.5f) * resolution - 0.5f;
+    // Checks if the min and the max positions are right next to the same sample grid line.
+    // If we are next to the same sample grid line in one dimension we are not rasterized.
+    let prim_visible = !any(equal(floor(sample_grid_max), floor(sample_grid_min)));
+    return !prim_visible && all(greaterThan(ndc_min, -float2(0.99999,0.99999))) && all(lessThan(ndc_max, float2(0.99999,0.99999)));
+}
+
+func is_triangle_backfacing(float4 tri_vert_clip_positions[3]) -> bool
+{
+    let is_backface =
+        determinant(float3x3(
+            tri_vert_clip_positions[0].xyw,
+            tri_vert_clip_positions[1].xyw,
+            tri_vert_clip_positions[2].xyw)) >= 0;
+    return is_backface;
+}
+
+bool is_triangle_hiz_occluded(
     CameraInfo camera,
     float3 ndc_positions[3],
     daxa_u32vec2 hiz_res,

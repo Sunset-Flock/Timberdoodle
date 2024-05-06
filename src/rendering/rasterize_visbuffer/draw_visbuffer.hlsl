@@ -127,8 +127,8 @@ struct MeshShaderOpaquePrimitive : MeshShaderPrimitiveT
 {
     nointerpolation [[vk::location(0)]] uint visibility_id;
     IMPL_GET_SET(uint, visibility_id)
-    bool cull_primitive : SV_CullPrimitive;
-    IMPL_GET_SET(bool, cull_primitive)
+        bool cull_primitive : SV_CullPrimitive;
+        IMPL_GET_SET(bool, cull_primitive)
 };
 
 
@@ -146,13 +146,18 @@ struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
     nointerpolation [[vk::location(0)]] uint visibility_id;
     nointerpolation [[vk::location(1)]] uint material_index;
     bool cull_primitive : SV_CullPrimitive;
-    IMPL_GET_SET(bool, cull_primitive)
     IMPL_GET_SET(uint, visibility_id)
+    IMPL_GET_SET(bool, cull_primitive)
 };
 
-groupshared float4 gs_generic_mesh_clip_vert_positions[MAX_VERTICES_PER_MESHLET];
+func shuffle_arr2(float4 local_values[2], uint load_index) -> float4
+{
+    let load0 = WaveReadLaneAt(local_values[0], (load_index % 32));
+    let load1 = WaveReadLaneAt(local_values[1], (uint(max(0u, int(load_index) - 32))));
+    return load_index > 31 ? load1 : load0;
+}
+
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    daxa::ImageViewId hiz,
     DrawVisbufferPush push,
     in uint3 svtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
@@ -176,10 +181,16 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         printf("fuck\n");
     }
 
-    for (uint vertex_offset = 0; vertex_offset < meshlet.vertex_count; vertex_offset += MESH_SHADER_WORKGROUP_X)
+    float4 local_clip_vertices[2];
+    float3 local_ndc_vertices[2];
+
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.uses.entity_combined_transforms, meshlet_inst.entity_index);
+    const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
+    for (uint l = 0; l < 2; ++l)
     {
+        uint vertex_offset = MESH_SHADER_WORKGROUP_X * l;
         const uint in_meshlet_vertex_index = svtid.x + vertex_offset;
-        if (in_meshlet_vertex_index >= meshlet.vertex_count) break;
+        if (in_meshlet_vertex_index >= meshlet.vertex_count) continue;
 
         const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index);
         if (in_mesh_vertex_index >= mesh.vertex_count)
@@ -188,12 +199,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             continue;
         }
         const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-        const daxa_f32mat4x3 model_mat4x3 = deref_i(push.uses.entity_combined_transforms, meshlet_inst.entity_index);
-        const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
         const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
         V vertex;
-        gs_generic_mesh_clip_vert_positions[in_meshlet_vertex_index] = pos;
+        local_clip_vertices[l] = pos;
         vertex.set_position(pos);
         if (V is MeshShaderMaskVertex)
         {
@@ -212,56 +221,83 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     for (uint triangle_offset = 0; triangle_offset < meshlet.triangle_count; triangle_offset += MESH_SHADER_WORKGROUP_X)
     {
         const uint in_meshlet_triangle_index = svtid.x + triangle_offset;
-        if (in_meshlet_triangle_index >= meshlet.triangle_count) break;
-
-        const uint3 tri_in_meshlet_vertex_indices = uint3(
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
-            get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2));
-
-        const float4[3] tri_vert_clip_positions = float4[3](
-            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[0]],
-            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[1]],
-            gs_generic_mesh_clip_vert_positions[tri_in_meshlet_vertex_indices[2]]
-        );
-        // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
-        const bool is_backface =
-            determinant(float3x3(
-                tri_vert_clip_positions[0].xyw,
-                tri_vert_clip_positions[1].xyw,
-                tri_vert_clip_positions[2].xyw)) >= 0;
-
-        const float3[3] tri_vert_ndc_positions = float3[3](
-            tri_vert_clip_positions[0].xyz * rcp(tri_vert_clip_positions[0].w),
-            tri_vert_clip_positions[1].xyz * rcp(tri_vert_clip_positions[1].w),
-            tri_vert_clip_positions[2].xyz * rcp(tri_vert_clip_positions[2].w)
+        uint3 tri_in_meshlet_vertex_indices = uint3(0,0,0);
+        if (in_meshlet_triangle_index < meshlet.triangle_count)
+        {
+            tri_in_meshlet_vertex_indices = uint3(
+                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
+                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
+                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2)
+            );
+        }
+        float4[3] tri_vert_clip_positions = float4[3](
+            shuffle_arr2(local_clip_vertices, tri_in_meshlet_vertex_indices[0]),
+            shuffle_arr2(local_clip_vertices, tri_in_meshlet_vertex_indices[1]),
+            shuffle_arr2(local_clip_vertices, tri_in_meshlet_vertex_indices[2])
         );
 
-        bool hiz_occluded = false;
-        if (hiz.value != 0)
+        if (in_meshlet_triangle_index < meshlet.triangle_count)
         {
-            hiz_occluded = is_ndc_triangle_occluded(
-                push.uses.globals.camera,
-                tri_vert_ndc_positions,
-                push.uses.globals.settings.next_lower_po2_render_target_size,
-                hiz);
-        }
-        
-        out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
-        uint visibility_id;
-        encode_triangle_id(meshlet_inst_index, in_meshlet_triangle_index, visibility_id);
+            // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
+            bool cull_primitive = false;
 
-        P primitive;
-        primitive.set_visibility_id(visibility_id);
-        let cull_primitive = (is_backface && cull_backfaces) || hiz_occluded;
-        primitive.set_cull_primitive(cull_primitive);
-        if (P is MeshShaderMaskPrimitive)
-        {
-            var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
-            mprim.material_index = meshlet_inst.material_index;
-            primitive = reinterpret<P>(mprim);
+            // Observer culls triangles from the perspective of the main camera.
+            if (push.pass >= PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME)
+            {        
+                for (uint c = 0; c < 3; ++c)
+                {
+                    const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + tri_in_meshlet_vertex_indices[c]);
+                    const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
+                    let main_camera_view_proj = push.uses.globals.camera.view_proj;
+                    const daxa_f32vec4 pos = mul(main_camera_view_proj, mul(model_mat, vertex_position));
+                    tri_vert_clip_positions[c] = pos;
+                }
+            }
+
+            cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+            if (!cull_primitive)
+            {
+                const float3[3] tri_vert_ndc_positions = float3[3](
+                    tri_vert_clip_positions[0].xyz / (tri_vert_clip_positions[0].w),
+                    tri_vert_clip_positions[1].xyz / (tri_vert_clip_positions[1].w),
+                    tri_vert_clip_positions[2].xyz / (tri_vert_clip_positions[2].w)
+                );
+
+                float2 ndc_min = min(min(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+                float2 ndc_max = max(max(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+                let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.uses.globals.settings.render_target_size));
+                cull_primitive = cull_micro_poly_invisible;
+
+                if (push.uses.hiz.value != 0 && !cull_primitive)
+                {
+                    let cull_hiz_occluded = is_triangle_hiz_occluded(
+                        push.uses.globals.camera,
+                        tri_vert_ndc_positions,
+                        push.uses.globals.settings.next_lower_po2_render_target_size,
+                        push.uses.hiz);
+                    cull_primitive = cull_hiz_occluded;
+                }
+            }
+            #if 0
+            #endif
+            
+            P primitive;
+            primitive.set_cull_primitive(cull_primitive);
+            if (!cull_primitive)
+            {
+                uint visibility_id;
+                encode_triangle_id(meshlet_inst_index, in_meshlet_triangle_index, visibility_id);
+                primitive.set_visibility_id(cull_primitive ? ~0u : visibility_id);
+                if (P is MeshShaderMaskPrimitive)
+                {
+                    var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
+                    mprim.material_index = meshlet_inst.material_index;
+                    primitive = reinterpret<P>(mprim);
+                }
+                out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
+            }
+            out_primitives[in_meshlet_triangle_index] = primitive;
         }
-        out_primitives[in_meshlet_triangle_index] = primitive;
     }
 }
 
@@ -293,7 +329,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         GPUMaterial material = draw_p.uses.material_manifest[meshlet_inst.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
-    generic_mesh(daxa::ImageViewId(0), draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
+    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces);
 }
 
 // --- Mesh shader opaque ---
@@ -309,6 +345,8 @@ func entry_mesh_opaque(
     generic_mesh_draw_only(svtid, out_indices, out_vertices, out_primitives);
 }
 
+// Didnt seem to do much.
+// [earlydepthstencil]
 [shader("fragment")]
 FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
@@ -521,7 +559,7 @@ func wave32_find_nth_set_bit(uint mask, uint bit) -> uint
     let does_nth_bit_match_group = set_bits_prefix_sum == (bit + 1);
     uint ret;
     uint4 mask = WaveActiveBallot(does_nth_bit_match_group);
-    uint first_set_bit = WaveActiveMin((mask.x & wave_lane_bit_mask) != 0 ? WaveGetLaneIndex() : 100);
+    uint first_set_bit = WaveActiveMin((mask.x & wave_lane_bit_mask) != 0 ? WaveGetLaneIndex() : ~0u);
     return first_set_bit;
 }
 
@@ -565,6 +603,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         meshlet_inst
     );
     DrawVisbufferPush fake_draw_p;
+    fake_draw_p.uses.hiz = push.uses.hiz;
     fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
     fake_draw_p.uses.globals = push.uses.globals;
     fake_draw_p.uses.meshlet_instances = push.uses.meshlet_instances;
@@ -573,7 +612,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     
     let cull_backfaces = payload.enable_backface_culling;
-    generic_mesh(push.uses.hiz, fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
+    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
 }
 
 [outputtopology("triangle")]
