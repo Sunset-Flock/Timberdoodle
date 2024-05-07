@@ -11,6 +11,8 @@
 #include "shader_lib/po2_expansion.hlsl"
 
 [[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
+[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> RWTexture2D_u64table[];
+// layout(set = 0, binding = DAXA_STORAGE_IMAGE_BINDING, r64u) uniform u64image2D glsl_array[];
 
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;

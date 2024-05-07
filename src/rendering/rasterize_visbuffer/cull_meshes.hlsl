@@ -24,6 +24,7 @@ void main(uint thread_id : SV_DispatchThreadID)
         return;
     }
 
+    // Currently only used by main visbuffer path:
     if (push.cull_meshes && push.uses.hiz.value != 0)
     {
         if (is_mesh_occluded(
@@ -34,6 +35,20 @@ void main(uint thread_id : SV_DispatchThreadID)
             push.uses.meshes,
             push.uses.globals.settings.next_lower_po2_render_target_size,
             push.uses.hiz))
+        {
+            return;
+        }
+    }
+
+    if (push.uses.vsm_clip_projections && push.cull_meshes && push.uses.hip.value != 0)
+    {
+        if (is_mesh_occluded_vsm(
+            push.uses.vsm_clip_projections[push.cascade].camera,
+            mesh_instance,
+            push.uses.entity_combined_transforms,
+            push.uses.meshes,
+            push.uses.hip,
+            push.cascade))
         {
             return;
         }

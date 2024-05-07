@@ -430,6 +430,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
     task_list.use_persistent_image(vsm_state.memory_block);
+    task_list.use_persistent_image(vsm_state.memory_block64);
     task_list.use_persistent_image(vsm_state.meta_memory_table);
     task_list.use_persistent_image(vsm_state.page_table);
     task_list.use_persistent_image(vsm_state.page_height_offsets);
@@ -736,6 +737,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
             ShadeOpaqueH::AT.luminance_average | luminance_average,
             ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
+            ShadeOpaqueH::AT.vsm_memory_block64 | vsm_state.memory_block64,
             ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
             ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
             ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,

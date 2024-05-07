@@ -135,6 +135,7 @@ struct VSMSettings
     daxa_f32 slope_bias;
     daxa_f32 constant_bias;
     daxa_i32 use_simplified_light_matrix;
+    daxa_i32 use64bit;
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },
@@ -145,7 +146,8 @@ struct VSMSettings
           clip_selection_bias{0.3f},
           slope_bias{2.0f},
           constant_bias{10.0f},
-          use_simplified_light_matrix{0}
+          use_simplified_light_matrix{0},
+          use64bit{0}
     {
     }
 #endif

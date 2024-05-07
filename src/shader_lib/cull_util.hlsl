@@ -381,6 +381,74 @@ bool is_mesh_occluded(
     return depth_cull;
 }
 
+bool is_mesh_occluded_vsm(
+    CameraInfo camera,
+    MeshInstance mesh_inst,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_ImageViewId hiz,
+    daxa_u32 cascade
+)
+{
+    GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
+    // BoundingSphere model_bounding_sphere = mesh_data.bounding_sphere;
+    // if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
+    // {
+    //     #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+    //         ShaderDebugCircleDraw circle;
+    //         circle.position = ws_center;
+    //         circle.radius = scaled_radius;
+    //         circle.color = daxa_f32vec3(1,1,0);
+    //         circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    //         debug_draw_circle(GLOBALS.debug, circle);
+    //     #endif
+    //     // return true;
+    // }
+
+    AABB mesh_aabb = mesh_data.aabb;
+    NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, mesh_ndc_aabb, hiz, cascade);
+
+    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
+    if (page_opacity_cull)
+    {
+        ShaderDebugAABBDraw aabb1;
+        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        debug_draw_aabb(GLOBALS.debug, aabb1);
+        {
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
+            rectangle.center = ndc_min + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(0, 1, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
+        }
+        {
+            const daxa_f32vec2 min_r = quad_corner_texel << imip;
+            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
+            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(1, 0, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
+        }
+    }
+    #endif
+
+    return page_opacity_cull;
+}
+
 func is_triangle_invisible_micro_triangle(float2 ndc_min, float2 ndc_max, float2 resolution) -> bool
 {
     let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f;

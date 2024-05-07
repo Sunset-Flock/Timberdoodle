@@ -17,6 +17,7 @@ struct CullMeshletsDrawPagesPayload
     uint task_shader_clip_level;
 };
 // 32 is the number of buckets - if this number is changed this also needs to be changed to match it
+// THIS IS UNUSED::
 [numthreads(32, 1, 1)]
 [shader("compute")]
 void vsm_entry_write_commands(
@@ -29,6 +30,12 @@ void vsm_entry_write_commands(
     push.masked_meshlet_cull_po2expansion.bucket_dispatches[svgtid.x].y = VSM_CLIP_LEVELS;
 }
 
+uint64_t get_expansion_buffer()
+{
+    uint64_t* expansion_array = (uint64_t*)&vsm_push.attachments.po2expansion0;
+    return expansion_array[vsm_push.draw_list_type + 2 * vsm_push.cascade];
+}
+
 [shader("amplification")]
 [numthreads(32, 1, 1)]
 func vsm_entry_task(
@@ -37,9 +44,9 @@ func vsm_entry_task(
 )
 {
     let push = vsm_push;
-    let clip_level = svgid.y;
+    let clip_level = push.cascade;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.attachments.po2expansion : (uint64_t)push.attachments.masked_po2expansion);
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)get_expansion_buffer();
     MeshletInstance instanced_meshlet;
     let valid_meshlet = get_meshlet_instance_from_workitem(
         po2expansion,
@@ -120,6 +127,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     uint clip_level,
     MeshletInstance meshlet_inst)
 {    
+    uint2 render_target_size = uint2(VSM_TEXTURE_RESOLUTION,VSM_TEXTURE_RESOLUTION);
     let push = vsm_push;
     const GPUMesh mesh = deref_i(push.attachments.meshes, meshlet_inst.mesh_index);
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
@@ -178,29 +186,45 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         const uint in_meshlet_vertex_index_0 = tri_in_meshlet_vertex_indices.x;
         const uint in_mesh_vertex_index_0 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_0);
         let vert_0_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_0), 1);
-        let vert_0_ndc_pos = mul(view_proj, mul(model_mat, vert_0_world_pos)).xyz;
+        let vert_0_ndc_pos = mul(view_proj, mul(model_mat, vert_0_world_pos));
 
         const uint in_meshlet_vertex_index_1 = tri_in_meshlet_vertex_indices.y;
         const uint in_mesh_vertex_index_1 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_1);
         let vert_1_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_1), 1);
-        let vert_1_ndc_pos = mul(view_proj, mul(model_mat, vert_1_world_pos)).xyz;
+        let vert_1_ndc_pos = mul(view_proj, mul(model_mat, vert_1_world_pos));
 
         const uint in_meshlet_vertex_index_2 = tri_in_meshlet_vertex_indices.z;
         const uint in_mesh_vertex_index_2 = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index_2);
         let vert_2_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_2), 1);
-        let vert_2_ndc_pos = mul(view_proj, mul(model_mat, vert_2_world_pos)).xyz;
+        let vert_2_ndc_pos = mul(view_proj, mul(model_mat, vert_2_world_pos));
 
         NdcAABB tri_aabb = {
-            min(vert_0_ndc_pos, min(vert_1_ndc_pos, vert_2_ndc_pos)),
-            max(vert_0_ndc_pos, max(vert_1_ndc_pos, vert_2_ndc_pos))
+            min(vert_0_ndc_pos.xyz, min(vert_1_ndc_pos.xyz, vert_2_ndc_pos.xyz)),
+            max(vert_0_ndc_pos.xyz, max(vert_1_ndc_pos.xyz, vert_2_ndc_pos.xyz))
         };
 
-        let tri_norm = cross(vert_1_ndc_pos - vert_0_ndc_pos, vert_2_ndc_pos - vert_0_ndc_pos);
-        let is_backface = dot(tri_norm.xyz, float3(0,0,-1)) < 0.0;
+        float4 tri_vert_clip_positions[3] = {vert_0_ndc_pos, vert_1_ndc_pos, vert_2_ndc_pos};
+        bool cull_primitive = false;
+        #if 1
+        cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+        if (!cull_primitive)
+        {
+            const float3[3] tri_vert_ndc_positions = float3[3](
+                tri_vert_clip_positions[0].xyz / (tri_vert_clip_positions[0].w),
+                tri_vert_clip_positions[1].xyz / (tri_vert_clip_positions[1].w),
+                tri_vert_clip_positions[2].xyz / (tri_vert_clip_positions[2].w)
+            );
+
+            float2 ndc_min = min(min(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+            float2 ndc_max = max(max(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+            let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(render_target_size));
+            cull_primitive = cull_micro_poly_invisible;
+        }
+        #endif
         
         P primitive;
         primitive.set_clip_level(clip_level);
-        if(!is_backface)
+        if(!cull_primitive)
         {
             let is_oppacity_occluded = is_ndc_aabb_hiz_opacity_occluded(
                 deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
@@ -245,7 +269,7 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.attachments.po2expansion : (uint64_t)push.attachments.masked_po2expansion);
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)get_expansion_buffer();
     MeshletInstance meshlet_inst;
     let valid_meshlet = get_meshlet_instance_from_workitem(
         po2expansion,
@@ -303,14 +327,29 @@ void vsm_entry_fragment_opaque(
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
-        InterlockedMin(
-            RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
-            asuint(get_page_offset_depth(
-                {prim.clip_level, virtual_uv}, 
-                vert.position.z / vert.position.w,
-                push.attachments.vsm_clip_projections
-            ))
-        );
+        if (push.attachments.globals.vsm_settings.use64bit != 0)
+        {
+            // TODO
+            // InterlockedMin(
+            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+            //     daxa::u64(asuint(get_page_offset_depth(
+            //         {prim.clip_level, virtual_uv}, 
+            //         vert.position.z / vert.position.w,
+            //         push.attachments.vsm_clip_projections
+            //     )))
+            // );
+        }
+        else
+        {
+            InterlockedMin(
+                RWTexture2D_utable[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+                asuint(get_page_offset_depth(
+                    {prim.clip_level, virtual_uv}, 
+                    vert.position.z / vert.position.w,
+                    push.attachments.vsm_clip_projections
+                ))
+            );
+        }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
             InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
@@ -357,14 +396,38 @@ void vsm_entry_fragment_masked(
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
-        InterlockedMin(
-            RWTexture2D_utable[push.daxa_u32_vsm_memory_view.index()][physical_texel_coords],
-            asuint(get_page_offset_depth(
-                {prim.clip_level, virtual_uv}, 
-                vert.position.z / vert.position.w,
-                push.attachments.vsm_clip_projections
-            ))
-        );
+        if (push.attachments.globals.vsm_settings.use64bit != 0)
+        {
+            // TODO
+            // imageAtomicAdd(
+            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()], 
+            //     ivec2(physical_texel_coords), 
+            //     daxa::u64(
+            //         asuint(get_page_offset_depth(
+            //         {prim.clip_level, virtual_uv}, 
+            //         vert.position.z / vert.position.w,
+            //         push.attachments.vsm_clip_projections)))
+            // );
+            // InterlockedMin(
+            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+            //     daxa::u64(asuint(get_page_offset_depth(
+            //         {prim.clip_level, virtual_uv}, 
+            //         vert.position.z / vert.position.w,
+            //         push.attachments.vsm_clip_projections
+            //     )))
+            // );
+        }
+        else
+        {
+            InterlockedMin(
+                RWTexture2D_utable[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+                asuint(get_page_offset_depth(
+                    {prim.clip_level, virtual_uv}, 
+                    vert.position.z / vert.position.w,
+                    push.attachments.vsm_clip_projections
+                ))
+            );
+        }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
             InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);

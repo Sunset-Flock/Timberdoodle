@@ -22,15 +22,20 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgro
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz) // OPTIONAL
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hip) // OPTIONAL
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(Po2WorkExpansionBufferHead), opaque_po2expansion)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(Po2WorkExpansionBufferHead), masked_opaque_po2expansion)
+// TODO REMOVE, PUT IN VSM GLOBALS
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_DECL_TASK_HEAD_END
 
 struct ExpandMeshesToMeshletsPush
 {
     DAXA_TH_BLOB(ExpandMeshesToMeshletsH, uses)
     daxa::b32 cull_meshes;
+    // Only used for vsms:
+    daxa::u32 cascade;
 };
 
 #if defined(__cplusplus)
@@ -60,11 +65,14 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     bool cull_meshes = {};
+    // only used for vsm cull:
+    u32 cascade = {};
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
         ExpandMeshesToMeshletsPush push = {
             .cull_meshes = cull_meshes,
+            .cascade = cascade,
         };
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
@@ -78,6 +86,10 @@ struct TaskExpandMeshesToMeshletsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph & task_list;
     bool cull_meshes = {};
+        // Used for VSM page culling:
+        daxa::TaskImageView     vsm_hip                 = daxa::NullTaskImage;
+        daxa::u32               vsm_cascade             = {};
+        daxa::TaskBufferView    vsm_clip_projections    = daxa::NullTaskBuffer;
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView mesh_instances = {};
@@ -135,9 +147,12 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
             daxa::attachment_view(ExpandMeshesToMeshletsH::AT.opaque_po2expansion, opaque_po2expansion),
             daxa::attachment_view(ExpandMeshesToMeshletsH::AT.masked_opaque_po2expansion, masked_opaque_po2expansion),
             daxa::attachment_view(ExpandMeshesToMeshletsH::AT.hiz, info.hiz),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.hip, info.vsm_hip),
+            daxa::attachment_view(ExpandMeshesToMeshletsH::AT.vsm_clip_projections, info.vsm_clip_projections),
         },
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,
+        .cascade = info.vsm_cascade,
     });
     info.opaque_meshlet_cull_po2expansions = std::array{opaque_po2expansion, masked_opaque_po2expansion};
 }

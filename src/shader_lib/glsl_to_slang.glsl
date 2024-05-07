@@ -5,6 +5,15 @@
 #if !defined(__cplusplus)
 #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
 
+// uint64_t imageAtomicMax(RWTexture2D<uint64_t> image, uint64_t value, int2 texel) {
+//     uint64_t old = spirv_asm {
+//         %ptrImageUlong = OpTypePointer Image $$uint64_t
+//         %texelPointer = OpImageTexelPointer %ptrImageUlong $image $texel $(0)
+//         result:$$uint64_t = OpAtomicUMax $$uint64_t %texelPointer $(0) $value
+//     };
+//     return old;
+// }
+
 #define findMSB firstbithigh
 
 #define daxa_texture2D(TEX) Texture2D<float>::get(TEX)

@@ -14,6 +14,7 @@ struct VSMState
     daxa::TaskBuffer globals = {};
 
     daxa::TaskImage memory_block = {};
+    daxa::TaskImage memory_block64 = {};
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_height_offsets = {};
@@ -77,6 +78,20 @@ struct VSMState
                 },
             },
             .name = "vsm memory block",
+        });
+        memory_block64 = daxa::TaskImage({
+            .initial_images = {
+                .images = std::array{
+                    context->device.create_image({
+                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
+                        .format = daxa::Format::R64_UINT,
+                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
+                        .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
+                        .name = "vsm memory block physical image 64bit",
+                    }),
+                },
+            },
+            .name = "vsm memory block 64bit",
         });
 
         meta_memory_table = daxa::TaskImage({
@@ -169,6 +184,7 @@ struct VSMState
     {
         context->device.destroy_buffer(globals.get_state().buffers[0]);
         context->device.destroy_image(memory_block.get_state().images[0]);
+        context->device.destroy_image(memory_block64.get_state().images[0]);
         context->device.destroy_image(meta_memory_table.get_state().images[0]);
         context->device.destroy_image(page_table.get_state().images[0]);
         context->device.destroy_image(page_height_offsets.get_state().images[0]);
