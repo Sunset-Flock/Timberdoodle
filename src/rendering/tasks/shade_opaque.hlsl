@@ -7,6 +7,7 @@
 #include "shader_lib/depth_util.glsl"
 #include "shader_lib/sky_util.glsl"
 #include "shader_lib/vsm_util.glsl"
+#include "shader_lib/misc.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -21,35 +22,6 @@ float compute_exposure(float average_luminance)
     const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
 	const float exposure = 1.0 / (1.2 * exp2(ev100));
 	return exposure;
-}
-
-// Copyright 2019 Google LLC.
-// SPDX-License-Identifier: Apache-2.0
-
-// Polynomial approximation in GLSL for the Turbo colormap
-// Original LUT: https://gist.github.com/mikhailov-work/ee72ba4191942acecc03fe6da94fc73f
-
-// Authors:
-//   Colormap Design: Anton Mikhailov (mikhailov@google.com)
-//   GLSL Approximation: Ruofei Du (ruofei@google.com)
-
-float3 TurboColormap(float x)
-{
-    const float4 kRedVec4 = float4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
-    const float4 kGreenVec4 = float4(0.09140261, 2.19418839, 4.84296658, -14.18503333);
-    const float4 kBlueVec4 = float4(0.10667330, 12.64194608, -60.58204836, 110.36276771);
-    const float2 kRedVec2 = float2(-152.94239396, 59.28637943);
-    const float2 kGreenVec2 = float2(4.27729857, 2.82956604);
-    const float2 kBlueVec2 = float2(-89.90310912, 27.34824973);
-
-    x = clamp(x, 0, 1);
-    float4 v4 = float4( 1.0, x, x * x, x * x * x);
-    float2 v2 = v4.zw * v4.z;
-    return float3(
-      dot(v4, kRedVec4)   + dot(v2, kRedVec2),
-      dot(v4, kGreenVec4) + dot(v2, kGreenVec2),
-      dot(v4, kBlueVec4)  + dot(v2, kBlueVec2)
-    );
 }
 
 static const uint PCF_NUM_SAMPLES = 8;
@@ -122,12 +94,6 @@ float3 get_view_direction(float2 ndc_xy)
         world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
     }
     return world_direction;
-}
-
-float3 hsv2rgb(float3 c) {
-    float4 k = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
-    float3 p = abs(frac(c.xxx + k.xyz) * 6.0 - k.www);
-    return c.z * lerp(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
 }
 
 float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
@@ -253,19 +219,6 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT_FROM_PUSH.vsm_clip_projections);
     const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
     return is_in_shadow ? 0.0 : 1.0;
-}
-
-static uint _rand_state;
-void rand_seed(uint seed) {
-    _rand_state = seed;
-}
-
-float rand() {
-    // https://www.pcg-random.org/
-    _rand_state = _rand_state * 747796405u + 2891336453u;
-    uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
-    result = (result >> 22u) ^ result;
-    return result / 4294967295.0;
 }
 
 float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_norm_dot)
@@ -507,6 +460,28 @@ void main(
             {
                 float4 debug_color = Texture2D<float>::get(AT_FROM_PUSH.debug_image)[index];
                 output_value.rgb = lerp(shaded_color.rgb, debug_color.rgb, debug_color.aaa);
+                break;
+            }
+            case DEBUG_DRAW_MODE_DEPTH:
+            {
+                let color = unband_z_color(index.x, index.y, linearise_depth(AT_FROM_PUSH.globals.camera.near_plane, tri_data.depth));
+                output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_ALBEDO:
+            {
+                output_value.rgb = albedo;
+                break;
+            }
+            case DEBUG_DRAW_MODE_NORMAL:
+            {
+                let color = (normal * 0.5 + 0.5f);
+                output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_LIGHT:
+            {
+                output_value.rgb = lighting;
                 break;
             }
             case DEBUG_DRAW_MODE_NONE:

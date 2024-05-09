@@ -574,6 +574,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
                 "VSM Overdraw",
                 "VSM Clip Level",
                 "Debug Image",
+                "DEPTH",
+                "ALBEDO",
+                "NORMAL",
+                "LIGHT",
             };
             ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);

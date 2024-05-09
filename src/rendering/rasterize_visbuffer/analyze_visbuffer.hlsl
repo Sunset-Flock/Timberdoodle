@@ -5,6 +5,7 @@
 #include "shader_shared/globals.inl"
 
 #include "shader_lib/visbuffer.glsl"
+#include "shader_lib/misc.hlsl"
 
 func update_tri_mask_and_write_visible_meshlet(uint meshlet_instance_index, uint meshlet_triangle_mask)
 {
@@ -69,7 +70,7 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
         // A single meshlet is chosen every iteration.
         let thread_active = list_mask != 0;
         const uint voting_candidate = thread_active ? meshlet_instance_indices[firstbitlow(list_mask)] : 0;
-        let elected_meshlet_instance_index = WaveShuffle(voting_candidate, findMSB(WaveActiveBallot(thread_active).x));
+        let elected_meshlet_instance_index = WaveShuffle(voting_candidate, firstbitlow_uint4(WaveActiveBallot(thread_active)));
 
         // Now that a meshlet is voted for, we collect the triangles from all threads for that meshlet.
         // We also remove meshlets from each threads lists here.
