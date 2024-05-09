@@ -651,40 +651,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         vsm_state.zero_out_transient_state(task_list, render_context->render_data);
     }
 
-    auto padd0 = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
-        "visible meshlets bitfield312314",
-    });
     auto visible_meshlets_bitfield = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
         "visible meshlets bitfield",
     });
-    auto padd1 = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
-        "visible meshlets b524itfield",
-    });
     auto visible_meshes_bitfield = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * static_cast<u64>(round_up_div(MAX_MESH_INSTANCES, 32)),
+        sizeof(daxa_u32) * MAX_MESH_INSTANCES,
         "visible meshes bitfield",
     });
-    task_list.add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshlets_bitfield),
-            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshlet_instances),
-            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshes_bitfield),
-            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_mesh_instances),
-            daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_READ, hiz)
-        },
-        .task = [=](daxa::TaskInterface ti)
-        {
-
-        },
-        .name = "dummy1",
-    });
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
-    task_clear_buffer(task_list, visible_meshlet_instances, 0);
+    task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
     task_clear_buffer(task_list, visible_meshes_bitfield, 0);
-    task_clear_buffer(task_list, visible_mesh_instances, 0);
+    task_clear_buffer(task_list, visible_mesh_instances, 0), 4;
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
             AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,

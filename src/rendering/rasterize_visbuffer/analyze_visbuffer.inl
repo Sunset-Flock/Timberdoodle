@@ -28,16 +28,23 @@ struct AnalyzeVisbufferPush2
 {
     DAXA_TH_BLOB(AnalyzeVisbuffer2H, uses)
     daxa_u32vec2 size;
+    daxa_f32vec2 inv_size;
 };
 
-#if __cplusplus
+#if defined(__cplusplus)
 
 #include "../../gpu_context.hpp"
 
 inline daxa::ComputePipelineCompileInfo analyze_visbufer_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.glsl"}},
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.hlsl"},
+            .compile_options = {
+                .language = daxa::ShaderLanguage::SLANG,
+                .create_flags = daxa::ShaderCreateFlagBits::REQUIRE_FULL_SUBGROUPS,
+            },
+        },
         .push_constant_size = s_cast<u32>(sizeof(AnalyzeVisbufferPush2)),
         .name = std::string{AnalyzeVisbuffer2H::NAME},
     };
@@ -50,7 +57,10 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
         auto [x, y, z] = ti.device.info_image(ti.get(AnalyzeVisbuffer2H::AT.visbuffer).ids[0]).value().size;
-        AnalyzeVisbufferPush2 push{.size = {x, y}};
+        AnalyzeVisbufferPush2 push{
+            .size = {x, y},
+            .inv_size = {1.0f / float(x), 1.0f / float(y)},
+        };
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
