@@ -161,6 +161,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_ENTITY_ID 4
 #define DEBUG_DRAW_MODE_VSM_OVERDRAW 5
 #define DEBUG_DRAW_MODE_VSM_CLIP_LEVEL 6
+#define DEBUG_DRAW_MODE_DEBUG_IMAGE 7
 
 struct Settings
 {
@@ -175,6 +176,9 @@ struct Settings
     daxa_i32 anti_aliasing_mode;
     daxa_i32 debug_draw_mode;
     daxa_f32 debug_overdraw_scale;
+    daxa_b32 enable_mesh_cull;
+    daxa_b32 enable_meshlet_cull;
+    daxa_b32 enable_triangle_cull;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -194,7 +198,10 @@ struct Settings
           observer_show_pass{0},
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
-          debug_overdraw_scale{0.1}
+          debug_overdraw_scale{0.1},
+          enable_mesh_cull{1},
+          enable_meshlet_cull{1},
+          enable_triangle_cull{1}
     {
     }
 #endif

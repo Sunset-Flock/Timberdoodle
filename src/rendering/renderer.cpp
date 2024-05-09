@@ -45,10 +45,10 @@ Renderer::Renderer(
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     meshlet_instances_last_frame = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
-    visible_meshlet_instances = create_task_buffer(context, sizeof(VisibleMeshletList), "visible_meshlet_instances", "visible_meshlet_instances");
     visible_mesh_instances = create_task_buffer(context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
     general_readback_buffer = daxa::TaskBuffer{ context->device, { sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer" }};
+    visible_meshlet_instances = create_task_buffer(context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
         zero_buffer,
@@ -451,6 +451,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "debug_image",
     });
+    task_clear_image(task_list, debug_image, std::array{0.0f, 0.0f, 0.0f, 0.0f});
 
     auto overdraw_image = daxa::NullTaskImage;
     if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_OVERDRAW)
@@ -650,13 +651,35 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         vsm_state.zero_out_transient_state(task_list, render_context->render_data);
     }
 
+    auto padd0 = task_list.create_transient_buffer({
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
+        "visible meshlets bitfield312314",
+    });
     auto visible_meshlets_bitfield = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
         "visible meshlets bitfield",
+    });
+    auto padd1 = task_list.create_transient_buffer({
+        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES * 4,
+        "visible meshlets b524itfield",
     });
     auto visible_meshes_bitfield = task_list.create_transient_buffer({
         sizeof(daxa_u32) * static_cast<u64>(round_up_div(MAX_MESH_INSTANCES, 32)),
         "visible meshes bitfield",
+    });
+    task_list.add_task({
+        .attachments = {
+            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshlets_bitfield),
+            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshlet_instances),
+            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_meshes_bitfield),
+            daxa::inl_attachment(daxa::TaskBufferAccess::COMPUTE_SHADER_READ_WRITE, visible_mesh_instances),
+            daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_READ, hiz)
+        },
+        .task = [=](daxa::TaskInterface ti)
+        {
+
+        },
+        .name = "dummy1",
     });
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlet_instances, 0);
@@ -672,6 +695,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             AnalyzeVisbuffer2H::AT.visible_meshlets | visible_meshlet_instances,
             AnalyzeVisbuffer2H::AT.mesh_visibility_bitfield | visible_meshes_bitfield,
             AnalyzeVisbuffer2H::AT.visible_meshes | visible_mesh_instances,
+            AnalyzeVisbuffer2H::AT.debug_image | debug_image,
         },
         .context = context,
     });

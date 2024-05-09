@@ -503,6 +503,12 @@ void main(
                 output_value.rgb = debug_albedo;
                 break;
             }
+            case DEBUG_DRAW_MODE_DEBUG_IMAGE:
+            {
+                float4 debug_color = Texture2D<float>::get(AT_FROM_PUSH.debug_image)[index];
+                output_value.rgb = lerp(shaded_color.rgb, debug_color.rgb, debug_color.aaa);
+                break;
+            }
             case DEBUG_DRAW_MODE_NONE:
             default:
             output_value.rgb = shaded_color;
@@ -532,7 +538,7 @@ void main(
     }
 
     const float exposure = compute_exposure(deref(AT_FROM_PUSH.luminance_average));
-    const float3 exposed_color = output_value.rgb * exposure;
+    float3 exposed_color = output_value.rgb * exposure;
     debug_write_lens(
         AT_FROM_PUSH.globals->debug,
         AT_FROM_PUSH.debug_lens_image,

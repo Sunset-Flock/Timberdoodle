@@ -25,7 +25,7 @@ void main(uint thread_id : SV_DispatchThreadID)
     }
 
     // Currently only used by main visbuffer path:
-    if (push.cull_meshes && push.uses.hiz.value != 0)
+    if (push.cull_meshes && push.uses.hiz.value != 0 && push.uses.globals.settings.enable_mesh_cull)
     {
         if (is_mesh_occluded(
             push.uses.globals->debug,

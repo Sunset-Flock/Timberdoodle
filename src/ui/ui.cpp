@@ -573,9 +573,13 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
                 "Entity Id",
                 "VSM Overdraw",
                 "VSM Clip Level",
+                "Debug Image",
             };
             ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);
+            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool*>(&settings.enable_mesh_cull));
+            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool*>(&settings.enable_meshlet_cull));
+            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool*>(&settings.enable_triangle_cull));
         }
     }
     ImGui::End();

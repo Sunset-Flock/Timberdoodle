@@ -256,32 +256,33 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                 }
             }
 
-            cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
-            if (!cull_primitive)
+            if (push.uses.globals.settings.enable_triangle_cull)
             {
-                const float3[3] tri_vert_ndc_positions = float3[3](
-                    tri_vert_clip_positions[0].xyz / (tri_vert_clip_positions[0].w),
-                    tri_vert_clip_positions[1].xyz / (tri_vert_clip_positions[1].w),
-                    tri_vert_clip_positions[2].xyz / (tri_vert_clip_positions[2].w)
-                );
-
-                float2 ndc_min = min(min(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
-                float2 ndc_max = max(max(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
-                let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.uses.globals.settings.render_target_size));
-                cull_primitive = cull_micro_poly_invisible;
-
-                if (push.uses.hiz.value != 0 && !cull_primitive)
+                cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+                if (!cull_primitive)
                 {
-                    let cull_hiz_occluded = is_triangle_hiz_occluded(
-                        push.uses.globals.camera,
-                        tri_vert_ndc_positions,
-                        push.uses.globals.settings.next_lower_po2_render_target_size,
-                        push.uses.hiz);
-                    cull_primitive = cull_hiz_occluded;
+                    const float3[3] tri_vert_ndc_positions = float3[3](
+                        tri_vert_clip_positions[0].xyz / (tri_vert_clip_positions[0].w),
+                        tri_vert_clip_positions[1].xyz / (tri_vert_clip_positions[1].w),
+                        tri_vert_clip_positions[2].xyz / (tri_vert_clip_positions[2].w)
+                    );
+
+                    float2 ndc_min = min(min(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+                    float2 ndc_max = max(max(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
+                    let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.uses.globals.settings.render_target_size));
+                    cull_primitive = cull_micro_poly_invisible;
+
+                    if (push.uses.hiz.value != 0 && !cull_primitive)
+                    {
+                        let cull_hiz_occluded = is_triangle_hiz_occluded(
+                            push.uses.globals.camera,
+                            tri_vert_ndc_positions,
+                            push.uses.globals.settings.next_lower_po2_render_target_size,
+                            push.uses.hiz);
+                        cull_primitive = cull_hiz_occluded;
+                    }
                 }
             }
-            #if 0
-            #endif
             
             P primitive;
             primitive.set_cull_primitive(cull_primitive);
@@ -435,6 +436,7 @@ bool get_meshlet_instance_from_workitem(
         meshlet_instance.material_index = mesh.material_index;
         meshlet_instance.mesh_index = mesh_instance.mesh_index;
         meshlet_instance.meshlet_index = workitem.dst_work_item_index;
+        meshlet_instance.mesh_instance_index = workitem.src_work_item_index;
     }
     return valid_meshlet;
 }
@@ -464,7 +466,7 @@ func entry_task_cull_draw_opaque_and_mask(
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
-    if (valid_meshlet)
+    if (valid_meshlet && push.uses.globals.settings.enable_meshlet_cull)
     {
         draw_meshlet = draw_meshlet && !is_meshlet_occluded(
             push.uses.globals.debug,

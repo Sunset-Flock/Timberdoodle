@@ -107,20 +107,22 @@ struct U32ArenaBuffer
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED (~0u ^ 1u)
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_DEBUG (~0u ^ 2u)
 
-#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<20u)
+#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<22u)
 
 /// --- Mesh Instance Draw List End ---
 
 /// --- Analyze Visbuffer Results Begin ---
 
 // TODO: Convert into buffer head.
+#if !defined(__cplusplus)
 struct VisibleMeshletList
 {
     daxa_u32 count;
     daxa_u32vec3 padd;
-    daxa_u32 meshlet_ids[MAX_MESHLET_INSTANCES];
+    daxa_u32 meshlet_ids[1];
 };
 DAXA_DECL_BUFFER_PTR(VisibleMeshletList)
+#endif
 
 struct VisibleMeshesList
 {
