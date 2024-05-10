@@ -28,10 +28,23 @@ namespace raster_visbuf
         });
     }
 
-    inline auto create_depth(daxa::TaskGraph tg, RenderContext const & render_context) -> daxa::TaskImageView
+    inline auto create_atomic_visbuffer(daxa::TaskGraph tg, RenderContext const & render_context) -> daxa::TaskImageView
     {
         return tg.create_transient_image({
-            .format = daxa::Format::D32_SFLOAT,
+            .format = daxa::Format::R64_UINT,
+            .size = { 
+                render_context.render_data.settings.render_target_size.x,
+                render_context.render_data.settings.render_target_size.y,
+                1,
+            },
+            .name = "atomic visbuffer",
+        });
+    }
+    inline auto create_depth(daxa::TaskGraph tg, RenderContext const & render_context) -> daxa::TaskImageView
+    {
+        daxa::Format format = render_context.render_data.settings.enable_atomic_visbuffer ? daxa::Format::R32_SFLOAT : daxa::Format::D32_SFLOAT;
+        return tg.create_transient_image({
+            .format = format,
             .size = { 
                 render_context.render_data.settings.render_target_size.x,
                 render_context.render_data.settings.render_target_size.y,

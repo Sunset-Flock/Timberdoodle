@@ -183,6 +183,7 @@ struct Settings
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
+    daxa_b32 enable_atomic_visbuffer;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -205,7 +206,8 @@ struct Settings
           debug_overdraw_scale{0.1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
-          enable_triangle_cull{1}
+          enable_triangle_cull{1},
+          enable_atomic_visbuffer{0}
     {
     }
 #endif

@@ -9,13 +9,10 @@
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
 #include "shader_lib/po2_expansion.hlsl"
-
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> RWTexture2D_u64table[];
-// layout(set = 0, binding = DAXA_STORAGE_IMAGE_BINDING, r64u) uniform u64image2D glsl_array[];
-
+#include "shader_lib/misc.hlsl"
 
 [[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
+[[vk::push_constant]] SplitAtomicVisbufferPush split_atimic_visbuffer_p;
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 [[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
 
@@ -40,6 +37,21 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
     }
 }
 
+[shader("compute")]
+[numthreads(SPLIT_ATOMIC_VISBUFFER_X, SPLIT_ATOMIC_VISBUFFER_Y, 1)]
+void entry_split_atomic_visbuffer(uint3 dtid : SV_DispatchThreadID)
+{
+    let push = split_atimic_visbuffer_p;
+    if (any(dtid.xy >= split_atimic_visbuffer_p.size))
+    {
+        return;
+    }
+
+    daxa::u64 visdepth = tex_rw_u64_table[push.uses.atomic_visbuffer.index()][dtid.xy];
+    RWTexture2D<uint>::get(push.uses.visbuffer)[dtid.xy] = uint4(uint(visdepth),0,0,0);
+    RWTexture2D<float>::get(push.uses.depth)[dtid.xy] = float4(asfloat(uint(visdepth >> 32)),0,0,0);
+}
+
 #define DECL_GET_SET(TYPE, FIELD)\
     [mutating]\
     func set_##FIELD(TYPE v);\
@@ -50,30 +62,37 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
     func set_##FIELD(TYPE v) { FIELD = v; }\
     func get_##FIELD() -> TYPE { return FIELD; };
 
-struct FragmentOut
+
+interface IFragmentOut
+{
+    DECL_GET_SET(uint, visibility_id)
+}
+
+struct FragmentOut : IFragmentOut
 {
     [[vk::location(0)]] uint visibility_id;
+    IMPL_GET_SET(uint, visibility_id)
 };
 
-interface FragmentExtraData
+interface IFragmentExtraData
 {
 
 };
-struct FragmentMaskedData : FragmentExtraData
+struct FragmentMaskedData : IFragmentExtraData
 {
     uint material_index;
     GPUMaterial* materials;
     daxa::SamplerId sampler;
     float2 uv;
 };
-struct NoFragmentExtraData : FragmentExtraData
+struct NoIFragmentExtraData : IFragmentExtraData
 {
 
 };
-func generic_fragment<ExtraData : FragmentExtraData>(uint2 index, uint vis_id, daxa::ImageViewId overdraw_image, ExtraData extra) -> FragmentOut
+
+func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(out FragOutT ret, uint2 index, uint vis_id, daxa::ImageViewId overdraw_image, ExtraData extra, daxa::ImageViewId atomic_visbuffer, float depth)
 {
-    FragmentOut ret;
-    ret.visibility_id = vis_id;
+    ret.set_visibility_id(vis_id);
     if (ExtraData is FragmentMaskedData)
     {
         let masked_data = reinterpret<FragmentMaskedData>(extra);
@@ -102,7 +121,11 @@ func generic_fragment<ExtraData : FragmentExtraData>(uint2 index, uint vis_id, d
         uint prev_val;
         InterlockedAdd(RWTexture2D_utable[overdraw_image.index()][index], 1, prev_val);
     }
-    return ret;
+    if (atomic_visbuffer.value != 0)
+    {
+        daxa::u64 visdepth = (daxa::u64(asuint(depth)) << 32) | daxa::u64(vis_id);
+        AtomicMaxU64(tex_rw_u64_table[atomic_visbuffer.index()][index], visdepth);
+    }
 }
 
 // Interface:
@@ -351,14 +374,19 @@ func entry_mesh_opaque(
 // Didnt seem to do much.
 // [earlydepthstencil]
 [shader("fragment")]
-FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    return generic_fragment(
+    FragmentOut ret;
+    generic_fragment(
+        ret,
         uint2(vert.position.xy),
         prim.visibility_id,
         draw_p.uses.overdraw_image,
-        NoFragmentExtraData()
+        NoIFragmentExtraData(),
+        daxa::ImageViewId(0),
+        0
     );
+    return ret;
 }
 // --- Mesh shader opaque ---
 
@@ -368,7 +396,7 @@ FragmentOut entry_mesh_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshSh
 [outputtopology("triangle")]
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
-func entry_mesh_mask(
+func entry_mesh_masked(
     in uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -378,9 +406,11 @@ func entry_mesh_mask(
 }
 
 [shader("fragment")]
-FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
 {
-    return generic_fragment(
+    FragmentOut ret;
+    generic_fragment(
+        ret,
         uint2(vert.position.xy),
         prim.visibility_id,
         draw_p.uses.overdraw_image,
@@ -389,8 +419,11 @@ FragmentOut entry_mesh_fragment_mask(in MeshShaderMaskVertex vert, in MeshShader
             draw_p.uses.material_manifest,
             draw_p.uses.globals->samplers.linear_repeat,
             vert.uv
-        )
+        ),
+        daxa::ImageViewId(0),
+        0
     );
+    return ret;
 }
 
 // --- Mesh shader mask ---
@@ -443,7 +476,7 @@ bool get_meshlet_instance_from_workitem(
 
 [shader("amplification")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
-func entry_task_cull_draw_opaque_and_mask(
+func entry_task_meshlet_cull(
     uint3 svtid : SV_DispatchThreadID,
     uint3 svgid : SV_GroupID
 )
@@ -622,7 +655,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
-func entry_mesh_cull_draw_opaque(
+func entry_mesh_meshlet_cull_opaque(
     in uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -635,7 +668,7 @@ func entry_mesh_cull_draw_opaque(
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
-func entry_mesh_cull_draw_mask(
+func entry_mesh_meshlet_cull_masked(
     in uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -646,20 +679,27 @@ func entry_mesh_cull_draw_mask(
 }
 
 [shader("fragment")]
-FragmentOut entry_mesh_fragment_cull_draw_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+FragmentOut entry_fragment_meshlet_cull_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
 {
-    return generic_fragment(
+    FragmentOut ret;
+    generic_fragment(
+        ret,
         uint2(vert.position.xy),
         prim.visibility_id,
         cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
-        NoFragmentExtraData()
+        NoIFragmentExtraData(),
+        daxa::ImageViewId(0),
+        0
     );
+    return ret;
 }
 
 [shader("fragment")]
-FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
 {  
-    return generic_fragment(
+    FragmentOut ret;
+    generic_fragment(
+        ret,
         uint2(vert.position.xy),
         prim.visibility_id,
         cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
@@ -668,6 +708,89 @@ FragmentOut entry_mesh_fragment_cull_draw_mask(in MeshShaderMaskVertex vert, in 
             cull_meshlets_draw_visbuffer_push.uses.material_manifest,
             cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
             vert.uv
-        )
+        ),
+        daxa::ImageViewId(0),
+        0
+    );
+    return ret;
+}
+
+/// --- Atomic Visbuffer Begin ---
+
+struct DummyFragmentOut : IFragmentOut
+{
+    func set_visibility_id(uint v) {}
+    func get_visibility_id() -> uint{ return 0; }
+};
+
+[shader("fragment")]
+void entry_fragment_opaque_atomicvis(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+{
+    DummyFragmentOut ret;
+    generic_fragment(
+        ret,
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        draw_p.uses.overdraw_image,
+        NoIFragmentExtraData(),
+        draw_p.uses.atomic_visbuffer,
+        vert.get_position().z
     );
 }
+
+[shader("fragment")]
+void entry_fragment_masked_atomicvis(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+{
+    DummyFragmentOut ret;
+    generic_fragment(
+        ret,
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        draw_p.uses.overdraw_image,
+        FragmentMaskedData(
+            prim.material_index,
+            draw_p.uses.material_manifest,
+            draw_p.uses.globals->samplers.linear_repeat,
+            vert.uv
+        ),
+        draw_p.uses.atomic_visbuffer,
+        vert.get_position().z
+    );
+}
+
+[shader("fragment")]
+void entry_fragment_meshlet_cull_opaque_atomicvis(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+{
+    DummyFragmentOut ret;
+    generic_fragment(
+        ret,
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
+        NoIFragmentExtraData(),
+        cull_meshlets_draw_visbuffer_push.uses.atomic_visbuffer,
+        vert.get_position().z
+    );
+}
+
+[shader("fragment")]
+void entry_fragment_meshlet_cull_masked_atomicvis(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+{  
+    DummyFragmentOut ret;
+    generic_fragment(
+        ret,
+        uint2(vert.position.xy),
+        prim.visibility_id,
+        cull_meshlets_draw_visbuffer_push.uses.overdraw_image,
+        FragmentMaskedData(
+            prim.material_index,
+            cull_meshlets_draw_visbuffer_push.uses.material_manifest,
+            cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+            vert.uv
+        ),
+        cull_meshlets_draw_visbuffer_push.uses.atomic_visbuffer,
+        vert.get_position().z
+    );
+}
+
+/// --- Atomic Visbuffer End ---

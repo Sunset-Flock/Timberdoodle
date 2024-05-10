@@ -2,6 +2,9 @@
 
 #include "daxa/daxa.inl"
 
+[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> tex_rw_u64_table[];
+[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
+
 func firstbitlow_uint4(uint4 v) -> uint
 {
     uint vec_mask = 
@@ -70,4 +73,17 @@ float rand() {
     uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
     result = (result >> 22u) ^ result;
     return result / 4294967295.0;
+}
+
+[ForceInline]
+func AtomicMaxU64(__ref uint64_t dest, uint64_t value) -> uint64_t
+{
+    uint64_t original_value;
+    spirv_asm
+    {
+        OpCapability Int64Atomics;
+        %origin:$$uint64_t = OpAtomicUMax &dest Device None $value;
+        OpStore &original_value %origin
+    };
+    return original_value;
 }

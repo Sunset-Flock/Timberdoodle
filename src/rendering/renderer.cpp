@@ -111,6 +111,14 @@ void Renderer::compile_pipelines()
     };
 
     std::vector<daxa::RasterPipelineCompileInfo> rasters = {
+        {draw_visbuffer_mesh_shader_pipelines[0]},
+        {draw_visbuffer_mesh_shader_pipelines[1]},
+        {draw_visbuffer_mesh_shader_pipelines[2]},
+        {draw_visbuffer_mesh_shader_pipelines[3]},
+        {draw_visbuffer_mesh_shader_pipelines[4]},
+        {draw_visbuffer_mesh_shader_pipelines[5]},
+        {draw_visbuffer_mesh_shader_pipelines[6]},
+        {draw_visbuffer_mesh_shader_pipelines[7]},
         {cull_and_draw_pages_pipelines[0]},
         {cull_and_draw_pages_pipelines[1]},
         {draw_shader_debug_circles_pipeline_compile_info()},
@@ -118,12 +126,6 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
     };
-    {
-        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[0]);
-        add_if_not_present(this->context->raster_pipelines, rasters, slang_draw_visbuffer_mesh_shader_pipelines[1]);
-        add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[0]);
-        add_if_not_present(this->context->raster_pipelines, rasters, slang_cull_meshlets_draw_visbuffer_pipelines[1]);
-    }
     for (auto info : rasters)
     {
         auto compilation_result = this->context->pipeline_manager.add_raster_pipeline(info);
@@ -170,13 +172,9 @@ void Renderer::compile_pipelines()
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info()},
+        {SplitAtomicVisbufferTask::pipeline_compile_info},
+        {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
     };
-    {
-        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
-    };
-    {
-        add_if_not_present(this->context->compute_pipelines, computes, DrawVisbuffer_WriteCommandTask2::pipeline_compile_info);
-    }
     for (auto const & info : computes)
     {
         auto compilation_result = this->context->pipeline_manager.add_compute_pipeline(info);
@@ -469,23 +467,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
 
     bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
-    auto visbuffer = raster_visbuf::create_visbuffer(task_list, *render_context);
-    daxa::TaskImageView depth = {};
-    if (dvmaa)
+    daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
+    daxa::TaskImageView visbuffer = raster_visbuf::create_visbuffer(task_list, *render_context);
+    daxa::TaskImageView depth = raster_visbuf::create_depth(task_list, *render_context);
+    if (render_context->render_data.settings.enable_atomic_visbuffer)
     {
-        depth = dvmaa::create_dvmaa_depth(task_list, *render_context);
+        atomic_visbuffer = raster_visbuf::create_atomic_visbuffer(task_list, *render_context);
     }
-    else
-    {
-        depth = raster_visbuf::create_depth(task_list, *render_context);
-    }
+    // TODO: REMOVE DVMAA:
     daxa::TaskImageView dvmaa_visbuffer = daxa::NullTaskImage;
     daxa::TaskImageView dvmaa_depth = daxa::NullTaskImage;
-    if (dvmaa)
-    {
-        dvmaa_visbuffer = dvmaa::create_dvmaa_ms_visbuffer(task_list, *render_context);
-        dvmaa_depth = dvmaa::create_dvmaa_ms_depth(task_list, *render_context);
-    }
 
     task_list.add_task(ReadbackTask{
         .views = std::array{daxa::attachment_view(ReadbackH::AT.globals, render_context->tgpu_render_data)},
@@ -578,12 +569,33 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .material_manifest = scene->_gpu_material_manifest,
         .combined_transforms = scene->_gpu_entity_combined_transforms,
         .vis_image = visbuffer,
+        .atomic_visbuffer = atomic_visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
         .dvmaa_vis_image = dvmaa_visbuffer,
         .dvmaa_depth_image = dvmaa_depth,
         .overdraw_image = overdraw_image,
     });
+
+    if (render_context->render_data.settings.enable_atomic_visbuffer != 0)
+    {
+        task_list.add_task(SplitAtomicVisbufferTask{
+            .views = std::array{
+                SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
+                SplitAtomicVisbufferH::AT.visbuffer | visbuffer,
+                SplitAtomicVisbufferH::AT.depth | depth,
+            },
+            .context = render_context->gpuctx,
+            .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
+            .dispatch_callback = [=](){ 
+                return daxa::DispatchInfo{
+                    round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
+                    round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
+                    1
+                ,};
+            },
+        }); 
+    }
 
     daxa::TaskImageView hiz = {};
     task_gen_hiz_single_pass({render_context.get(), task_list, depth, render_context->tgpu_render_data, &hiz});
@@ -622,6 +634,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .meshlet_instances = meshlet_instances,
         .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
         .vis_image = visbuffer,
+        .atomic_visbuffer = atomic_visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
         .dvmaa_vis_image = dvmaa_visbuffer,
@@ -666,7 +679,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
             AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,
-            AnalyzeVisbuffer2H::AT.visbuffer | visbuffer,
+            AnalyzeVisbuffer2H::AT.visbuffer | (render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : visbuffer),
             AnalyzeVisbuffer2H::AT.meshlet_instances | meshlet_instances,
             AnalyzeVisbuffer2H::AT.mesh_instances | render_context->scene_draw.opaque_mesh_instances,
             AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
@@ -690,12 +703,32 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .material_manifest = scene->_gpu_material_manifest,
             .combined_transforms = scene->_gpu_entity_combined_transforms,
             .vis_image = visbuffer,
+            .atomic_visbuffer = atomic_visbuffer,
             .debug_image = debug_image,
             .depth_image = depth,
             .dvmaa_vis_image = dvmaa_visbuffer,
             .dvmaa_depth_image = dvmaa_depth,
             .overdraw_image = overdraw_image,
         });
+    }
+    if (render_context->render_data.settings.enable_atomic_visbuffer != 0)
+    {
+        task_list.add_task(SplitAtomicVisbufferTask{
+            .views = std::array{
+                SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
+                SplitAtomicVisbufferH::AT.visbuffer | visbuffer,
+                SplitAtomicVisbufferH::AT.depth | depth,
+            },
+            .context = render_context->gpuctx,
+            .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
+            .dispatch_callback = [=](){ 
+                return daxa::DispatchInfo{
+                    round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
+                    round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
+                    1
+                ,};
+            },
+        }); 
     }
     task_list.submit({});
 
@@ -746,6 +779,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
+            ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
         },
         .render_context = render_context.get(),
         .timeline_pool = vsm_state.vsm_timeline_query_pool,

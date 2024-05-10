@@ -44,7 +44,18 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
     let gather_uv = (float2(sampleIndex) + 1.0f) * push.inv_size;
     let tex = Texture2D<uint>::get(push.uses.visbuffer);
     let smplr = SamplerState::get(push.uses.globals.samplers.linear_clamp);
-    let vis_ids = tex.GatherRed(smplr, gather_uv);
+    uint4 vis_ids;
+    if (push.uses.globals.settings.enable_atomic_visbuffer)
+    {
+        vis_ids[0] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(0,0)]);
+        vis_ids[1] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(0,1)]);
+        vis_ids[2] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(1,0)]);
+        vis_ids[3] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(1,1)]);
+    }
+    else
+    {
+        vis_ids = tex.GatherRed(smplr, gather_uv);
+    }
     uint list_mask = 0;
     uint4 meshlet_triangle_masks = {0,0,0,0};
     uint4 meshlet_instance_indices = {0,0,0,0};

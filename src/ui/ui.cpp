@@ -584,6 +584,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool*>(&settings.enable_mesh_cull));
             ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool*>(&settings.enable_meshlet_cull));
             ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool*>(&settings.enable_triangle_cull));
+            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool*>(&settings.enable_atomic_visbuffer));
         }
     }
     ImGui::End();

@@ -301,6 +301,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     return sum / PCF_NUM_SAMPLES;
 }
 
+[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> tex_u64_table[];
 
 [numthreads(SHADE_OPAQUE_WG_X, SHADE_OPAQUE_WG_Y, 1)]
 [shader("compute")]
@@ -427,6 +428,12 @@ void main(
 
         float3 dummy_color = float3(1,0,1);
         uint id_to_visualize = ~0u;
+        float atomic_depth = 0;
+        if (AT_FROM_PUSH.atomic_visbuffer.value != 0)
+        {
+            daxa::u64 visdepth = tex_u64_table[AT_FROM_PUSH.atomic_visbuffer.index()][index];
+            atomic_depth = asfloat(uint(visdepth >> 32));
+        }
         switch(AT_FROM_PUSH.globals->settings.debug_draw_mode)
         {
             case DEBUG_DRAW_MODE_OVERDRAW:
@@ -464,7 +471,8 @@ void main(
             }
             case DEBUG_DRAW_MODE_DEPTH:
             {
-                let color = unband_z_color(index.x, index.y, linearise_depth(AT_FROM_PUSH.globals.camera.near_plane, tri_data.depth));
+                float depth = AT_FROM_PUSH.atomic_visbuffer.value != 0 ? atomic_depth : tri_data.depth;
+                let color = unband_z_color(index.x, index.y, linearise_depth(AT_FROM_PUSH.globals.camera.near_plane, depth));
                 output_value.rgb = color;
                 break;
             }
