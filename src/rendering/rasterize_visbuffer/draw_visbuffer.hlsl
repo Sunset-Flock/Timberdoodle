@@ -193,6 +193,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     bool cull_backfaces)
 {    
     const GPUMesh mesh = deref_i(push.uses.meshes, meshlet_inst.mesh_index);
+    if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+    {
+        return;
+    }
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.uses.meshes, meshlet_inst.mesh_index).micro_indices;
     const daxa_f32mat4x4 view_proj = 
@@ -466,7 +470,11 @@ bool get_meshlet_instance_from_workitem(
     if (valid_meshlet)
     {
         MeshInstance mesh_instance = mesh_instances.instances[workitem.src_work_item_index];
-        GPUMesh mesh = meshes[mesh_instance.mesh_index];
+        GPUMesh mesh = meshes[mesh_instance.mesh_index];    
+        if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+        {
+            return false;
+        }
         meshlet_instance.entity_index = mesh_instance.entity_index;
         meshlet_instance.in_mesh_group_index = mesh_instance.in_mesh_group_index;
         meshlet_instance.material_index = mesh.material_index;
@@ -497,12 +505,18 @@ func entry_task_meshlet_cull(
         instanced_meshlet
     );
     
-    GPUMesh mesh_data = deref_i(push.uses.meshes, instanced_meshlet.mesh_index);
-    valid_meshlet = valid_meshlet && (instanced_meshlet.meshlet_index < mesh_data.meshlet_count);
-    valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.uses.first_pass_meshlets_bitfield_offsets, push.uses.first_pass_meshlets_bitfield_arena );
+    if (valid_meshlet)
+    {
+        GPUMesh mesh_data = deref_i(push.uses.meshes, instanced_meshlet.mesh_index);
+        valid_meshlet = valid_meshlet && mesh_data.mesh_buffer.value != 0; // Check if mesh is loaded.
+        valid_meshlet = valid_meshlet && (instanced_meshlet.meshlet_index < mesh_data.meshlet_count);
+    }
+    if (valid_meshlet)
+    {
+        valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.uses.first_pass_meshlets_bitfield_offsets, push.uses.first_pass_meshlets_bitfield_arena );
+    }
 
     bool draw_meshlet = valid_meshlet;
-#if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
@@ -517,7 +531,6 @@ func entry_task_meshlet_cull(
             push.uses.globals->settings.next_lower_po2_render_target_size,
             push.uses.hiz);
     }
-#endif
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  

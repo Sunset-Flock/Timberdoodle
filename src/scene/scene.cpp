@@ -20,23 +20,14 @@ Scene::Scene(daxa::Device device)
     _gpu_entity_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITIES, "_gpu_entity_transforms");
     _gpu_entity_combined_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITIES, "_gpu_entity_combined_transforms");
     _gpu_entity_mesh_groups = tido::make_task_buffer(_device, sizeof(u32) * MAX_ENTITIES, "_gpu_entity_mesh_groups");
-    _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_ENTITIES, "_gpu_mesh_manifest");
-    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_ENTITIES, "_gpu_mesh_group_manifest");
+    _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_MESHES, "_gpu_mesh_manifest");
+    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESHES, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _scene_draw.opaque_mesh_instances = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
 }
 
 Scene::~Scene()
 {
-    _device.destroy_buffer(_gpu_entity_meta.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_entity_parents.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_entity_transforms.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_entity_combined_transforms.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_entity_mesh_groups.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_mesh_manifest.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
-    _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
-    _device.destroy_buffer(_scene_draw.opaque_mesh_instances.get_state().buffers[0]);
     if (!_gpu_mesh_group_indices_array_buffer.is_empty())
     {
         _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
@@ -838,8 +829,9 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         });
         recorder.destroy_buffer_deferred(mesh_staging_buffer);
         GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(mesh_staging_buffer).value();
-        std::vector<GPUMesh> tmp_meshes(_new_mesh_manifest_entries);
-        std::memcpy(staging_ptr, tmp_meshes.data(), _new_mesh_manifest_entries);
+        std::vector<GPUMesh> tmp_meshes;
+        tmp_meshes.resize(_new_mesh_manifest_entries, GPUMesh{.mesh_buffer = {.value = {}}});
+        std::memcpy(staging_ptr, tmp_meshes.data(), _new_mesh_manifest_entries * sizeof(GPUMesh));
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_staging_buffer,

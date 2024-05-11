@@ -45,9 +45,9 @@ func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, u
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
     while(dst_item_count != 0)
     {
-        let bit = firstbithigh(dst_item_count);
-        let bucket_index = bit;
-        dst_item_count = dst_item_count & ~(1u << bit);
+        let bit_index = firstbithigh(dst_item_count);
+        let bucket_index = bit_index;
+        dst_item_count = dst_item_count & ~(1u << bit_index);
 
         uint bucket_count_prev_value = 0;
         InterlockedAdd(self.bucket_sizes[bucket_index], 1, bucket_count_prev_value);

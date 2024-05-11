@@ -76,7 +76,8 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
         };
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        auto const total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
+        auto total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
+        total_mesh_draws = std::min(total_mesh_draws, u64(MAX_MESH_INSTANCES));
         ti.recorder.dispatch(daxa::DispatchInfo{ round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1 });
     }
 };

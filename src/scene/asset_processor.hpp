@@ -15,8 +15,6 @@ using namespace tido::types;
 using MeshIndex = size_t;
 using ImageIndex = size_t;
 
-#define MAX_MESHES 10000
-
 enum struct TextureMaterialType
 {
     NONE,

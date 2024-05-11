@@ -237,9 +237,14 @@ bool is_meshlet_occluded(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
+    if (mesh_data.mesh_buffer.value == 0)
+    {
+        return true;
+    }
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
+
     BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
     if (is_ws_sphere_out_of_frustum(camera, ws_bs))
     {
@@ -254,7 +259,6 @@ bool is_meshlet_occluded(
         }
         return true;
     }
-
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
@@ -310,6 +314,10 @@ bool is_mesh_occluded(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
+    if (mesh_data.mesh_buffer.value == 0)
+    {
+        return true;
+    }
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
     // BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, mesh_inst.meshlet_index);
@@ -379,6 +387,10 @@ bool is_mesh_occluded_vsm(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
+    if (mesh_data.mesh_buffer.value == 0)
+    {
+        return true;
+    }
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
     // BoundingSphere model_bounding_sphere = mesh_data.bounding_sphere;
     // if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
@@ -439,8 +451,10 @@ bool is_mesh_occluded_vsm(
 
 func is_triangle_invisible_micro_triangle(float2 ndc_min, float2 ndc_max, float2 resolution) -> bool
 {
-    let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f;
-    let sample_grid_max = (ndc_max * 0.5f + 0.5f) * resolution - 0.5f;
+    // Just to be save :)
+    let delta = 1.0 / 256.0f;
+    let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f + delta;
+    let sample_grid_max = (ndc_max * 0.5f + 0.5f) * resolution - 0.5f - delta;
     // Checks if the min and the max positions are right next to the same sample grid line.
     // If we are next to the same sample grid line in one dimension we are not rasterized.
     let prim_visible = !any(equal(floor(sample_grid_max), floor(sample_grid_min)));
@@ -481,6 +495,10 @@ bool is_meshlet_occluded_vsm(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
+    if (mesh_data.mesh_buffer.value == 0)
+    {
+        return true;
+    }
     if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
     {
         return true;

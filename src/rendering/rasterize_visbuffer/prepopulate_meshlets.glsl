@@ -23,7 +23,7 @@ layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
 void main()
 {
     uint mesh_instance_index = gl_GlobalInvocationID.x;
-    uint mesh_instance_count = deref(push.uses.opaque_mesh_instances).count;
+    uint mesh_instance_count = min(deref(push.uses.opaque_mesh_instances).count, MAX_MESH_INSTANCES);
     if (mesh_instance_index >= mesh_instance_count)
     {
         return;
@@ -37,6 +37,12 @@ void main()
         // Entity has no mesh group.
         return;
     }
+
+    if (mesh_instance.entity_index >= MAX_ENTITIES)
+    {
+        // Entity index out of bounds.
+        return;
+    }
     
     GPUMeshGroup mesh_group = deref(push.uses.mesh_groups[mesh_group_index]);
     if (mesh_group.count == 0)
@@ -45,6 +51,7 @@ void main()
         return;
     }
 
+    /// bug zone begin
     const bool locked_entities_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
         deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
@@ -54,6 +61,7 @@ void main()
     {
         return;
     }
+    /// bug zone end
 
     uint allocation_offset = atomicAdd(
         push.uses.bitfield_arena.offsets_section_size, 
@@ -212,6 +220,11 @@ void main()
     }
 
     GPUMesh mesh = deref(push.uses.meshes[prev_frame_vis_meshlet.mesh_index]);
+    if (mesh.mesh_buffer.value == 0)
+    {
+        // Unloaded Mesh
+        return;
+    }
 
     // Try to allocate bitfield space:
     const uint needed_bitfield_u32_size = round_up_div(mesh.meshlet_count, 32);

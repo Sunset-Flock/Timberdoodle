@@ -11,7 +11,7 @@
 void main(uint thread_id : SV_DispatchThreadID)
 {
     uint mesh_instance_index = thread_id;
-    uint mesh_instance_count = deref(push.uses.mesh_instances).count;
+    uint mesh_instance_count = min(MAX_MESH_INSTANCES, deref(push.uses.mesh_instances).count);
     if (mesh_instance_index >= mesh_instance_count)
     {
         return;
@@ -19,7 +19,7 @@ void main(uint thread_id : SV_DispatchThreadID)
     MeshInstance mesh_instance = deref_i(deref(push.uses.mesh_instances).instances, mesh_instance_index);
     uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? DRAW_LIST_OPAQUE : DRAW_LIST_MASKED;
     GPUMesh mesh = deref_i(push.uses.meshes, mesh_instance.mesh_index);
-    if (mesh.meshlet_count == 0)
+    if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
     {
         return;
     }

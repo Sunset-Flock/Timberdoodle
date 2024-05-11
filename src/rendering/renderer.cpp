@@ -668,13 +668,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
         "visible meshlets bitfield",
     });
-    auto visible_meshes_bitfield = task_list.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESH_INSTANCES,
-        "visible meshes bitfield",
-    });
+    auto visible_meshes_bitfield = daxa::NullTaskBuffer;
+    // task_list.create_transient_buffer({
+    //     sizeof(daxa_u32) * MAX_MESH_INSTANCES,
+    //     "visible meshes bitfield",
+    // });
+    // task_clear_buffer(task_list, visible_meshes_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
-    task_clear_buffer(task_list, visible_meshes_bitfield, 0);
     task_clear_buffer(task_list, visible_mesh_instances, 0), 4;
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
@@ -863,8 +864,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "general readback",
     });
 
-#if 0
-#endif
+
+    #if 0
+    #endif
 
     task_list.submit({});
     task_list.present({});

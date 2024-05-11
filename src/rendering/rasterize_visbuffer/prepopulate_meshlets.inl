@@ -255,9 +255,10 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
         {
             if(info.render_context->scene_draw.max_entity_index > 0)
             {
+                auto size = sizeof(daxa_u32) * std::min(info.render_context->scene_draw.max_entity_index, MAX_ENTITIES);
                 ti.recorder.clear_buffer({
                     .buffer = ti.get(ent_to_mesh_inst_offsets_offsets).ids[0],
-                    .size = sizeof(daxa_u32) * info.render_context->scene_draw.max_entity_index,
+                    .size = size,
                     .clear_value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
                 });
             }
@@ -266,15 +267,21 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     });
 
     // clear the counters to 0 in the beginning of the arena
-    task_fill_buffer(info.task_graph, first_pass_meshlets_bitfield_arena, daxa_u32vec2{0,0});
+    task_fill_buffer(
+        info.task_graph, first_pass_meshlets_bitfield_arena, 
+        daxa_u32vec2{0,0}
+    );
 
     auto clear_mesh_instance_bitfield_offsets_command = info.task_graph.create_transient_buffer({ sizeof(IndirectMemsetBufferCommand), "clear_mesh_instance_bitfield_offsets_command"});
-    task_fill_buffer(info.task_graph, clear_mesh_instance_bitfield_offsets_command, IndirectMemsetBufferCommand{
-        .dispatch = {0,1,1},
-        .offset = 2,
-        .size = 0,
-        .value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
-    });
+    task_fill_buffer(
+        info.task_graph, clear_mesh_instance_bitfield_offsets_command, 
+        IndirectMemsetBufferCommand{
+            .dispatch = {0,1,1},
+            .offset = 2,
+            .size = 0,
+            .value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
+        }
+    );
 
     info.task_graph.add_task(AllocEntToMeshInstOffsetsOffsetsTask{
         .views = std::array{
