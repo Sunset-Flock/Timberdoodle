@@ -230,8 +230,6 @@ bool is_meshlet_occluded(
     ShaderDebugBufferHead* debug,
     CameraInfo camera,
     MeshletInstance meshlet_inst,
-    daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
-    U32ArenaBufferRef first_pass_meshlets_bitfield_arena,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_u32vec2 hiz_res,
@@ -239,16 +237,6 @@ bool is_meshlet_occluded(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
-    if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
-    {
-        // printf("invalid meshlet index %i >= %i\n", meshlet_inst.meshlet_index, mesh_data.meshlet_count);
-        return true;
-    }
-
-    if (is_meshlet_drawn_in_first_pass( meshlet_inst, first_pass_meshlets_bitfield_offsets, first_pass_meshlets_bitfield_arena ))
-    {
-        return true;
-    }
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_inst.entity_index));
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);

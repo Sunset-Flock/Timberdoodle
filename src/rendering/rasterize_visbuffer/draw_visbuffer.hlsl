@@ -488,7 +488,7 @@ func entry_task_meshlet_cull(
 
     Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
     MeshletInstance instanced_meshlet;
-    let valid_meshlet = get_meshlet_instance_from_workitem(
+    bool valid_meshlet = get_meshlet_instance_from_workitem(
         po2expansion,
         push.uses.mesh_instances,
         push.uses.meshes,
@@ -497,6 +497,10 @@ func entry_task_meshlet_cull(
         instanced_meshlet
     );
     
+    GPUMesh mesh_data = deref_i(push.uses.meshes, instanced_meshlet.mesh_index);
+    valid_meshlet = valid_meshlet && (instanced_meshlet.meshlet_index < mesh_data.meshlet_count);
+    valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.uses.first_pass_meshlets_bitfield_offsets, push.uses.first_pass_meshlets_bitfield_arena );
+
     bool draw_meshlet = valid_meshlet;
 #if ENABLE_MESHLET_CULLING == 1
     // We still continue to run the task shader even with invalid meshlets.
@@ -508,8 +512,6 @@ func entry_task_meshlet_cull(
             push.uses.globals.debug,
             deref(push.uses.globals).camera,
             instanced_meshlet,
-            push.uses.first_pass_meshlets_bitfield_offsets,
-            push.uses.first_pass_meshlets_bitfield_arena,
             push.uses.entity_combined_transforms,
             push.uses.meshes,
             push.uses.globals->settings.next_lower_po2_render_target_size,
