@@ -136,6 +136,7 @@ struct VSMSettings
     daxa_f32 constant_bias;
     daxa_i32 use_simplified_light_matrix;
     daxa_i32 use64bit;
+    daxa_u32 sun_moved;
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },

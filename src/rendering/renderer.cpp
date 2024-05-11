@@ -978,6 +978,9 @@ void Renderer::render_frame(
         render_context->render_data.sky_settings = render_context->render_data.sky_settings;
         sky_task_graph.execute({});
     }
+    bool sun_moved = std::bit_cast<f32vec3>(render_context->prev_sky_settings.sun_direction) == 
+                     std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction); 
+    render_context->render_data.vsm_settings.sun_moved = sun_moved ? 0u : 1u;
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
