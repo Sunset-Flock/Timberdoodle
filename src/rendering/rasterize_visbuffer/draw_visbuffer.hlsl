@@ -103,12 +103,12 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
             if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
                 alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .SampleLevel( SamplerState::get(masked_data.sampler), masked_data.uv, 2).a; 
+                    .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
             }
             else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
                 alpha = Texture2D<float>::get(material.diffuse_texture_id)
-                    .SampleLevel( SamplerState::get(masked_data.sampler), masked_data.uv, 2).a; 
+                    .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
             }
             // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
             // const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
@@ -281,7 +281,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
             if (push.uses.globals.settings.enable_triangle_cull)
             {
-                cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+                if (cull_backfaces)
+                {
+                    cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+                }
                 if (!cull_primitive)
                 {
                     const float3[3] tri_vert_ndc_positions = float3[3](
