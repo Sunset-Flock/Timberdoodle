@@ -438,7 +438,7 @@ struct CullMeshletsDrawVisbufferPayload
     uint task_shader_wg_meshlet_args_offset;
     uint task_shader_meshlet_instances_offset;
     uint task_shader_surviving_meshlets_mask;
-    bool enable_backface_culling;
+    uint enable_backface_culling;
 };
 
 struct MeshInstanceWorkItems : IPo2SrcWorkItems
@@ -573,19 +573,15 @@ func entry_task_meshlet_cull(
     }
 
     bool enable_backface_culling = false;
-    if (WaveIsFirstLane() && valid_meshlet)
+    if (valid_meshlet)
     {
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = push.uses.material_manifest[instanced_meshlet.material_index];
             enable_backface_culling = !material.alpha_discard_enabled;
         }
-        else
-        {
-            enable_backface_culling = false;
-        }
     }
-    payload.enable_backface_culling = WaveActiveAnyTrue(enable_backface_culling);
+    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
@@ -631,6 +627,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // With its thread id we can read the argument buffer just like the task shader did.
     // From the argument we construct the meshlet and any other data that we need.
     let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
+    let task_shader_local_bit = (1u << task_shader_local_index);
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
     // The meshlet should always be valid here, 
     // as otherwise the task shader would not have dispatched this mesh shader.
@@ -653,7 +650,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.uses.entity_combined_transforms = push.uses.entity_combined_transforms;
     fake_draw_p.uses.material_manifest = push.uses.material_manifest;
     
-    let cull_backfaces = payload.enable_backface_culling;
+    let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
     generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces);
 }
 
