@@ -37,7 +37,7 @@ Scene::~Scene()
     _device.destroy_buffer(_gpu_mesh_group_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_gpu_material_manifest.get_state().buffers[0]);
     _device.destroy_buffer(_scene_draw.opaque_mesh_instances.get_state().buffers[0]);
-    if(!_gpu_mesh_group_indices_array_buffer.is_empty())
+    if (!_gpu_mesh_group_indices_array_buffer.is_empty())
     {
         _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
     }
@@ -199,7 +199,7 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
         u32 gltf_image_index = gltf_image_idx_opt.value();
         DEBUG_MSG(
             fmt::format("[INFO] Loading texture meta data into manifest:\n  name: {}\n  asset local index: {}\n  manifest index:  {}",
-                load_ctx.asset.images[i].name, i, texture_manifest_index));
+                load_ctx.asset.images[gltf_image_index].name, i, texture_manifest_index));
         // KTX_TTF_BC7_RGBA
         scene._material_texture_manifest.push_back(TextureManifestEntry{
             .type = TextureMaterialType::NONE, // Set by material manifest.
@@ -290,7 +290,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
             .roughness_metalness_info = roughness_metalness_info,
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = material_index,
-            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask,// || material.alphaMode == fastgltf::AlphaMode::Blend,
+            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask, // || material.alphaMode == fastgltf::AlphaMode::Blend,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
             .name = material.name.c_str(),
         });
@@ -530,7 +530,7 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
         virtual void callback(u32 chunk_index, u32 thread_index) override
         {
             auto const ret_status = info.asset_processor->load_texture(info.load_info);
-            auto const texture_name = info.load_info.asset->images.at(info.load_info.gltf_texture_index).name;
+            auto const texture_name = info.load_info.asset->images.at(info.load_info.gltf_image_index).name;
             if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to load texture index {} name {} - error {}",
@@ -645,7 +645,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     if (_dirty_render_entities.size() > 0 || _modified_render_entities.size() > 0)
     {
         usize required_staging_size = 0;
-        required_staging_size += sizeof(GPUEntityMetaData);                              // _gpu_entity_meta
+        required_staging_size += sizeof(GPUEntityMetaData);                                                                   // _gpu_entity_meta
         required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_transforms
         required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_combined_transforms
         required_staging_size += sizeof(GPUMeshGroup) * (_dirty_render_entities.size() + _modified_render_entities.size());   // _gpu_entity_mesh_groups
@@ -738,17 +738,15 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     }
 
     _scene_draw.dynamic_meshes.clear();
-    for(u32 i = 0; i < _modified_render_entities.size(); ++i)
+    for (u32 i = 0; i < _modified_render_entities.size(); ++i)
     {
         u32 entity_index = _modified_render_entities[i].entity.index;
         auto * entity = _render_entities.slot(_modified_render_entities[i].entity);
         auto combined_parent_transform = update_entity(i, entity, entity_index);
 
-        _scene_draw.dynamic_meshes.push_back({
-            combined_parent_transform * _modified_render_entities[i].prev_transform,
+        _scene_draw.dynamic_meshes.push_back({combined_parent_transform * _modified_render_entities[i].prev_transform,
             combined_parent_transform * _modified_render_entities[i].curr_transform,
-            REMOVE_ME_dynamic_object_aabbs_REMOVE_ME
-        });
+            REMOVE_ME_dynamic_object_aabbs_REMOVE_ME});
     }
 #pragma region TEMP_UPLOAD_OPAQUE_DRAW_LISTS
     if (!_dirty_render_entities.empty())
@@ -762,7 +760,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         auto staging_ptr = _device.get_host_address(staging).value();
         fill_opaque_draw_list_buffer_head(
             _device.get_device_address(_scene_draw.opaque_mesh_instances.get_state().buffers[0]).value(),
-            reinterpret_cast<uint8_t*>(staging_ptr),
+            reinterpret_cast<uint8_t *>(staging_ptr),
             std::array{
                 std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[0]},
                 std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[1]},
@@ -863,7 +861,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         recorder.destroy_buffer_deferred(material_staging_buffer);
         GPUMaterial * staging_ptr = _device.get_host_address_as<GPUMaterial>(material_staging_buffer).value();
         std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
-        for(i32 i = 0; i < _new_material_manifest_entries; i++)
+        for (i32 i = 0; i < _new_material_manifest_entries; i++)
         {
             tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(_material_manifest.at(i + material_manifest_offset).base_color);
         }
@@ -894,10 +892,11 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             // 1) Update CPU Manifest
             for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
             {
-                if(texture_upload.secondary_texture)
+                if (texture_upload.secondary_texture)
                 {
                     _material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.dst_image;
-                } else 
+                }
+                else
                 {
                     _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.dst_image;
                 }
@@ -909,10 +908,10 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                     {
                         case TextureMaterialType::DIFFUSE:
                         {
-                            if(texture_upload.secondary_texture)
+                            if (texture_upload.secondary_texture)
                             {
                                 material_entry.opacity_mask_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                            } 
+                            }
                             else
                             {
                                 material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
@@ -976,7 +975,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                     auto const & texture_entry = _material_texture_manifest.at(material.diffuse_info.value().tex_manifest_index);
                     diffuse_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
                 }
-                if(material.opacity_mask_info.has_value())
+                if (material.opacity_mask_info.has_value())
                 {
                     auto const & texture_entry = _material_texture_manifest.at(material.opacity_mask_info.value().tex_manifest_index);
                     opacity_id = texture_entry.secondary_runtime_texture.value_or(daxa::ImageId{});
@@ -1033,7 +1032,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
                 _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
                 // TODO(msakmary) REMOVE ME GIANT HACK ========================================
                 //=============================================================================
-                if(_mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
+                if (_mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
                 {
                     auto data_ptr = _device.get_host_address(upload.staging_buffer).value();
                     u32 offset = {};

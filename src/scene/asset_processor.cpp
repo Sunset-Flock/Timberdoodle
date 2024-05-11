@@ -342,9 +342,15 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM;
     }
+    u32 bits_per_pixel = FreeImage_GetBPP(image_bitmap);
+    if (bits_per_pixel != 32 && bits_per_pixel != 24) {
+        auto *temp = FreeImage_ConvertTo32Bits(image_bitmap);
+        FreeImage_Unload(image_bitmap);
+        image_bitmap = temp;
+        bits_per_pixel = 32;
+    }
     FREE_IMAGE_TYPE const image_type = FreeImage_GetImageType(image_bitmap);
     FREE_IMAGE_COLOR_TYPE const color_type = FreeImage_GetColorType(image_bitmap);
-    u32 const bits_per_pixel = FreeImage_GetBPP(image_bitmap);
     u32 const width = FreeImage_GetWidth(image_bitmap);
     u32 const height = FreeImage_GetHeight(image_bitmap);
     bool const has_red_channel = FreeImage_GetRedMask(image_bitmap) != 0;
