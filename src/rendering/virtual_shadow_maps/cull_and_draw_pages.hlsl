@@ -15,6 +15,7 @@ struct CullMeshletsDrawPagesPayload
     uint task_shader_wg_meshlet_args_offset;
     uint task_shader_surviving_meshlets_mask;
     uint task_shader_clip_level;
+    uint enable_backface_culling;
 };
 // 32 is the number of buckets - if this number is changed this also needs to be changed to match it
 // THIS IS UNUSED::
@@ -81,7 +82,17 @@ func vsm_entry_task(
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
 
-    // DispatchMesh(1, 0, 1, payload);
+    bool enable_backface_culling = false;
+    if (valid_meshlet)
+    {
+        if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
+        {
+            GPUMaterial material = push.attachments.material_manifest[instanced_meshlet.material_index];
+            enable_backface_culling = !material.alpha_discard_enabled;
+        }
+    }
+    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
+
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
 
@@ -123,7 +134,8 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     uint clip_level,
-    MeshletInstance meshlet_inst)
+    MeshletInstance meshlet_inst,
+    bool cull_backfaces)
 {    
     uint2 render_target_size = uint2(VSM_TEXTURE_RESOLUTION,VSM_TEXTURE_RESOLUTION);
     let push = vsm_push;
@@ -204,7 +216,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         float4 tri_vert_clip_positions[3] = {vert_0_ndc_pos, vert_1_ndc_pos, vert_2_ndc_pos};
         bool cull_primitive = false;
         #if 1
-        cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
+        cull_primitive = cull_backfaces ? is_triangle_backfacing(tri_vert_clip_positions) : false;
         if (!cull_primitive)
         {
             const float3[3] tri_vert_ndc_positions = float3[3](
@@ -266,6 +278,7 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     // From the argument we construct the meshlet and any other data that we need.
     let task_shader_local_index = wave32_find_nth_set_bit(payload.task_shader_surviving_meshlets_mask, group_index);
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
+    let task_shader_local_bit = (1u << task_shader_local_index);
 
     Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)get_expansion_buffer();
     MeshletInstance meshlet_inst;
@@ -278,7 +291,8 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         meshlet_inst
     );
     
-    generic_vsm_mesh(svtid, out_indices, out_vertices, out_primitives, payload.task_shader_clip_level, meshlet_inst);
+    let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
+    generic_vsm_mesh(svtid, out_indices, out_vertices, out_primitives, payload.task_shader_clip_level, meshlet_inst, cull_backfaces);
 }
 
 [outputtopology("triangle")]

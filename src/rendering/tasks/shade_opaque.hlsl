@@ -382,6 +382,7 @@ void main(
         if(material.diffuse_texture_id.value != 0)
         {
             albedo = Texture2D<float>::get(material.diffuse_texture_id).SampleGrad(
+                // SamplerState::get(AT_FROM_PUSH.globals->samplers.nearest_repeat_ani),
                 SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_repeat_ani),
                 tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
             ).rgb;
