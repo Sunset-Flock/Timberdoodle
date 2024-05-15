@@ -293,6 +293,7 @@ struct GPUContext
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
     std::unordered_map<std::string, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
 
+    // TODO(msakmary) REMOVE
     daxa::SamplerId lin_clamp_sampler = {};
 
     u32 counter = {};

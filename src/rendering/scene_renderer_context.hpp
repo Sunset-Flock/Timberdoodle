@@ -58,6 +58,14 @@ struct RenderContext
                 .address_mode_w = daxa::SamplerAddressMode::REPEAT,
                 .name = "linear repeat sampler",
             }),
+            .nearest_repeat = gpuctx->device.create_sampler({
+                .magnification_filter = daxa::Filter::NEAREST,
+                .minification_filter = daxa::Filter::NEAREST,
+                .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+                .name = "linear repeat sampler",
+            }),
             .nearest_clamp = gpuctx->device.create_sampler({
                 .magnification_filter = daxa::Filter::NEAREST,
                 .minification_filter = daxa::Filter::NEAREST,
@@ -71,7 +79,19 @@ struct RenderContext
                 .mip_lod_bias = 0.0f,
                 .enable_anisotropy = true,
                 .max_anisotropy = 16.0f,
-                .name = "nearest clamp sampler",
+                .name = "linear repeat ani sampler",
+            }),
+            .nearest_repeat_ani = gpuctx->device.create_sampler({
+                .magnification_filter = daxa::Filter::NEAREST,
+                .minification_filter = daxa::Filter::NEAREST,
+                .mipmap_filter = daxa::Filter::LINEAR,
+                .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+                .mip_lod_bias = 0.0f,
+                .enable_anisotropy = true,
+                .max_anisotropy = 16.0f,
+                .name = "nearest repeat ani sampler",
             }),
             .normals = gpuctx->device.create_sampler({
                 .address_mode_u = daxa::SamplerAddressMode::REPEAT,
@@ -91,8 +111,10 @@ struct RenderContext
         gpuctx->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
+        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_clamp));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
+        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat_ani));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
     }
 

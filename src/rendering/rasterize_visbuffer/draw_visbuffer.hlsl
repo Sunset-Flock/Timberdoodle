@@ -425,6 +425,7 @@ FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMas
             prim.material_index,
             draw_p.uses.material_manifest,
             draw_p.uses.globals->samplers.linear_repeat,
+            // draw_p.uses.globals->samplers.nearest_repeat,
             vert.uv
         ),
         daxa::ImageViewId(0),
@@ -722,6 +723,7 @@ FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in 
             prim.material_index,
             cull_meshlets_draw_visbuffer_push.uses.material_manifest,
             cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+            // cull_meshlets_draw_visbuffer_push.uses.globals->samplers.nearest_repeat,
             vert.uv
         ),
         daxa::ImageViewId(0),
@@ -766,6 +768,7 @@ void entry_fragment_masked_atomicvis(in MeshShaderMaskVertex vert, in MeshShader
             prim.material_index,
             draw_p.uses.material_manifest,
             draw_p.uses.globals->samplers.linear_repeat,
+            // draw_p.uses.globals->samplers.nearest_repeat,
             vert.uv
         ),
         draw_p.uses.atomic_visbuffer,
@@ -801,6 +804,7 @@ void entry_fragment_meshlet_cull_masked_atomicvis(in MeshShaderMaskVertex vert, 
             prim.material_index,
             cull_meshlets_draw_visbuffer_push.uses.material_manifest,
             cull_meshlets_draw_visbuffer_push.uses.globals->samplers.linear_repeat,
+            // cull_meshlets_draw_visbuffer_push.uses.globals->samplers.nearest_repeat,
             vert.uv
         ),
         cull_meshlets_draw_visbuffer_push.uses.atomic_visbuffer,
