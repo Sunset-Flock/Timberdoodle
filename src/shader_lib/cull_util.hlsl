@@ -453,8 +453,8 @@ func is_triangle_invisible_micro_triangle(float2 ndc_min, float2 ndc_max, float2
 {
     // Just to be save :)
     let delta = 1.0 / 256.0f;
-    let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f + delta;
-    let sample_grid_max = (ndc_max * 0.5f + 0.5f) * resolution - 0.5f - delta;
+    let sample_grid_min = (ndc_min * 0.5f + 0.5f) * resolution - 0.5f - delta;
+    let sample_grid_max = (ndc_max * 0.5f + 0.5f) * resolution - 0.5f + delta;
     // Checks if the min and the max positions are right next to the same sample grid line.
     // If we are next to the same sample grid line in one dimension we are not rasterized.
     let prim_visible = !any(equal(floor(sample_grid_max), floor(sample_grid_min)));

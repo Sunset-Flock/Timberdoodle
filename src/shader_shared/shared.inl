@@ -7,10 +7,10 @@
 
 #define MAX_MESHLET_INSTANCES (1u << 24u) // Roughly 16.8 million
 //150000
-#define MAX_MESH_INSTANCES 100000 
+#define MAX_MESH_INSTANCES 128000
 #define WARP_SIZE 32
 #define MAX_ENTITIES (1u << 20u)
-#define MAX_MATERIALS (1u << 8u)
+#define MAX_MATERIALS (1u << 16u)
 #define MAX_MESHES 10000
 #define MESH_SHADER_WORKGROUP_X 32
 #define ENABLE_TRIANGLE_CULLING 0

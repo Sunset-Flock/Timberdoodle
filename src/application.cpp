@@ -131,8 +131,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies2.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies2.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";

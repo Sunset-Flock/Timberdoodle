@@ -286,6 +286,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
             .name = material.name.c_str(),
         });
         scene._new_material_manifest_entries += 1;
+        DBG_ASSERT_TRUE_M(scene._new_material_manifest_entries < MAX_MATERIALS, "EXCEEDED MAX_MATERIALS");
     }
 }
 
