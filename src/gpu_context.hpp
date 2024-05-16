@@ -12,10 +12,12 @@ struct ShaderDebugDrawContext
     u32 max_rectangle_draws = 256'000;
     u32 max_aabb_draws = 256'000;
     u32 max_box_draws = 64'000;
+    u32 max_line_draws = 512'000;
     u32 circle_vertices = 64; // Uses line strip
     u32 rectangle_vertices = 5; // Uses line strip
     u32 aabb_vertices = 24; // Uses line list
     u32 box_vertices = 24;
+    u32 line_vertices = 2;
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
@@ -41,6 +43,7 @@ struct ShaderDebugDrawContext
     std::vector<ShaderDebugRectangleDraw> cpu_debug_rectangle_draws = {};
     std::vector<ShaderDebugAABBDraw> cpu_debug_aabb_draws = {};
     std::vector<ShaderDebugBoxDraw> cpu_debug_box_draws = {};
+    std::vector<ShaderDebugLineDraw> cpu_debug_line_draws = {};
 
     u32 frame_index = 0;
 
@@ -51,6 +54,7 @@ struct ShaderDebugDrawContext
         size += sizeof(ShaderDebugRectangleDraw) * max_rectangle_draws;
         size += sizeof(ShaderDebugAABBDraw) * max_aabb_draws;
         size += sizeof(ShaderDebugBoxDraw) * max_box_draws;
+        size += sizeof(ShaderDebugLineDraw) * max_line_draws;
         buffer = device.create_buffer({
             .size = size,
             .name = "shader debug buffer",
@@ -144,6 +148,7 @@ struct ShaderDebugDrawContext
         u32 const rectangle_buffer_offset = circle_buffer_offset + sizeof(ShaderDebugCircleDraw) * max_circle_draws;
         u32 const aabb_buffer_offset = rectangle_buffer_offset + sizeof(ShaderDebugRectangleDraw) * max_rectangle_draws;
         u32 const box_buffer_offset = aabb_buffer_offset + sizeof(ShaderDebugAABBDraw) * max_aabb_draws;
+        u32 const line_buffer_offset = aabb_buffer_offset + sizeof(ShaderDebugBoxDraw) * max_box_draws;
         
         auto head = ShaderDebugBufferHead{
             .circle_draw_indirect_info = {
@@ -170,16 +175,24 @@ struct ShaderDebugDrawContext
                 .first_vertex = 0,
                 .first_instance = 0
             },
+            .line_draw_indirect_info = {
+                .vertex_count = line_vertices,
+                .instance_count = std::min(static_cast<u32>(cpu_debug_line_draws.size()), max_line_draws),
+                .first_vertex = 0,
+                .first_instance = 0
+            },
             .circle_draw_capacity = max_circle_draws,
             .rectangle_draw_capacity = max_rectangle_draws,
             .aabb_draw_capacity = max_aabb_draws,
             .box_draw_capacity = max_box_draws,
+            .line_draw_capacity = max_line_draws,
             .cpu_input = shader_debug_input,
             .gpu_output = {},
             .circle_draws = device.get_device_address(buffer).value() + circle_buffer_offset,
             .rectangle_draws = device.get_device_address(buffer).value() + rectangle_buffer_offset,
             .aabb_draws = device.get_device_address(buffer).value() + aabb_buffer_offset,
             .box_draws = device.get_device_address(buffer).value() + box_buffer_offset,
+            .line_draws = device.get_device_address(buffer).value() + line_buffer_offset,
         };
         auto alloc = allocator.allocate_fill(head).value();
         recorder.copy_buffer_to_buffer({
@@ -248,6 +261,20 @@ struct ShaderDebugDrawContext
                 .size = stage_box_draws_size,
             });
             cpu_debug_box_draws.clear();
+        }
+        auto stage_line_draws_size = sizeof(ShaderDebugLineDraw) * head.line_draw_indirect_info.instance_count;
+        if (stage_line_draws_size > 0)
+        {
+            auto stage_line_draws = allocator.allocate(stage_line_draws_size,4).value();
+            std::memcpy(stage_line_draws.host_address, cpu_debug_line_draws.data(), stage_line_draws_size);
+            recorder.copy_buffer_to_buffer({
+                .src_buffer = allocator.buffer(),
+                .dst_buffer = buffer,
+                .src_offset = stage_line_draws.buffer_offset,
+                .dst_offset = line_buffer_offset,
+                .size = stage_line_draws_size,
+            });
+            cpu_debug_line_draws.clear();
         }
     }
 };

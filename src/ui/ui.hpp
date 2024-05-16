@@ -86,6 +86,7 @@ struct UIEngine
         bool widget_property_viewer = true;
         bool demo_window = false;
         bool vsm_debug_menu = false;
+        bool aurora_debug_menu = true;
         u32 magnify_pixels = 7;
         u32 perf_sample_count = 0;
         bool shader_debug_menu = false;
@@ -118,6 +119,7 @@ struct UIEngine
         GPUContext * context;
         bool gather_perm_measurements = true;
         bool show_entire_interval = false;
+        bool continuously_regenerage_aurora = false;
         f32 text_font_size = 15.0f;
         int selected = {};
 

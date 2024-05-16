@@ -12,6 +12,7 @@
 #include "../shader_shared/readback.inl"
 
 #include "../gpu_context.hpp"
+#include "aurora/aurora_state.hpp"
 
 struct DynamicMesh
 {
@@ -126,6 +127,7 @@ struct RenderContext
     daxa::TaskBuffer tgpu_render_data = {};
 
     // Data
+    AuroraState * aurora_state = {};
     ReadbackValues general_readback;
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};

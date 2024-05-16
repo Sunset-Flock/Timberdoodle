@@ -32,6 +32,20 @@ void debug_draw_rectangle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Sh
     }
 }
 
+void debug_draw_line(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugLineDraw draw)
+{
+    const uint capacity = deref(debug_info).line_draw_capacity;
+    const uint index = atomicAdd(deref(debug_info).line_draw_indirect_info.instance_count, 1);
+    if (index < capacity)
+    {
+        deref_i(deref(debug_info).line_draws, index) = draw;
+    }
+    else
+    {
+        atomicAdd(deref(debug_info).gpu_output.exceeded_line_draw_capacity, 1);
+    }
+}
+
 void debug_draw_aabb(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugAABBDraw draw)
 {
     const uint capacity = deref(debug_info).aabb_draw_capacity;

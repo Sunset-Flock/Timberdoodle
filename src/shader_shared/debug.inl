@@ -44,6 +44,14 @@ struct ShaderDebugBoxDraw
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBoxDraw);
 
+struct ShaderDebugLineDraw
+{
+    daxa_f32vec3 vertices[2];
+    daxa_f32vec3 colors[2];
+    daxa_u32 coord_space;
+};
+DAXA_DECL_BUFFER_PTR(ShaderDebugLineDraw)
+
 struct ShaderDebugInput
 {
     daxa_i32vec2 texel_detector_pos;
@@ -61,6 +69,7 @@ struct ShaderDebugOutput
     daxa_u32 exceeded_rectangle_draw_capacity;
     daxa_u32 exceeded_aabb_draw_capacity;
     daxa_u32 exceeded_box_draw_capacity;
+    daxa_u32 exceeded_line_draw_capacity;
 };
 
 struct ShaderDebugBufferHead
@@ -69,16 +78,19 @@ struct ShaderDebugBufferHead
     DrawIndirectStruct rectangle_draw_indirect_info;
     DrawIndirectStruct aabb_draw_indirect_info;
     DrawIndirectStruct box_draw_indirect_info;
+    DrawIndirectStruct line_draw_indirect_info;
     daxa_u32 circle_draw_capacity;
     daxa_u32 rectangle_draw_capacity;
     daxa_u32 aabb_draw_capacity;
     daxa_u32 box_draw_capacity;
+    daxa_u32 line_draw_capacity;
     ShaderDebugInput cpu_input;
     ShaderDebugOutput gpu_output;
     daxa_RWBufferPtr(ShaderDebugCircleDraw) circle_draws;
     daxa_RWBufferPtr(ShaderDebugRectangleDraw) rectangle_draws;
     daxa_RWBufferPtr(ShaderDebugAABBDraw) aabb_draws;
     daxa_RWBufferPtr(ShaderDebugBoxDraw) box_draws;
+    daxa_RWBufferPtr(ShaderDebugLineDraw) line_draws;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)
 

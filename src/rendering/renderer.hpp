@@ -13,6 +13,7 @@
 #include "../camera.hpp"
 #include "scene_renderer_context.hpp"
 #include "virtual_shadow_maps/vsm_state.hpp"
+#include "aurora/aurora_state.hpp"
 
 
 // Renderer struct.
@@ -59,6 +60,7 @@ struct Renderer
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
 
     VSMState vsm_state = {};
+    AuroraState aurora_state = {};
 
     std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};

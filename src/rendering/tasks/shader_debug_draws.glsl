@@ -207,6 +207,43 @@ void main()
 #endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
 #endif //defined(DRAW_BOX)
 
+#if defined(DRAW_LINE) || __cplusplus
+#if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
+layout(location = 0) out vec3 vtf_color;
+
+DAXA_DECL_PUSH_CONSTANT(DebugDrawPush, push)
+
+void main()
+{
+    const uint line_idx = gl_InstanceIndex;
+    const uint vertex_idx = gl_VertexIndex;
+
+    const ShaderDebugLineDraw line = deref(deref(deref(push.attachments.globals).debug).line_draws + line_idx);
+
+    vec4 out_position;
+    const vec3 model_position = line.vertices[vertex_idx];
+    vtf_color = line.colors[vertex_idx];
+    if (line.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        out_position = deref(push.attachments.globals).camera.view_proj * vec4(model_position, 1);
+    }
+    else if (line.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
+    {
+        out_position = vec4(model_position, 1);
+    }
+    else if (line.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
+    {
+        out_position = vec4(model_position, 1);
+    }
+    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
+    if (push.draw_as_observer == 1 && line.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
+    {
+        out_position = deref(push.attachments.globals).observer_camera.view_proj * (deref(push.attachments.globals).camera.inv_view_proj * out_position);
+    }
+    gl_Position = out_position;
+}
+#endif //DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_VERTEX
+#endif //defined(DRAW_LINE)
 
 #if DAXA_SHADER_STAGE == DAXA_SHADER_STAGE_FRAGMENT || __cplusplus
 DAXA_DECL_PUSH_CONSTANT(DebugDrawPush, push)

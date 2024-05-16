@@ -228,6 +228,49 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
         }
         ImGui::End();
     }
+    if(aurora_debug_menu)
+    {
+        if(ImGui::Begin("Aurora Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            render_ctx.aurora_state->cpu_globals.regenerate_aurora = 0u;
+            if(ImGui::Button("Regenerate")) { render_ctx.aurora_state->cpu_globals.regenerate_aurora = 1u; }
+            ImGui::SameLine();
+            ImGui::Checkbox("Continuously regenerate", &continuously_regenerage_aurora);
+            render_ctx.aurora_state->cpu_globals.regenerate_aurora |= s_cast<daxa_u32>(continuously_regenerage_aurora); 
+
+            auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 3;
+            better_drag_float({"Frequency", &render_ctx.aurora_state->cpu_globals.frequency, 0.05f, 0.0f, 5.0f, "%.2f", horizontal_max_width, -10, true});
+            better_drag_float({"Layer phase shift", &render_ctx.aurora_state->cpu_globals.phase_shift_per_layer, 0.01f, 0.0f, 0.35f, "%.2f", horizontal_max_width, -10, true});
+            better_drag_float({"Offset strength", &render_ctx.aurora_state->cpu_globals.offset_strength, 0.1f, 0.0f, 1.0f, "%.1f", horizontal_max_width, -10, true});
+            better_drag_float({"Arc width", &render_ctx.aurora_state->cpu_globals.width, 0.01f, 0.0f, 10.0f, "%.2f", horizontal_max_width, -10, false});
+            better_drag_float({"Alpha", &render_ctx.aurora_state->cpu_globals.angle_offset_per_collision, 0.001f, 0.0f, 0.1f, "%.3f", horizontal_max_width, -10, false});
+            better_drag_float({"Height", &render_ctx.aurora_state->cpu_globals.height, 1.0f, 0.0f, 100.0f, "%.1f", horizontal_max_width, -10, true});
+
+            f32vec3 const B = {
+                render_ctx.aurora_state->cpu_globals.B.x,
+                render_ctx.aurora_state->cpu_globals.B.y,
+                render_ctx.aurora_state->cpu_globals.B.z};
+            f32 const angle_y_rad = glm::acos(B.z);
+            f32 const angle_x_rad = glm::atan(B.y / B.x);
+            f32 offset = 0.0f;
+            if (B.x < 0.0f)
+            {
+                offset += B.y < 0 ? -180.0f : 180.0f;
+            }
+            f32 angle_y_deg = glm::degrees(angle_y_rad);
+            f32 angle_x_deg = glm::degrees(angle_x_rad) + offset;
+            angle_x_deg += angle_x_deg < 0 ? 360.0f : 0.0f;
+            better_drag_float({"B Angle X", &angle_x_deg, 0.5f, 0.0f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
+            better_drag_float({"B Angle Y", &angle_y_deg, 0.5f, 0.0f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
+            render_ctx.aurora_state->cpu_globals.B =
+                {
+                    daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
+                    daxa_f32(glm::sin(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
+                    daxa_f32(glm::cos(glm::radians(angle_y_deg))),
+                };
+        }
+        ImGui::End();
+    }
     if (widget_settings)
     {
         if (ImGui::Begin("Widget Settings", nullptr, ImGuiWindowFlags_NoCollapse))

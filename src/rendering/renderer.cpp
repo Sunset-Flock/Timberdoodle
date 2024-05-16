@@ -7,6 +7,7 @@
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
 #include "virtual_shadow_maps/vsm.inl"
+#include "aurora/aurora.inl"
 
 #include "tasks/memset.inl"
 #include "tasks/dvmaa.inl"
@@ -47,7 +48,7 @@ Renderer::Renderer(
     meshlet_instances_last_frame = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_mesh_instances = create_task_buffer(context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(context, sizeof(f32), "luminance average", "luminance_average");
-    general_readback_buffer = daxa::TaskBuffer{ context->device, { sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer" }};
+    general_readback_buffer = daxa::TaskBuffer{context->device, {sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer"}};
     visible_meshlet_instances = create_task_buffer(context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
@@ -65,6 +66,9 @@ Renderer::Renderer(
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
 
     vsm_state.initialize_persitent_state(context);
+    aurora_state.initialize_perisitent_state(context);
+    record_aurora_task_graph(&aurora_state, render_context.get());
+    render_context->aurora_state = &aurora_state;
 
     images = {
         transmittance,
@@ -96,6 +100,7 @@ Renderer::~Renderer()
         }
     }
     vsm_state.cleanup_persistent_state(context);
+    aurora_state.cleanup_persistent_state(context);
     this->context->device.wait_idle();
     this->context->device.collect_garbage();
 }
@@ -125,6 +130,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
+        {draw_shader_debug_line_pipeline_compile_info()},
     };
     for (auto info : rasters)
     {
@@ -174,6 +180,8 @@ void Renderer::compile_pipelines()
         {decode_visbuffer_test_pipeline_info()},
         {SplitAtomicVisbufferTask::pipeline_compile_info},
         {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
+        {aurora_distribute_beam_origins_pipeline_compile_info()},
+        {aurora_debug_draw_beam_origins_pipeline_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -427,6 +435,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
     task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
+    task_list.use_persistent_buffer(aurora_state.globals);
+    task_list.use_persistent_buffer(aurora_state.beam_paths);
     task_list.use_persistent_image(vsm_state.memory_block);
     task_list.use_persistent_image(vsm_state.memory_block64);
     task_list.use_persistent_image(vsm_state.meta_memory_table);
@@ -463,7 +473,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .name = "overdraw_image",
         });
-        task_clear_image(task_list, overdraw_image, std::array{0,0,0,0});
+        task_clear_image(task_list, overdraw_image, std::array{0, 0, 0, 0});
     }
 
     bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
@@ -501,6 +511,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=](daxa::TaskInterface ti) {},
         .name = "dummy",
+    });
+
+    debug_draw_aurora({
+        .aurora_state = &aurora_state,
+        .render_context = render_context.get(),
+        .tg = &task_list,
     });
 
     auto sky = task_list.create_transient_image({
@@ -587,14 +603,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .context = render_context->gpuctx,
             .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [=](){ 
+            .dispatch_callback = [=]()
+            {
                 return daxa::DispatchInfo{
                     round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
                     round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1
-                ,};
+                    1,
+                };
             },
-        }); 
+        });
     }
 
     daxa::TaskImageView hiz = {};
@@ -722,14 +739,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .context = render_context->gpuctx,
             .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [=](){ 
+            .dispatch_callback = [=]()
+            {
                 return daxa::DispatchInfo{
                     round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
                     round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1
-                ,};
+                    1,
+                };
             },
-        }); 
+        });
     }
     task_list.submit({});
 
@@ -844,7 +862,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=, this](daxa::TaskInterface ti)
         {
-            const u32 index = render_context->render_data.frame_index % 4;
+            u32 const index = render_context->render_data.frame_index % 4;
 #define READBACK_HELPER_MACRO(SRC_BUF, SRC_STRUCT, SRC_FIELD, DST_FIELD)                    \
     ti.recorder.copy_buffer_to_buffer({                                                     \
         .src_buffer = ti.get(SRC_BUF).ids[0],                                               \
@@ -858,15 +876,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].first_count, first_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].second_count, second_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
-            
+
             render_context->general_readback = ti.device.get_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
         },
         .name = "general readback",
     });
 
-
-    #if 0
-    #endif
+#if 0
+#endif
 
     task_list.submit({});
     task_list.present({});
@@ -947,6 +964,15 @@ void Renderer::render_frame(
         };
     }
 
+    if (aurora_state.cpu_globals.regenerate_aurora != 0)
+    {
+        aurora_state.generate_aurora_task_graph.execute({});
+    }
+    draw_aurora_local_coord_system({
+        .aurora_state = &aurora_state,
+        .render_context = render_context.get(),
+    });
+
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
@@ -980,8 +1006,8 @@ void Renderer::render_frame(
         render_context->render_data.sky_settings = render_context->render_data.sky_settings;
         sky_task_graph.execute({});
     }
-    bool sun_moved = std::bit_cast<f32vec3>(render_context->prev_sky_settings.sun_direction) == 
-                     std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction); 
+    bool sun_moved = std::bit_cast<f32vec3>(render_context->prev_sky_settings.sun_direction) ==
+                     std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction);
     render_context->render_data.vsm_settings.sun_moved = sun_moved ? 0u : 1u;
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;

@@ -22,6 +22,7 @@ struct DebugDrawPush
 #if __cplusplus
 
 #include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 
 static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.glsl";
 inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile_info()
@@ -105,6 +106,23 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_i
     return ret;
 };
 
+inline daxa::RasterPipelineCompileInfo draw_shader_debug_line_pipeline_compile_info()
+{
+    auto ret = draw_shader_debug_common_pipeline_compile_info();
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_LINE", "1"}}},
+    };
+    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .compile_options = {.defines = {{"DRAW_LINE", "1"}}},
+    };
+    ret.name = "DrawShaderDebugLine";
+    ret.push_constant_size = sizeof(DebugDrawPush);
+    ret.raster.primitive_topology = daxa::PrimitiveTopology::LINE_LIST;
+    return ret;
+}
+
 inline daxa::RasterPipelineCompileInfo draw_shader_debug_box_pipeline_compile_info()
 {
     auto ret = draw_shader_debug_common_pipeline_compile_info();
@@ -184,6 +202,14 @@ struct DebugDrawTask : DebugDrawH::Task
         render_cmd.draw_indirect({
             .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draw_indirect_info),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_line_pipeline_compile_info().name));
+        render_cmd.draw_indirect({
+            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, line_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
