@@ -47,4 +47,13 @@ The asset loader is fully asychronous and utilizes built in threadpool implement
 
 The threadpool is a very simple two priority queue data structure utilizing condition variables to avoid any busy waiting and wasting of resources. While it is currently only used for asset loading it has been designed with universality in mind. Thus parallel command recording and or shader compilation are planned for the future.
 
+### Debug views (Matěj Sakmary & Patrick Ahrens)
+As we believe debug views are very important and helpful when idetifying and fixing bugs, Timberdoodle includes several drawing modes visualizing so far implemented techniques. As we fully adopted meshlet workflow to allow for efficient culling, we include a meshlet, mesh, entity and triangle views. To visualize the effects of culling we include overdraw visualizations for both main pass as well as shadowmaps. For Shadowmaps an additional debug view (shown at the top of the Virtual Shadow Maps section) is also included. This debug view visualizes individual cascades and pages. Another very important feature we implemented is the observer camera. This feature allows to freeze the main camera and detach another, observer, camera which can freely move around the scene and inspect its state as if it has been drawn from the main camera. This option was priceless when debugging various artifacts which were hard to argue about from the point of view of the main camera but were immediatelly made clear when inspected using the observer.
+
+Additionally to debug views Timberdoodle also includes additional set of debug textures used for various purposes. One example is the presence of textures showing the state of the VSM memory pool as well as the state of each of the cascade VPTs. To further allow for easy debugging, the option do draw simple shapes such as rectangles, AABBs, cubes, spheres and other are built into the core of the engine. The debug shape drawing is supported both from the CPU as well as the GPU. This allows us to immediatelly visualize wide spectrum of data and quickly gain deeper insight into potential issues.
+
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/overdraw_bistro.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/meshlet_bistro.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/culling_bistro.png)
+
 ### Two pass Meshlet culling (Patrick Ahrens)
