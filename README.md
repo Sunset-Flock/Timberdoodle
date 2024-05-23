@@ -47,4 +47,4 @@ The asset loader is fully asychronous and utilizes built in threadpool implement
 
 The threadpool is a very simple two priority queue data structure utilizing condition variables to avoid any busy waiting and wasting of resources. While it is currently only used for asset loading it has been designed with universality in mind. Thus parallel command recording and or shader compilation are planned for the future.
 
-# Two pass Meshlet culling (Patrick Ahrens)
+### Two pass Meshlet culling (Patrick Ahrens)
