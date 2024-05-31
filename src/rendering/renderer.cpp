@@ -131,6 +131,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
         {draw_shader_debug_line_pipeline_compile_info()},
+        {aurora_draw_emission_points_pipeline_compile_info()},
     };
     for (auto info : rasters)
     {
@@ -182,6 +183,8 @@ void Renderer::compile_pipelines()
         {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
         {aurora_distribute_beam_origins_pipeline_compile_info()},
         {aurora_debug_draw_beam_origins_pipeline_compile_info()},
+        {aurora_blur_x_image_pipeline_compile_info()},
+        {aurora_blur_y_image_pipeline_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -447,6 +450,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
+    task_list.use_persistent_image(aurora_state.aurora_image);
 
     task_clear_image(task_list, debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
@@ -513,11 +517,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "dummy",
     });
 
-    debug_draw_aurora({
-        .aurora_state = &aurora_state,
-        .render_context = render_context.get(),
-        .tg = &task_list,
-    });
 
     auto sky = task_list.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
@@ -796,6 +795,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
             ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
+            ShadeOpaqueH::AT.aurora_image | aurora_state.aurora_image,
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
@@ -964,10 +964,8 @@ void Renderer::render_frame(
         };
     }
 
-    if (aurora_state.cpu_globals.regenerate_aurora != 0)
-    {
-        aurora_state.generate_aurora_task_graph.execute({});
-    }
+    bool regenerate_points = aurora_state.cpu_globals.regenerate_aurora == 1;
+    aurora_state.generate_aurora_task_graph.execute({.permutation_condition_values = {&regenerate_points, 1}});
     draw_aurora_local_coord_system({
         .aurora_state = &aurora_state,
         .render_context = render_context.get(),

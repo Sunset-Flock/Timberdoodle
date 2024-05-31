@@ -364,9 +364,9 @@ daxa_f32vec3 stars(daxa_f32vec3 ro, daxa_f32vec3 rd, daxa_f32vec2 sp, daxa_f32 h
     const daxa_f32 m = LAYERS;
     hh = tanh_approx(20.0 * hh);
 
-    for (daxa_f32 i = 0.0; i < m; ++i) {
+    for (daxa_i32 i = 0; i < m; ++i) {
         daxa_f32vec2 pp = sp + 0.5 * i;
-        daxa_f32 s = i / (m - 1.0);
+        daxa_f32 s = daxa_f32(i) / (m - 1.0);
         daxa_f32vec2 dim = daxa_f32vec2(mix(0.05, 0.003, s) * PI);
         daxa_f32vec2 np = mod2(pp, dim);
         daxa_f32vec2 h = hash2(np + 127.0 + i);

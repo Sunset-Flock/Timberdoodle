@@ -515,8 +515,11 @@ void main(
             view_direction,
             bottom_atmo_offset_camera_position
         );
+        const float3 aurora_contribution = Texture2D<float>::get(AT_FROM_PUSH.aurora_image).
+            SampleLevel(SamplerState::get(AT_FROM_PUSH.globals.samplers.linear_clamp), screen_uv, 0).rgb;
+
         const float3 sun_direct_illuminance = get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
-        const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
+        const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace + aurora_contribution;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
     }

@@ -239,12 +239,28 @@ void UIEngine::main_update(RenderContext & render_ctx, Scene const & scene)
             render_ctx.aurora_state->cpu_globals.regenerate_aurora |= s_cast<daxa_u32>(continuously_regenerage_aurora); 
 
             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 3;
+            f32 kernel_width_r = render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[0].width;
+            f32 kernel_width_g = render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[1].width;
+            f32 kernel_width_b = render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[2].width;
             better_drag_float({"Frequency", &render_ctx.aurora_state->cpu_globals.frequency, 0.05f, 0.0f, 5.0f, "%.2f", horizontal_max_width, -10, true});
             better_drag_float({"Layer phase shift", &render_ctx.aurora_state->cpu_globals.phase_shift_per_layer, 0.01f, 0.0f, 0.35f, "%.2f", horizontal_max_width, -10, true});
             better_drag_float({"Offset strength", &render_ctx.aurora_state->cpu_globals.offset_strength, 0.1f, 0.0f, 1.0f, "%.1f", horizontal_max_width, -10, true});
             better_drag_float({"Arc width", &render_ctx.aurora_state->cpu_globals.width, 0.01f, 0.0f, 10.0f, "%.2f", horizontal_max_width, -10, false});
             better_drag_float({"Alpha", &render_ctx.aurora_state->cpu_globals.angle_offset_per_collision, 0.001f, 0.0f, 0.1f, "%.3f", horizontal_max_width, -10, false});
-            better_drag_float({"Height", &render_ctx.aurora_state->cpu_globals.height, 1.0f, 0.0f, 100.0f, "%.1f", horizontal_max_width, -10, true});
+            better_drag_float({"Height", &render_ctx.aurora_state->cpu_globals.height, 1.0f, 100.0f, 400.0f, "%.1f", horizontal_max_width, -10, false});
+
+            better_drag_float({"R Ker Width", &kernel_width_r, 1.0f, 1.0f, 29.0f, "%.0f", horizontal_max_width, -10, true});
+            better_drag_float({"R Ker Variation", &render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[0].variation, 0.1f, 1.0f, 5.0f, "%.2f", horizontal_max_width, -10, true});
+
+            better_drag_float({"G Ker Width", &kernel_width_g, 1.0f, 1.0f, 29.0f, "%.0f", horizontal_max_width, -10, true});
+            better_drag_float({"G Ker Variation", &render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[1].variation, 0.1f, 1.0f, 5.0f, "%.2f", horizontal_max_width, -10, true});
+
+            better_drag_float({"B Ker Width", &kernel_width_b, 1.0f, 1.0f, 29.0f, "%.0f", horizontal_max_width, -10, true});
+            better_drag_float({"B Ker Variation", &render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[2].variation, 0.1f, 1.0f, 5.0f, "%.2f", horizontal_max_width, -10, true});
+
+            render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[0].width = s_cast<i32>(kernel_width_r);
+            render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[1].width = s_cast<i32>(kernel_width_g);
+            render_ctx.aurora_state->cpu_globals.rgb_blur_kernels[2].width = s_cast<i32>(kernel_width_b);
 
             f32vec3 const B = {
                 render_ctx.aurora_state->cpu_globals.B.x,

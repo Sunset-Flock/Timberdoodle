@@ -146,7 +146,7 @@ struct DebugDrawTask : DebugDrawH::Task
     RenderContext * rctx = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto const colorImageSize = ti.device.info_image(ti.get(AT.color_image).ids[0]).value().size;
+        auto const color_image_size = ti.device.info_image(ti.get(AT.color_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             // .depth_attachment =
             //     daxa::RenderAttachmentInfo{
@@ -156,7 +156,7 @@ struct DebugDrawTask : DebugDrawH::Task
             //         .store_op = daxa::AttachmentStoreOp::STORE,
             //         .clear_value = daxa::DepthValue{0.0f, 0},
             //     },
-            .render_area = daxa::Rect2D{.width = colorImageSize.x, .height = colorImageSize.y},
+            .render_area = daxa::Rect2D{.width = color_image_size.x, .height = color_image_size.y},
         };
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{

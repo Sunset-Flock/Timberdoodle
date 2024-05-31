@@ -177,6 +177,9 @@ struct VSMState
                 });
             },
         });
+        upload_task_graph.submit({});
+        upload_task_graph.complete({});
+        upload_task_graph.execute({});
     }
 
     void cleanup_persistent_state(GPUContext * context)
