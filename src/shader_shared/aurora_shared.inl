@@ -1,6 +1,21 @@
 #pragma once
 #include "daxa/daxa.inl"
 
+struct AuroraArcSegment
+{
+    daxa_f32vec3 s;  
+    daxa_f32vec3 c1;  
+    daxa_f32vec3 c2;  
+    daxa_f32vec3 e;  
+};
+DAXA_DECL_BUFFER_PTR(AuroraArcSegment)
+struct AuroraArc
+{
+    daxa_i32 segment_count;
+    daxa_BufferPtr(AuroraArcSegment) arc_segments;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(AuroraArc, 8)
+
 struct AuroraGlobals
 {
     struct KernelInfo
@@ -23,6 +38,7 @@ struct AuroraGlobals
     daxa_f32 beam_path_length;
     daxa_f32 angle_offset_per_collision;
     daxa_u32 regenerate_aurora;
+    daxa_u32 accumulate_aurora_luminance;
     daxa_u32vec2 aurora_image_resolution;
     KernelInfo rgb_blur_kernels[3];
     daxa_BufferPtr(daxa_f32vec3) emission_colors;
@@ -39,11 +55,12 @@ struct AuroraGlobals
           offset_strength{1.0f},
           width{5.0f},
           layers{30},
-          beam_count{90'000},
+          beam_count{300'000},
           beam_path_segment_count{100},
           beam_path_length{40},
           angle_offset_per_collision{0.015},
-          regenerate_aurora{0u},
+          regenerate_aurora{1u},
+          accumulate_aurora_luminance{1u},
           aurora_image_resolution{2560, 1440},
           rgb_blur_kernels{
               {.width = 29, .variation = 4.1f},

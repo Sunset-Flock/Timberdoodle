@@ -423,7 +423,8 @@ void main(
         const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float>::get(AT_FROM_PUSH.sky_ibl).SampleLevel(SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_clamp), normal, 0);
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
-        const float3 lighting = direct_lighting + indirect_lighting;
+        const float3 modified_indirect_lighting = indirect_lighting.b * float3(0.2, 0.8, 0.3) + indirect_lighting * float3(0.0, 0.1, 0.1);
+        const float3 lighting = direct_lighting + modified_indirect_lighting * 20.0;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -518,8 +519,11 @@ void main(
         const float3 aurora_contribution = Texture2D<float>::get(AT_FROM_PUSH.aurora_image).
             SampleLevel(SamplerState::get(AT_FROM_PUSH.globals.samplers.linear_clamp), screen_uv, 0).rgb;
 
+        const float3 modified_atmo_dir_illuminance = atmosphere_direct_illuminnace.b * float3(0.2, 0.8, 0.3) + atmosphere_direct_illuminnace * float3(0.0, 0.1, 0.1);
+
         const float3 sun_direct_illuminance = get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
-        const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace + aurora_contribution;
+        // const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace  + aurora_contribution;
+        const float3 total_direct_illuminance = sun_direct_illuminance + modified_atmo_dir_illuminance  + aurora_contribution;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
     }

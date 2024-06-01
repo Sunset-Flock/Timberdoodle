@@ -60,7 +60,6 @@ struct Renderer
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
 
     VSMState vsm_state = {};
-    AuroraState aurora_state = {};
 
     std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};

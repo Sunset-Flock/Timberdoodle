@@ -66,9 +66,8 @@ Renderer::Renderer(
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
 
     vsm_state.initialize_persitent_state(context);
-    aurora_state.initialize_perisitent_state(context);
-    record_aurora_task_graph(&aurora_state, render_context.get());
-    render_context->aurora_state = &aurora_state;
+    render_context->aurora_state.initialize_perisitent_state(context);
+    record_aurora_task_graph(&render_context->aurora_state, render_context.get());
 
     images = {
         transmittance,
@@ -100,7 +99,7 @@ Renderer::~Renderer()
         }
     }
     vsm_state.cleanup_persistent_state(context);
-    aurora_state.cleanup_persistent_state(context);
+    render_context->aurora_state.cleanup_persistent_state(context);
     this->context->device.wait_idle();
     this->context->device.collect_garbage();
 }
@@ -438,8 +437,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
     task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
-    task_list.use_persistent_buffer(aurora_state.globals);
-    task_list.use_persistent_buffer(aurora_state.beam_paths);
+    task_list.use_persistent_buffer(render_context->aurora_state.globals);
+    task_list.use_persistent_buffer(render_context->aurora_state.beam_paths);
     task_list.use_persistent_image(vsm_state.memory_block);
     task_list.use_persistent_image(vsm_state.memory_block64);
     task_list.use_persistent_image(vsm_state.meta_memory_table);
@@ -450,7 +449,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
-    task_list.use_persistent_image(aurora_state.aurora_image);
+    task_list.use_persistent_image(render_context->aurora_state.aurora_history_image);
 
     task_clear_image(task_list, debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
@@ -795,7 +794,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
             ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
-            ShadeOpaqueH::AT.aurora_image | aurora_state.aurora_image,
+            ShadeOpaqueH::AT.aurora_image | render_context->aurora_state.aurora_history_image,
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
@@ -964,12 +963,13 @@ void Renderer::render_frame(
         };
     }
 
-    bool regenerate_points = aurora_state.cpu_globals.regenerate_aurora == 1;
-    aurora_state.generate_aurora_task_graph.execute({.permutation_condition_values = {&regenerate_points, 1}});
+    bool regenerate_points = render_context->aurora_state.cpu_globals.regenerate_aurora == 1;
+    render_context->aurora_state.generate_aurora_task_graph.execute({.permutation_condition_values = {&regenerate_points, 1}});
     draw_aurora_local_coord_system({
-        .aurora_state = &aurora_state,
+        .aurora_state = &render_context->aurora_state,
         .render_context = render_context.get(),
     });
+    render_context->aurora_state.reupload_aurora_arc(context);
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;

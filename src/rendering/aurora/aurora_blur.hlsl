@@ -37,13 +37,13 @@ void main(
         if(svgtid.x + wg_offset < BLUR_AURORA_IMAGE_WG + offset_kernel_width)
         {
             float4 xyz_color_vec = RWTexture2D<float>::get(push.uses.color_image)[int2(clamped_thread_x_image_coords, svgid.y)];
-            float3 rgb_color_vec = mul(XYZ_TO_RGB, xyz_color_vec.xyz);
+            float3 rgb_color_vec = clamp(mul(XYZ_TO_RGB, xyz_color_vec.xyz), 0.0, 1.0);
             color_lds[svgtid.x + wg_offset] = rgb_color_vec[push.color_channel];
         }
     }
 #else 
-    let kernel_width = int(min(push.uses.aurora_globals.rgb_blur_kernels[push.color_channel].width * 3.0, 29));
-    let variation = push.uses.aurora_globals.rgb_blur_kernels[push.color_channel].variation * 2.0;
+    let kernel_width = int(min(push.uses.aurora_globals.rgb_blur_kernels[push.color_channel].width * 3.0, MAX_BLUR_RADIUS - 1));
+    let variation = push.uses.aurora_globals.rgb_blur_kernels[push.color_channel].variation * 3.0;
     const int offset_kernel_width = kernel_width - 1;
     int group_y_offset = svgid.y * BLUR_AURORA_IMAGE_WG;
     let image_coords = int2(svgid.x, group_y_offset + svgtid.x);
@@ -79,7 +79,16 @@ void main(
 #else
         float4 color_vec = RWTexture2D<float>::get(push.uses.color_image)[image_coords];
         color_vec[push.color_channel] = final_color / weight_sum;
-        RWTexture2D<float>::get( push.uses.color_image)[image_coords] = float4(color_vec.xyz, 1.0);
+        if(push.last_blur == 1)
+        {
+            float4 old_history_value = RWTexture2D<float>::get(push.uses.history_color)[image_coords];
+            float accum_factor = push.uses.aurora_globals.accumulate_aurora_luminance == 1 ? 0.995 : 0.0;
+            float4 new_history_value = accum_factor * old_history_value + (1.0 - accum_factor) * float4(color_vec.xyz, 1.0);
+            RWTexture2D<float>::get(push.uses.history_color)[image_coords] = new_history_value;
+        } else 
+        {
+            RWTexture2D<float>::get(push.uses.color_image)[image_coords] = float4(color_vec.xyz, 1.0);
+        }
 #endif
     }
 }

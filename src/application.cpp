@@ -105,6 +105,9 @@ Application::Application()
         },
     };
     cinematic_camera.update_keyframes(std::move(keyframes));
+    _renderer->render_context->aurora_state.cpu_aurora_arc = BezierCurve();
+    _renderer->render_context->aurora_state.cpu_aurora_arc.load_from_file("settings/aurora/spiral_aurora_path.json");
+    _renderer->render_context->aurora_state.reupload_aurora_arc(_renderer->context);
 
     struct CompPipelinesTask : Task
     {

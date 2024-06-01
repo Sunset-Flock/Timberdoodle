@@ -8,14 +8,16 @@
 #define DISTRIBUTE_BEAM_ORIGINS_WG (16 * 16)
 #define DEBUG_DRAW_BEAM_ORIGINS_WG (16 * 16)
 #define BLUR_AURORA_IMAGE_WG (16 * 16)
-#define MAX_BLUR_RADIUS 30
+#define MAX_BLUR_RADIUS 100
 
 #define CHANNEL_R 0
 #define CHANNEL_G 1
 #define CHANNEL_B 2
 
-DAXA_DECL_TASK_HEAD_BEGIN(DistributeBeamOriginsH)
+DAXA_DECL_TASK_HEAD_BEGIN(DistributeEmissionPointsH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AuroraGlobals), aurora_globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AuroraArc), aurora_arcs)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_f32vec3), beam_paths)
 DAXA_DECL_TASK_HEAD_END
 
@@ -37,12 +39,14 @@ DAXA_DECL_TASK_HEAD_BEGIN(BlurAuroraImageH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AuroraGlobals), aurora_globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, color_image)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, blured_image)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, history_color)
 DAXA_DECL_TASK_HEAD_END
 
 struct AuroraBlurPush
 {
     DAXA_TH_BLOB(BlurAuroraImageH, uses)
     daxa_u32 color_channel;
+    daxa_u32 last_blur;
 };
 
 #if defined(__cplusplus)
@@ -54,10 +58,10 @@ inline daxa::ComputePipelineCompileInfo aurora_distribute_beam_origins_pipeline_
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/aurora/distribute_beam_origins.hlsl"},
+            .source = daxa::ShaderFile{"./src/rendering/aurora/distribute_emission_points.hlsl"},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = s_cast<u32>(sizeof(DistributeBeamOriginsH::AttachmentShaderBlob)),
-        .name = std::string{DistributeBeamOriginsH::NAME},
+        .push_constant_size = s_cast<u32>(sizeof(DistributeEmissionPointsH::AttachmentShaderBlob)),
+        .name = std::string{DistributeEmissionPointsH::NAME},
     };
 }
 
@@ -109,7 +113,6 @@ inline daxa::RasterPipelineCompileInfo aurora_draw_emission_points_pipeline_comp
     };
 }
 
-
 inline daxa::ComputePipelineCompileInfo aurora_blur_x_image_pipeline_compile_info()
 {
     return {
@@ -136,7 +139,7 @@ inline daxa::ComputePipelineCompileInfo aurora_blur_y_image_pipeline_compile_inf
     };
 }
 
-struct DistributeBeamOriginsTask : DistributeBeamOriginsH::Task
+struct DistributeEmissionPointsTask : DistributeEmissionPointsH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
@@ -146,7 +149,7 @@ struct DistributeBeamOriginsTask : DistributeBeamOriginsH::Task
     {
         u32 const dispatch_size = round_up_div(state->cpu_globals.beam_count, DISTRIBUTE_BEAM_ORIGINS_WG);
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(aurora_distribute_beam_origins_pipeline_compile_info().name));
-        DistributeBeamOriginsH::AttachmentShaderBlob push = {};
+        DistributeEmissionPointsH::AttachmentShaderBlob push = {};
         assign_blob(push, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_size});
@@ -225,7 +228,7 @@ struct BlurAuroraImageTask : BlurAuroraImageH::Task
         DBG_ASSERT_TRUE_M(state->cpu_globals.rgb_blur_kernels[CHANNEL_B].width < MAX_BLUR_RADIUS,
             "[BlurAurroraImageTask::callback()] B Blur radius outside allowed bounds");
 
-        if(axis == X_AXIS)
+        if (axis == X_AXIS)
         {
             u32 const dispatch_size_x = round_up_div(state->cpu_globals.aurora_image_resolution.x, DEBUG_DRAW_BEAM_ORIGINS_WG);
             u32 const dispatch_size_y = state->cpu_globals.aurora_image_resolution.y;
@@ -234,7 +237,7 @@ struct BlurAuroraImageTask : BlurAuroraImageH::Task
             ti.recorder.push_constant(push);
             ti.recorder.dispatch({.x = dispatch_size_x, .y = dispatch_size_y});
         }
-        else 
+        else
         {
             u32 const dispatch_size_x = state->cpu_globals.aurora_image_resolution.x;
             u32 const dispatch_size_y = round_up_div(state->cpu_globals.aurora_image_resolution.y, DEBUG_DRAW_BEAM_ORIGINS_WG);
@@ -254,28 +257,36 @@ void record_aurora_task_graph(AuroraState * state, RenderContext * render_contex
         .name = "Generate aurora graph",
     }};
 
-
     auto & tg = state->generate_aurora_task_graph;
     tg.use_persistent_buffer(state->globals);
     tg.use_persistent_buffer(state->beam_paths);
     tg.use_persistent_buffer(state->emission_luts);
+    tg.use_persistent_buffer(state->aurora_arc);
     tg.use_persistent_buffer(render_context->tgpu_render_data);
-    tg.use_persistent_image(state->aurora_image);
+    tg.use_persistent_image(state->aurora_history_image);
 
     auto tmp_blur_image = tg.create_transient_image({
-        .format = daxa::Format::R32G32B32A32_SFLOAT,
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {state->cpu_globals.aurora_image_resolution.x, state->cpu_globals.aurora_image_resolution.y, 1},
         .name = "aurora tmp blur image",
+    });
+
+    auto aurora_color_image = tg.create_transient_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {state->cpu_globals.aurora_image_resolution.x, state->cpu_globals.aurora_image_resolution.y, 1},
+        .name = "aurora color image",
     });
 
     tg.conditional({.condition_index = 0,
         .when_true = {
             [&]()
             {
-                tg.add_task(DistributeBeamOriginsTask{
+                tg.add_task(DistributeEmissionPointsTask{
                     .views = std::array{
-                        daxa::attachment_view(DistributeBeamOriginsH::AT.aurora_globals, state->globals),
-                        daxa::attachment_view(DistributeBeamOriginsH::AT.beam_paths, state->beam_paths),
+                        daxa::attachment_view(DistributeEmissionPointsH::AT.globals, render_context->tgpu_render_data),
+                        daxa::attachment_view(DistributeEmissionPointsH::AT.aurora_globals, state->globals),
+                        daxa::attachment_view(DistributeEmissionPointsH::AT.beam_paths, state->beam_paths),
+                        daxa::attachment_view(DistributeEmissionPointsH::AT.aurora_arcs, state->aurora_arc),
                     },
                     .render_context = render_context,
                     .state = state,
@@ -296,7 +307,7 @@ void record_aurora_task_graph(AuroraState * state, RenderContext * render_contex
             daxa::attachment_view(DrawEmissionPointsTask::AT.globals, render_context->tgpu_render_data),
             daxa::attachment_view(DrawEmissionPointsTask::AT.aurora_globals, state->globals),
             daxa::attachment_view(DrawEmissionPointsTask::AT.beam_paths, state->beam_paths),
-            daxa::attachment_view(DrawEmissionPointsTask::AT.color_image, state->aurora_image),
+            daxa::attachment_view(DrawEmissionPointsTask::AT.color_image, aurora_color_image),
             daxa::attachment_view(DrawEmissionPointsTask::AT.emission_luts, state->emission_luts),
         },
         .render_context = render_context,
@@ -306,7 +317,8 @@ void record_aurora_task_graph(AuroraState * state, RenderContext * render_contex
     auto tmp_blur_task = BlurAuroraImageTask{
         .views = std::array{
             daxa::attachment_view(BlurAuroraImageTask::AT.aurora_globals, state->globals),
-            daxa::attachment_view(BlurAuroraImageTask::AT.color_image, state->aurora_image),
+            daxa::attachment_view(BlurAuroraImageTask::AT.color_image, aurora_color_image),
+            daxa::attachment_view(BlurAuroraImageTask::AT.history_color, state->aurora_history_image),
             daxa::attachment_view(BlurAuroraImageTask::AT.blured_image, tmp_blur_image),
         },
         .render_context = render_context,
@@ -314,6 +326,7 @@ void record_aurora_task_graph(AuroraState * state, RenderContext * render_contex
     };
 
     tmp_blur_task.push.color_channel = CHANNEL_R;
+    tmp_blur_task.push.last_blur = 0;
     tmp_blur_task.axis = BlurAxis::X_AXIS,
     tg.add_task(tmp_blur_task);
     tmp_blur_task.axis = BlurAxis::Y_AXIS;
@@ -329,6 +342,7 @@ void record_aurora_task_graph(AuroraState * state, RenderContext * render_contex
     tmp_blur_task.axis = BlurAxis::X_AXIS;
     tg.add_task(tmp_blur_task);
     tmp_blur_task.axis = BlurAxis::Y_AXIS;
+    tmp_blur_task.push.last_blur = 1;
     tg.add_task(tmp_blur_task);
 
     tg.submit({});
@@ -380,5 +394,34 @@ void draw_aurora_local_coord_system(TaskDebugDrawAuroraInfo const & info)
             .colors = {aurora_cross_color, aurora_cross_color},
             .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
         });
+
+    for (auto const & segment : info.aurora_state->cpu_aurora_arc.bezier_segments)
+    {
+        static constexpr i32 DEBUG_DRAW_LINE_COUNT = 20;
+        auto last_position = segment.s;
+        for (i32 i = 1; i <= DEBUG_DRAW_LINE_COUNT; i++)
+        {
+            auto t = float(i) / DEBUG_DRAW_LINE_COUNT;
+            f32 w0 = static_cast<f32>(glm::pow(1.0f - t, 3));
+            f32 w1 = static_cast<f32>(glm::pow(1.0f - t, 2) * 3.0f * t);
+            f32 w2 = static_cast<f32>((1.0f - t) * 3 * t * t);
+            f32 w3 = static_cast<f32>(t * t * t);
+            f32vec3 position =
+                w0 * segment.s +
+                w1 * segment.c1 +
+                w2 * segment.c2 +
+                w3 * segment.e;
+
+            info.render_context->gpuctx->shader_debug_context.cpu_debug_line_draws.push_back(
+                ShaderDebugLineDraw{
+                    .vertices = {
+                        daxa_f32vec3(last_position.x, last_position.y, info.aurora_state->cpu_globals.height),
+                        daxa_f32vec3(position.x, position.y, info.aurora_state->cpu_globals.height)},
+                    .colors = {daxa_f32vec3(0.5, 0.5, 0.5), daxa_f32vec3(0.5, 0.5, 0.5)},
+                    .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+                });
+            last_position = position;
+        }
+    }
 }
 #endif //__cplusplus

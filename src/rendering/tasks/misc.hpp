@@ -104,6 +104,21 @@ inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBuffer
         .size = sizeof(T),
     });
 }
+template<typename T>
+inline void allocate_fill_copy_vector(daxa::TaskInterface ti, std::vector<T> const & value, daxa::TaskBufferAttachmentInfo dst)
+{
+    auto const size = sizeof(T) * value.size();
+    auto address = ti.device.get_device_address(dst.ids[0]).value();
+    auto alloc = ti.allocator->allocate(size).value();
+    std::memcpy(alloc.host_address, value.data(), size);
+    ti.recorder.copy_buffer_to_buffer({
+        .src_buffer = ti.allocator->buffer(),
+        .dst_buffer = dst.ids[0],
+        .src_offset = alloc.buffer_offset,
+        .dst_offset = 0,
+        .size = size,
+    });
+}
 
 void assign_blob(auto & arr, auto const & span)
 {

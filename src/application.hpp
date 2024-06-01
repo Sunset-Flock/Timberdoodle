@@ -16,6 +16,7 @@ using namespace tido::types;
 #include "rendering/renderer.hpp"
 #include "gpu_context.hpp"
 #include "multithreading/thread_pool.hpp"
+#include "bezier.hpp"
 
 struct Application
 {

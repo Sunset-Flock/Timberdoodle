@@ -120,6 +120,7 @@ struct UIEngine
         bool gather_perm_measurements = true;
         bool show_entire_interval = false;
         bool continuously_regenerage_aurora = false;
+        bool temporal_aurora_accumulation = true;
         f32 text_font_size = 15.0f;
         int selected = {};
 

@@ -5,6 +5,7 @@
 #include "../../shader_shared/aurora_shared.inl"
 #include "../../shader_shared/shared.inl"
 #include "../tasks/misc.hpp"
+#include "../../bezier.hpp"
 
 struct AuroraState
 {
@@ -50,11 +51,56 @@ struct AuroraState
     daxa::TaskBuffer globals;
     daxa::TaskBuffer beam_paths;
     daxa::TaskBuffer emission_luts;
+    daxa::TaskBuffer aurora_arc = {};
 
-    daxa::TaskImage aurora_image;
+    daxa::TaskImage aurora_history_image;
 
     daxa::TaskGraph generate_aurora_task_graph;
     AuroraGlobals cpu_globals = {};
+    BezierCurve cpu_aurora_arc = {};
+
+    void reupload_aurora_arc(GPUContext * context)
+    {
+        if(!aurora_arc.get_state().buffers.empty())
+        {
+            context->device.destroy_buffer(aurora_arc.get_state().buffers[0]);
+        }
+        auto const header_size = sizeof(AuroraArc);
+        auto const data_size = sizeof(AuroraArcSegment) * cpu_aurora_arc.bezier_segments.size();
+        aurora_arc.set_buffers({
+            .buffers = std::array{
+                context->device.create_buffer({
+                    .size = s_cast<u32>(header_size + data_size),
+                    .name = "aurora arc physical",
+                }),
+            }
+        });
+
+        auto upload_task_graph = daxa::TaskGraph({
+            .device = context->device,
+            .name = "aurora arc upload tg",
+        });
+        upload_task_graph.use_persistent_buffer(aurora_arc);
+        upload_task_graph.add_task({
+            .attachments = {daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, aurora_arc)},
+            .task = [&](daxa::TaskInterface ti)
+            {
+                auto buffer_addr = context->device.get_device_address(aurora_arc.get_state().buffers[0]).value();
+                std::vector<std::byte> cpu_staging = {};
+                cpu_staging.resize(header_size + data_size);
+                AuroraArc header = {
+                    .segment_count = s_cast<i32>(cpu_aurora_arc.bezier_segments.size()),
+                    .arc_segments = buffer_addr + header_size,
+                };
+                std::memcpy(cpu_staging.data(), &header, header_size);
+                std::memcpy(cpu_staging.data() + header_size, cpu_aurora_arc.bezier_segments.data(), data_size);
+                allocate_fill_copy_vector(ti, cpu_staging, ti.get(aurora_arc));
+            }
+        });
+        upload_task_graph.submit({});
+        upload_task_graph.complete({});
+        upload_task_graph.execute({});
+    }
 
     void initialize_perisitent_state(GPUContext * context)
     {
@@ -82,22 +128,26 @@ struct AuroraState
             .name = "aurora beam origins",
         });
 
-        aurora_image = daxa::TaskImage({
+        aurora_arc = daxa::TaskBuffer({
+            .name = "aurora arc",
+        });
+
+        aurora_history_image = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
                     context->device.create_image({
-                        .format = daxa::Format::R32G32B32A32_SFLOAT,
+                        .format = daxa::Format::R16G16B16A16_SFLOAT,
                         .size = {cpu_globals.aurora_image_resolution.x, cpu_globals.aurora_image_resolution.y, 1},
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                             daxa::ImageUsageFlagBits::SHADER_STORAGE |
                             daxa::ImageUsageFlagBits::COLOR_ATTACHMENT |
                             daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "aurora color physical image",
+                        .name = "aurora history color physical image",
                     }),
                 },
             },
-            .name = "aurora color image",
+            .name = "aurora history color image",
         });
 
         auto const colors_lut_size = sizeof(f32vec3) * xyz_aurora_intensities.size();
@@ -142,6 +192,7 @@ struct AuroraState
         context->device.destroy_buffer(globals.get_state().buffers[0]);
         context->device.destroy_buffer(beam_paths.get_state().buffers[0]);
         context->device.destroy_buffer(emission_luts.get_state().buffers[0]);
-        context->device.destroy_image(aurora_image.get_state().images[0]);
+        context->device.destroy_buffer(aurora_arc.get_state().buffers[0]);
+        context->device.destroy_image(aurora_history_image.get_state().images[0]);
     }
 };

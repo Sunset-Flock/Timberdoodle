@@ -30,6 +30,7 @@ add_executable(${PROJECT_NAME}
     "src/camera.cpp"
     "src/application.cpp"
     "src/gpu_context.cpp"
+    "src/bezier.cpp"
     "src/ui/ui.cpp"
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"
