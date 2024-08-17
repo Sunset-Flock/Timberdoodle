@@ -178,10 +178,10 @@ bool is_ndc_aabb_hiz_depth_occluded(
     const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
 
     const daxa_f32vec4 fetch = daxa_f32vec4(
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
-        texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), imip).x
+        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), imip).x,
+        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), imip).x
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = meshlet_ndc_aabb.ndc_max.z < conservative_depth;
@@ -216,11 +216,13 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
     const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
 
+    Texture2DArray<uint> thiz = Texture2DArray<uint>::get(hiz);
+
     const daxa_u32vec4 fetch = daxa_u32vec4(
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x,
-        texelFetch(daxa_utexture2DArray(hiz), daxa_i32vec3(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer), imip).x
+        thiz.Load(daxa_u32vec4(clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), texel_bounds), array_layer, imip)).x,
+        thiz.Load(daxa_u32vec4(clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), texel_bounds), array_layer, imip)).x,
+        thiz.Load(daxa_u32vec4(clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), texel_bounds), array_layer, imip)).x,
+        thiz.Load(daxa_u32vec4(clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), texel_bounds), array_layer, imip)).x
     );
     const bool no_valid_pages_in_ndc = (fetch.x | fetch.y | fetch.z | fetch.w) == 0;
     return no_valid_pages_in_ndc;

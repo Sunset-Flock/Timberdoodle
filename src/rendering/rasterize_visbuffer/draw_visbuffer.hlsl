@@ -48,8 +48,8 @@ void entry_split_atomic_visbuffer(uint3 dtid : SV_DispatchThreadID)
     }
 
     daxa::u64 visdepth = tex_rw_u64_table[push.uses.atomic_visbuffer.index()][dtid.xy];
-    RWTexture2D<uint>::get(push.uses.visbuffer)[dtid.xy] = uint4(uint(visdepth),0,0,0);
-    RWTexture2D<float>::get(push.uses.depth)[dtid.xy] = float4(asfloat(uint(visdepth >> 32)),0,0,0);
+    RWTexture2D<uint>::get(push.uses.visbuffer)[dtid.xy] = uint(visdepth);
+    RWTexture2D<float>::get(push.uses.depth)[dtid.xy] = asfloat(uint(visdepth >> 32));
 }
 
 #define DECL_GET_SET(TYPE, FIELD)\
@@ -102,12 +102,12 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
             float alpha = 1.0;
             if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                alpha = Texture2D<float4>::get(material.diffuse_texture_id)
                     .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
             }
             else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                alpha = Texture2D<float4>::get(material.diffuse_texture_id)
                     .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
             }
             // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));

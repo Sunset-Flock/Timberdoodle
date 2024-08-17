@@ -24,17 +24,17 @@
 #define _frac(X) frac(X)
 #define mix(X, Y, Z) lerp(X, Y, Z)
 
-float4 texelFetch(Texture2D<float4> tex, int2 index, uint mip)
+float __texelFetch(Texture2D<float> tex, int2 index, uint mip)
 {
     return tex.Load(uint3(index, mip));
 }
 
-uint4 texelFetch(Texture2DArray<uint4> tex, int3 index, uint mip)
+uint _texelFetch(Texture2DArray<uint> tex, int3 index, uint mip)
 {
     return tex.Load(uint4(index, mip));
 }
 
-void imageStore(RWTexture2D<float4> tex, int2 index, float4 value)
+void _imageStore(RWTexture2D<float> tex, int2 index, float value)
 {
     tex[index] = value;
 }

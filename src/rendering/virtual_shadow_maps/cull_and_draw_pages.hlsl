@@ -390,12 +390,12 @@ void vsm_entry_fragment_masked(
             float alpha = 1.0;
             if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                alpha = Texture2D<float>::get(material.opacity_texture_id)
+                alpha = Texture2D<float4>::get(material.opacity_texture_id)
                     .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).r;
             }
             else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                alpha = Texture2D<float>::get(material.diffuse_texture_id)
+                alpha = Texture2D<float4>::get(material.diffuse_texture_id)
                     .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).a;
             }
             // source https://github.com/JuanDiegoMontoya/Frogfood

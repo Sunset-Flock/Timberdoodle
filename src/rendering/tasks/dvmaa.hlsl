@@ -10,10 +10,10 @@ void entry_resolve_vis_image(
     DVMResolveVisImagePush push = resolve_vis_push;
     if (any(svtid.xy > push.resolution)) return;
 
-    Texture2DMS<uint4> msaa_vis_img = Texture2DMS<uint>::get(push.attachments.dvm_vis_image);
-    RWTexture2D<uint4> vis_img = RWTexture2D<uint>::get(push.attachments.vis_image);
+    Texture2DMS<uint4> msaa_vis_img = Texture2DMS<uint4>::get(push.attachments.dvm_vis_image);
+    RWTexture2D<uint4> vis_img = RWTexture2D<uint4>::get(push.attachments.vis_image);
     vis_img[svtid.xy].x = msaa_vis_img.Load(svtid.xy, push.resolve_sample).x;
-    Texture2DMS<float4> msaa_depth_img = Texture2DMS<float>::get(push.attachments.dvm_depth_image);
-    RWTexture2D<float4> depth_img = RWTexture2D<float>::get(push.attachments.depth_image);
+    Texture2DMS<float4> msaa_depth_img = Texture2DMS<float4>::get(push.attachments.dvm_depth_image);
+    RWTexture2D<float4> depth_img = RWTexture2D<float4>::get(push.attachments.depth_image);
     depth_img[svtid.xy].x = msaa_depth_img.Load(svtid.xy, push.resolve_sample).x;
 }

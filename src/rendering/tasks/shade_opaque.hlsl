@@ -381,7 +381,7 @@ void main(
         float3 albedo = float3(material.base_color);
         if(material.diffuse_texture_id.value != 0)
         {
-            albedo = Texture2D<float>::get(material.diffuse_texture_id).SampleGrad(
+            albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
                 // SamplerState::get(AT_FROM_PUSH.globals->samplers.nearest_repeat_ani),
                 SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_repeat_ani),
                 tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
@@ -393,7 +393,7 @@ void main(
             float3 normal_map_value = float3(0);
             if(material.normal_compressed_bc5_rg)
             {
-                const float2 raw = Texture2D<float>::get(material.normal_texture_id).SampleGrad(
+                const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
                     SamplerState::get(AT_FROM_PUSH.globals->samplers.normals),
                     tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
                 ).rg;
@@ -403,7 +403,7 @@ void main(
             }
             else
             {
-                const float3 raw = Texture2D<float>::get(material.normal_texture_id).SampleGrad(
+                const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
                     SamplerState::get(AT_FROM_PUSH.globals->samplers.normals),
                     tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
                 ).rgb;
@@ -529,5 +529,5 @@ void main(
         index,
         float4(exposed_color, 1.0f),
     );
-    RWTexture2D<float>::get(AT_FROM_PUSH.color_image)[index] = float4(exposed_color, output_value.a);
+    AT_FROM_PUSH.color_image.get()[index] = exposed_color;
 }

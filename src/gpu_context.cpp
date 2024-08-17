@@ -19,9 +19,13 @@ using HWND = void *;
 #define DAXA_SHADER_INCLUDE_DIR "."
 #endif
 
+template<typename T>
+struct _MAP_Test { constexpr static int I = 0; };
+
+#define TEST(X) _MAP_ ## X::I
+
 GPUContext::GPUContext(Window const & window)
     : context{daxa::create_instance({})}, device{this->context.create_device({
-          .flags = daxa::DeviceFlags2{.mesh_shader_bit = COMPILE_IN_MESH_SHADER},
           .max_allowed_images = 100000, 
           .max_allowed_buffers = 100000,
           .name = "Sandbox Device"
@@ -71,6 +75,7 @@ GPUContext::GPUContext(Window const & window)
 
 auto GPUContext::dummy_string() -> std::string
 {
+    int i = TEST(Test<int>);
     return std::string(" - ") + std::to_string(counter++);
 }
 

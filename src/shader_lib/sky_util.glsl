@@ -421,7 +421,7 @@ daxa_f32vec3 get_sun_illuminance(
         );
         
 #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
-        daxa_f32vec3 transmittance_to_sun = Texture2D<float>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
+        daxa_f32vec3 transmittance_to_sun = Texture2D<float4>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
 #else
         daxa_f32vec3 transmittance_to_sun = texture( daxa_sampler2D( transmittance, lin_sampler), transmittance_texture_uv).rgb;
 #endif
@@ -500,7 +500,7 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
         );
 
 #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
-        atmosphere_transmittance = Texture2D<float>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
+        atmosphere_transmittance = Texture2D<float4>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
 #else
         atmosphere_transmittance = texture( daxa_sampler2D(transmittance, lin_sampler), transmittance_texture_uv).rgb;
 #endif
