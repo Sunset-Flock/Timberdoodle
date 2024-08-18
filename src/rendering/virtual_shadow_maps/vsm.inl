@@ -163,7 +163,7 @@ struct GenDirtyBitHizPush
         daxa_u32 draw_list_type;
         daxa_u32 bucket_index;
         daxa_u32 cascade;
-        daxa_ImageViewId daxa_uint_vsm_memory_view;
+        daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
     };
 #endif
 
@@ -567,7 +567,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
                         .draw_list_type = opaque_draw_list_type,
                         .bucket_index = i,
                         .cascade = cascade,
-                        .daxa_uint_vsm_memory_view = memory_block_view,
+                        .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
                     };
                     render_cmd.push_constant(push);
                     render_cmd.draw_mesh_tasks_indirect({

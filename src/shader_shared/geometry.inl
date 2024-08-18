@@ -1,6 +1,6 @@
 #pragma once
 
-#include "daxa/daxa.inl"
+#include <daxa/daxa.inl>
 #include "shared.inl"
 
 #define INVALID_MESHLET_INDEX (~(0u))
@@ -73,12 +73,14 @@ struct GPUMesh
     daxa_u32 material_index;
     daxa_u32 meshlet_count;
     daxa_u32 vertex_count;
+    daxa_u32 primitive_count;
     AABB aabb;
     daxa_BufferPtr(Meshlet) meshlets;
     daxa_BufferPtr(BoundingSphere) meshlet_bounds;
     daxa_BufferPtr(AABB) meshlet_aabbs;
-    daxa_BufferPtr(daxa_u32) micro_indices;
-    daxa_BufferPtr(daxa_u32) indirect_vertices;
+    daxa_BufferPtr(daxa_u32) micro_indices;         // Index into indirect vertices, usually multiple micro indices are packed into a single uint
+    daxa_BufferPtr(daxa_u32) indirect_vertices;     // Lists of unique vertices per meshlet, indexes vertex arrays. 
+    daxa_BufferPtr(daxa_u32) primitive_indices;     // List of triangles, every three uints form a triangle, each value is a vertex index.
     daxa_BufferPtr(daxa_f32vec3) vertex_positions;
     daxa_BufferPtr(daxa_f32vec2) vertex_uvs;
     daxa_BufferPtr(daxa_f32vec3) vertex_normals;

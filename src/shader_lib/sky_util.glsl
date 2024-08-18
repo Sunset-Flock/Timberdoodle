@@ -484,7 +484,7 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
         );
 
 #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
-        const daxa_f32vec4 unitless_atmosphere_illuminance_mult = Texture2D<float>::get(sky).SampleLevel(SamplerState::get(lin_sampler), sky_uv, 0);
+        const daxa_f32vec4 unitless_atmosphere_illuminance_mult = Texture2D<float4>::get(sky).SampleLevel(SamplerState::get(lin_sampler), sky_uv, 0);
 #else
         const daxa_f32vec4 unitless_atmosphere_illuminance_mult = texture(daxa_sampler2D(sky, lin_sampler) , sky_uv).rgba;
 #endif

@@ -8,6 +8,8 @@
 
 #include "virtual_shadow_maps/vsm.inl"
 
+#include "ray_tracing/ray_tracing.inl"
+
 #include "tasks/memset.inl"
 #include "tasks/dvmaa.inl"
 #include "tasks/prefix_sum.inl"
@@ -174,6 +176,7 @@ void Renderer::compile_pipelines()
         {decode_visbuffer_test_pipeline_info()},
         {SplitAtomicVisbufferTask::pipeline_compile_info},
         {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
+        {ray_trace_ambient_occlusion_pipeline_info()},
     };
     for (auto const & info : computes)
     {
@@ -437,6 +440,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = context->shader_debug_context.tdebug_lens_image;
     task_list.use_persistent_image(debug_lens_image);
     task_list.use_persistent_image(swapchain_image);
+    task_list.use_persistent_tlas(scene->_scene_tlas);
 
     task_clear_image(task_list, debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
@@ -742,6 +746,33 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "color_image",
     });
+    auto ao_image = task_list.create_transient_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = {
+            render_context->render_data.settings.render_target_size.x,
+            render_context->render_data.settings.render_target_size.y,
+            1,
+        },
+        .name = "ao_image",
+    });
+    task_clear_image(task_list, ao_image, daxa::ClearValue{std::array{0.0f,0.0f,0.0f,0.0f}});
+    task_list.add_task(RayTraceAmbientOcclusionTask{
+        .views = std::array{
+            RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
+            RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
+            RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
+            RayTraceAmbientOcclusionH::AT.ao_image | ao_image,
+            RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
+            RayTraceAmbientOcclusionH::AT.depth_image | depth,
+            RayTraceAmbientOcclusionH::AT.sky | sky,
+            RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
+            RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
+            RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
+            RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
+        },
+        .context = context,
+    });
     // task_list.add_task(DecodeVisbufferTestTask{
     //     .views = std::array{
     //         daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
@@ -759,6 +790,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.add_task(ShadeOpaqueTask{
         .views = std::array{
             ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
+            ShadeOpaqueH::AT.ao_image | ao_image,
             ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
             ShadeOpaqueH::AT.color_image | color_image,
             ShadeOpaqueH::AT.vis_image | visbuffer,

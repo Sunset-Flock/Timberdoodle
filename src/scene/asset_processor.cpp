@@ -934,6 +934,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         sizeof(AABB) * meshlet_count +
         sizeof(u8) * meshlet_micro_indices.size() +
         sizeof(u32) * meshlet_indirect_vertices.size() +
+        sizeof(u32) * index_buffer.size() +
         sizeof(daxa_f32vec3) * vert_positions.size() +
         sizeof(daxa_f32vec2) * vert_texcoord0.size() +
         sizeof(daxa_f32vec3) * vert_normals.size();
@@ -982,7 +983,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         meshlet_aabbs.size() * sizeof(AABB));
     accumulated_offset += sizeof(AABB) * meshlet_count;
     // ---
-    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Damn");
+    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Thats crazy");
     mesh.micro_indices = mesh_bda + accumulated_offset;
     std::memcpy(
         staging_ptr + accumulated_offset,
@@ -996,6 +997,13 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
         meshlet_indirect_vertices.data(),
         meshlet_indirect_vertices.size() * sizeof(u32));
     accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
+    // ---
+    mesh.primitive_indices = mesh_bda + accumulated_offset;
+    std::memcpy(
+        staging_ptr + accumulated_offset,
+        index_buffer.data(),
+        index_buffer.size() * sizeof(daxa_u32));
+    accumulated_offset += sizeof(daxa_u32) * index_buffer.size();
     // ---
     mesh.vertex_positions = mesh_bda + accumulated_offset;
     std::memcpy(
@@ -1021,6 +1029,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     mesh.material_index = info.material_manifest_index;
     mesh.meshlet_count = meshlet_count;
     mesh.vertex_count = vertex_count;
+    mesh.primitive_count = index_buffer.size() / 3;
 
     /// NOTE: Append the processed mesh to the upload queue.
     {

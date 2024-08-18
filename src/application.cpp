@@ -129,9 +129,9 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies2.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube.gltf";
@@ -252,7 +252,12 @@ void Application::update()
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-    auto cmd_lists = std::array{std::move(asset_data_upload_info.upload_commands), std::move(manifest_update_commands)};
+    auto rt_update_commands = _scene->create_as_and_record_build_commands();
+    auto cmd_lists = std::array{
+        std::move(asset_data_upload_info.upload_commands), 
+        std::move(manifest_update_commands),
+        std::move(rt_update_commands),
+    };
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;

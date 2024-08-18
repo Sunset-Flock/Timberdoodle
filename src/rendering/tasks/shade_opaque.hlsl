@@ -421,9 +421,10 @@ void main(
         const float3 atmo_camera_position = AT_FROM_PUSH.globals->camera.position * M_TO_KM_SCALE;
 
         const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
-        const float4 compressed_indirect_lighting = TextureCube<float>::get(AT_FROM_PUSH.sky_ibl).SampleLevel(SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_clamp), normal, 0);
+        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT_FROM_PUSH.sky_ibl).SampleLevel(SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_clamp), normal, 0);
+        const float ambient_occlusion = AT_FROM_PUSH.ao_image.get().Load(index).r;
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
-        const float3 lighting = direct_lighting + indirect_lighting;
+        const float3 lighting = direct_lighting + (indirect_lighting * ambient_occlusion);
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -466,7 +467,7 @@ void main(
             }
             case DEBUG_DRAW_MODE_DEBUG_IMAGE:
             {
-                float4 debug_color = Texture2D<float>::get(AT_FROM_PUSH.debug_image)[index];
+                float4 debug_color = Texture2D<float4>::get(AT_FROM_PUSH.debug_image)[index];
                 output_value.rgb = lerp(shaded_color.rgb, debug_color.rgb, debug_color.aaa);
                 break;
             }
@@ -491,6 +492,11 @@ void main(
             case DEBUG_DRAW_MODE_LIGHT:
             {
                 output_value.rgb = lighting;
+                break;
+            }
+            case DEBUG_DRAW_MODE_AO:
+            {
+                output_value.rgb = ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_NONE:

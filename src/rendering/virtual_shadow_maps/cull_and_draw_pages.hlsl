@@ -354,7 +354,7 @@ void vsm_entry_fragment_opaque(
         else
         {
             InterlockedMin(
-                RWTexture2D_utable[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+                push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
                 asuint(get_page_offset_depth(
                     {prim.clip_level, virtual_uv}, 
                     vert.position.z / vert.position.w,
@@ -390,7 +390,7 @@ void vsm_entry_fragment_masked(
             float alpha = 1.0;
             if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
-                alpha = Texture2D<float4>::get(material.opacity_texture_id)
+                alpha = Texture2D<float>::get(material.opacity_texture_id)
                     .SampleLevel(SamplerState::get(push.attachments.globals->samplers.linear_repeat), vert.uv, 2).r;
             }
             else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
@@ -432,7 +432,7 @@ void vsm_entry_fragment_masked(
         else
         {
             InterlockedMin(
-                RWTexture2D_utable[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
+                push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
                 asuint(get_page_offset_depth(
                     {prim.clip_level, virtual_uv}, 
                     vert.position.z / vert.position.w,

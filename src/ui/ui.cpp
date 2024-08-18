@@ -578,6 +578,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
                 "ALBEDO",
                 "NORMAL",
                 "LIGHT",
+                "AO",
             };
             ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);

@@ -23,7 +23,9 @@ Scene::Scene(daxa::Device device)
     _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_MESHES, "_gpu_mesh_manifest");
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESHES, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
+    _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
     _scene_draw.opaque_mesh_instances = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
+    _scene_tlas = daxa::TaskTlas{{.name = "scene tlas"}};
 }
 
 Scene::~Scene()
@@ -316,6 +318,7 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
                 .asset_local_mesh_index = mesh_group_index,
                 // Same as above Gltf calls a mesh a primitive
                 .asset_local_primitive_index = mesh_index,
+                .mesh_group_manifest_index = mesh_group_manifest_index,
                 .material_index = material_manifest_index,
             });
             scene._new_mesh_manifest_entries += 1;
@@ -599,9 +602,9 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
         {
             MeshGroupManifestEntry const & mesh_group = scene._mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-            for (u32 in_meshgroup_mesh_i = 0; in_meshgroup_mesh_i < mesh_group.mesh_count; ++in_meshgroup_mesh_i)
+            for (u32 in_mesh_group_mesh_i = 0; in_mesh_group_mesh_i < mesh_group.mesh_count; ++in_mesh_group_mesh_i)
             {
-                u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_meshgroup_mesh_i);
+                u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_mesh_group_mesh_i);
                 MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
                 u32 opaque_draw_list_type = DRAW_LIST_OPAQUE;
                 // TODO: add dummy material!
@@ -616,7 +619,7 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
                 auto mesh_draw = MeshInstance{
                     .entity_index = entity_i,
                     .mesh_index = mesh_index,
-                    .in_mesh_group_index = in_meshgroup_mesh_i,
+                    .in_mesh_group_index = in_mesh_group_mesh_i,
                 };
                 scene._scene_draw.opaque_draw_lists[opaque_draw_list_type].push_back(mesh_draw);
             }
@@ -625,6 +628,8 @@ static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestIn
     scene._scene_draw.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
 }
 
+static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
+static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
 {
     auto recorder = _device.create_command_recorder({});
@@ -665,7 +670,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
      * - write compute shader that reads both arrays, they then write the updates from staging to entity arrays
      */
     /// NOTE: Update dirty entities.
-    auto update_entity = [&](i32 i, RenderEntity const * entity, u32 entity_index) -> glm::mat4
+    auto update_entity = [&](i32 i, RenderEntity * entity, u32 entity_index) -> glm::mat4
     {
         usize offset = (staging_offset + (sizeof(glm::mat4x3) * 2 + sizeof(u32)) * i);
         glm::mat4 transform4 = glm::mat4(
@@ -687,6 +692,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             combined_parent_transform4 = parent_transform4 * combined_parent_transform4;
             parent = _render_entities.slot(parent.value())->parent;
         }
+        entity->combined_transform = combined_transform4;
         u32 mesh_group_manifest_index = entity->mesh_group_manifest_index.value_or(INVALID_MANIFEST_INDEX);
         struct RenderEntityUpdateStagingMemoryView
         {
@@ -768,6 +774,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     _dirty_render_entities.clear();
     _modified_render_entities.clear();
 
+    // Add new mesh group manifest entries
     if (_new_mesh_group_manifest_entries > 0)
     {
         if (!_gpu_mesh_group_indices_array_buffer.is_empty())
@@ -819,6 +826,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries,
         });
     }
+
+    // Add new mesh manifest entries
     if (_new_mesh_manifest_entries > 0)
     {
         u32 const mesh_update_staging_buffer_size = sizeof(GPUMesh) * _new_mesh_manifest_entries;
@@ -842,6 +851,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .size = sizeof(GPUMesh) * _new_mesh_manifest_entries,
         });
     }
+
+    // Add new material manifest entries
     if (_new_material_manifest_entries > 0)
     {
         u32 const material_update_staging_buffer_size = sizeof(GPUMaterial) * _new_material_manifest_entries;
@@ -874,177 +885,12 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
-    // updating material & texture manifest
-    {
-        if (info.uploaded_textures.size() > 0)
-        {
-            /// NOTE: We need to propagate each loaded texture image ID into the material manifest This will be done in two steps:
-            //        1) We update the CPU manifest with the correct values and remember the materials that were updated
-            //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
-            std::vector<u32> dirty_material_entry_indices = {};
-            // 1) Update CPU Manifest
-            for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
-            {
-                if (texture_upload.secondary_texture)
-                {
-                    _material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.dst_image;
-                }
-                else
-                {
-                    _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.dst_image;
-                }
-                TextureManifestEntry const & texture_manifest_entry = _material_texture_manifest.at(texture_upload.texture_manifest_index);
-                for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
-                {
-                    MaterialManifestEntry & material_entry = _material_manifest.at(material_using_texture_info.material_manifest_index);
-                    switch (texture_manifest_entry.type)
-                    {
-                        case TextureMaterialType::DIFFUSE:
-                        {
-                            if (texture_upload.secondary_texture)
-                            {
-                                material_entry.opacity_mask_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                            }
-                            else
-                            {
-                                material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                            }
-                        }
-                        break;
-                        case TextureMaterialType::DIFFUSE_OPACITY:
-                        {
-                            material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                        }
-                        break;
-                        case TextureMaterialType::NORMAL:
-                        {
-                            material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                            material_entry.normal_compressed_bc5_rg = texture_upload.compressed_bc5_rg;
-                        }
-                        break;
-                        case TextureMaterialType::ROUGHNESS_METALNESS:
-                        {
-                            material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
-                        }
-                        break;
-                        default: DBG_ASSERT_TRUE_M(false, "unimplemented"); break;
-                    }
-                    /// NOTE: Add material index only if it was not added previously
-                    if (std::find(
-                            dirty_material_entry_indices.begin(),
-                            dirty_material_entry_indices.end(),
-                            material_using_texture_info.material_manifest_index) ==
-                        dirty_material_entry_indices.end())
-                    {
-                        dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
-                    }
-                }
-            }
-            // // 2) Update GPU manifest
-            daxa::BufferId materials_update_staging_buffer = {};
-            GPUMaterial * staging_origin_ptr = {};
-            if (dirty_material_entry_indices.size())
-            {
-                materials_update_staging_buffer = _device.create_buffer({
-                    .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
-                    .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-                    .name = "gpu materials update staging",
-                });
-                recorder.destroy_buffer_deferred(materials_update_staging_buffer);
-                staging_origin_ptr = _device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
-            }
-            for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
-            {
-                MaterialManifestEntry const & material = _material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
-                daxa::ImageId diffuse_id = {};
-                daxa::ImageId opacity_id = {};
-                daxa::ImageId normal_id = {};
-                daxa::ImageId roughness_metalness_id = {};
-                /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this
-                //        info is present - It might be that diffuse texture was uploaded marking this material as dirty, but
-                //        the normal texture is not yet present thus we don't yet have the runtime info
-                if (material.diffuse_info.has_value())
-                {
-                    auto const & texture_entry = _material_texture_manifest.at(material.diffuse_info.value().tex_manifest_index);
-                    diffuse_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
-                }
-                if (material.opacity_mask_info.has_value())
-                {
-                    auto const & texture_entry = _material_texture_manifest.at(material.opacity_mask_info.value().tex_manifest_index);
-                    opacity_id = texture_entry.secondary_runtime_texture.value_or(daxa::ImageId{});
-                }
-                if (material.normal_info.has_value())
-                {
-                    auto const & texture_entry = _material_texture_manifest.at(material.normal_info.value().tex_manifest_index);
-                    normal_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
-                }
-                if (material.roughness_metalness_info.has_value())
-                {
-                    auto const & texture_entry = _material_texture_manifest.at(material.roughness_metalness_info.value().tex_manifest_index);
-                    roughness_metalness_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
-                }
-                staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
-                staging_origin_ptr[dirty_materials_index].opacity_texture_id = opacity_id.default_view();
-                staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
-                staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
-                staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
-                staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
-                staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
 
-                daxa::BufferId gpu_material_manifest = _gpu_material_manifest.get_state().buffers[0];
-                recorder.copy_buffer_to_buffer({
-                    .src_buffer = materials_update_staging_buffer,
-                    .dst_buffer = gpu_material_manifest,
-                    .src_offset = sizeof(GPUMaterial) * dirty_materials_index,
-                    .dst_offset = sizeof(GPUMaterial) * dirty_material_entry_indices.at(dirty_materials_index),
-                    .size = sizeof(GPUMaterial),
-                });
-            }
-            recorder.pipeline_barrier({
-                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                .dst_access = daxa::AccessConsts::READ,
-            });
-        }
-    }
+    // updating material & texture manifest
+    update_material_and_texture_manifest(*this, info, recorder);
 
     // updating mesh manifest
-    {
-        if (info.uploaded_meshes.size() > 0)
-        {
-            daxa::BufferId staging_buffer = _device.create_buffer({
-                .size = info.uploaded_meshes.size() * sizeof(GPUMesh),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-                .name = "mesh manifest upload staging buffer",
-            });
-
-            recorder.destroy_buffer_deferred(staging_buffer);
-            GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(staging_buffer).value();
-            for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
-            {
-                auto const & upload = info.uploaded_meshes[upload_index];
-                _mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
-                // TODO(msakmary) REMOVE ME GIANT HACK ========================================
-                //=============================================================================
-                if (_mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
-                {
-                    auto data_ptr = _device.get_host_address(upload.staging_buffer).value();
-                    u32 offset = {};
-                    offset += upload.mesh.meshlet_count * sizeof(Meshlet);
-                    offset += upload.mesh.meshlet_count * sizeof(BoundingSphere);
-                    REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = std::vector<AABB>(upload.mesh.meshlet_count);
-                    std::memcpy(REMOVE_ME_dynamic_object_aabbs_REMOVE_ME.data(), data_ptr + offset, sizeof(AABB) * upload.mesh.meshlet_count);
-                }
-                std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
-                recorder.copy_buffer_to_buffer({
-                    .src_buffer = staging_buffer,
-                    .dst_buffer = _gpu_mesh_manifest.get_state().buffers[0],
-                    .src_offset = upload_index * sizeof(GPUMesh),
-                    .dst_offset = upload.manifest_index * sizeof(GPUMesh),
-                    .size = sizeof(GPUMesh),
-                });
-            }
-        }
-    }
+    update_mesh_and_mesh_group_manifest(*this, info, recorder);
 
     /// TODO: Taskgraph this shit.
     recorder.pipeline_barrier({
@@ -1055,5 +901,360 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     _new_material_manifest_entries = 0;
     _new_mesh_manifest_entries = 0;
     _new_mesh_group_manifest_entries = 0;
+    return recorder.complete_current_commands();
+}
+
+static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder)
+{
+    if (info.uploaded_meshes.size() > 0)
+    {
+        daxa::BufferId staging_buffer = scene._device.create_buffer({
+            .size = info.uploaded_meshes.size() * sizeof(GPUMesh),
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "mesh manifest upload staging buffer",
+        });
+
+        recorder.destroy_buffer_deferred(staging_buffer);
+        GPUMesh * staging_ptr = scene._device.get_host_address_as<GPUMesh>(staging_buffer).value();
+        for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
+        {
+            auto const & upload = info.uploaded_meshes[upload_index];
+            scene._mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
+            // Incrementing loaded mesh count in mesh group
+            {
+                auto const & upload = info.uploaded_meshes[upload_index];
+
+                // Check if all meshes in a meshgroup are loaded
+                auto & mesh = scene._mesh_manifest.at(upload.manifest_index);
+                auto & mesh_group = scene._mesh_group_manifest.at(mesh.mesh_group_manifest_index);
+                bool is_completely_loaded = true;
+                u32 range[] = {mesh_group.mesh_manifest_indices_array_offset, mesh_group.mesh_manifest_indices_array_offset + mesh_group.mesh_count};
+                for (u32 mesh_idx_array_idx = range[0]; mesh_idx_array_idx < range[1]; mesh_idx_array_idx++)
+                {
+                    auto & checked_mesh = scene._mesh_manifest.at(scene._mesh_manifest_indices_new.at(mesh_idx_array_idx));
+                    // Early out when we encounter a single unloaded mesh -> enough for us to know the meshgroup is not loaded
+                    if (!checked_mesh.runtime.has_value())
+                    {
+                        is_completely_loaded = false;
+                        break;
+                    }
+                }
+                // the meshgroup is not fully loaded -> do not add it to
+                if (is_completely_loaded)
+                {
+                    scene._newly_completed_mesh_groups.push_back(mesh.mesh_group_manifest_index);
+                }
+            }
+            // TODO(msakmary) REMOVE ME GIANT HACK ========================================
+            //=============================================================================
+            if (scene._mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
+            {
+                auto data_ptr = scene._device.get_host_address(upload.staging_buffer).value();
+                u32 offset = {};
+                offset += upload.mesh.meshlet_count * sizeof(Meshlet);
+                offset += upload.mesh.meshlet_count * sizeof(BoundingSphere);
+                scene.REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = std::vector<AABB>(upload.mesh.meshlet_count);
+                std::memcpy(scene.REMOVE_ME_dynamic_object_aabbs_REMOVE_ME.data(), data_ptr + offset, sizeof(AABB) * upload.mesh.meshlet_count);
+            }
+            std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
+            recorder.copy_buffer_to_buffer({
+                .src_buffer = staging_buffer,
+                .dst_buffer = scene._gpu_mesh_manifest.get_state().buffers[0],
+                .src_offset = upload_index * sizeof(GPUMesh),
+                .dst_offset = upload.manifest_index * sizeof(GPUMesh),
+                .size = sizeof(GPUMesh),
+            });
+        }
+    }
+}
+
+static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder)
+{
+    if (info.uploaded_textures.size() > 0)
+    {
+        /// NOTE: We need to propagate each loaded texture image ID into the material manifest This will be done in two steps:
+        //        1) We update the CPU manifest with the correct values and remember the materials that were updated
+        //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
+        std::vector<u32> dirty_material_entry_indices = {};
+        // 1) Update CPU Manifest
+        for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
+        {
+            if (texture_upload.secondary_texture)
+            {
+                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.dst_image;
+            }
+            else
+            {
+                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.dst_image;
+            }
+            TextureManifestEntry const & texture_manifest_entry = scene._material_texture_manifest.at(texture_upload.texture_manifest_index);
+            for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
+            {
+                MaterialManifestEntry & material_entry = scene._material_manifest.at(material_using_texture_info.material_manifest_index);
+                switch (texture_manifest_entry.type)
+                {
+                    case TextureMaterialType::DIFFUSE:
+                    {
+                        if (texture_upload.secondary_texture)
+                        {
+                            material_entry.opacity_mask_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        }
+                        else
+                        {
+                            material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        }
+                    }
+                    break;
+                    case TextureMaterialType::DIFFUSE_OPACITY:
+                    {
+                        material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                    }
+                    break;
+                    case TextureMaterialType::NORMAL:
+                    {
+                        material_entry.normal_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                        material_entry.normal_compressed_bc5_rg = texture_upload.compressed_bc5_rg;
+                    }
+                    break;
+                    case TextureMaterialType::ROUGHNESS_METALNESS:
+                    {
+                        material_entry.roughness_metalness_info->tex_manifest_index = texture_upload.texture_manifest_index;
+                    }
+                    break;
+                    default: DBG_ASSERT_TRUE_M(false, "unimplemented"); break;
+                }
+                /// NOTE: Add material index only if it was not added previously
+                if (std::find(
+                        dirty_material_entry_indices.begin(),
+                        dirty_material_entry_indices.end(),
+                        material_using_texture_info.material_manifest_index) ==
+                    dirty_material_entry_indices.end())
+                {
+                    dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
+                }
+            }
+        }
+        // // 2) Update GPU manifest
+        daxa::BufferId materials_update_staging_buffer = {};
+        GPUMaterial * staging_origin_ptr = {};
+        if (dirty_material_entry_indices.size())
+        {
+            materials_update_staging_buffer = scene._device.create_buffer({
+                .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
+                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+                .name = "gpu materials update staging",
+            });
+            recorder.destroy_buffer_deferred(materials_update_staging_buffer);
+            staging_origin_ptr = scene._device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
+        }
+        for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
+        {
+            MaterialManifestEntry const & material = scene._material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
+            daxa::ImageId diffuse_id = {};
+            daxa::ImageId opacity_id = {};
+            daxa::ImageId normal_id = {};
+            daxa::ImageId roughness_metalness_id = {};
+            /// NOTE: We check if material even has diffuse info, if it does we need to check if the runtime value of this
+            //        info is present - It might be that diffuse texture was uploaded marking this material as dirty, but
+            //        the normal texture is not yet present thus we don't yet have the runtime info
+            if (material.diffuse_info.has_value())
+            {
+                auto const & texture_entry = scene._material_texture_manifest.at(material.diffuse_info.value().tex_manifest_index);
+                diffuse_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
+            }
+            if (material.opacity_mask_info.has_value())
+            {
+                auto const & texture_entry = scene._material_texture_manifest.at(material.opacity_mask_info.value().tex_manifest_index);
+                opacity_id = texture_entry.secondary_runtime_texture.value_or(daxa::ImageId{});
+            }
+            if (material.normal_info.has_value())
+            {
+                auto const & texture_entry = scene._material_texture_manifest.at(material.normal_info.value().tex_manifest_index);
+                normal_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
+            }
+            if (material.roughness_metalness_info.has_value())
+            {
+                auto const & texture_entry = scene._material_texture_manifest.at(material.roughness_metalness_info.value().tex_manifest_index);
+                roughness_metalness_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
+            }
+            staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
+            staging_origin_ptr[dirty_materials_index].opacity_texture_id = opacity_id.default_view();
+            staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
+            staging_origin_ptr[dirty_materials_index].roughnes_metalness_id = roughness_metalness_id.default_view();
+            staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
+            staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
+            staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
+
+            daxa::BufferId gpu_material_manifest = scene._gpu_material_manifest.get_state().buffers[0];
+            recorder.copy_buffer_to_buffer({
+                .src_buffer = materials_update_staging_buffer,
+                .dst_buffer = gpu_material_manifest,
+                .src_offset = sizeof(GPUMaterial) * dirty_materials_index,
+                .dst_offset = sizeof(GPUMaterial) * dirty_material_entry_indices.at(dirty_materials_index),
+                .size = sizeof(GPUMaterial),
+            });
+        }
+        recorder.pipeline_barrier({
+            .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+            .dst_access = daxa::AccessConsts::READ,
+        });
+    }
+}
+
+auto Scene::create_as_and_record_build_commands() -> daxa::ExecutableCommandList
+{
+    auto get_aligned = [&](u64 to_align, u64 alignment) -> u64
+    {
+        return ((to_align + (alignment - 1)) & ~(alignment - 1));
+    };
+
+    auto const scratch_buffer_offset_alignment =
+        _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
+
+    u32 current_scratch_buffer_offset = 0;
+    auto const scratch_device_address = _device.get_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
+    std::vector<std::vector<daxa::BlasTriangleGeometryInfo>> build_geometries = {};
+    std::vector<daxa::BlasBuildInfo> build_infos = {};
+    while (!_newly_completed_mesh_groups.empty())
+    {
+        auto const mesh_group_index = _newly_completed_mesh_groups.back();
+
+        auto & mesh_group = _mesh_group_manifest.at(mesh_group_index);
+
+        std::vector<daxa::BlasTriangleGeometryInfo> geometries = {};
+        geometries.reserve(mesh_group.mesh_count);
+        auto const mesh_indices_meshgroup_offset = mesh_group.mesh_manifest_indices_array_offset;
+
+        for (i32 mesh_index = 0; mesh_index < mesh_group.mesh_count; mesh_index++)
+        {
+            u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
+            auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+
+            geometries.push_back({.vertex_data = mesh.runtime->vertex_positions,
+                .max_vertex = mesh.runtime->vertex_count - 1,
+                .index_data = mesh.runtime->primitive_indices,
+                .count = static_cast<daxa_u32>(mesh.runtime->primitive_count)});
+        }
+
+        daxa::BlasBuildInfo blas_build_info = daxa::BlasBuildInfo{
+            .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE |
+                     daxa::AccelerationStructureBuildFlagBits::ALLOW_DATA_ACCESS,
+            .geometries = daxa::Span<daxa::BlasTriangleGeometryInfo const>(
+                geometries.data(), geometries.size()),
+        };
+
+        auto const build_size_info = _device.get_blas_build_sizes(blas_build_info);
+        u64 aligned_scratch_size = get_aligned(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
+        DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_scratch_buffer_size,
+            "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
+
+        bool const fits_scratch = (current_scratch_buffer_offset + aligned_scratch_size <= _gpu_scratch_buffer_size);
+        if (!fits_scratch) { break; }
+
+        blas_build_info.scratch_data = scratch_device_address + current_scratch_buffer_offset;
+        current_scratch_buffer_offset += aligned_scratch_size;
+        auto const aligned_accel_structure_size = get_aligned(build_size_info.acceleration_structure_size, 256);
+        mesh_group.blas = _device.create_blas({
+            .size = aligned_accel_structure_size,
+            .name = mesh_group.name,
+        });
+        blas_build_info.dst_blas = mesh_group.blas;
+
+        build_geometries.push_back(std::move(geometries));
+        build_infos.push_back(std::move(blas_build_info));
+        _newly_completed_mesh_groups.pop_back();
+    }
+
+    auto recorder = _device.create_command_recorder({});
+    if (!build_infos.empty())
+    {
+        DEBUG_MSG(fmt::format("[DEBUG][Scene::create_and_record_build_as()] Building {} blases this frame", build_infos.size()));
+        recorder.build_acceleration_structures({.blas_build_infos = {build_infos.data(), build_infos.size()}});
+    }
+    recorder.pipeline_barrier({
+        .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_WRITE,
+        .dst_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ,
+    });
+
+    std::vector<daxa_BlasInstanceData> blas_instances = {};
+    for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
+    {
+        RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
+        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
+        {
+            MeshGroupManifestEntry const & m_entry = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
+            if (m_entry.blas.is_empty())
+            {
+                continue;
+            }
+
+            auto const t = r_ent->combined_transform;
+            blas_instances.push_back(daxa_BlasInstanceData{
+                .transform = {
+                    {t[0][0], t[1][0], t[2][0], t[3][0]},
+                    {t[0][1], t[1][1], t[2][1], t[3][1]},
+                    {t[0][2], t[1][2], t[2][2], t[3][2]},
+                },
+                .instance_custom_index = r_ent->mesh_group_manifest_index.value(),
+                .mask = 0xFF,
+                .instance_shader_binding_table_record_offset = 0,
+                .blas_device_address = _device.get_device_address(m_entry.blas).value(),
+            });
+        }
+    }
+
+    daxa::BufferId blas_instances_buffer = {};
+    if (!blas_instances.empty())
+    {
+        blas_instances_buffer = _device.create_buffer({.size = sizeof(daxa_BlasInstanceData) * blas_instances.size(),
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "blas instances buffer"});
+        recorder.destroy_buffer_deferred(blas_instances_buffer);
+
+        std::memcpy(_device.get_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(),
+            blas_instances.data(),
+            blas_instances.size() * sizeof(daxa_BlasInstanceData));
+    }
+
+    auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
+        .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.get_device_address(blas_instances_buffer).value(),
+        .count = s_cast<u32>(blas_instances.size()),
+        .is_data_array_of_pointers = false,
+        .flags = daxa::GeometryFlagBits::OPAQUE};
+
+    auto tlas_build_info = daxa::TlasBuildInfo{
+        .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE,
+        .instances = std::array{tlas_blas_instances_info},
+    };
+
+    daxa::AccelerationStructureBuildSizesInfo const tlas_build_sizes = _device.get_tlas_build_sizes(tlas_build_info);
+
+    if (_scene_tlas.get_state().tlas.size() != 0)
+    {
+        _device.destroy_tlas(_scene_tlas.get_state().tlas[0]);
+    }
+
+    auto scene_tlas_id = _device.create_tlas({
+        .size = tlas_build_sizes.acceleration_structure_size,
+        .name = "scene tlas",
+    });
+
+    _scene_tlas.set_tlas({
+        .tlas = {&scene_tlas_id, 1},
+        .latest_access = daxa::AccessConsts::NONE,
+    });
+
+    DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_scratch_buffer_size,
+        "[ERROR][Scene::create_and_record_build_as] Tlas too big for scratch buffer - create bigger scratch buffer");
+
+    tlas_build_info.dst_tlas = scene_tlas_id;
+    tlas_build_info.scratch_data = scratch_device_address;
+
+    recorder.build_acceleration_structures({.tlas_build_infos = std::array{tlas_build_info}});
+    recorder.pipeline_barrier({
+        .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ_WRITE,
+        .dst_access = daxa::AccessConsts::READ_WRITE,
+    });
+
     return recorder.complete_current_commands();
 }

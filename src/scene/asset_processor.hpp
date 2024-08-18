@@ -171,10 +171,10 @@ struct AssetProcessor
     auto record_gpu_load_processing_commands() -> RecordCommandsRet;
 
   private:
-    static inline std::string const VERT_ATTRIB_POSITION_NAME = "POSITION";
-    static inline std::string const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
-    static inline std::string const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
-    static inline std::string const VERT_ATTRIB_TANGENT_NAME = "TANGENT";
+    static inline std::string_view const VERT_ATTRIB_POSITION_NAME = "POSITION";
+    static inline std::string_view const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";
+    static inline std::string_view const VERT_ATTRIB_NORMAL_NAME = "NORMAL";
+    static inline std::string_view const VERT_ATTRIB_TANGENT_NAME = "TANGENT";
 
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.

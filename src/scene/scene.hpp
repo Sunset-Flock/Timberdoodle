@@ -38,11 +38,13 @@ struct TextureManifestEntry
     // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
-    std::vector<MaterialManifestIndex> material_manifest_indices = {};
+    std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
     std::optional<daxa::ImageId> runtime_texture = {};
     // This is used for separate oppacity mask when we generate one
     std::optional<daxa::ImageId> secondary_runtime_texture = {};
     std::string name = {};
+
+    auto loaded() const -> bool{ return runtime_texture.has_value(); }
 };
 
 struct MaterialManifestEntry
@@ -69,8 +71,11 @@ struct MeshManifestEntry
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_mesh_index = {};
     u32 asset_local_primitive_index = {};
+    u32 mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
     std::optional<GPUMesh> runtime = {};
+
+    auto loaded() const -> bool{ return runtime.has_value(); }
 };
 
 struct MeshGroupManifestEntry
@@ -79,6 +84,8 @@ struct MeshGroupManifestEntry
     u32 mesh_count = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
+    u32 loaded_meshes = {}; 
+    daxa::BlasId blas = {};
     std::string name = {};
 };
 
@@ -101,6 +108,7 @@ enum struct EntityType
 struct RenderEntity
 {
     glm::mat4x3 transform = {};
+    glm::mat4x3 combined_transform = {};
     std::optional<RenderEntityId> first_child = {};
     std::optional<RenderEntityId> next_sibling = {};
     std::optional<RenderEntityId> parent = {};
@@ -155,6 +163,7 @@ struct Scene
     };
     std::vector<ModifiedEntityInfo> _modified_render_entities = {};
 
+    std::vector<u32> _newly_completed_mesh_groups = {};
     /**
      * NOTES:
      * -    growing and initializing the manifest on the gpu is recorded in the scene,
@@ -170,6 +179,8 @@ struct Scene
     daxa::TaskBuffer _gpu_mesh_group_manifest = {};
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
     daxa::TaskBuffer _gpu_material_manifest = {};
+    daxa::TaskBuffer _gpu_scratch_buffer = {};
+    static constexpr u32 _gpu_scratch_buffer_size = 1u << 24u;
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
@@ -182,6 +193,8 @@ struct Scene
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
+
+    daxa::TaskTlas _scene_tlas;
 
     SceneDraw _scene_draw = {};
 
@@ -225,6 +238,8 @@ struct Scene
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
+
+    auto create_as_and_record_build_commands() -> daxa::ExecutableCommandList;
 
     daxa::Device _device = {};
 };
