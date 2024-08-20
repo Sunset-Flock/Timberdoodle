@@ -422,7 +422,12 @@ void main(
 
         const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT_FROM_PUSH.sky_ibl).SampleLevel(SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_clamp), normal, 0);
-        const float ambient_occlusion = AT_FROM_PUSH.ao_image.get().Load(index).r;
+        float ambient_occlusion = 1.0f;
+        const bool ao_enabled = (AT_FROM_PUSH.globals.settings.ao_mode != AO_MODE_NONE) && !AT_FROM_PUSH.ao_image.id.is_empty();
+        if (ao_enabled)
+        {
+            ambient_occlusion = AT_FROM_PUSH.ao_image.get().Load(index);
+        }
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         const float3 lighting = direct_lighting + (indirect_lighting * ambient_occlusion);
 

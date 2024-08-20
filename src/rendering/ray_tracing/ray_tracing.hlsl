@@ -99,7 +99,7 @@ void entry_rt_ao(
         );
         float3 normal = tri_data.world_normal;
         
-        const uint AO_RAY_COUNT = 8;
+        const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
 
         const uint thread_seed = (svtid.x * push.attach.globals->settings.render_target_size.y + svtid.y) * push.attach.globals.frame_index;
         rand_seed(AO_RAY_COUNT * thread_seed);

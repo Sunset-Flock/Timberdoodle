@@ -563,6 +563,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             "AA_MODE_DVM",
         };
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
+        auto ao_modes = std::array{
+            "None",
+            "RT"
+        };
+        ImGui::Combo("ao mode", &settings.ao_mode, ao_modes.data(), ao_modes.size());
+        ImGui::InputInt("ao samples", &settings.ao_samples);
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{

@@ -746,16 +746,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "color_image",
     });
-    auto ao_image = task_list.create_transient_image({
-        .format = daxa::Format::R16_SFLOAT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x,
-            render_context->render_data.settings.render_target_size.y,
-            1,
-        },
-        .name = "ao_image",
-    });
-    task_clear_image(task_list, ao_image, daxa::ClearValue{std::array{0.0f,0.0f,0.0f,0.0f}});
+    daxa::TaskImageView ao_image = daxa::NullTaskImage;
+    if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
+    {
+        ao_image = task_list.create_transient_image({
+            .format = daxa::Format::R16_SFLOAT,
+            .size = {
+                render_context->render_data.settings.render_target_size.x,
+                render_context->render_data.settings.render_target_size.y,
+                1,
+            },
+            .name = "ao_image",
+        });
+        task_clear_image(task_list, ao_image, daxa::ClearValue{std::array{0.0f,0.0f,0.0f,0.0f}});
+    }
     task_list.add_task(RayTraceAmbientOcclusionTask{
         .views = std::array{
             RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
