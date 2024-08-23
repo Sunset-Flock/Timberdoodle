@@ -114,7 +114,7 @@ void entry_rt_ao(
                     RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
 
             const float t_min = 0.01f;
-            const float t_max = 50.0f;
+            const float t_max = 15.0f;
 
             RayDesc my_ray = {
                 tri_data.world_position,

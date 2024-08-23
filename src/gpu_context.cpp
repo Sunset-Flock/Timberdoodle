@@ -68,6 +68,11 @@ GPUContext::GPUContext(Window const & window)
           .register_null_pipelines_when_first_compile_fails = true,
           .name = "Sandbox PipelineCompiler",
       }}},
+      dummy_tlas_id{
+        device.create_tlas({
+            .size = 1u,
+            .name = "dummy tlas",
+        })},
       lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})}
 {
     shader_debug_context.init(device);

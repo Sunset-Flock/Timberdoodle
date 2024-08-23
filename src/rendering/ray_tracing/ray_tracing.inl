@@ -59,14 +59,17 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
     GPUContext * context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(ray_trace_ambient_occlusion_pipeline_info().name));
-        RayTraceAmbientOcclusionPush push = {};
-        ti.assign_attachment_shader_blob(push.attach.value);
-        ti.recorder.push_constant(push);
-        auto const & ao_image = ti.device.info_image(ti.get(AT.ao_image).ids[0]).value();
-        u32 const dispatch_x = round_up_div(ao_image.size.x, RT_AO_X);
-        u32 const dispatch_y = round_up_div(ao_image.size.y, RT_AO_Y);
-        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+        if (ti.get(AT.tlas).ids[0] != context->dummy_tlas_id)
+        {
+            ti.recorder.set_pipeline(*context->compute_pipelines.at(ray_trace_ambient_occlusion_pipeline_info().name));
+            RayTraceAmbientOcclusionPush push = {};
+            ti.assign_attachment_shader_blob(push.attach.value);
+            ti.recorder.push_constant(push);
+            auto const & ao_image = ti.device.info_image(ti.get(AT.ao_image).ids[0]).value();
+            u32 const dispatch_x = round_up_div(ao_image.size.x, RT_AO_X);
+            u32 const dispatch_y = round_up_div(ao_image.size.y, RT_AO_Y);
+            ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+        }
     }
 };
 

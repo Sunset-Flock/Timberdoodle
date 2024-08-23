@@ -194,14 +194,16 @@ struct Scene
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
 
-    daxa::TaskTlas _scene_tlas;
+    daxa::TaskTlas _scene_tlas = {};
+    daxa::BlasId _scene_blas = {};
+    daxa::TaskBuffer _scene_as_indirections = {};
 
     SceneDraw _scene_draw = {};
 
     // TODO(msakmary) REMOVE ME - this is a giant hack
     std::vector<AABB> REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = {};
 
-    Scene(daxa::Device device);
+    Scene(daxa::Device device, GPUContext * context);
     ~Scene();
 
     enum struct LoadManifestErrorCode
@@ -239,7 +241,9 @@ struct Scene
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
 
-    auto create_as_and_record_build_commands() -> daxa::ExecutableCommandList;
+    auto create_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
+    auto create_merged_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
 
     daxa::Device _device = {};
+    GPUContext * gpu_context = {};
 };
