@@ -188,6 +188,7 @@ struct Settings
     daxa_b32 enable_triangle_cull;
     daxa_b32 enable_atomic_visbuffer;
     daxa_b32 enable_merged_scene_blas;
+    daxa_b32 use_rt_pipeline_for_ao;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -214,7 +215,8 @@ struct Settings
           enable_meshlet_cull{1},
           enable_triangle_cull{1},
           enable_atomic_visbuffer{0},
-          enable_merged_scene_blas{0}
+          enable_merged_scene_blas{0},
+          use_rt_pipeline_for_ao{0}
     {
     }
 #endif

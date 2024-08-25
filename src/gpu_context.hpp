@@ -290,9 +290,16 @@ struct GPUContext
 
     ShaderDebugDrawContext shader_debug_context = {};
 
+    struct RayTracingPipelineInfo
+    {
+        std::shared_ptr<daxa::RayTracingPipeline> pipeline = {};
+        daxa::RayTracingShaderBindingTable sbt = {};
+        daxa::BufferId sbt_buffer_id = {};
+    };
     // Pipelines:
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};
     std::unordered_map<std::string, std::shared_ptr<daxa::ComputePipeline>> compute_pipelines = {};
+    std::unordered_map<std::string, RayTracingPipelineInfo> ray_tracing_pipelines = {};
 
     // TODO(msakmary) REMOVE
     daxa::SamplerId lin_clamp_sampler = {};

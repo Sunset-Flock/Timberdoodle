@@ -176,7 +176,7 @@ void Renderer::compile_pipelines()
         {decode_visbuffer_test_pipeline_info()},
         {SplitAtomicVisbufferTask::pipeline_compile_info},
         {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
-        {ray_trace_ambient_occlusion_pipeline_info()},
+        {ray_trace_ao_compute_pipeline_info()},
     };
     for (auto const & info : computes)
     {
@@ -191,6 +191,27 @@ void Renderer::compile_pipelines()
                 compilation_result.message()));
         }
         this->context->compute_pipelines[info.name] = compilation_result.value();
+    }
+
+    std::vector<daxa::RayTracingPipelineCompileInfo> ray_tracing = {
+        {ray_trace_ao_rt_pipeline_info()},
+    };
+    for (auto const & info : ray_tracing)
+    {
+        auto compilation_result = this->context->pipeline_manager.add_ray_tracing_pipeline(info);
+        if (compilation_result.value()->is_valid())
+        {
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
+        }
+        else
+        {
+            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
+                compilation_result.message()));
+        }
+        this->context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
+        auto sbt_info = context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
+        this->context->ray_tracing_pipelines[info.name].sbt = sbt_info.table;
+        this->context->ray_tracing_pipelines[info.name].sbt_buffer_id = sbt_info.buffer;
     }
 
     while (!context->pipeline_manager.all_pipelines_valid())
@@ -427,6 +448,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_manifest);
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
+    task_list.use_persistent_buffer(scene->_scene_as_indirections);
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
     task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
@@ -772,10 +794,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
             RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
             RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
+            RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
             RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
             RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
         },
         .context = context,
+        .r_context = render_context.get(),
     });
     // task_list.add_task(DecodeVisbufferTestTask{
     //     .views = std::array{

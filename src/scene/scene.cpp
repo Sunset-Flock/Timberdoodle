@@ -36,7 +36,7 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
             .name = "scene tlas",
         },
     };
-    _scene_as_indirections = tido::make_task_buffer(_device, (1 << 26), "_scene_as_indirections");
+    _scene_as_indirections = tido::make_task_buffer(_device, _indirections_count, "_scene_as_indirections", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
 }
 
 Scene::~Scene()
@@ -804,7 +804,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         });
         recorder.destroy_buffer_deferred(mesh_groups_indices_staging);
         u32 * indices_staging_ptr = _device.get_host_address_as<u32>(mesh_groups_indices_staging).value();
-        std::memcpy(indices_staging_ptr, _mesh_manifest_indices_new.data(), _mesh_manifest_indices_new.size());
+        std::memcpy(indices_staging_ptr, _mesh_manifest_indices_new.data(), _mesh_manifest_indices_new.size() * sizeof(_mesh_manifest_indices_new[0]));
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_groups_indices_staging,
             .dst_buffer = _gpu_mesh_group_indices_array_buffer,
@@ -1142,10 +1142,14 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
             u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
             auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
 
-            geometries.push_back({.vertex_data = mesh.runtime->vertex_positions,
+            bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+            geometries.push_back({
+                .vertex_data = mesh.runtime->vertex_positions,
                 .max_vertex = mesh.runtime->vertex_count - 1,
                 .index_data = mesh.runtime->primitive_indices,
-                .count = static_cast<daxa_u32>(mesh.runtime->primitive_count)});
+                .count = static_cast<daxa_u32>(mesh.runtime->primitive_count),
+                .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
+            });
         }
 
         daxa::BlasBuildInfo blas_build_info = daxa::BlasBuildInfo{
@@ -1202,6 +1206,15 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                 continue;
             }
 
+            auto const mesh_indices_meshgroup_offset = m_entry.mesh_manifest_indices_array_offset;
+            bool is_alpha_discard = false;
+            for(i32 mesh_index = 0; mesh_index < m_entry.mesh_count; mesh_index++)
+            {
+                u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
+                auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                is_alpha_discard |= _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+            }
+
             auto const t = r_ent->combined_transform;
             blas_instances.push_back(daxa_BlasInstanceData{
                 .transform = {
@@ -1209,9 +1222,9 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                     {t[0][1], t[1][1], t[2][1], t[3][1]},
                     {t[0][2], t[1][2], t[2][2], t[3][2]},
                 },
-                .instance_custom_index = r_ent->mesh_group_manifest_index.value(),
+                .instance_custom_index = entity_i,
                 .mask = 0xFF,
-                .instance_shader_binding_table_record_offset = 0,
+                .instance_shader_binding_table_record_offset = is_alpha_discard ? 1u : 0u,
                 .blas_device_address = _device.get_device_address(m_entry.blas).value(),
             });
         }
@@ -1234,7 +1247,8 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.get_device_address(blas_instances_buffer).value(),
         .count = s_cast<u32>(blas_instances.size()),
         .is_data_array_of_pointers = false,
-        .flags = daxa::GeometryFlagBits::OPAQUE};
+        .flags = daxa::GeometryFlagBits::NONE,
+    };
 
     auto tlas_build_info = daxa::TlasBuildInfo{
         .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE,
@@ -1284,16 +1298,11 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     auto const scratch_device_address = _device.get_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
     if (!_newly_completed_mesh_groups.empty())
     {
-        constexpr usize INDIRECTIONS_COUNT = (1 << 20);
-        // auto indirection_buffer = _device.create_buffer({
-        //     .size = sizeof(MergedSceneBlasIndirection) * INDIRECTIONS_COUNT,
-        //     .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        //     .name = "merged blas indirections",
-        // });
-        // auto indirections = std::span{
-        //     _device.get_host_address_as<MergedSceneBlasIndirection>(indirection_buffer).value(),
-        //     INDIRECTIONS_COUNT,
-        // };
+        
+        auto indirections = std::span{
+            _device.get_host_address_as<MergedSceneBlasIndirection>(_scene_as_indirections.get_state().buffers[0]).value(),
+            _indirections_count,
+        };
 
         auto const scratch_buffer_offset_alignment =
             _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
@@ -1359,20 +1368,23 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
                 {
                     u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                     auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                    bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+
                     build_geometries.push_back({
                         .vertex_data = mesh.runtime->vertex_positions,
                         .max_vertex = mesh.runtime->vertex_count - 1,
                         .index_data = mesh.runtime->primitive_indices,
                         .transform_data = geometry_transforms_device_address + sizeof(daxa_f32mat3x4) * active_entity_offset,
                         .count = static_cast<daxa_u32>(mesh.runtime->primitive_count),
+                        .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
                     });
 
-                    // indirections[build_geometries.size() - 1] = MergedSceneBlasIndirection{
-                    //     .entity_index = entity_i,
-                    //     .mesh_group_index = r_ent->mesh_group_manifest_index.value(),
-                    //     .mesh_index = mesh_manifest_index,
-                    //     .in_mesh_group_index = mesh_index,
-                    // };
+                    indirections[build_geometries.size() - 1] = MergedSceneBlasIndirection{
+                        .entity_index = entity_i,
+                        .mesh_group_index = r_ent->mesh_group_manifest_index.value(),
+                        .mesh_index = mesh_manifest_index,
+                        .in_mesh_group_index = mesh_index,
+                    };
                 }
                 active_entity_offset += 1;
             }
@@ -1419,7 +1431,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         },
         .instance_custom_index = 0,
         .mask = 0xFF,
-        .instance_shader_binding_table_record_offset = 0,
+        .instance_shader_binding_table_record_offset = 1,
         .blas_device_address = _device.get_device_address(_scene_blas).value(),
     };
 
@@ -1436,7 +1448,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         .data = _device.get_device_address(blas_instances_buffer).value(),
         .count = 1u,
         .is_data_array_of_pointers = false,
-        .flags = daxa::GeometryFlagBits::OPAQUE,
+        .flags = daxa::GeometryFlagBits::NONE,
     };
 
     auto tlas_build_info = daxa::TlasBuildInfo{
