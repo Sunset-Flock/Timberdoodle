@@ -26,8 +26,6 @@ public:
     auto run() -> i32;
 private:
     void update();
-    void load_sky_settings(std::filesystem::path const path_to_settings, SkySettings & settings);
-
     /**
         * EXPLANATION: Why do we use unique pointers here?
         * Many of these members are non-movable.

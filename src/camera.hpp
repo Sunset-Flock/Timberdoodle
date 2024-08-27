@@ -26,7 +26,7 @@ struct CameraController
     f32 pitch = 0.0f;
 };
 
-struct AnimationKeyframe
+struct CameraAnimationKeyframe
 {
     glm::fquat start_rotation;
     glm::fquat end_rotation;
@@ -41,7 +41,7 @@ struct AnimationKeyframe
 struct CinematicCamera
 {
     CinematicCamera() = default;
-    void update_keyframes(std::vector<AnimationKeyframe> && keyframes);
+    //void update_keyframes(std::vector<AnimationKeyframe> && keyframes);
     void process_input(Window &window, f32 dt);
     void set_keyframe(i32 keyframe, f32 keyframe_progress);
     auto make_camera_info(Settings const & settings) const -> CameraInfo;
@@ -55,5 +55,5 @@ struct CinematicCamera
 
     f32 current_keyframe_time = 0.0f;
     u32 current_keyframe_index = 0;
-    std::vector<AnimationKeyframe> path_keyframes = {};
+    // std::vector<AnimationKeyframe> path_keyframes = {};
 };

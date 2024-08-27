@@ -1,7 +1,7 @@
 #include "application.hpp"
+#include "json_handler.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
-#include <nlohmann/json.hpp>
 #include <fstream>
 
 #include <intrin.h>
@@ -16,95 +16,12 @@ Application::Application()
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
-    // Renderer needs these to be loaded to know what size the look up tables have to be
-    std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
-    load_sky_settings(DEFAULT_SKY_SETTINGS_PATH, _renderer->render_context->render_data.sky_settings);
 
-    // TODO(msakmary): make nicer:
-    std::vector<AnimationKeyframe> keyframes = {
-        AnimationKeyframe{
-            .start_rotation = {-0.30450, 0.275662, 0.611860, 0.6759723},
-            .end_rotation = {0.141418, -0.15007, 0.712131, 0.6710799},
-            .start_position = {2.86, 25.80, 12.00},
-            .first_control_point = {-3.45, 28.96, 12.04},
-            .second_control_point = {-13.84, 9.95, 1.74},
-            .end_position = {-14.07, 2.20, 2.12},
-            .transition_time = 4.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {0.141418, -0.15007, 0.712131, 0.6710799},
-            .end_rotation = {0.38337, -0.382710, 0.593852, 0.5948849},
-            .start_position = {-14.07, 2.20, 2.12},
-            .first_control_point = {-14.31, -5.54, 2.48},
-            .second_control_point = {-11.46, -7.74, 1.13},
-            .end_position = {-8.88, -9.17, 1.41},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {0.38337, -0.382710, 0.593852, 0.5948849},
-            .end_rotation = {0.341726, -0.374238, 0.636601, 0.581297},
-            .start_position = {-8.88, -9.17, 1.41},
-            .first_control_point = {-6.30, -10.59, 0.94},
-            .second_control_point = {50.59, -30.63, 1.80},
-            .end_position = {54.51, -35.18, 1.14},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {0.341726, -0.374238, 0.636601, 0.581297},
-            .end_rotation = {-0.536079, 0.5606119, -0.4617242, -0.4370127},
-            .start_position = {54.51, -35.18, 1.14},
-            .first_control_point = {58.43, -39.73, 0.47},
-            .second_control_point = {54.23, -46.38, 3.83},
-            .end_position = {64.29, -52.73, 3.83},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {-0.536079, 0.5606119, -0.4617242, -0.4370127},
-            .end_rotation = {0.7877, -0.4515774, -0.208418, -0.363549},
-            .start_position = {64.29, -52.73, 3.83},
-            .first_control_point = {74.34, -58.95, 3.83},
-            .second_control_point = {80.60, -53.08, 8.85},
-            .end_position = {84.23, -45.45, 10.64},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {0.7877, -0.4515774, -0.208418, -0.363549},
-            .end_rotation = {-0.1558, 0.0928755, 0.503549, 0.8447122},
-            .start_position = {84.23, -45.45, 10.64},
-            .first_control_point = {87.93, -37.94, 12.49},
-            .second_control_point = {84.22, -26.02, 14.57},
-            .end_position = {72.97, -25.84, 10.65},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {-0.1558, 0.0928755, 0.503549, 0.8447122},
-            .end_rotation = {0.604737, -0.585519, -0.3755327, -0.3878583},
-            .start_position = {72.97, -25.84, 10.65},
-            .first_control_point = {61.71, -25.67, 6.73},
-            .second_control_point = {62.31, -34.58, 4.07},
-            .end_position = {51.06, -30.80, 3.04},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {0.604737, -0.585519, -0.3755327, -0.3878583},
-            .end_rotation = {-0.646975, 0.756841, -0.0705465, -0.0603057},
-            .start_position = {51.06, -30.80, 3.04},
-            .first_control_point = {39.80, -27.02, 2.00},
-            .second_control_point = {-0.32, -14.83, 3.63},
-            .end_position = {-7.36, -5.53, 3.97},
-            .transition_time = 3.0f,
-        },
-        AnimationKeyframe{
-            .start_rotation = {-0.646975, 0.756841, -0.0705465, -0.0603057},
-            .end_rotation = {-0.30450, 0.275662, 0.611860, 0.6759723},
-            .start_position = {-7.36, -5.53, 3.97},
-            .first_control_point = {-14.39, 3.76, 4.31},
-            .second_control_point = {9.44, 22.51, 11.27},
-            .end_position = {2.86, 25.80, 12.00},
-            .transition_time = 3.0f,
-        },
-    };
-    cinematic_camera.update_keyframes(std::move(keyframes));
+    std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
+    std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path.json";
+
+    _renderer->render_context->render_data.sky_settings = std::move(load_sky_settings(DEFAULT_SKY_SETTINGS_PATH));
+    cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
     struct CompPipelinesTask : Task
     {
@@ -149,6 +66,7 @@ Application::Application()
         DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), Scene::to_string(*err)));
     }
+    // TODO(msakmary) clean this up!
     else
     {
         auto const r_id = std::get<RenderEntityId>(result);
@@ -224,22 +142,21 @@ auto Application::run() -> i32
 void Application::update()
 {
     auto * dynamic_ball_ent = _scene->_render_entities.slot(dynamic_ball);
-    if(dynamic_ball_ent)
+    if (dynamic_ball_ent)
     {
         auto prev_transform = glm::mat4(
             glm::vec4(dynamic_ball_ent->transform[0], 0.0f),
             glm::vec4(dynamic_ball_ent->transform[1], 0.0f),
             glm::vec4(dynamic_ball_ent->transform[2], 0.0f),
             glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
-    
+
         static f32 total_time = 0.0f;
         total_time += delta_time;
         auto new_position = f32vec4{
             std::sin(total_time) * 100.0f,
             std::cos(total_time) * 100.0f,
             prev_transform[3].z,
-            1.0f
-        };
+            1.0f};
         auto curr_transform = prev_transform;
         curr_transform[3] = new_position;
 
@@ -257,7 +174,7 @@ void Application::update()
     auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
     auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
     auto cmd_lists = std::array{
-        std::move(asset_data_upload_info.upload_commands), 
+        std::move(asset_data_upload_info.upload_commands),
         std::move(manifest_update_commands),
         std::move(rt_merged_update_commands),
         std::move(rt_update_commands),
@@ -265,10 +182,12 @@ void Application::update()
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
     bool reset_observer = false;
-    if (_window->size.x == 0 || _window->size.y == 0) {
-        return; }
-    _ui_engine->main_update(*_renderer->render_context, *_scene);
-    if(use_preset_camera)
+    if (_window->size.x == 0 || _window->size.y == 0)
+    {
+        return;
+    }
+    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, *this);
+    if (use_preset_camera)
     {
         cinematic_camera.process_input(*_window, this->delta_time);
     }
@@ -280,134 +199,19 @@ void Application::update()
     {
         camera_controller.process_input(*_window, this->delta_time);
     }
-    if (_ui_engine->shader_debug_menu)
+
+    if (_window->key_just_pressed(GLFW_KEY_H))
     {
-        if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            ImGui::SeparatorText("Observer Camera");
-            {
-                IMGUI_UINT_CHECKBOX2("draw from observer (H)", _renderer->render_context->render_data.settings.draw_from_observer);
-                ImGui::Checkbox("control observer   (J)", &control_observer);
-                reset_observer = reset_observer || (ImGui::Button("snap observer to main camera (K)"));
-                std::array<char const * const, 3> modes = {
-                    "redraw meshlets visible last frame",
-                    "redraw meshlet post cull",
-                    "redraw all drawn meshlets",
-                };
-                ImGui::Combo("observer draw pass mode", &_renderer->render_context->render_data.settings.observer_show_pass, modes.data(), modes.size());
-                auto const view_quat = glm::quat_cast(observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings).view);
-                ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
-                if (_window->key_just_pressed(GLFW_KEY_H))
-                {
-                    _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
-                }
-                if (_window->key_just_pressed(GLFW_KEY_J))
-                {
-                    control_observer = !control_observer;
-                }
-                if (_window->key_just_pressed(GLFW_KEY_K))
-                {
-                    reset_observer = true;
-                }
-                if (_window->key_just_pressed(GLFW_KEY_O))
-                {
-                    DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->render_context->render_data.settings.observer_show_pass,
-                        ((_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3)));
-                    _renderer->render_context->render_data.settings.observer_show_pass = (_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3;
-                }
-            }
-            ImGui::SeparatorText("Cinematic Camera");
-            {                
-                ImGui::BeginDisabled(!use_preset_camera);
-                ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
-                ImGui::EndDisabled();
-                cinematic_camera.override_keyframe = _window->key_just_pressed(GLFW_KEY_I) ? !cinematic_camera.override_keyframe : cinematic_camera.override_keyframe;
-                cinematic_camera.override_keyframe &= use_preset_camera;
-                ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
-                i32 current_keyframe = cinematic_camera.current_keyframe_index;
-                f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
-                ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
-                if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
-                ImGui::EndDisabled();
-                ImGui::Checkbox("use preset camera", &use_preset_camera);
-                if (ImGui::Button("snap observer to cinematic"))
-                {
-                    observer_camera_controller.position = cinematic_camera.position;
-                }
-            }
-            ImGui::SeparatorText("Debug Shader Interface");
-            {
-                ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
-                ImGui::DragFloat4(
-                    "debug f32vec4",
-                    reinterpret_cast<f32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
-                    _ui_engine->debug_f32vec4_drag_speed);
-                ImGui::DragInt4(
-                    "debug i32vec4",
-                    reinterpret_cast<i32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
-                ImGui::Text(
-                    "out debug f32vec4: (%f,%f,%f,%f)",
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.y,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.z,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.w);
-                ImGui::Text(
-                    "out debug i32vec4: (%i,%i,%i,%i)",
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.x,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.y,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.z,
-                    _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
-                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
-                {
-                    _renderer->context->shader_debug_context.detector_window_position = {
-                        _window->get_cursor_x(),
-                        _window->get_cursor_y(),
-                    };
-                }
-                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
-                {
-                    _renderer->context->shader_debug_context.detector_window_position.x -= 1;
-                }
-                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
-                {
-                    _renderer->context->shader_debug_context.detector_window_position.x += 1;
-                }
-                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
-                {
-                    _renderer->context->shader_debug_context.detector_window_position.y -= 1;
-                }
-                if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
-                {
-                    _renderer->context->shader_debug_context.detector_window_position.y += 1;
-                }
-            }
-            ImGui::SeparatorText("Debug Shader Lens");
-            {
-                ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
-                ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
-                ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->shader_debug_context.draw_magnified_area_rect);
-                ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
-                ImGui::Text(
-                    "detector texel position: (%i,%i)",
-                    _renderer->context->shader_debug_context.detector_window_position.x,
-                    _renderer->context->shader_debug_context.detector_window_position.y);
-                ImGui::Text(
-                    "detector center value: (%f,%f,%f,%f)",
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
-                    _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
-                auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
-                    .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->render_context->render_data.samplers.nearest_clamp),
-                });
-                auto const width = ImGui::GetContentRegionMax().x;
-                ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
-            }
-        }
-        ImGui::End();
+        _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
     }
+    if (_window->key_just_pressed(GLFW_KEY_J)) { control_observer = !control_observer; }
+    if (_window->key_just_pressed(GLFW_KEY_K)) { reset_observer = true; }
+    if (_window->key_just_pressed(GLFW_KEY_O)) {
+        DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->render_context->render_data.settings.observer_show_pass,
+            ((_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3)));
+        _renderer->render_context->render_data.settings.observer_show_pass = (_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3;
+    }
+
     if (reset_observer)
     {
         control_observer = false;
@@ -417,66 +221,6 @@ void Application::update()
     ImGui::Render();
 }
 
-void Application::load_sky_settings(std::filesystem::path const path_to_settings, SkySettings & settings)
-{
-    auto json = nlohmann::json::parse(std::ifstream(path_to_settings));
-    auto read_val = [&json](auto const name, auto & val)
-    {
-        val = json[name];
-    };
-
-    auto read_vec = [&json](auto const name, auto & val)
-    {
-        val.x = json[name]["x"];
-        val.y = json[name]["y"];
-        if constexpr (requires(decltype(val) x) { x.z; }) val.z = json[name]["z"];
-        if constexpr (requires(decltype(val) x) { x.w; }) val.w = json[name]["w"];
-    };
-
-    auto read_density_profile_layer = [&json](auto const name, auto const layer, DensityProfileLayer & val)
-    {
-        val.layer_width = json[name][layer]["layer_width"];
-        val.exp_term = json[name][layer]["exp_term"];
-        val.exp_scale = json[name][layer]["exp_scale"];
-        val.lin_term = json[name][layer]["lin_term"];
-        val.const_term = json[name][layer]["const_term"];
-    };
-    read_vec("transmittance_dimensions", settings.transmittance_dimensions);
-    read_vec("multiscattering_dimensions", settings.multiscattering_dimensions);
-    read_vec("sky_dimensions", settings.sky_dimensions);
-
-    f32vec2 sun_angle = {};
-    read_vec("sun_angle", sun_angle);
-
-    read_val("atmosphere_bottom", settings.atmosphere_bottom);
-    read_val("atmosphere_top", settings.atmosphere_top);
-
-    // Mie
-    read_vec("mie_scattering", settings.mie_scattering);
-    read_vec("mie_extinction", settings.mie_extinction);
-    read_val("mie_scale_height", settings.mie_scale_height);
-    read_val("mie_phase_function_g", settings.mie_phase_function_g);
-    read_density_profile_layer("mie_density", 0, settings.mie_density[0]);
-    read_density_profile_layer("mie_density", 1, settings.mie_density[1]);
-
-    // Rayleigh
-    read_vec("rayleigh_scattering", settings.rayleigh_scattering);
-    read_val("rayleigh_scale_height", settings.rayleigh_scale_height);
-    read_density_profile_layer("rayleigh_density", 0, settings.rayleigh_density[0]);
-    read_density_profile_layer("rayleigh_density", 1, settings.rayleigh_density[1]);
-
-    // Absorption
-    read_vec("absorption_extinction", settings.absorption_extinction);
-    read_density_profile_layer("absorption_density", 0, settings.absorption_density[0]);
-    read_density_profile_layer("absorption_density", 1, settings.absorption_density[1]);
-
-    settings.sun_direction =
-        {
-            daxa_f32(glm::cos(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
-            daxa_f32(glm::sin(glm::radians(sun_angle.x)) * glm::sin(glm::radians(sun_angle.y))),
-            daxa_f32(glm::cos(glm::radians(sun_angle.y)))};
-    settings.sun_brightness = 10.0f;
-}
 
 Application::~Application()
 {

@@ -97,7 +97,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
-        void main_update(RenderContext & render_ctx, Scene const & scene);
+        void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene);
 
     private:
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH

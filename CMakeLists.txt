@@ -38,6 +38,7 @@ add_executable(${PROJECT_NAME}
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"
+    "src/json_handler.cpp"
 )
 find_package(fmt CONFIG REQUIRED)
 find_package(daxa CONFIG REQUIRED)

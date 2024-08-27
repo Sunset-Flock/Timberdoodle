@@ -110,56 +110,56 @@ auto CameraController::make_camera_info(Settings const & settings) const -> Came
     return ret;
 }
 
-void CinematicCamera::update_keyframes(std::vector<AnimationKeyframe> && keyframes)
-{
-    current_keyframe_index = 0;
-    current_keyframe_time = 0.0f;
-    path_keyframes = keyframes;
-}
+// void CinematicCamera::update_keyframes(std::vector<AnimationKeyframe> && keyframes)
+// {
+//     current_keyframe_index = 0;
+//     current_keyframe_time = 0.0f;
+//     path_keyframes = keyframes;
+// }
 
-void CinematicCamera::set_keyframe(i32 keyframe, f32 keyframe_progress)
-{
-    current_keyframe_index = keyframe;
-    f32 const current_keyframe_finish_time = path_keyframes.at(current_keyframe_index).transition_time;
-    current_keyframe_time = keyframe_progress * current_keyframe_finish_time;
-}
+// void CinematicCamera::set_keyframe(i32 keyframe, f32 keyframe_progress)
+// {
+//     current_keyframe_index = keyframe;
+//     f32 const current_keyframe_finish_time = path_keyframes.at(current_keyframe_index).transition_time;
+//     current_keyframe_time = keyframe_progress * current_keyframe_finish_time;
+// }
 
 void CinematicCamera::process_input(Window &window, f32 dt)
 {
-    if(override_keyframe) { dt = 0.0f; }
-    // TODO(msakmary) Whenever the update position dt is longer than a whole keyframe transition time
-    // this code will not properly account for this
-    f32 const current_keyframe_finish_time = path_keyframes.at(current_keyframe_index).transition_time;
-    bool const keyframe_finished = current_keyframe_finish_time < current_keyframe_time + dt;
-    bool const on_last_keyframe = current_keyframe_index == (path_keyframes.size() - 1);
-    bool const animation_finished = keyframe_finished && on_last_keyframe;
+    // if(override_keyframe) { dt = 0.0f; }
+    // // TODO(msakmary) Whenever the update position dt is longer than a whole keyframe transition time
+    // // this code will not properly account for this
+    // f32 const current_keyframe_finish_time = path_keyframes.at(current_keyframe_index).transition_time;
+    // bool const keyframe_finished = current_keyframe_finish_time < current_keyframe_time + dt;
+    // bool const on_last_keyframe = current_keyframe_index == (path_keyframes.size() - 1);
+    // bool const animation_finished = keyframe_finished && on_last_keyframe;
 
-    if (keyframe_finished)
-    {
-        auto prev_keyframe_time = current_keyframe_time;
-        current_keyframe_time = (current_keyframe_time + dt) - current_keyframe_finish_time;
-        current_keyframe_index = animation_finished ? 0 : current_keyframe_index + 1;
-    }
-    else
-    {
-        current_keyframe_time = current_keyframe_time + dt;
-    }
+    // if (keyframe_finished)
+    // {
+    //     auto prev_keyframe_time = current_keyframe_time;
+    //     current_keyframe_time = (current_keyframe_time + dt) - current_keyframe_finish_time;
+    //     current_keyframe_index = animation_finished ? 0 : current_keyframe_index + 1;
+    // }
+    // else
+    // {
+    //     current_keyframe_time = current_keyframe_time + dt;
+    // }
 
-    auto const & current_keyframe = path_keyframes.at(current_keyframe_index);
-    f32 const t = current_keyframe_time / current_keyframe.transition_time;
+    // auto const & current_keyframe = path_keyframes.at(current_keyframe_index);
+    // f32 const t = current_keyframe_time / current_keyframe.transition_time;
 
-    f32 w0 = static_cast<f32>(glm::pow(1.0f - t, 3));
-    f32 w1 = static_cast<f32>(glm::pow(1.0f - t, 2) * 3.0f * t);
-    f32 w2 = static_cast<f32>((1.0f - t) * 3 * t * t);
-    f32 w3 = static_cast<f32>(t * t * t);
+    // f32 w0 = static_cast<f32>(glm::pow(1.0f - t, 3));
+    // f32 w1 = static_cast<f32>(glm::pow(1.0f - t, 2) * 3.0f * t);
+    // f32 w2 = static_cast<f32>((1.0f - t) * 3 * t * t);
+    // f32 w3 = static_cast<f32>(t * t * t);
 
-    position =
-        w0 * current_keyframe.start_position +
-        w1 * current_keyframe.first_control_point +
-        w2 * current_keyframe.second_control_point +
-        w3 * current_keyframe.end_position;
+    // position =
+    //     w0 * current_keyframe.start_position +
+    //     w1 * current_keyframe.first_control_point +
+    //     w2 * current_keyframe.second_control_point +
+    //     w3 * current_keyframe.end_position;
 
-    forward = glm::slerp(current_keyframe.start_rotation, current_keyframe.end_rotation, t);
+    // forward = glm::slerp(current_keyframe.start_rotation, current_keyframe.end_rotation, t);
 }
 
 auto CinematicCamera::make_camera_info(Settings const & settings) const -> CameraInfo

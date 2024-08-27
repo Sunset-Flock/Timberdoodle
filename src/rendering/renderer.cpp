@@ -11,7 +11,6 @@
 #include "ray_tracing/ray_tracing.inl"
 
 #include "tasks/memset.inl"
-#include "tasks/dvmaa.inl"
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
 #include "tasks/shade_opaque.inl"
@@ -144,7 +143,6 @@ void Renderer::compile_pipelines()
     }
     std::vector<daxa::ComputePipelineCompileInfo> computes = {
         {alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
-        {dvm_resolve_visbuffer_compile_info()},
         {set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
         {AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info},
         {prepopulate_meshlet_instances_pipeline_compile_info()},
@@ -492,7 +490,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         task_clear_image(task_list, overdraw_image, std::array{0,0,0,0});
     }
 
-    bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
     daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
     daxa::TaskImageView visbuffer = raster_visbuf::create_visbuffer(task_list, *render_context);
     daxa::TaskImageView depth = raster_visbuf::create_depth(task_list, *render_context);
@@ -500,9 +497,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         atomic_visbuffer = raster_visbuf::create_atomic_visbuffer(task_list, *render_context);
     }
-    // TODO: REMOVE DVMAA:
-    daxa::TaskImageView dvmaa_visbuffer = daxa::NullTaskImage;
-    daxa::TaskImageView dvmaa_depth = daxa::NullTaskImage;
 
     task_list.add_task(ReadbackTask{
         .views = std::array{daxa::attachment_view(ReadbackH::AT.globals, render_context->tgpu_render_data)},
@@ -598,8 +592,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .atomic_visbuffer = atomic_visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
-        .dvmaa_vis_image = dvmaa_visbuffer,
-        .dvmaa_depth_image = dvmaa_depth,
         .overdraw_image = overdraw_image,
     });
 
@@ -663,8 +655,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .atomic_visbuffer = atomic_visbuffer,
         .debug_image = debug_image,
         .depth_image = depth,
-        .dvmaa_vis_image = dvmaa_visbuffer,
-        .dvmaa_depth_image = dvmaa_depth,
         .overdraw_image = overdraw_image,
     });
 
@@ -733,8 +723,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .atomic_visbuffer = atomic_visbuffer,
             .debug_image = debug_image,
             .depth_image = depth,
-            .dvmaa_vis_image = dvmaa_visbuffer,
-            .dvmaa_depth_image = dvmaa_depth,
             .overdraw_image = overdraw_image,
         });
     }

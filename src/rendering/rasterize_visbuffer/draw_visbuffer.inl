@@ -93,7 +93,6 @@ struct CullMeshletsDrawVisbufferPush
 #if defined(__cplusplus)
 #include "../../gpu_context.hpp"
 #include "../tasks/misc.hpp"
-#include "../tasks/dvmaa.hpp"
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
 
@@ -200,7 +199,6 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     u32 pass = {};
     void callback(daxa::TaskInterface ti)
     {
-        bool const dvmaa = render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
         bool const clear_images = pass != PASS1_DRAW_POST_CULL;
         auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
@@ -229,14 +227,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
             );
         }
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        if (dvmaa)
-        {
-            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E4);
-        }
-        else
-        {
-            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
-        }
+        render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
             auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
@@ -342,46 +333,31 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskImageView atomic_visbuffer = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
-    daxa::TaskImageView dvmaa_vis_image = {};
-    daxa::TaskImageView dvmaa_depth_image = {};
     daxa::TaskImageView overdraw_image = {};
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
-    bool const dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
     info.task_graph.add_task(CullMeshletsDrawVisbufferTask{
         .views = std::array{
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.hiz, info.hiz),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.po2expansion, info.meshlet_cull_po2expansion[0]),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.masked_po2expansion, info.meshlet_cull_po2expansion[1]),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_offsets, info.first_pass_meshlets_bitfield_offsets),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena, info.first_pass_meshlets_bitfield_arena),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.mesh_instances, info.mesh_instances),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.meshes, info.meshes),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.entity_combined_transforms, info.entity_combined_transforms),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.material_manifest, info.material_manifest),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.vis_image, dvmaa ? info.dvmaa_vis_image : info.vis_image),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.atomic_visbuffer, info.atomic_visbuffer),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.depth_image, dvmaa ? info.dvmaa_depth_image : info.depth_image),
-            daxa::attachment_view(CullMeshletsDrawVisbufferH::AT.overdraw_image, info.overdraw_image),
+            CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
+            CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
+            CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
+            CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
+            CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_offsets | info.first_pass_meshlets_bitfield_offsets,
+            CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
+            CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
+            CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
+            CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
+            CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
+            CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
+            CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
+            CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
+            CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
+            CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
 
         },
         .render_context = info.render_context,
     });
-    if (dvmaa)
-    {
-        info.task_graph.add_task(DVMResolveVisImageTask{
-            .views = std::array{
-                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_vis_image, info.dvmaa_vis_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.vis_image, info.vis_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_depth_image, info.dvmaa_depth_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.depth_image, info.depth_image),
-            },
-            .rctx = info.render_context,
-        });
-    }
 }
 
 struct TaskDrawVisbufferInfo
@@ -398,8 +374,6 @@ struct TaskDrawVisbufferInfo
     daxa::TaskImageView atomic_visbuffer = {};
     daxa::TaskImageView debug_image = {};
     daxa::TaskImageView depth_image = {};
-    daxa::TaskImageView dvmaa_vis_image = {};
-    daxa::TaskImageView dvmaa_depth_image = {};
     daxa::TaskImageView overdraw_image = {};
 };
 
@@ -417,17 +391,15 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbuffer_WriteCommandTask2 write_task = {
         .views = std::array{
-            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(DrawVisbuffer_WriteCommandH::AT.draw_commands, draw_commands_array),
+            DrawVisbuffer_WriteCommandH::AT.globals | info.render_context->tgpu_render_data,
+            DrawVisbuffer_WriteCommandH::AT.meshlet_instances | info.meshlet_instances,
+            DrawVisbuffer_WriteCommandH::AT.draw_commands | draw_commands_array,
         },
         .context = info.render_context->gpuctx,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass},
         .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
     };
     info.task_graph.add_task(write_task);
-
-    bool dvmaa = info.render_context->render_data.settings.anti_aliasing_mode == AA_MODE_DVM;
 
     if (info.overdraw_image != daxa::NullTaskImage)
     {
@@ -442,9 +414,9 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             DrawVisbufferH::AT.meshes | info.meshes,
             DrawVisbufferH::AT.material_manifest | info.material_manifest,
             DrawVisbufferH::AT.entity_combined_transforms | info.combined_transforms,
-            DrawVisbufferH::AT.vis_image | (dvmaa ? info.dvmaa_vis_image : info.vis_image),
+            DrawVisbufferH::AT.vis_image | info.vis_image,
             DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-            DrawVisbufferH::AT.depth_image | (dvmaa ? info.dvmaa_depth_image : info.depth_image),
+            DrawVisbufferH::AT.depth_image | info.depth_image,
             DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
             DrawVisbufferH::AT.hiz | info.hiz,
         },
@@ -452,18 +424,5 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .pass = info.pass,
     };
     info.task_graph.add_task(draw_task);
-    
-    if (dvmaa)
-    {
-        info.task_graph.add_task(DVMResolveVisImageTask{
-            .views = std::array{
-                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_vis_image, info.dvmaa_vis_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.vis_image, info.vis_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.dvm_depth_image, info.dvmaa_depth_image),
-                daxa::attachment_view(DVMResolveVisImageH::AT.depth_image, info.depth_image),
-            },
-            .rctx = info.render_context,
-        });
-    }
 }
 #endif // #if defined(__cplusplus)
