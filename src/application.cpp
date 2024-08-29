@@ -20,8 +20,8 @@ Application::Application()
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path.json";
 
-    _renderer->render_context->render_data.sky_settings = std::move(load_sky_settings(DEFAULT_SKY_SETTINGS_PATH));
-    cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
+    //_renderer->render_context->render_data.sky_settings = std::move(load_sky_settings(DEFAULT_SKY_SETTINGS_PATH));
+    //cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
     struct CompPipelinesTask : Task
     {
@@ -186,7 +186,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, *this);
+    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene);
     if (use_preset_camera)
     {
         cinematic_camera.process_input(*_window, this->delta_time);

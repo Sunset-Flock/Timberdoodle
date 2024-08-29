@@ -107,7 +107,6 @@ struct ComputeTransmittanceTask : ComputeTransmittanceH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const transmittance_size = ti.device.info_image(ti.get(AT.transmittance).ids[0]).value().size;
         auto const transmittance_size = ti.info(AT.transmittance).value().size;
         auto const dispatch_size = u32vec2{
             (transmittance_size.x + TRANSMITTANCE_X_DISPATCH - 1) / TRANSMITTANCE_X_DISPATCH,
