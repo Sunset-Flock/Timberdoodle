@@ -770,90 +770,89 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
         task_clear_image(task_list, ao_image, daxa::ClearValue{std::array{0.0f,0.0f,0.0f,0.0f}});
     }
-    // task_list.add_task(RayTraceAmbientOcclusionTask{
-    //     .views = std::array{
-    //         RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
-    //         RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
-    //         RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
-    //         RayTraceAmbientOcclusionH::AT.ao_image | ao_image,
-    //         RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
-    //         RayTraceAmbientOcclusionH::AT.depth_image | depth,
-    //         RayTraceAmbientOcclusionH::AT.sky | sky,
-    //         RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
-    //         RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
-    //         RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
-    //         RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
-    //         RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-    //         RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
-    //         RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
-    //     },
-    //     .context = context,
-    //     .r_context = render_context.get(),
-    // });
-    // task_list.add_task(DecodeVisbufferTestTask{
-    //     .views = std::array{
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.debug_image, debug_image),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.vis_image, visbuffer),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.material_manifest, scene->_gpu_material_manifest),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.instantiated_meshlets, meshlet_instances),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.meshes, scene->_gpu_mesh_manifest),
-    //         daxa::attachment_view(DecodeVisbufferTestH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
-    //     },
-    //     .context = context,
-    // });
+    task_list.add_task(RayTraceAmbientOcclusionTask{
+        .views = std::array{
+            RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
+            RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
+            RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
+            RayTraceAmbientOcclusionH::AT.ao_image | ao_image,
+            RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
+            RayTraceAmbientOcclusionH::AT.sky | sky,
+            RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
+            RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
+            RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
+            RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
+            RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
+            RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
+        },
+        .context = context,
+        .r_context = render_context.get(),
+    });
+    task_list.add_task(DecodeVisbufferTestTask{
+        .views = std::array{
+            daxa::attachment_view(DecodeVisbufferTestH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.debug_image, debug_image),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.vis_image, visbuffer),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.material_manifest, scene->_gpu_material_manifest),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.instantiated_meshlets, meshlet_instances),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.meshes, scene->_gpu_mesh_manifest),
+            daxa::attachment_view(DecodeVisbufferTestH::AT.combined_transforms, scene->_gpu_entity_combined_transforms),
+        },
+        .context = context,
+    });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-    // task_list.add_task(ShadeOpaqueTask{
-    //     .views = std::array{
-    //         ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
-    //         ShadeOpaqueH::AT.ao_image | ao_image,
-    //         ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
-    //         ShadeOpaqueH::AT.color_image | color_image,
-    //         ShadeOpaqueH::AT.vis_image | visbuffer,
-    //         ShadeOpaqueH::AT.transmittance | transmittance,
-    //         ShadeOpaqueH::AT.sky | sky,
-    //         ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
-    //         ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
-    //         ShadeOpaqueH::AT.vsm_page_height_offsets | vsm_page_heigh_offsets_view,
-    //         ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
-    //         ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
-    //         ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
-    //         ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-    //         ShadeOpaqueH::AT.luminance_average | luminance_average,
-    //         ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
-    //         ShadeOpaqueH::AT.vsm_memory_block64 | vsm_state.memory_block64,
-    //         ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
-    //         ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
-    //         ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
-    //         ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
-    //         ShadeOpaqueH::AT.debug_image | debug_image,
-    //         ShadeOpaqueH::AT.overdraw_image | overdraw_image,
-    //         ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
-    //     },
-    //     .render_context = render_context.get(),
-    //     .timeline_pool = vsm_state.vsm_timeline_query_pool,
-    //     .per_frame_timestamp_count = vsm_state.PER_FRAME_TIMESTAMP_COUNT,
-    // });
+    task_list.add_task(ShadeOpaqueTask{
+        .views = std::array{
+            ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
+            ShadeOpaqueH::AT.ao_image | ao_image,
+            ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
+            ShadeOpaqueH::AT.color_image | color_image,
+            ShadeOpaqueH::AT.vis_image | visbuffer,
+            ShadeOpaqueH::AT.transmittance | transmittance,
+            ShadeOpaqueH::AT.sky | sky,
+            ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
+            ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
+            ShadeOpaqueH::AT.vsm_page_height_offsets | vsm_page_heigh_offsets_view,
+            ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
+            ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
+            ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
+            ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            ShadeOpaqueH::AT.luminance_average | luminance_average,
+            ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
+            ShadeOpaqueH::AT.vsm_memory_block64 | vsm_state.memory_block64,
+            ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
+            ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
+            ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
+            ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
+            ShadeOpaqueH::AT.debug_image | debug_image,
+            ShadeOpaqueH::AT.overdraw_image | overdraw_image,
+            ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
+        },
+        .render_context = render_context.get(),
+        .timeline_pool = vsm_state.vsm_timeline_query_pool,
+        .per_frame_timestamp_count = vsm_state.PER_FRAME_TIMESTAMP_COUNT,
+    });
 
     task_clear_buffer(task_list, luminance_histogram, 0);
-    // task_list.add_task(GenLuminanceHistogramTask{
-    //     .views = std::array{
-    //         daxa::attachment_view(GenLuminanceHistogramH::AT.globals, render_context->tgpu_render_data),
-    //         daxa::attachment_view(GenLuminanceHistogramH::AT.histogram, luminance_histogram),
-    //         daxa::attachment_view(GenLuminanceHistogramH::AT.luminance_average, luminance_average),
-    //         daxa::attachment_view(GenLuminanceHistogramH::AT.color_image, color_image),
-    //     },
-    //     .render_context = render_context.get(),
-    // });
-    // task_list.add_task(GenLuminanceAverageTask{
-    //     .views = std::array{
-    //         daxa::attachment_view(GenLuminanceAverageH::AT.globals, render_context->tgpu_render_data),
-    //         daxa::attachment_view(GenLuminanceAverageH::AT.histogram, luminance_histogram),
-    //         daxa::attachment_view(GenLuminanceAverageH::AT.luminance_average, luminance_average),
-    //     },
-    //     .context = context,
-    // });
+    task_list.add_task(GenLuminanceHistogramTask{
+        .views = std::array{
+            daxa::attachment_view(GenLuminanceHistogramH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.luminance_average, luminance_average),
+            daxa::attachment_view(GenLuminanceHistogramH::AT.color_image, color_image),
+        },
+        .render_context = render_context.get(),
+    });
+    task_list.add_task(GenLuminanceAverageTask{
+        .views = std::array{
+            daxa::attachment_view(GenLuminanceAverageH::AT.globals, render_context->tgpu_render_data),
+            daxa::attachment_view(GenLuminanceAverageH::AT.histogram, luminance_histogram),
+            daxa::attachment_view(GenLuminanceAverageH::AT.luminance_average, luminance_average),
+        },
+        .context = context,
+    });
     task_list.add_task(WriteSwapchainTask{
         .views = std::array{
             daxa::attachment_view(WriteSwapchainH::AT.globals, render_context->tgpu_render_data),

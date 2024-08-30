@@ -16,6 +16,7 @@ using namespace tido::types;
 #include "rendering/renderer.hpp"
 #include "gpu_context.hpp"
 #include "multithreading/thread_pool.hpp"
+#include "application_state.hpp"
 
 struct Application
 {
@@ -46,14 +47,5 @@ private:
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
     std::unique_ptr<ThreadPool> _threadpool = {};
-    CameraController camera_controller = {};
-    CameraController observer_camera_controller = {};
-    CinematicCamera cinematic_camera = {};
-    RenderEntityId dynamic_ball = {};
-    bool draw_observer = false;
-    bool control_observer = false;
-    bool use_preset_camera = false;
-    bool keep_running = true;
-    f32 delta_time = 0.016666f;
-    std::chrono::time_point<std::chrono::steady_clock> last_time_point = {};
+    ApplicationState app_state = {};
 };

@@ -10,6 +10,7 @@
 #include "../scene/scene.hpp"
 #include "../timberdoodle.hpp"
 #include "../scene/asset_processor.hpp"
+#include "../application_state.hpp"
 #include "ui_shared.hpp"
 
 #include "widgets/scene_graph.hpp"
@@ -97,7 +98,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
         ~UIEngine();
-        void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene);
+        void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state);
 
     private:
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH

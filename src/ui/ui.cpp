@@ -123,7 +123,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene)
+void UIEngine::main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -467,112 +467,87 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
     if (shader_debug_menu)
     {
         if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
-        {}
-        // {
-        //     ImGui::SeparatorText("Observer Camera");
-        //     {
-        //         IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_ctx->render_data.settings.draw_from_observer);
-        //         ImGui::Checkbox("control observer   (J)", &control_observer);
-        //         reset_observer = reset_observer || (ImGui::Button("snap observer to main camera (K)"));
-        //         std::array<char const * const, 3> modes = {
-        //             "redraw meshlets visible last frame",
-        //             "redraw meshlet post cull",
-        //             "redraw all drawn meshlets",
-        //         };
-        //         ImGui::Combo("observer draw pass mode", &render_ctx->render_data.settings.observer_show_pass, modes.data(), modes.size());
-        //         auto const view_quat = glm::quat_cast(observer_camera_controller.make_camera_info(render_ctx->render_data.settings).view);
-        //         ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
-        //     }
-        //     ImGui::SeparatorText("Cinematic Camera");
-        //     {
-        //         ImGui::BeginDisabled(!use_preset_camera);
-        //         ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
-        //         ImGui::EndDisabled();
-        //         cinematic_camera.override_keyframe = _window->key_just_pressed(GLFW_KEY_I) ? !cinematic_camera.override_keyframe : cinematic_camera.override_keyframe;
-        //         cinematic_camera.override_keyframe &= use_preset_camera;
-        //         ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
-        //         i32 current_keyframe = cinematic_camera.current_keyframe_index;
-        //         f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-        //         ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
-        //         ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
-        //         if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
-        //         ImGui::EndDisabled();
-        //         ImGui::Checkbox("use preset camera", &use_preset_camera);
-        //         if (ImGui::Button("snap observer to cinematic"))
-        //         {
-        //             observer_camera_controller.position = cinematic_camera.position;
-        //         }
-        //     }
-        //     ImGui::SeparatorText("Debug Shader Interface");
-        //     {
-        //         ImGui::InputFloat("debug f32vec4 drag speed", &_ui_engine->debug_f32vec4_drag_speed);
-        //         ImGui::DragFloat4(
-        //             "debug f32vec4",
-        //             reinterpret_cast<f32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_fvec4),
-        //             _ui_engine->debug_f32vec4_drag_speed);
-        //         ImGui::DragInt4(
-        //             "debug i32vec4",
-        //             reinterpret_cast<i32 *>(&_renderer->context->shader_debug_context.shader_debug_input.debug_ivec4));
-        //         ImGui::Text(
-        //             "out debug f32vec4: (%f,%f,%f,%f)",
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.x,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.y,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.z,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_fvec4.w);
-        //         ImGui::Text(
-        //             "out debug i32vec4: (%i,%i,%i,%i)",
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.x,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.y,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.z,
-        //             _renderer->context->shader_debug_context.shader_debug_output.debug_ivec4.w);
-        //         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
-        //         {
-        //             _renderer->context->shader_debug_context.detector_window_position = {
-        //                 _window->get_cursor_x(),
-        //                 _window->get_cursor_y(),
-        //             };
-        //         }
-        //         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
-        //         {
-        //             _renderer->context->shader_debug_context.detector_window_position.x -= 1;
-        //         }
-        //         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
-        //         {
-        //             _renderer->context->shader_debug_context.detector_window_position.x += 1;
-        //         }
-        //         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
-        //         {
-        //             _renderer->context->shader_debug_context.detector_window_position.y -= 1;
-        //         }
-        //         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
-        //         {
-        //             _renderer->context->shader_debug_context.detector_window_position.y += 1;
-        //         }
-        //     }
-        //     ImGui::SeparatorText("Debug Shader Lens");
-        //     {
-        //         ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
-        //         ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
-        //         ImGui::Checkbox("draw_magnified_area_rect", &_renderer->context->shader_debug_context.draw_magnified_area_rect);
-        //         ImGui::InputInt("detector window size", &_renderer->context->shader_debug_context.detector_window_size, 2);
-        //         ImGui::Text(
-        //             "detector texel position: (%i,%i)",
-        //             _renderer->context->shader_debug_context.detector_window_position.x,
-        //             _renderer->context->shader_debug_context.detector_window_position.y);
-        //         ImGui::Text(
-        //             "detector center value: (%f,%f,%f,%f)",
-        //             _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
-        //             _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
-        //             _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
-        //             _renderer->context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
-        //         auto debug_lens_image_view_id = _ui_engine->imgui_renderer.create_texture_id({
-        //             .image_view_id = _renderer->context->shader_debug_context.debug_lens_image.default_view(),
-        //             .sampler_id = std::bit_cast<daxa::SamplerId>(_renderer->render_context->render_data.samplers.nearest_clamp),
-        //         });
-        //         auto const width = ImGui::GetContentRegionMax().x;
-        //         ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
-        //     }
-        // }
+        {
+            auto & cinematic_camera = app_state.cinematic_camera;
+            ImGui::SeparatorText("Observer Camera");
+            {
+                IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_ctx.render_data.settings.draw_from_observer);
+                ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
+                app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
+                std::array<char const * const, 3> modes = {
+                    "redraw meshlets visible last frame",
+                    "redraw meshlet post cull",
+                    "redraw all drawn meshlets",
+                };
+                ImGui::Combo("observer draw pass mode", &render_ctx.render_data.settings.observer_show_pass, modes.data(), modes.size());
+                auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_ctx.render_data.settings).view);
+                ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
+            }
+            ImGui::SeparatorText("Cinematic Camera");
+            {
+                ImGui::BeginDisabled(!app_state.use_preset_camera);
+                ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
+                ImGui::EndDisabled();
+                cinematic_camera.override_keyframe &= app_state.use_preset_camera;
+                ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
+                i32 current_keyframe = cinematic_camera.current_keyframe_index;
+                f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
+                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
+                ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
+                if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
+                ImGui::EndDisabled();
+                ImGui::Checkbox("use preset camera", &app_state.use_preset_camera);
+                if (ImGui::Button("snap observer to cinematic"))
+                {
+                    app_state.observer_camera_controller.position = cinematic_camera.position;
+                }
+            }
+            ImGui::SeparatorText("Debug Shader Interface");
+            {
+                ImGui::InputFloat("debug f32vec4 drag speed", &debug_f32vec4_drag_speed);
+                ImGui::DragFloat4(
+                    "debug f32vec4",
+                    reinterpret_cast<f32 *>(&render_ctx.gpuctx->shader_debug_context.shader_debug_input.debug_fvec4), debug_f32vec4_drag_speed);
+                ImGui::DragInt4(
+                    "debug i32vec4",
+                    reinterpret_cast<i32 *>(&render_ctx.gpuctx->shader_debug_context.shader_debug_input.debug_ivec4));
+                ImGui::Text(
+                    "out debug f32vec4: (%f,%f,%f,%f)",
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.x,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.y,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.z,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.w);
+                ImGui::Text(
+                    "out debug i32vec4: (%i,%i,%i,%i)",
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.x,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.y,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.z,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.w);
+            }
+            ImGui::SeparatorText("Debug Shader Lens");
+            {
+                ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
+                ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
+                ImGui::Checkbox("draw_magnified_area_rect", &render_ctx.gpuctx->shader_debug_context.draw_magnified_area_rect);
+                ImGui::InputInt("detector window size", &render_ctx.gpuctx->shader_debug_context.detector_window_size, 2);
+                ImGui::Text(
+                    "detector texel position: (%i,%i)",
+                    render_ctx.gpuctx->shader_debug_context.detector_window_position.x,
+                    render_ctx.gpuctx->shader_debug_context.detector_window_position.y);
+                ImGui::Text(
+                    "detector center value: (%f,%f,%f,%f)",
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
+                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
+                auto debug_lens_image_view_id = imgui_renderer.create_texture_id({
+                    .image_view_id = render_ctx.gpuctx->shader_debug_context.debug_lens_image.default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                });
+                auto const width = ImGui::GetContentRegionMax().x;
+                ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
+            }
+        }
         ImGui::End();
     }
 }

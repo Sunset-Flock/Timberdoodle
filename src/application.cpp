@@ -2,7 +2,6 @@
 #include "json_handler.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
-#include <fstream>
 
 #include <intrin.h>
 
@@ -20,8 +19,8 @@ Application::Application()
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path.json";
 
-    //_renderer->render_context->render_data.sky_settings = std::move(load_sky_settings(DEFAULT_SKY_SETTINGS_PATH));
-    //cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
+    _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
+    app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
     struct CompPipelinesTask : Task
     {
@@ -92,7 +91,7 @@ Application::Application()
                 auto child_node = *_scene->_render_entities.slot(child.value());
                 if (child_node.name == "DYNAMIC_sphere")
                 {
-                    dynamic_ball = child.value();
+                    app_state.dynamic_ball = child.value();
                     break;
                 }
                 child = child_node.next_sibling;
@@ -103,19 +102,19 @@ Application::Application()
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
 
-    last_time_point = std::chrono::steady_clock::now();
+    app_state.last_time_point = std::chrono::steady_clock::now();
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 
 auto Application::run() -> i32
 {
-    while (keep_running)
+    while (app_state.keep_running)
     {
         auto new_time_point = std::chrono::steady_clock::now();
-        this->delta_time = std::chrono::duration_cast<FpMilliseconds>(new_time_point - this->last_time_point).count() * 0.001f;
-        this->last_time_point = new_time_point;
-        _window->update(delta_time);
-        keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
+        app_state.delta_time = std::chrono::duration_cast<FpMilliseconds>(new_time_point - app_state.last_time_point).count() * 0.001f;
+        app_state.last_time_point = new_time_point;
+        _window->update(app_state.delta_time);
+        app_state.keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
         i32vec2 new_window_size;
         glfwGetWindowSize(this->_window->glfw_handle, &new_window_size.x, &new_window_size.y);
         if (this->_window->size.x != new_window_size.x || _window->size.y != new_window_size.y)
@@ -126,12 +125,14 @@ auto Application::run() -> i32
         if (_window->size.x != 0 && _window->size.y != 0)
         {
             update();
-            auto const camera_info = use_preset_camera ? cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) : camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
+            auto const camera_info = app_state.use_preset_camera ? 
+                app_state.cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
+                app_state.camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
 
             _renderer->render_frame(
                 camera_info,
-                observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
-                delta_time,
+                app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
+                app_state.delta_time,
                 this->_scene->_scene_draw);
         }
         _gpu_context->device.collect_garbage();
@@ -141,7 +142,7 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    auto * dynamic_ball_ent = _scene->_render_entities.slot(dynamic_ball);
+    auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
     if (dynamic_ball_ent)
     {
         auto prev_transform = glm::mat4(
@@ -151,7 +152,7 @@ void Application::update()
             glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
 
         static f32 total_time = 0.0f;
-        total_time += delta_time;
+        total_time += app_state.delta_time;
         auto new_position = f32vec4{
             std::sin(total_time) * 100.0f,
             std::cos(total_time) * 100.0f,
@@ -161,7 +162,7 @@ void Application::update()
         curr_transform[3] = new_position;
 
         dynamic_ball_ent->transform = curr_transform;
-        _scene->_modified_render_entities.push_back({dynamic_ball, prev_transform, curr_transform});
+        _scene->_modified_render_entities.push_back({app_state.dynamic_ball, prev_transform, curr_transform});
     }
 
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
@@ -181,42 +182,67 @@ void Application::update()
     };
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 
-    bool reset_observer = false;
+    app_state.reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0)
     {
         return;
     }
-    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene);
-    if (use_preset_camera)
+    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state);
+    if (app_state.use_preset_camera)
     {
-        cinematic_camera.process_input(*_window, this->delta_time);
+        app_state.cinematic_camera.process_input(*_window, app_state.delta_time);
     }
-    if (control_observer)
-    {
-        observer_camera_controller.process_input(*_window, this->delta_time);
+    if (app_state.control_observer) {
+        app_state.observer_camera_controller.process_input(*_window, app_state.delta_time);
     }
-    else
-    {
-        camera_controller.process_input(*_window, this->delta_time);
+    else {
+        app_state.camera_controller.process_input(*_window, app_state.delta_time);
     }
 
     if (_window->key_just_pressed(GLFW_KEY_H))
     {
         _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
     }
-    if (_window->key_just_pressed(GLFW_KEY_J)) { control_observer = !control_observer; }
-    if (_window->key_just_pressed(GLFW_KEY_K)) { reset_observer = true; }
+    app_state.cinematic_camera.override_keyframe = 
+        _window->key_just_pressed(GLFW_KEY_I) ?
+        !app_state.cinematic_camera.override_keyframe :
+        app_state.cinematic_camera.override_keyframe;
+    if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
+    if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
     if (_window->key_just_pressed(GLFW_KEY_O)) {
         DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->render_context->render_data.settings.observer_show_pass,
             ((_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3)));
         _renderer->render_context->render_data.settings.observer_show_pass = (_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3;
     }
-
-    if (reset_observer)
+    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
     {
-        control_observer = false;
+        _renderer->context->shader_debug_context.detector_window_position = {
+            _window->get_cursor_x(),
+            _window->get_cursor_y(),
+        };
+    }
+    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
+    {
+        _renderer->context->shader_debug_context.detector_window_position.x -= 1;
+    }
+    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
+    {
+        _renderer->context->shader_debug_context.detector_window_position.x += 1;
+    }
+    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
+    {
+        _renderer->context->shader_debug_context.detector_window_position.y -= 1;
+    }
+    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
+    {
+        _renderer->context->shader_debug_context.detector_window_position.y += 1;
+    }
+
+    if (app_state.reset_observer)
+    {
+        app_state.control_observer = false;
         _renderer->render_context->render_data.settings.draw_from_observer = static_cast<u32>(false);
-        observer_camera_controller = camera_controller;
+        app_state.observer_camera_controller = app_state.camera_controller;
     }
     ImGui::Render();
 }
