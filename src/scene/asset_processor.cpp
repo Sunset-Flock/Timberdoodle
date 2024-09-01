@@ -405,7 +405,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
         .name = raw_data.image_path.filename().string() + " staging",
     });
-    std::byte * staging_dst_ptr = device.get_host_address_as<std::byte>(ret.src_buffer).value();
+    std::byte * staging_dst_ptr = device.buffer_host_address_as<std::byte>(ret.src_buffer).value();
     memcpy(staging_dst_ptr, r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
 
     ret.mips_to_copy = 1;
@@ -556,7 +556,7 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
     recorder.copy_buffer_to_image({
         .buffer = parsed_data.src_buffer,
         .image = parsed_data.dst_image,
-        .image_extent = _device.info_image(parsed_data.dst_image).value().size,
+        .image_extent = _device.image_info(parsed_data.dst_image).value().size,
     });
 
     recorder.pipeline_barrier_image_transition({
@@ -1077,7 +1077,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
     }
     for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
     {
-        daxa::ImageViewInfo image_view_info = _device.info_image_view(texture_upload.dst_image.default_view()).value();
+        daxa::ImageViewInfo image_view_info = _device.image_view_info(texture_upload.dst_image.default_view()).value();
         /// TODO: If we are generating mips this will need to change
         recorder.pipeline_barrier_image_transition({
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
@@ -1088,7 +1088,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
     }
     for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
     {
-        daxa::ImageInfo image_info = _device.info_image(texture_upload.dst_image).value();
+        daxa::ImageInfo image_info = _device.image_info(texture_upload.dst_image).value();
         for (u32 mip = 0; mip < texture_upload.mips_to_copy; ++mip)
         {
             u32 width = std::max(1u, image_info.size.x >> mip);

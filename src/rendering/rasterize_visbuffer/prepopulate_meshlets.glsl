@@ -30,7 +30,6 @@ void main()
     }
     MeshInstance mesh_instance = deref_i(deref(push.uses.mesh_instances).instances, mesh_instance_index);
     uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
-    return;
 
     const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_instance.entity_index]);
     if (mesh_group_index == INVALID_MANIFEST_INDEX)

@@ -386,7 +386,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
         u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        auto const depth_resolution = render_context->gpuctx->device.info_image(ti.get(AT.depth).ids[0]).value().size;
+        auto const depth_resolution = render_context->gpuctx->device.image_info(ti.get(AT.depth).ids[0]).value().size;
         auto const dispatch_size = u32vec2{
             (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
             (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,

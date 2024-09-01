@@ -42,8 +42,8 @@ struct AnalyzeVisBufferTask : AnalyzeVisbuffer
         cmd.set_uniform_buffer(context->shader_globals_set_info);
         cmd.set_uniform_buffer(ti.uses.get_uniform_buffer_info());
         cmd.set_pipeline(*context->compute_pipelines.at(AnalyzeVisbuffer{}.name()));
-        auto const x = ti.get_device().info_image(uses.u_visbuffer.image()).size.x;
-        auto const y = ti.get_device().info_image(uses.u_visbuffer.image()).size.y;
+        auto const x = ti.get_device().image_info(uses.u_visbuffer.image()).size.x;
+        auto const y = ti.get_device().image_info(uses.u_visbuffer.image()).size.y;
         cmd.push_constant(AnalyzeVisbufferPush{
             .width = x,
             .height = y,

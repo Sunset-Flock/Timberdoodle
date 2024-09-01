@@ -86,7 +86,7 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
 
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
         auto const color_image_id = ti.get(AT.color_image).ids[0];
-        auto const color_image_info = ti.device.info_image(color_image_id).value();
+        auto const color_image_info = ti.device.image_info(color_image_id).value();
 
         auto alloc = ti.allocator->allocate(sizeof(ShadeOpaqueAttachments));
         std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ShadeOpaqueH::AttachmentShaderBlob));

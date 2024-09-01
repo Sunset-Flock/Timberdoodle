@@ -54,7 +54,7 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
-        auto [x, y, z] = ti.device.info_image(ti.get(AnalyzeVisbuffer2H::AT.visbuffer).ids[0]).value().size;
+        auto [x, y, z] = ti.device.image_info(ti.get(AnalyzeVisbuffer2H::AT.visbuffer).ids[0]).value().size;
         AnalyzeVisbufferPush2 push{
             .size = {x, y},
             .inv_size = {1.0f / float(x), 1.0f / float(y)},

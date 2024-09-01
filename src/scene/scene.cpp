@@ -41,9 +41,15 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
 
 Scene::~Scene()
 {
-    if (!_gpu_mesh_group_indices_array_buffer.is_empty())
+    if (!_gpu_mesh_group_indices_array_buffer.is_empty()) { _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer); }
+    if (!_scene_blas.is_empty()) { _device.destroy_blas(_scene_blas); }
+
+    for (auto & mesh_group : _mesh_group_manifest)
     {
-        _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer);
+        if(!mesh_group.blas.is_empty())
+        {
+            _device.destroy_blas(mesh_group.blas);
+        }
     }
 
     for (auto & mesh : _mesh_manifest)
@@ -53,6 +59,7 @@ Scene::~Scene()
             _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().mesh_buffer));
         }
     }
+
     for (auto & texture : _material_texture_manifest)
     {
         if (texture.runtime_texture.has_value())
@@ -767,7 +774,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .name = "mesh group update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_groups_indices_staging);
-        u32 * indices_staging_ptr = _device.get_host_address_as<u32>(mesh_groups_indices_staging).value();
+        u32 * indices_staging_ptr = _device.buffer_host_address_as<u32>(mesh_groups_indices_staging).value();
         std::memcpy(indices_staging_ptr, _mesh_manifest_indices_new.data(), _mesh_manifest_indices_new.size() * sizeof(_mesh_manifest_indices_new[0]));
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_groups_indices_staging,
@@ -783,7 +790,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .name = "mesh group update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_group_staging_buffer);
-        GPUMeshGroup * staging_ptr = _device.get_host_address_as<GPUMeshGroup>(mesh_group_staging_buffer).value();
+        GPUMeshGroup * staging_ptr = _device.buffer_host_address_as<GPUMeshGroup>(mesh_group_staging_buffer).value();
         u32 const mesh_group_manifest_offset = _mesh_group_manifest.size() - _new_mesh_group_manifest_entries;
         for (u32 new_mesh_group_idx = 0; new_mesh_group_idx < _new_mesh_group_manifest_entries; new_mesh_group_idx++)
         {
@@ -813,7 +820,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .name = "mesh update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_staging_buffer);
-        GPUMesh * staging_ptr = _device.get_host_address_as<GPUMesh>(mesh_staging_buffer).value();
+        GPUMesh * staging_ptr = _device.buffer_host_address_as<GPUMesh>(mesh_staging_buffer).value();
         std::vector<GPUMesh> tmp_meshes;
         tmp_meshes.resize(_new_mesh_manifest_entries, GPUMesh{.mesh_buffer = {.value = {}}});
         std::memcpy(staging_ptr, tmp_meshes.data(), _new_mesh_manifest_entries * sizeof(GPUMesh));
@@ -838,7 +845,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .name = "material update staging buffer",
         });
         recorder.destroy_buffer_deferred(material_staging_buffer);
-        GPUMaterial * staging_ptr = _device.get_host_address_as<GPUMaterial>(material_staging_buffer).value();
+        GPUMaterial * staging_ptr = _device.buffer_host_address_as<GPUMaterial>(material_staging_buffer).value();
         std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
         for (i32 i = 0; i < _new_material_manifest_entries; i++)
         {
@@ -890,7 +897,7 @@ static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUM
         });
 
         recorder.destroy_buffer_deferred(staging_buffer);
-        GPUMesh * staging_ptr = scene._device.get_host_address_as<GPUMesh>(staging_buffer).value();
+        GPUMesh * staging_ptr = scene._device.buffer_host_address_as<GPUMesh>(staging_buffer).value();
         for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
         {
             auto const & upload = info.uploaded_meshes[upload_index];
@@ -1021,7 +1028,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                 .name = "gpu materials update staging",
             });
             recorder.destroy_buffer_deferred(materials_update_staging_buffer);
-            staging_origin_ptr = scene._device.get_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
+            staging_origin_ptr = scene._device.buffer_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
         }
         for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
         {
@@ -1264,7 +1271,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     {
 
         auto indirections = std::span{
-            _device.get_host_address_as<MergedSceneBlasIndirection>(_scene_as_indirections.get_state().buffers[0]).value(),
+            _device.buffer_host_address_as<MergedSceneBlasIndirection>(_scene_as_indirections.get_state().buffers[0]).value(),
             _indirections_count,
         };
 
@@ -1303,7 +1310,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         recorder.destroy_buffer_deferred(geometry_transforms_buf);
         u64 geometry_transforms_device_address = _device.buffer_device_address(geometry_transforms_buf).value();
         auto geometry_transforms = std::span{
-            _device.get_host_address_as<daxa_f32mat3x4>(geometry_transforms_buf).value(),
+            _device.buffer_host_address_as<daxa_f32mat3x4>(geometry_transforms_buf).value(),
             active_entities,
         };
 
@@ -1405,7 +1412,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     });
     recorder.destroy_buffer_deferred(blas_instances_buffer);
 
-    std::memcpy(_device.get_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(), &blas_instance, sizeof(daxa_BlasInstanceData));
+    std::memcpy(_device.buffer_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(), &blas_instance, sizeof(daxa_BlasInstanceData));
 
     auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
         .data = _device.buffer_device_address(blas_instances_buffer).value(),
@@ -1546,9 +1553,9 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instanc
 
     // Write Buffer, add address on offsets and counts:
     cpu_mesh_instance_counts = {};
-    std::memcpy(host_address, &buffer_head, sizeof(MeshInstancesBufferHead));
     usize const mesh_instances_size = sizeof(MeshInstance) * cpu_mesh_instances.mesh_instances.size();
     std::memcpy(host_address + buffer_head.instances, cpu_mesh_instances.mesh_instances.data(), mesh_instances_size);
+
     buffer_head.instances += device_address;
     cpu_mesh_instance_counts.mesh_instance_count = cpu_mesh_instances.mesh_instances.size();
     for (int draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
@@ -1565,5 +1572,8 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instanc
         cpu_mesh_instances.vsm_invalidate_draw_list.data(),
         sizeof(u32) * cpu_mesh_instances.vsm_invalidate_draw_list.size());
     buffer_head.vsm_invalidate_draw_list.instances += device_address;
+
+    std::memcpy(host_address, &buffer_head, sizeof(MeshInstancesBufferHead));
+
     cpu_mesh_instance_counts.vsm_invalidate_instance_count = cpu_mesh_instances.vsm_invalidate_draw_list.size();
 }

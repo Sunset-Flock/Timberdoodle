@@ -128,7 +128,7 @@ struct DebugDrawTask : DebugDrawH::Task
     RenderContext * rctx = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto const colorImageSize = ti.device.info_image(ti.get(AT.color_image).ids[0]).value().size;
+        auto const colorImageSize = ti.device.image_info(ti.get(AT.color_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             // .depth_attachment =
             //     daxa::RenderAttachmentInfo{

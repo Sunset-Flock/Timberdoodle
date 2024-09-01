@@ -173,13 +173,13 @@ void Application::update()
     _scene->write_gpu_mesh_instances_buffer(std::move(tmp_cpu_mesh_instances));
 
     bool const merged_blas = _renderer->render_context->render_data.settings.enable_merged_scene_blas;
-    // auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
-    // auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
+    auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
+    auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
     auto cmd_lists = std::array{
         std::move(asset_data_upload_info.upload_commands),
         std::move(manifest_update_commands),
-        // std::move(rt_merged_update_commands),
-        // std::move(rt_update_command),
+        std::move(rt_merged_update_commands),
+        std::move(rt_update_commands),
     };
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 

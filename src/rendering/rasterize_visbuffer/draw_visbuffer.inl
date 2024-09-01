@@ -200,7 +200,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     void callback(daxa::TaskInterface ti)
     {
         bool const clear_images = pass != PASS1_DRAW_POST_CULL;
-        auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
@@ -259,7 +259,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         bool const clear_images = false;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
-        auto [x, y, z] = ti.device.info_image(ti.get(AT.depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
             .render_area = daxa::Rect2D{.width = x, .height = y},
         };

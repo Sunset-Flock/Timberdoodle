@@ -880,7 +880,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=, this](daxa::TaskInterface ti)
         {
-            auto size = ti.device.info_image(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
+            auto size = ti.device.image_info(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
             imgui_renderer->record_commands(
                 ImGui::GetDrawData(), ti.recorder, ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0], size.x, size.y);
         },
@@ -910,7 +910,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].second_count, second_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
             
-            render_context->general_readback = ti.device.get_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
+            render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
         },
         .name = "general readback",
     });
