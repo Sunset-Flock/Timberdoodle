@@ -176,10 +176,10 @@ struct ShaderDebugDrawContext
             .box_draw_capacity = max_box_draws,
             .cpu_input = shader_debug_input,
             .gpu_output = {},
-            .circle_draws = device.get_device_address(buffer).value() + circle_buffer_offset,
-            .rectangle_draws = device.get_device_address(buffer).value() + rectangle_buffer_offset,
-            .aabb_draws = device.get_device_address(buffer).value() + aabb_buffer_offset,
-            .box_draws = device.get_device_address(buffer).value() + box_buffer_offset,
+            .circle_draws = device.buffer_device_address(buffer).value() + circle_buffer_offset,
+            .rectangle_draws = device.buffer_device_address(buffer).value() + rectangle_buffer_offset,
+            .aabb_draws = device.buffer_device_address(buffer).value() + aabb_buffer_offset,
+            .box_draws = device.buffer_device_address(buffer).value() + box_buffer_offset,
         };
         auto alloc = allocator.allocate_fill(head).value();
         recorder.copy_buffer_to_buffer({
@@ -263,7 +263,7 @@ struct ReadbackTask : ReadbackH::Task
     void callback(daxa::TaskInterface ti)
     {
         // Copy out the debug output from 4 frames ago
-        std::memcpy(&shader_debug_context->shader_debug_output, ti.device.get_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
+        std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
         // Set the currently recording frame to write its debug output to the slot we just read from.
         ti.recorder.copy_buffer_to_buffer({
             .src_buffer = shader_debug_context->buffer,

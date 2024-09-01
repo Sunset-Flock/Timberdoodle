@@ -125,7 +125,7 @@ struct VSMMeshShaderMaskVertex : MeshShaderVertexT
     [[vk::location(1)]] float2 uv;
     [[vk::location(2)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASKED;
+    static const uint PREPASS_DRAW_LIST_TYPE = PREPASS_DRAW_LIST_MASKED;
 }
 
 func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(

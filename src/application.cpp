@@ -132,8 +132,7 @@ auto Application::run() -> i32
             _renderer->render_frame(
                 camera_info,
                 app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
-                app_state.delta_time,
-                this->_scene->_scene_draw);
+                app_state.delta_time);
         }
         _gpu_context->device.collect_garbage();
     }
@@ -170,15 +169,17 @@ void Application::update()
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
+    auto tmp_cpu_mesh_instances = _scene->process_entities();
+    _scene->write_gpu_mesh_instances_buffer(std::move(tmp_cpu_mesh_instances));
 
     bool const merged_blas = _renderer->render_context->render_data.settings.enable_merged_scene_blas;
-    auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
-    auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
+    // auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
+    // auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
     auto cmd_lists = std::array{
         std::move(asset_data_upload_info.upload_commands),
         std::move(manifest_update_commands),
-        std::move(rt_merged_update_commands),
-        std::move(rt_update_commands),
+        // std::move(rt_merged_update_commands),
+        // std::move(rt_update_command),
     };
     _gpu_context->device.submit_commands({.command_lists = cmd_lists});
 

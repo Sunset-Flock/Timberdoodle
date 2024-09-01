@@ -94,7 +94,7 @@ inline void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
 template<typename T>
 inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBufferAttachmentInfo dst, u32 dst_offset = 0)
 {
-    auto address = ti.device.get_device_address(dst.ids[0]).value();
+    auto address = ti.device.buffer_device_address(dst.ids[0]).value();
     auto alloc = ti.allocator->allocate_fill(value).value();
     ti.recorder.copy_buffer_to_buffer({
         .src_buffer = ti.allocator->buffer(),

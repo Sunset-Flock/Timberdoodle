@@ -130,7 +130,7 @@ struct MeshletInstancesBufferHead
     daxa_u32 first_count;
     daxa_u32 second_count;
     daxa_RWBufferPtr(MeshletInstance) meshlets;
-    MeshletDrawList2 draw_lists[2];
+    MeshletDrawList2 prepass_draw_lists[2];
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(MeshletInstancesBufferHead, 8)
 
@@ -139,8 +139,8 @@ inline auto make_meshlet_instance_buffer_head(daxa::DeviceAddress address) -> Me
 {
     MeshletInstancesBufferHead ret = {};
     address = ret.meshlets = address + sizeof(MeshletInstancesBufferHead);
-    address = ret.draw_lists[0].instances = address + sizeof(MeshletInstance) * MAX_MESHLET_INSTANCES;
-    address = ret.draw_lists[1].instances = address + sizeof(daxa_u32) * MAX_MESHLET_INSTANCES;
+    address = ret.prepass_draw_lists[0].instances = address + sizeof(MeshletInstance) * MAX_MESHLET_INSTANCES;
+    address = ret.prepass_draw_lists[1].instances = address + sizeof(daxa_u32) * MAX_MESHLET_INSTANCES;
     return ret;
 }
 inline auto size_of_meshlet_instance_buffer() -> daxa::usize

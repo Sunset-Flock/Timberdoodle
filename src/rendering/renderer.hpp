@@ -32,8 +32,7 @@ struct Renderer
     void render_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
-        f32 const delta_time,
-        SceneDraw scene_draw);
+        f32 const delta_time);
     void readback_statistics(daxa::TaskGraph & tg);
 
     daxa::TaskBuffer zero_buffer = {};

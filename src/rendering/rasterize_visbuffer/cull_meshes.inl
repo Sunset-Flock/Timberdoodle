@@ -14,7 +14,7 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
@@ -76,9 +76,11 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
         };
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
-        auto total_mesh_draws = render_context->scene_draw.opaque_draw_lists[0].size() + render_context->scene_draw.opaque_draw_lists[1].size();
-        total_mesh_draws = std::min(total_mesh_draws, u64(MAX_MESH_INSTANCES));
-        ti.recorder.dispatch(daxa::DispatchInfo{ round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1 });
+        auto total_mesh_draws =
+            render_context->mesh_instance_counts.prepass_instance_counts[0] +
+            render_context->mesh_instance_counts.prepass_instance_counts[1];
+        total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
+        ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1});
     }
 };
 
@@ -87,10 +89,10 @@ struct TaskExpandMeshesToMeshletsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph & task_list;
     bool cull_meshes = {};
-        // Used for VSM page culling:
-        daxa::TaskImageView     vsm_hip                 = daxa::NullTaskImage;
-        daxa::u32               vsm_cascade             = {};
-        daxa::TaskBufferView    vsm_clip_projections    = daxa::NullTaskBuffer;
+    // Used for VSM page culling:
+    daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
+    daxa::u32 vsm_cascade = {};
+    daxa::TaskBufferView vsm_clip_projections = daxa::NullTaskBuffer;
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView mesh_instances = {};
@@ -101,8 +103,8 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskBufferView meshgroups = {};
     daxa::TaskBufferView entity_transforms = {};
     daxa::TaskBufferView entity_combined_transforms = {};
-    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> & opaque_meshlet_cull_po2expansions;
-    DispatchIndirectStruct dispatch_clear = {0,1,1};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> & opaque_meshlet_cull_po2expansions;
+    DispatchIndirectStruct dispatch_clear = {0, 1, 1};
     std::string buffer_name_prefix = "";
 };
 void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
@@ -123,13 +125,11 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         .task = [=](daxa::TaskInterface ti)
         {
             allocate_fill_copy(
-                ti, Po2WorkExpansionBufferHead::create(ti.device.get_device_address(ti.get(opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
-                ti.get(opaque_po2expansion)
-            );
+                ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
+                ti.get(opaque_po2expansion));
             allocate_fill_copy(
-                ti, Po2WorkExpansionBufferHead::create(ti.device.get_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
-                ti.get(masked_opaque_po2expansion)
-            );
+                ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
+                ti.get(masked_opaque_po2expansion));
         },
         .name = "init meshlet cull arg buckets buffer",
     });

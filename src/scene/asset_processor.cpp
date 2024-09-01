@@ -474,7 +474,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,  // Host local memory.
         .name = raw_data.image_path.string() + " staging",
     });
-    std::byte* staging_ptr = device.get_host_address(staging).value();
+    std::byte* staging_ptr = device.buffer_host_address(staging).value();
     ktx_uint8_t* image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
     daxa::Format const format = std::bit_cast<daxa::Format>(texture->vkFormat);
     daxa::ImageId image_id = device.create_image({
@@ -950,7 +950,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
             .size = s_cast<daxa::usize>(total_mesh_buffer_size),
             .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
         });
-        mesh_bda = _device.get_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
+        mesh_bda = _device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
         staging_buffer = _device.create_buffer({
             .size = s_cast<daxa::usize>(total_mesh_buffer_size),
@@ -958,7 +958,7 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
             .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
         });
     }
-    auto staging_ptr = _device.get_host_address(staging_buffer).value();
+    auto staging_ptr = _device.buffer_host_address(staging_buffer).value();
 
     u32 accumulated_offset = 0;
     // ---

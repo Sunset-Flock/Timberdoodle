@@ -85,6 +85,7 @@ struct MeshGroupManifestEntry
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
     u32 loaded_meshes = {}; 
+    bool fully_loaded_last_frame = {};
     daxa::BlasId blas = {};
     std::string name = {};
 };
@@ -132,6 +133,13 @@ struct GltfAssetManifestEntry
 };
 
 using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;
+
+struct CPUMeshInstances
+{
+    std::vector<MeshInstance> mesh_instances = {};
+    std::vector<u32> prepass_draw_lists[PREPASS_DRAW_LIST_TYPES] = {{}, {}};
+    std::vector<u32> vsm_invalidate_draw_list = {};
+};
 
 struct Scene
 {
@@ -199,7 +207,8 @@ struct Scene
     daxa::BlasId _scene_blas = {};
     daxa::TaskBuffer _scene_as_indirections = {};
 
-    SceneDraw _scene_draw = {};
+    daxa::Device _device = {};
+    GPUContext * gpu_context = {};
 
     // TODO(msakmary) REMOVE ME - this is a giant hack
     std::vector<AABB> REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = {};
@@ -245,6 +254,14 @@ struct Scene
     auto create_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
     auto create_merged_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
 
-    daxa::Device _device = {};
-    GPUContext * gpu_context = {};
+
+    /// --- Transient Processes ---
+
+    // Populated by process entities every frame
+    CPUMeshInstanceCounts cpu_mesh_instance_counts = {};                            // Useful for cpu driven dispatches and draws. Only really need counts on cpu.
+    std::vector<RenderEntityId> blas_build_requests = {};
+    daxa::TaskBuffer mesh_instances_buffer = {};
+    bool entities_changed = {};
+    auto process_entities() -> CPUMeshInstances;
+    void write_gpu_mesh_instances_buffer(CPUMeshInstances && mesh_instances);
 };

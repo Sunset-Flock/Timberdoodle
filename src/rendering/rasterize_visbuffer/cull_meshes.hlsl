@@ -17,7 +17,7 @@ void main(uint thread_id : SV_DispatchThreadID)
         return;
     }
     MeshInstance mesh_instance = deref_i(deref(push.uses.mesh_instances).instances, mesh_instance_index);
-    uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? DRAW_LIST_OPAQUE : DRAW_LIST_MASKED;
+    uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
     GPUMesh mesh = deref_i(push.uses.meshes, mesh_instance.mesh_index);
     if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
     {
@@ -55,7 +55,7 @@ void main(uint thread_id : SV_DispatchThreadID)
     }
 
     Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(draw_list_type == 
-        DRAW_LIST_OPAQUE ? 
+        PREPASS_DRAW_LIST_OPAQUE ? 
         (uint64_t)push.uses.opaque_po2expansion : 
         (uint64_t)push.uses.masked_opaque_po2expansion);
 

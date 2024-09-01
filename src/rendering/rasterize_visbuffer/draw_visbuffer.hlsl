@@ -21,7 +21,7 @@
 void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
 {
     DrawVisbufferPush_WriteCommand push = write_cmd_p;
-    for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
+    for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
     {
         uint meshlets_to_draw = get_meshlet_draw_count(
             push.uses.globals,
@@ -132,7 +132,7 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
 interface MeshShaderVertexT
 {
     DECL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE;
+    static const uint PREPASS_DRAW_LIST_TYPE;
 }
 interface MeshShaderPrimitiveT
 {
@@ -146,7 +146,7 @@ struct MeshShaderOpaqueVertex : MeshShaderVertexT
 {
     float4 position : SV_Position;
     IMPL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_OPAQUE;
+    static const uint PREPASS_DRAW_LIST_TYPE = PREPASS_DRAW_LIST_OPAQUE;
 };
 struct MeshShaderOpaquePrimitive : MeshShaderPrimitiveT
 {
@@ -164,7 +164,7 @@ struct MeshShaderMaskVertex : MeshShaderVertexT
     [[vk::location(1)]] float2 uv;
     [[vk::location(2)]] float3 object_space_position;
     IMPL_GET_SET(float4, position)
-    static const uint DRAW_LIST_TYPE = DRAW_LIST_MASKED;
+    static const uint PREPASS_DRAW_LIST_TYPE = PREPASS_DRAW_LIST_MASKED;
 }
 struct MeshShaderMaskPrimitive : MeshShaderPrimitiveT
 {
@@ -344,7 +344,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         draw_p.uses.globals,
         draw_p.uses.meshlet_instances, 
         draw_p.pass, 
-        V::DRAW_LIST_TYPE,
+        V::PREPASS_DRAW_LIST_TYPE,
         svtid.y);
     if (inst_meshlet_index >= MAX_MESHLET_INSTANCES)
     {
@@ -352,8 +352,8 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         return;
     }
     const uint total_meshlet_count = 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].first_count + 
-        deref(draw_p.uses.meshlet_instances).draw_lists[0].second_count;
+        deref(draw_p.uses.meshlet_instances).prepass_draw_lists[0].first_count + 
+        deref(draw_p.uses.meshlet_instances).prepass_draw_lists[0].second_count;
     const MeshletInstance meshlet_inst = deref_i(deref(draw_p.uses.meshlet_instances).meshlets, inst_meshlet_index);
 
     bool cull_backfaces = false;
@@ -460,7 +460,7 @@ struct MeshInstanceWorkItems : IPo2SrcWorkItems
 
 bool get_meshlet_instance_from_workitem(
     Po2WorkExpansionBufferHead * po2expansion,
-    OpaqueMeshInstancesBufferHead * mesh_instances,
+    MeshInstancesBufferHead * mesh_instances,
     GPUMesh * meshes,
     uint bucket_index,
     uint thread_index, 
@@ -495,7 +495,7 @@ func entry_task_meshlet_cull(
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
         po2expansion,
@@ -545,8 +545,8 @@ func entry_task_meshlet_cull(
             push.uses.meshlet_instances->first_count + 
             atomicAdd(push.uses.meshlet_instances->second_count, surviving_meshlet_count);
         global_draws_offsets = 
-            push.uses.meshlet_instances->draw_lists[push.draw_list_type].first_count + 
-            atomicAdd(push.uses.meshlet_instances->draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
+            push.uses.meshlet_instances->prepass_draw_lists[push.draw_list_type].first_count + 
+            atomicAdd(push.uses.meshlet_instances->prepass_draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
     }
     payload.task_shader_meshlet_instances_offset = WaveBroadcastLaneAt(payload.task_shader_meshlet_instances_offset, 0);
     global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
@@ -571,7 +571,7 @@ func entry_task_meshlet_cull(
         const uint draw_list_element_index = global_draws_offsets + local_survivor_index;
         if (draw_list_element_index < MAX_MESHLET_INSTANCES)
         {
-            deref_i(deref(push.uses.meshlet_instances).draw_lists[push.draw_list_type].instances, draw_list_element_index) = 
+            deref_i(deref(push.uses.meshlet_instances).prepass_draw_lists[push.draw_list_type].instances, draw_list_element_index) = 
                 (meshlet_instance_idx < MAX_MESHLET_INSTANCES) ? 
                 meshlet_instance_idx : 
                 (~0u);
@@ -645,7 +645,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
     // The meshlet should always be valid here, 
     // as otherwise the task shader would not have dispatched this mesh shader.
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.uses.po2expansion : (uint64_t)push.uses.masked_po2expansion);
     MeshletInstance meshlet_inst;
     let valid_meshlet = get_meshlet_instance_from_workitem(
         po2expansion,

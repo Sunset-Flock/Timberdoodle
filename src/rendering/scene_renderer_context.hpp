@@ -13,20 +13,18 @@
 
 #include "../gpu_context.hpp"
 
+struct CPUMeshInstanceCounts
+{
+    u32 mesh_instance_count = {};
+    u32 prepass_instance_counts[PREPASS_DRAW_LIST_TYPES] = {};
+    u32 vsm_invalidate_instance_count = {};
+};
+
 struct DynamicMesh
 {
     glm::mat4x4 prev_transform;
     glm::mat4x4 curr_transform;
     std::vector<AABB> meshlet_aabbs;
-};
-struct SceneDraw
-{
-    std::array<std::vector<MeshInstance>, 2> opaque_draw_lists = {};
-    daxa::TaskBuffer opaque_mesh_instances = daxa::TaskBuffer{{.name = "opaque draw lists"}};
-    std::vector<DynamicMesh> dynamic_meshes = {};
-    // Total maximum entity index.
-    // NOT max entity_index of this draw.
-    u32 max_entity_index = {};
 };
 
 // Used to store all information used only by the renderer.
@@ -104,7 +102,7 @@ struct RenderContext
                 .name = "normals sampler",
             }),
         };
-        render_data.debug = gpuctx->device.get_device_address(gpuctx->shader_debug_context.buffer).value();
+        render_data.debug = gpuctx->device.buffer_device_address(gpuctx->shader_debug_context.buffer).value();
     }
     ~RenderContext()
     {
@@ -121,7 +119,7 @@ struct RenderContext
     // GPUContext containing all shared global-ish gpu related data.
     GPUContext * gpuctx = {};
     // Passed from scene to renderer each frame to specify what should be drawn.
-    SceneDraw scene_draw = {};
+    CPUMeshInstanceCounts mesh_instance_counts = {};
 
     daxa::TaskBuffer tgpu_render_data = {};
 

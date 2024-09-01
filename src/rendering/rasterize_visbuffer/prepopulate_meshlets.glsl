@@ -23,13 +23,14 @@ layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
 void main()
 {
     uint mesh_instance_index = gl_GlobalInvocationID.x;
-    uint mesh_instance_count = min(deref(push.uses.opaque_mesh_instances).count, MAX_MESH_INSTANCES);
+    uint mesh_instance_count = min(deref(push.uses.mesh_instances).count, MAX_MESH_INSTANCES);
     if (mesh_instance_index >= mesh_instance_count)
     {
         return;
     }
-    MeshInstance mesh_instance = deref_i(deref(push.uses.opaque_mesh_instances).instances, mesh_instance_index);
-    uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? DRAW_LIST_OPAQUE : DRAW_LIST_MASKED;
+    MeshInstance mesh_instance = deref_i(deref(push.uses.mesh_instances).instances, mesh_instance_index);
+    uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
+    return;
 
     const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_instance.entity_index]);
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
@@ -149,26 +150,26 @@ void main()
             
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
-            uint opaque_draw_list_type_index = DRAW_LIST_OPAQUE;
+            uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
                 GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
-                opaque_draw_list_type_index = material.alpha_discard_enabled ? DRAW_LIST_MASKED : DRAW_LIST_OPAQUE;
+                opaque_draw_list_type_index = material.alpha_discard_enabled ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
             }
             // Scalarize appends to the draw lists.
             // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
             // This allows for scalar atomic ops and packed writeouts.
             // Drawlist type count are low, scalarization will most likely always improve perf.
             [[unroll]]
-            for (uint draw_list_type = 0; draw_list_type < DRAW_LIST_TYPES; ++draw_list_type)
+            for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
             {
                 if (opaque_draw_list_type_index != draw_list_type)
                 {
                     continue;
                 }
                 // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
-                const uint opaque_draw_list_index = atomicAdd(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].first_count, 1);
-                deref(deref(push.uses.meshlet_instances).draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
+                const uint opaque_draw_list_index = atomicAdd(deref(push.uses.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
+                deref(deref(push.uses.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
             } 
         }
     }

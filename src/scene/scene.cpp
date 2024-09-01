@@ -27,11 +27,11 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESHES, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
-    _scene_draw.opaque_mesh_instances = tido::make_task_buffer(_device, get_opaque_draw_list_buffer_size(), "opaque_draw_list_buffer");
+    mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
     _scene_tlas = daxa::TaskTlas{
         {
-            .initial_tlas = std::array{
-                gpu_context->dummy_tlas_id,
+            .initial_tlas = {
+                .tlas = std::array{gpu_context->dummy_tlas_id},
             },
             .name = "scene tlas",
         },
@@ -82,7 +82,7 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
 static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info);
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
-static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
+// static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & ctx) -> RenderEntityId;
 
@@ -100,7 +100,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_material_manifest_from_gltf(*this, info, load_ctx);
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
         root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
-        update_mesh_instance_draw_lists(*this, info, load_ctx);
+        // update_mesh_instance_draw_lists(*this, info, load_ctx);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
             .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(load_ctx.asset)),
@@ -605,39 +605,39 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
     scene._new_texture_manifest_entries = 0;
 }
 
-static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
-{
-    for (u32 entity_i = 0; entity_i < scene._render_entities.capacity(); ++entity_i)
-    {
-        RenderEntity const * r_ent = scene._render_entities.slot_by_index(entity_i);
-        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
-        {
-            MeshGroupManifestEntry const & mesh_group = scene._mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-            for (u32 in_mesh_group_mesh_i = 0; in_mesh_group_mesh_i < mesh_group.mesh_count; ++in_mesh_group_mesh_i)
-            {
-                u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_mesh_group_mesh_i);
-                MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
-                u32 opaque_draw_list_type = DRAW_LIST_OPAQUE;
-                // TODO: add dummy material!
-                if (mesh.material_index.has_value())
-                {
-                    MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
-                    if (material.alpha_discard_enabled)
-                    {
-                        opaque_draw_list_type = DRAW_LIST_MASKED;
-                    }
-                }
-                auto mesh_draw = MeshInstance{
-                    .entity_index = entity_i,
-                    .mesh_index = mesh_index,
-                    .in_mesh_group_index = in_mesh_group_mesh_i,
-                };
-                scene._scene_draw.opaque_draw_lists[opaque_draw_list_type].push_back(mesh_draw);
-            }
-        }
-    }
-    scene._scene_draw.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
-}
+// static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+// {
+//     for (u32 entity_i = 0; entity_i < scene._render_entities.capacity(); ++entity_i)
+//     {
+//         RenderEntity const * r_ent = scene._render_entities.slot_by_index(entity_i);
+//         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
+//         {
+//             MeshGroupManifestEntry const & mesh_group = scene._mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
+//             for (u32 in_mesh_group_mesh_i = 0; in_mesh_group_mesh_i < mesh_group.mesh_count; ++in_mesh_group_mesh_i)
+//             {
+//                 u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_mesh_group_mesh_i);
+//                 MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
+//                 u32 opaque_draw_list_type = PREPASS_DRAW_LIST_OPAQUE;
+//                 // TODO: add dummy material!
+//                 if (mesh.material_index.has_value())
+//                 {
+//                     MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
+//                     if (material.alpha_discard_enabled)
+//                     {
+//                         opaque_draw_list_type = PREPASS_DRAW_LIST_MASKED;
+//                     }
+//                 }
+//                 auto mesh_draw = MeshInstance{
+//                     .entity_index = entity_i,
+//                     .mesh_index = mesh_index,
+//                     .in_mesh_group_index = in_mesh_group_mesh_i,
+//                 };
+//                 scene.cpu_mesh_instance_counts.prepass_instance_counts[opaque_draw_list_type].push_back(mesh_draw);
+//             }
+//         }
+//     }
+//     scene._scene_draw.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
+// }
 
 static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
@@ -663,7 +663,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .name = "entities update staging",
         });
         recorder.destroy_buffer_deferred(staging_buffer);
-        host_ptr = _device.get_host_address(staging_buffer).value();
+        host_ptr = _device.buffer_host_address(staging_buffer).value();
         *r_cast<GPUEntityMetaData *>(host_ptr) = {.entity_count = s_cast<u32>(_render_entities.size())};
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
@@ -746,42 +746,6 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         update_entity(i, entity, entity_index);
     }
 
-    _scene_draw.dynamic_meshes.clear();
-    for (u32 i = 0; i < _modified_render_entities.size(); ++i)
-    {
-        u32 entity_index = _modified_render_entities[i].entity.index;
-        auto * entity = _render_entities.slot(_modified_render_entities[i].entity);
-        auto combined_parent_transform = update_entity(i, entity, entity_index);
-
-        _scene_draw.dynamic_meshes.push_back({combined_parent_transform * _modified_render_entities[i].prev_transform,
-            combined_parent_transform * _modified_render_entities[i].curr_transform,
-            REMOVE_ME_dynamic_object_aabbs_REMOVE_ME});
-    }
-#pragma region TEMP_UPLOAD_OPAQUE_DRAW_LISTS
-    if (!_dirty_render_entities.empty())
-    {
-        auto staging = _device.create_buffer({
-            .size = get_opaque_draw_list_buffer_size(),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-            .name = "opaque draw lists buffer upload",
-        });
-        recorder.destroy_buffer_deferred(staging);
-        auto staging_ptr = _device.get_host_address(staging).value();
-        fill_opaque_draw_list_buffer_head(
-            _device.get_device_address(_scene_draw.opaque_mesh_instances.get_state().buffers[0]).value(),
-            reinterpret_cast<uint8_t *>(staging_ptr),
-            std::array{
-                std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[0]},
-                std::span<MeshInstance const>{_scene_draw.opaque_draw_lists[1]},
-            });
-        recorder.copy_buffer_to_buffer({
-            .src_buffer = staging,
-            .dst_buffer = _scene_draw.opaque_mesh_instances.get_state().buffers[0],
-            .size = get_opaque_draw_list_buffer_size(),
-        });
-    }
-
-#pragma endregion
     _dirty_render_entities.clear();
     _modified_render_entities.clear();
 
@@ -810,7 +774,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .dst_buffer = _gpu_mesh_group_indices_array_buffer,
             .size = mesh_group_indices_mem_size,
         });
-        auto mesh_group_indices_array_addr = _device.get_device_address(_gpu_mesh_group_indices_array_buffer).value();
+        auto mesh_group_indices_array_addr = _device.buffer_device_address(_gpu_mesh_group_indices_array_buffer).value();
 
         u32 const mesh_group_staging_buffer_size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries;
         daxa::BufferId mesh_group_staging_buffer = _device.create_buffer({
@@ -961,7 +925,7 @@ static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUM
             //=============================================================================
             if (scene._mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
             {
-                auto data_ptr = scene._device.get_host_address(upload.staging_buffer).value();
+                auto data_ptr = scene._device.buffer_host_address(upload.staging_buffer).value();
                 u32 offset = {};
                 offset += upload.mesh.meshlet_count * sizeof(Meshlet);
                 offset += upload.mesh.meshlet_count * sizeof(BoundingSphere);
@@ -1124,7 +1088,7 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
 
     u32 current_scratch_buffer_offset = 0;
-    auto const scratch_device_address = _device.get_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
+    auto const scratch_device_address = _device.buffer_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
     std::vector<std::vector<daxa::BlasTriangleGeometryInfo>> build_geometries = {};
     std::vector<daxa::BlasBuildInfo> build_infos = {};
     while (!_newly_completed_mesh_groups.empty())
@@ -1159,11 +1123,11 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                 geometries.data(), geometries.size()),
         };
 
-        auto const build_size_info = _device.get_blas_build_sizes(blas_build_info);
+        auto const build_size_info = _device.blas_build_sizes(blas_build_info);
         u64 aligned_scratch_size = get_aligned(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
         DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_scratch_buffer_size,
             "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
-
+ 
         bool const fits_scratch = (current_scratch_buffer_offset + aligned_scratch_size <= _gpu_scratch_buffer_size);
         if (!fits_scratch) { break; }
 
@@ -1208,7 +1172,7 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
 
             auto const mesh_indices_meshgroup_offset = m_entry.mesh_manifest_indices_array_offset;
             bool is_alpha_discard = false;
-            for(i32 mesh_index = 0; mesh_index < m_entry.mesh_count; mesh_index++)
+            for (i32 mesh_index = 0; mesh_index < m_entry.mesh_count; mesh_index++)
             {
                 u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                 auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
@@ -1225,7 +1189,7 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                 .instance_custom_index = entity_i,
                 .mask = 0xFF,
                 .instance_shader_binding_table_record_offset = is_alpha_discard ? 1u : 0u,
-                .blas_device_address = _device.get_device_address(m_entry.blas).value(),
+                .blas_device_address = _device.blas_device_address(m_entry.blas).value(),
             });
         }
     }
@@ -1238,13 +1202,13 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
             .name = "blas instances buffer"});
         recorder.destroy_buffer_deferred(blas_instances_buffer);
 
-        std::memcpy(_device.get_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(),
+        std::memcpy(_device.buffer_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(),
             blas_instances.data(),
             blas_instances.size() * sizeof(daxa_BlasInstanceData));
     }
 
     auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
-        .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.get_device_address(blas_instances_buffer).value(),
+        .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.buffer_device_address(blas_instances_buffer).value(),
         .count = s_cast<u32>(blas_instances.size()),
         .is_data_array_of_pointers = false,
         .flags = daxa::GeometryFlagBits::NONE,
@@ -1295,10 +1259,10 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     };
 
     auto recorder = _device.create_command_recorder({});
-    auto const scratch_device_address = _device.get_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
+    auto const scratch_device_address = _device.buffer_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
     if (!_newly_completed_mesh_groups.empty())
     {
-        
+
         auto indirections = std::span{
             _device.get_host_address_as<MergedSceneBlasIndirection>(_scene_as_indirections.get_state().buffers[0]).value(),
             _indirections_count,
@@ -1306,7 +1270,6 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
 
         auto const scratch_buffer_offset_alignment =
             _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
-
 
         u32 geometry_count = 0;
         u32 active_entities = 0;
@@ -1338,7 +1301,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
             .name = "as build geometry transforms",
         });
         recorder.destroy_buffer_deferred(geometry_transforms_buf);
-        u64 geometry_transforms_device_address = _device.get_device_address(geometry_transforms_buf).value();
+        u64 geometry_transforms_device_address = _device.buffer_device_address(geometry_transforms_buf).value();
         auto geometry_transforms = std::span{
             _device.get_host_address_as<daxa_f32mat3x4>(geometry_transforms_buf).value(),
             active_entities,
@@ -1395,7 +1358,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
             .geometries = daxa::Span<daxa::BlasTriangleGeometryInfo const>(build_geometries.data(), build_geometries.size()),
         };
 
-        auto const build_size_info = _device.get_blas_build_sizes(blas_build_info);
+        auto const build_size_info = _device.blas_build_sizes(blas_build_info);
         u64 aligned_scratch_size = get_aligned(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
         daxa::BufferId scratch_buffer = _device.create_buffer({
             .size = aligned_scratch_size,
@@ -1403,7 +1366,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         });
         recorder.destroy_buffer_deferred(scratch_buffer);
 
-        blas_build_info.scratch_data = _device.get_device_address(scratch_buffer).value();
+        blas_build_info.scratch_data = _device.buffer_device_address(scratch_buffer).value();
         auto const aligned_accel_structure_size = get_aligned(build_size_info.acceleration_structure_size, 256);
         if (!_scene_blas.is_empty())
         {
@@ -1432,7 +1395,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         .instance_custom_index = 0,
         .mask = 0xFF,
         .instance_shader_binding_table_record_offset = 1,
-        .blas_device_address = _device.get_device_address(_scene_blas).value(),
+        .blas_device_address = _device.blas_device_address(_scene_blas).value(),
     };
 
     daxa::BufferId blas_instances_buffer = _device.create_buffer({
@@ -1445,7 +1408,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     std::memcpy(_device.get_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(), &blas_instance, sizeof(daxa_BlasInstanceData));
 
     auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
-        .data = _device.get_device_address(blas_instances_buffer).value(),
+        .data = _device.buffer_device_address(blas_instances_buffer).value(),
         .count = 1u,
         .is_data_array_of_pointers = false,
         .flags = daxa::GeometryFlagBits::NONE,
@@ -1486,4 +1449,121 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     });
 
     return recorder.complete_current_commands();
+}
+
+auto Scene::process_entities() -> CPUMeshInstances
+{
+    // Go over all entities every frame.
+    // Check if entity changed, if so, queue appropriate update events.
+    // Populate GPUMeshInstances buffer from scratch, sort entities into draw lists.
+    CPUMeshInstances ret = {};
+
+    u32 active_entity_offset = 0;
+    for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
+    {
+        RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
+        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
+        {
+            MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
+            bool const is_mesh_group_loaded = (mesh_group.loaded_meshes == mesh_group.mesh_count);
+            bool const is_mesh_group_just_loaded = !mesh_group.fully_loaded_last_frame && is_mesh_group_loaded;
+            mesh_group.fully_loaded_last_frame = is_mesh_group_loaded;
+
+            entities_changed |= is_mesh_group_just_loaded;
+
+            // Process all fully loaded mesh groups
+            if (is_mesh_group_loaded)
+            {
+                if (mesh_group.blas.is_empty())
+                {
+                    blas_build_requests.push_back(_render_entities.id_from_index(entity_i));
+                }
+
+                auto const mesh_indices_meshgroup_offset = mesh_group.mesh_manifest_indices_array_offset;
+                for (u32 mesh_index = 0; mesh_index < mesh_group.mesh_count; mesh_index++)
+                {
+                    u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
+                    auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                    bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+
+                    // Put this mesh into appropriate drawlist for prepass
+                    u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
+                    
+                    ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
+
+                    // If the mesh loaded for the first time, it needs to invalidate VSM
+                    if (is_mesh_group_just_loaded) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
+
+                    // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
+                    ret.mesh_instances.push_back({
+                        .entity_index = entity_i,
+                        .mesh_index = mesh_manifest_index,
+                        .in_mesh_group_index = mesh_index,
+                        .flags = s_cast<daxa_u32>(is_alpha_discard ? MESH_INSTANCE_FLAG_MASKED : MESH_INSTANCE_FLAG_OPAQUE),
+                    });
+                }
+            }
+        }
+    }
+    return ret;
+}
+
+void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instances)
+{
+    // Calculate offsets into buffer and required size:
+    usize offset = {};
+    MeshInstancesBufferHead buffer_head = {};
+    offset += sizeof(MeshInstancesBufferHead);
+    buffer_head.instances = offset;
+    buffer_head.count = static_cast<u32>(cpu_mesh_instances.mesh_instances.size());
+    offset += sizeof(MeshInstance) * cpu_mesh_instances.mesh_instances.size();
+    for (int i = 0; i < PREPASS_DRAW_LIST_TYPES; ++i)
+    {
+        buffer_head.prepass_draw_lists[i].instances = offset;
+        buffer_head.prepass_draw_lists[i].count = static_cast<u32>(cpu_mesh_instances.prepass_draw_lists[i].size());
+        offset += sizeof(daxa_u32) * cpu_mesh_instances.prepass_draw_lists[i].size();
+    }
+    buffer_head.vsm_invalidate_draw_list.instances = offset;
+    buffer_head.vsm_invalidate_draw_list.count = static_cast<u32>(cpu_mesh_instances.vsm_invalidate_draw_list.size());
+    offset += sizeof(daxa_u32) * cpu_mesh_instances.vsm_invalidate_draw_list.size();
+    usize const required_size = offset;
+
+    // TODO: Allocate this into a ring buffer.
+    // Allocate buffer
+    if (!mesh_instances_buffer.get_state().buffers.empty())
+    {
+        _device.destroy_buffer(mesh_instances_buffer.get_state().buffers[0]);
+    }
+    mesh_instances_buffer.set_buffers({
+        .buffers = std::array{_device.create_buffer({
+            .size = required_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = "cpu_mesh_instances_buffer",
+        })},
+    });
+    daxa::DeviceAddress device_address = _device.buffer_device_address(mesh_instances_buffer.get_state().buffers[0]).value();
+    std::byte * host_address = _device.buffer_host_address(mesh_instances_buffer.get_state().buffers[0]).value();
+
+    // Write Buffer, add address on offsets and counts:
+    cpu_mesh_instance_counts = {};
+    std::memcpy(host_address, &buffer_head, sizeof(MeshInstancesBufferHead));
+    usize const mesh_instances_size = sizeof(MeshInstance) * cpu_mesh_instances.mesh_instances.size();
+    std::memcpy(host_address + buffer_head.instances, cpu_mesh_instances.mesh_instances.data(), mesh_instances_size);
+    buffer_head.instances += device_address;
+    cpu_mesh_instance_counts.mesh_instance_count = cpu_mesh_instances.mesh_instances.size();
+    for (int draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
+    {
+        std::memcpy(
+            host_address + buffer_head.prepass_draw_lists[draw_list_type].instances,
+            cpu_mesh_instances.prepass_draw_lists[draw_list_type].data(),
+            sizeof(u32) * cpu_mesh_instances.prepass_draw_lists[draw_list_type].size());
+        buffer_head.prepass_draw_lists[draw_list_type].instances += device_address;
+        cpu_mesh_instance_counts.prepass_instance_counts[draw_list_type] = cpu_mesh_instances.prepass_draw_lists[draw_list_type].size();
+    }
+    std::memcpy(
+        host_address + buffer_head.vsm_invalidate_draw_list.instances,
+        cpu_mesh_instances.vsm_invalidate_draw_list.data(),
+        sizeof(u32) * cpu_mesh_instances.vsm_invalidate_draw_list.size());
+    buffer_head.vsm_invalidate_draw_list.instances += device_address;
+    cpu_mesh_instance_counts.vsm_invalidate_instance_count = cpu_mesh_instances.vsm_invalidate_draw_list.size();
 }

@@ -143,7 +143,7 @@ struct GenDirtyBitHizPush
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion15)
     // Draw Attachments:
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), mesh_instances)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
@@ -558,7 +558,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             }
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
             {
-                auto buffer = opaque_draw_list_type == DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
+                auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
                 render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
                 for (u32 i = 0; i < 32; ++i)
                 {
@@ -668,7 +668,7 @@ struct TaskDrawVSMsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph * tg = {};
     VSMState * vsm_state = {};
-    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> meshlet_cull_po2expansions = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansions = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskBufferView meshes = {};
@@ -815,7 +815,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_cascade = cascade,
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .globals = info.render_context->tgpu_render_data,
-            .mesh_instances = info.render_context->scene_draw.opaque_mesh_instances,
+            .mesh_instances = info.mesh_instances,
             .meshes = info.scene->_gpu_mesh_manifest,
             .materials = info.scene->_gpu_material_manifest,
             .entity_meta = info.scene->_gpu_entity_meta,

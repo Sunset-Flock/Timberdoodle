@@ -14,7 +14,7 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(AllocEntToMeshInstOffsetsOffsetsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(OpaqueMeshInstancesBufferHead), opaque_mesh_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_mesh_groups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), mesh_groups)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(IndirectMemsetBufferCommand), clear_arena_command)
@@ -166,8 +166,8 @@ struct AllocEntToMeshInstOffsetsOffsetsTask : AllocEntToMeshInstOffsetsOffsetsH:
     void callback(daxa::TaskInterface ti)
     {
         u32 const draw_list_total_count = 
-            render_context->scene_draw.opaque_draw_lists[0].size() + 
-            render_context->scene_draw.opaque_draw_lists[1].size();
+            render_context->mesh_instance_counts.prepass_instance_counts[0] + 
+            render_context->mesh_instance_counts.prepass_instance_counts[1];
         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info().name));
         AllocEntToMeshInstOffsetsOffsetsPush push = {};
         assign_blob(push.uses, ti.attachment_shader_blob);
@@ -185,6 +185,7 @@ struct PrepopInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & task_graph;
+    daxa::TaskBufferView mesh_instances = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView materials = {};
     daxa::TaskBufferView entity_mesh_groups = {};
@@ -253,9 +254,9 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            if(info.render_context->scene_draw.max_entity_index > 0)
+            if(info.render_context->mesh_instance_counts.mesh_instance_count > 0)
             {
-                auto size = sizeof(daxa_u32) * std::min(info.render_context->scene_draw.max_entity_index, MAX_ENTITIES);
+                auto size = sizeof(daxa_u32) * std::min(info.render_context->mesh_instance_counts.mesh_instance_count, MAX_ENTITIES);
                 ti.recorder.clear_buffer({
                     .buffer = ti.get(ent_to_mesh_inst_offsets_offsets).ids[0],
                     .size = size,
@@ -286,7 +287,7 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     info.task_graph.add_task(AllocEntToMeshInstOffsetsOffsetsTask{
         .views = std::array{
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.opaque_mesh_instances, info.render_context->scene_draw.opaque_mesh_instances),
+            daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.mesh_instances, info.mesh_instances),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.entity_mesh_groups, info.entity_mesh_groups),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.mesh_groups, info.mesh_group_manifest),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.clear_arena_command, clear_mesh_instance_bitfield_offsets_command),

@@ -85,6 +85,14 @@ namespace tido
                 auto const uz_index = s_cast<size_t>(id.index);
                 return uz_index < _slots.size() && _versions[uz_index] == id.version;
             }
+            auto id_from_index(size_t index) -> Id
+            {
+                if (index < _slots.size())
+                {
+                    return {static_cast<u32>(index), _versions[index]};
+                }
+                return {};
+            }
             auto size() const -> usize
             {
                 return _slots.size() - _free_list.size();

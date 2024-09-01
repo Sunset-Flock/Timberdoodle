@@ -7,7 +7,7 @@
 
 #define MAX_MESHLET_INSTANCES (1u << 24u) // Roughly 16.8 million
 //150000
-#define MAX_MESH_INSTANCES 128000
+#define MAX_MESH_INSTANCES 128000u
 #define WARP_SIZE 32
 #define MAX_ENTITIES (1u << 20u)
 #define MAX_MATERIALS (1u << 16u)

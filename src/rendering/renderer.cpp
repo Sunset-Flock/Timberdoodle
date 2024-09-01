@@ -305,10 +305,10 @@ void Renderer::clear_select_buffers()
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            auto mesh_instances_address = ti.device.get_device_address(ti.get(meshlet_instances).ids[0]).value();
+            auto mesh_instances_address = ti.device.buffer_device_address(ti.get(meshlet_instances).ids[0]).value();
             MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
             allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
-            auto mesh_instances_prev_address = ti.device.get_device_address(ti.get(meshlet_instances_last_frame).ids[0]).value();
+            auto mesh_instances_prev_address = ti.device.buffer_device_address(ti.get(meshlet_instances_last_frame).ids[0]).value();
             MeshletInstancesBufferHead mesh_instances_prev_reset = make_meshlet_instance_buffer_head(mesh_instances_prev_address);
             allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
         },
@@ -447,8 +447,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_list.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
     task_list.use_persistent_buffer(scene->_gpu_material_manifest);
     task_list.use_persistent_buffer(scene->_scene_as_indirections);
+    task_list.use_persistent_buffer(scene->mesh_instances_buffer);
     task_list.use_persistent_buffer(render_context->tgpu_render_data);
-    task_list.use_persistent_buffer(render_context->scene_draw.opaque_mesh_instances);
     task_list.use_persistent_buffer(vsm_state.globals);
     task_list.use_persistent_image(vsm_state.memory_block);
     task_list.use_persistent_image(vsm_state.memory_block64);
@@ -557,7 +557,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            auto mesh_instances_address = ti.device.get_device_address(ti.get(meshlet_instances).ids[0]).value();
+            auto mesh_instances_address = ti.device.buffer_device_address(ti.get(meshlet_instances).ids[0]).value();
             MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
             allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
         },
@@ -566,9 +566,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
-    task_prepopulate_meshlet_instances({
+    task_prepopulate_meshlet_instances(PrepopInfo{
         .render_context = render_context.get(),
         .task_graph = task_list,
+        .mesh_instances = scene->mesh_instances_buffer,
         .meshes = scene->_gpu_mesh_manifest,
         .materials = scene->_gpu_material_manifest,
         .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
@@ -579,6 +580,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
     });
+
+    #if 1
 
     task_draw_visbuffer({
         .render_context = render_context.get(),
@@ -618,14 +621,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView hiz = {};
     task_gen_hiz_single_pass({render_context.get(), task_list, depth, render_context->tgpu_render_data, &hiz});
 
-    std::array<daxa::TaskBufferView, DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
     tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
         .render_context = render_context.get(),
         .task_list = task_list,
         .cull_meshes = true,
         .hiz = hiz,
         .globals = render_context->tgpu_render_data,
-        .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
+        .mesh_instances = scene->mesh_instances_buffer,
         .meshes = scene->_gpu_mesh_manifest,
         .materials = scene->_gpu_material_manifest,
         .entity_meta = scene->_gpu_entity_meta,
@@ -650,7 +653,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         .hiz = hiz,
         .meshlet_instances = meshlet_instances,
-        .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
+        .mesh_instances = scene->mesh_instances_buffer,
         .vis_image = visbuffer,
         .atomic_visbuffer = atomic_visbuffer,
         .debug_image = debug_image,
@@ -668,7 +671,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .vsm_state = &vsm_state,
             .meshlet_cull_po2expansions = meshlet_cull_po2expansion,
             .meshlet_instances = meshlet_instances,
-            .mesh_instances = render_context->scene_draw.opaque_mesh_instances,
+            .mesh_instances = scene->mesh_instances_buffer,
             .meshes = scene->_gpu_mesh_manifest,
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
@@ -698,7 +701,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,
             AnalyzeVisbuffer2H::AT.visbuffer | (render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : visbuffer),
             AnalyzeVisbuffer2H::AT.meshlet_instances | meshlet_instances,
-            AnalyzeVisbuffer2H::AT.mesh_instances | render_context->scene_draw.opaque_mesh_instances,
+            AnalyzeVisbuffer2H::AT.mesh_instances | scene->mesh_instances_buffer,
             AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
             AnalyzeVisbuffer2H::AT.visible_meshlets | visible_meshlet_instances,
             AnalyzeVisbuffer2H::AT.mesh_visibility_bitfield | visible_meshes_bitfield,
@@ -736,7 +739,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .context = render_context->gpuctx,
             .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [=](){ 
+            .dispatch_callback = [this](){ 
                 return daxa::DispatchInfo{
                     round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
                     round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
@@ -901,10 +904,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .dst_offset = offsetof(ReadbackValues, DST_FIELD) + sizeof(ReadbackValues) * index, \
         .size = sizeof(SRC_STRUCT::SRC_FIELD),                                              \
     })
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[0].first_count, first_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[0].second_count, second_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].first_count, first_pass_meshlet_count[1]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, draw_lists[1].second_count, second_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].first_count, first_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].second_count, second_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].first_count, first_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].second_count, second_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
             
             render_context->general_readback = ti.device.get_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
@@ -913,7 +916,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
 
 
-    #if 0
     #endif
 
     task_list.submit({});
@@ -925,8 +927,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 void Renderer::render_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
-    f32 const delta_time,
-    SceneDraw scene_draw)
+    f32 const delta_time)
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
 
@@ -959,7 +960,7 @@ void Renderer::render_frame(
             1.0f / render_context->render_data.settings.next_lower_po2_render_target_size.x,
             1.0f / render_context->render_data.settings.next_lower_po2_render_target_size.y,
         };
-        render_context->scene_draw = scene_draw;
+        render_context->mesh_instance_counts = scene->cpu_mesh_instance_counts;
 
         /// THIS SHOULD BE DONE SOMEWHERE ELSE!
         {
@@ -1006,7 +1007,7 @@ void Renderer::render_frame(
         main_task_graph = create_main_task_graph();
     }
     daxa::DeviceAddress render_data_device_address =
-        context->device.get_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
+        context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
     if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name
@@ -1046,7 +1047,7 @@ void Renderer::render_frame(
         .debug_context = &context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
-    fill_vsm_invalidation_mask(scene_draw.dynamic_meshes, vsm_state, context->shader_debug_context);
+    // fill_vsm_invalidation_mask(scene_draw.dynamic_meshes, vsm_state, context->shader_debug_context);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
