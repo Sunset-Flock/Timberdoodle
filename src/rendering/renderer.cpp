@@ -1008,8 +1008,7 @@ void Renderer::render_frame(
     }
     daxa::DeviceAddress render_data_device_address =
         context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
-    // if (sky_settings_changed)
-    if (true)
+    if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name
         if (sky_res_changed_flags.multiscattering_changed || sky_res_changed_flags.transmittance_changed)
