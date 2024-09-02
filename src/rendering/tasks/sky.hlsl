@@ -128,7 +128,9 @@ float3 get_multiple_scattering(const GetMultipleScatteringInfo info)
 struct LuminanceRaymarchResult
 {
     float3 luminance;
+    float padd;
     float3 multiscattering;
+    float padd_1;
 };
 
 struct IntegrateLuminanceInfo
@@ -146,14 +148,15 @@ struct IntegrateLuminanceInfo
 LuminanceRaymarchResult integrate_luminance(const IntegrateLuminanceInfo info)
 {
     const SkySettings * settings = info.settings;
-    LuminanceRaymarchResult result = LuminanceRaymarchResult(float3(0.0f), float3(0.0f));
+    LuminanceRaymarchResult result = LuminanceRaymarchResult(float3(0.0f), 1.0f, float3(0.0f), 1.0f);
 
     const float integration_length = get_integration_length(info.world_position, info.world_direction, settings);
     // We do not intersect the atmosphere at all.
     if(integration_length == float.maxValue) { return result; }
 
     // We use uniform steps for transmittance calculation
-    const float step_length = integration_length / info.step_count;
+    // const float step_length = integration_length / info.step_count;
+    float step_length = integration_length / info.step_count;
     float3 optical_depth = float3(0.0f);
 
     // Figure out the phase function values. We can do this before we start the entire loop,
@@ -164,10 +167,15 @@ LuminanceRaymarchResult integrate_luminance(const IntegrateLuminanceInfo info)
     const float rayleigh_phase_value = rayleigh_phase(cos_theta);
 
     float3 accumulated_transmittance = float3(1.0f);
+    float old_ray_shift = 0.0f;
     // Raymarching loop
     for(int step = 0; step < info.step_count; ++step)
     {
-        const float3 step_position = info.world_position + (step_length * step * info.world_direction);
+        float new_ray_shift = integration_length * (float(step) + 0.3) / info.step_count;
+        step_length = new_ray_shift - old_ray_shift;
+        old_ray_shift = new_ray_shift;
+        const float3 step_position = info.world_position + new_ray_shift * info.world_direction;
+        // const float3 step_position = info.world_position + (step_length * step * info.world_direction);
 
         // The height is the distance from the atmosphere sphere origin, 
         // which is just the length of the position vector.
@@ -205,7 +213,6 @@ LuminanceRaymarchResult integrate_luminance(const IntegrateLuminanceInfo info)
                 settings,
                 info.sampler,
                 info.multiscattering_id));
-            result.multiscattering = multiscattering_lut_value;
         }
 
         const float3 multiscattering_contribution =
@@ -238,8 +245,7 @@ LuminanceRaymarchResult integrate_luminance(const IntegrateLuminanceInfo info)
     return result;
 }
 
-static groupshared float3 multiscattering_shared[2];
-static groupshared float3 luminance_shared[2];
+static groupshared LuminanceRaymarchResult shared_data[2];
 [numthreads(MULTISCATTERING_X, MULTISCATTERING_Y, MULTISCATTERING_Z)]
 [shader("compute")]
 void compute_multiscattering_lut(
@@ -287,25 +293,21 @@ void compute_multiscattering_lut(
     result.multiscattering = WaveActiveSum(result.multiscattering);
     result.luminance = WaveActiveSum(result.luminance);
 
-    DeviceMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync();
     if(WaveIsFirstLane())
     {
         const uint index = gidx > 0 ? 1 : 0;
-        multiscattering_shared[index] = result.multiscattering;
-        luminance_shared[index] = result.luminance;
-        if(all(svdtid == uint3(22, 22, 0)) || all(svdtid == uint3(22, 22, 1)))
-        {
-            printf("correct %f %f %f\n", result.multiscattering.x, result.multiscattering.y, result.multiscattering.z);
-            printf("wrong %f %f %f\n", multiscattering_shared[index].x, multiscattering_shared[index].y, multiscattering_shared[index].z);
-        }
+        shared_data[index] = result;
     }
-    DeviceMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync();
 
     // Only a single thread writes the results into the texture.
     if(gidx == 0)
     {
-        const float3 multiscattering_sum = (multiscattering_shared[0] + multiscattering_shared[1]) / SPHERE_SAMPLES;
-        const float3 luminance_sum = (luminance_shared[0] + luminance_shared[1]) / SPHERE_SAMPLES;
+        float3 multiscattering;
+        float3 luminance_;
+        const float3 multiscattering_sum = (shared_data[0].multiscattering + shared_data[1].multiscattering) / SPHERE_SAMPLES;
+        const float3 luminance_sum = (shared_data[0].luminance + shared_data[1].luminance) / SPHERE_SAMPLES;
 
         const float3 r = multiscattering_sum;
         const float3 sum_of_all_multiscattering_events_contribution = float3(1.0 / (1.0 - r.x), 1.0 / (1.0 - r.y), 1.0 / (1.0 - r.z));
