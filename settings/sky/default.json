@@ -55,6 +55,7 @@
         "x": 32,
         "y": 32
     },
+    "multiscattering_step_count": 20,
     "rayleigh_density": [
         {
             "const_term": 0.0,
@@ -81,6 +82,7 @@
         "x": 256,
         "y": 192
     },
+    "sky_step_count": 50,
     "sun_angle": {
         "x": 94.85399627685547,
         "y": 28.986000061035156
@@ -88,5 +90,6 @@
     "transmittance_dimensions": {
         "x": 256,
         "y": 64
-    }
+    },
+    "transmittance_step_count": 400 
 }

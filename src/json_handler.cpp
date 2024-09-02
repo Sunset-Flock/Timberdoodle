@@ -64,6 +64,9 @@ auto load_sky_settings(std::filesystem::path const & path_to_settings) -> SkySet
     read_vec("transmittance_dimensions", settings.transmittance_dimensions);
     read_vec("multiscattering_dimensions", settings.multiscattering_dimensions);
     read_vec("sky_dimensions", settings.sky_dimensions);
+    read_val("transmittance_step_count", settings.transmittance_step_count);
+    read_val("multiscattering_step_count", settings.multiscattering_step_count);
+    read_val("sky_step_count", settings.sky_step_count);
 
     f32vec2 sun_angle = {};
     read_vec("sun_angle", sun_angle);

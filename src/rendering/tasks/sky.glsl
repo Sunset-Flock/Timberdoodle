@@ -483,7 +483,7 @@ void main()
 #endif // SKY
 #if defined(CUBEMAP)
 DAXA_DECL_PUSH_CONSTANT(SkyIntoCubemapH, push)
-layout(local_size_x = 2, local_size_y = 2, local_size_z = 32) in;
+layout(local_size_x = IBL_CUBE_X, local_size_y = IBL_CUBE_Y, local_size_z = IBL_CUBE_RES) in;
 
 float radical_inverse_vdc(uint bits) 
 {
@@ -543,8 +543,8 @@ vec3 rand_hemi_dir(vec3 nrm) {
 }
 
 void main() {
-    const uvec2 wg_base_pix_pos = gl_WorkGroupID.xy * uvec2(IBL_CUBE_X_WG_SIZE, IBL_CUBE_Y_WG_SIZE);
-    const uvec2 sg_pix_pos = wg_base_pix_pos + uvec2(gl_SubgroupID % IBL_CUBE_X_WG_SIZE, gl_SubgroupID / IBL_CUBE_X_WG_SIZE);
+    const uvec2 wg_base_pix_pos = gl_WorkGroupID.xy * uvec2(IBL_CUBE_X, IBL_CUBE_Y);
+    const uvec2 sg_pix_pos = wg_base_pix_pos + uvec2(gl_SubgroupID % IBL_CUBE_X, gl_SubgroupID / IBL_CUBE_X);
     uint face = gl_WorkGroupID.z;
     vec2 uv = (vec2(sg_pix_pos) + vec2(0.5)) / IBL_CUBE_RES;
 
