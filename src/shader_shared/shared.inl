@@ -58,8 +58,11 @@ DAXA_DECL_BUFFER_PTR(DensityProfileLayer)
 struct SkySettings
 {
     daxa_u32vec2 transmittance_dimensions;
+    daxa_u32 transmittance_step_count;
     daxa_u32vec2 multiscattering_dimensions;
+    daxa_u32 multiscattering_step_count;
     daxa_u32vec2 sky_dimensions;
+    daxa_u32 sky_step_count;
 
     // =============== Atmosphere =====================
     daxa_f32 sun_brightness;
