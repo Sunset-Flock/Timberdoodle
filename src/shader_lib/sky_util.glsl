@@ -26,7 +26,7 @@ daxa_f32mat3x3 build_orthonormal_basis(daxa_f32vec3 n) {
         b1 = daxa_f32vec3(1.0 - n.x * n.x * a, b, -n.x);
         b2 = daxa_f32vec3(b, 1.0 - n.y * n.y * a, -n.y);
     }
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
     return transpose(daxa_f32mat3x3(b1, b2, n));
 #else
     return daxa_f32mat3x3(b1, b2, n);
@@ -420,7 +420,7 @@ daxa_f32vec3 get_sun_illuminance(
             deref(settings).atmosphere_top
         );
         
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
         daxa_f32vec3 transmittance_to_sun = Texture2D<float4>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
 #else
         daxa_f32vec3 transmittance_to_sun = texture( daxa_sampler2D( transmittance, lin_sampler), transmittance_texture_uv).rgb;
@@ -483,7 +483,7 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
             height
         );
 
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
         const daxa_f32vec4 unitless_atmosphere_illuminance_mult = Texture2D<float4>::get(sky).SampleLevel(SamplerState::get(lin_sampler), sky_uv, 0);
 #else
         const daxa_f32vec4 unitless_atmosphere_illuminance_mult = texture(daxa_sampler2D(sky, lin_sampler) , sky_uv).rgba;
@@ -499,7 +499,7 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
             deref(settings).atmosphere_top
         );
 
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
         atmosphere_transmittance = Texture2D<float4>::get(transmittance).SampleLevel(SamplerState::get(lin_sampler), transmittance_texture_uv, 0).rgb;
 #else
         atmosphere_transmittance = texture( daxa_sampler2D(transmittance, lin_sampler), transmittance_texture_uv).rgb;

@@ -14,7 +14,7 @@ Application::Application()
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
-    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer);
+    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
 
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path.json";
@@ -245,7 +245,6 @@ void Application::update()
         _renderer->render_context->render_data.settings.draw_from_observer = static_cast<u32>(false);
         app_state.observer_camera_controller = app_state.camera_controller;
     }
-    ImGui::Render();
 }
 
 

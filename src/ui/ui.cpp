@@ -159,6 +159,7 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::MenuItem("VSM Debug Menu", NULL, &vsm_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
+            ImGui::MenuItem("TaskGraphDebugUi", NULL, &tg_debug_ui);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -547,6 +548,55 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                 auto const width = ImGui::GetContentRegionMax().x;
                 ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
             }
+        }
+        ImGui::End();
+    }
+}
+
+void UIEngine::tg_resource_debug_ui(daxa::TaskInterface ti, u32 first_debug_clone_image, std::vector<daxa::ImageViewId> & disposable_img_views)
+{
+    if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        for (u32 attach = first_debug_clone_image; attach < static_cast<u32>(ti.attachment_infos.size()); ++attach)
+        {
+            auto const image = daxa::TaskImageAttachmentIndex{attach};
+            DebugCloneUiState & state = debug_clone_states[ti.get(image).name];
+            auto const slice = ti.get(image).view.slice;
+
+            ImGui::Text("%s", ti.get(image).name);
+            ImGui::Text("slice: %s", daxa::to_string(slice).c_str());
+            ImGui::InputInt("mip", &state.selected_mip, 1);
+            state.selected_mip = std::clamp(state.selected_mip, i32(slice.base_mip_level), i32((slice.base_mip_level + slice.level_count - 1)));
+            ImGui::InputInt("layer", &state.selected_array_layer, 1);
+            state.selected_array_layer = std::clamp(state.selected_array_layer, i32(slice.base_array_layer), i32((slice.base_array_layer + slice.layer_count - 1)));
+            auto modes = std::array{
+                "Linear",
+                "Nearest",
+            };
+            ImGui::Combo("sampler", &state.selected_sampler, modes.data(), modes.size());
+            daxa::SamplerId sampler = {};
+            switch (state.selected_sampler) {
+                case 0: sampler = context->lin_clamp_sampler; break;
+                case 1: sampler = context->nearest_clamp_sampler; break;
+                default: sampler = context->lin_clamp_sampler; break;
+            }
+
+            auto view_info = ti.image_view_info(image).value();
+            view_info.slice.base_array_layer = state.selected_array_layer;
+            view_info.slice.layer_count = 1;
+            view_info.slice.base_mip_level = state.selected_mip;
+            view_info.slice.level_count = 1;
+            auto view = context->device.create_image_view(view_info); 
+            disposable_img_views.push_back(view);
+
+            auto const size = ti.info(image).value().size;
+            float const aspect = float(size.y) / float(size.x);
+            
+            auto tex_id = imgui_renderer.create_texture_id({
+                .image_view_id = view,
+                .sampler_id = sampler,
+            });
+            ImGui::Image(tex_id, ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect));
         }
         ImGui::End();
     }

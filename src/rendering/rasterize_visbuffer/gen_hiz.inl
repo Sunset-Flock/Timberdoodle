@@ -19,13 +19,6 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, src)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
-// DAXA_DECL_TASK_HEAD_BEGIN(GenHiz2TH)
-// DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-// DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<float>, src)
-// // Use index here to save on push constant space
-// DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DIndex<float>, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
-// DAXA_DECL_TASK_HEAD_END
-
 struct GenHizPush
 {
     DAXA_TH_BLOB(GenHizTH, uses)
@@ -34,7 +27,15 @@ struct GenHizPush
     daxa_u32 total_workgroup_count;
 };
 
-#if (!DAXA_SHADER_LANG == DAXA_SHADERLANG_GLSL)
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
+
+DAXA_DECL_TASK_HEAD_BEGIN(GenHiz2TH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<float>, src)
+// Use index here to save on push constant space
+DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
+DAXA_DECL_TASK_HEAD_END
+
 struct GenHizInfo
 {
     daxa_u32vec2 src_image_resolution;
@@ -45,7 +46,7 @@ struct GenHizInfo
 
 // The po2 resolutions are the next higher power of two resolution of the src images original resolution.
 // For images not power of two, we simply oversample the original image to the next power of two size.
-// This also means we dispatch enough threads for the size of the po2, not the original image size. 
+// This also means we dispatch enough threads for the size of the po2, not the original image size.
 // struct GenHizPush2
 // {
 //     GenHiz2TH::AttachmentShaderBlob at;
@@ -56,33 +57,25 @@ struct GenHizInfo
 
 #if defined(__cplusplus)
 
-#include <format>
-#include "../../gpu_context.hpp"
 #include "../scene_renderer_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo gen_hiz_pipeline_compile_info()
+inline auto gen_hiz_pipeline_compile_info()
 {
-    return {
+    return daxa::ComputePipelineCompileInfo{
         .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.glsl"}},
         .push_constant_size = s_cast<u32>(sizeof(GenHizPush)),
         .name = std::string{"GenHiz"},
     };
 };
 
-// inline daxa::ComputePipelineCompileInfo gen_hiz_pipeline_compile_info2()
-// {
-//     return {
-//         .shader_info = daxa::ShaderCompileInfo{
-//             .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.hlsl"},
-//             .compile_options = {
-//                 .entry_point = "entry_gen_hiz",
-//                 .language = daxa::ShaderLanguage::SLANG,
-//             },
-//         },
-//         .push_constant_size = s_cast<u32>(sizeof(GenHizPush2)),
-//         .name = std::string{"GenHiz"},
-//     };
-// };
+inline auto hiz_pipeline_info2()
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.hlsl"}, 
+        .entry_point = "entry_gen_hiz", 
+        .push_constant_size = sizeof(GenHizTH::AttachmentShaderBlob)
+    };
+}
 
 struct GenHizTask : GenHizTH::Task
 {
@@ -140,12 +133,9 @@ struct TaskGenHizSinglePassInfo
 };
 void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
 {
-    // daxa_u32vec2 const hiz_size =
-    //     daxa_u32vec2(info.render_context->render_data.settings.render_target_size.x / 2, 
-    //     info.render_context->render_data.settings.render_target_size.y / 2);
     daxa_u32vec2 const hiz_size =
-        daxa_u32vec2(info.render_context->render_data.settings.next_lower_po2_render_target_size.x, 
-        info.render_context->render_data.settings.next_lower_po2_render_target_size.y);
+        daxa_u32vec2(info.render_context->render_data.settings.next_lower_po2_render_target_size.x,
+            info.render_context->render_data.settings.next_lower_po2_render_target_size.y);
     daxa_u32 mip_count = static_cast<daxa_u32>(std::ceil(std::log2(std::max(hiz_size.x, hiz_size.y))));
     mip_count = std::min(mip_count, u32(GEN_HIZ_LEVELS_PER_DISPATCH));
     *info.hiz = info.task_graph.create_transient_image({
@@ -164,6 +154,8 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         },
         .render_context = info.render_context,
     });
+    
+    info.render_context->task_debug_clone_image(info.task_graph, *info.hiz, "hiz post build");
 }
 
 #endif

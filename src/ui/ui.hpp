@@ -87,6 +87,7 @@ struct UIEngine
         bool widget_property_viewer = true;
         bool demo_window = false;
         bool vsm_debug_menu = false;
+        bool tg_debug_ui = false;
         u32 magnify_pixels = 7;
         u32 perf_sample_count = 0;
         bool shader_debug_menu = false;
@@ -100,7 +101,17 @@ struct UIEngine
         ~UIEngine();
         void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state);
 
+        void tg_resource_debug_ui(daxa::TaskInterface ti, u32 first_debug_clone_image, std::vector<daxa::ImageViewId> & disposable_img_views);
+
     private:
+        struct DebugCloneUiState
+        {
+            i32 selected_mip = {};
+            i32 selected_array_layer = {};
+            i32 selected_sampler = {};
+        };
+        std::unordered_map<std::string, DebugCloneUiState> debug_clone_states = {};
+
         static constexpr std::array<std::string_view, s_cast<u32>(ICONS::SIZE)> ICON_TO_PATH
         {
             "deps\\timberdoodle_assets\\ui\\icons\\chevron_up.png",

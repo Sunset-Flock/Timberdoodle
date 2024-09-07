@@ -41,7 +41,8 @@ DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
-#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
+
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
@@ -61,6 +62,7 @@ DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image) // Optional
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image) // Optional
 DAXA_DECL_TASK_HEAD_END
+
 #endif
 
 struct SplitAtomicVisbufferPush
@@ -81,7 +83,7 @@ struct DrawVisbufferPush
     daxa_u32 pass;
 };
 
-#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 struct CullMeshletsDrawVisbufferPush
 {
     DAXA_TH_BLOB(CullMeshletsDrawVisbufferH, uses)

@@ -3,7 +3,7 @@
 #include "daxa/daxa.inl"
 
 #if !defined(__cplusplus)
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
 
 // uint64_t imageAtomicMax(RWTexture2D<uint64_t> image, uint64_t value, int2 texel) {
 //     uint64_t old = spirv_asm {
@@ -61,11 +61,11 @@ uint _atomicMax(uint* dst, uint value)
 #define greaterThanEqual(X, Y) ((X) >= (Y))
 #define equal(X, Y) ((X) == (Y))
 
-#else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#else // #if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
 
 #define _mod(X, Y) mod(X,Y)
 #define _frac(X) fract(X)
 #define mul(M, V) (M * V)
 
-#endif // #else // #if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#endif // #else // #if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
 #endif // #if !defined(__cplusplus)

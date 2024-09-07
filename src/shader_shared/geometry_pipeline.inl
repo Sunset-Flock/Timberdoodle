@@ -115,7 +115,7 @@ inline auto get_opaque_draw_list_buffer_size() -> daxa::usize
 /// NOTE: In the future we want a TransparentMeshDrawListBufferHead, that has a much larger array for custom material permutations.
 
 #if defined(DAXA_SHADER)
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_GLSL)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
 
 DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) U32ArenaBufferRef
 {

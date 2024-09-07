@@ -122,6 +122,17 @@ struct RenderContext
     CPUMeshInstanceCounts mesh_instance_counts = {};
 
     daxa::TaskBuffer tgpu_render_data = {};
+    std::vector<daxa::TaskImageView> debug_image_clones = {};
+
+    auto task_debug_clone_image(daxa::TaskGraph tg, daxa::TaskImageView view, std::string new_name) -> daxa::TaskImageView
+    {
+        auto info = tg.transient_image_info(view);
+        info.name = new_name;
+        auto clone = tg.create_transient_image(info);
+        tg.copy_image_to_image(view, clone);
+        debug_image_clones.push_back(clone);
+        return clone;
+    }
 
     // Data
     ReadbackValues general_readback;

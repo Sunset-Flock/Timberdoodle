@@ -73,7 +73,13 @@ GPUContext::GPUContext(Window const & window)
             .size = 1u,
             .name = "dummy tlas",
         })},
-      lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})}
+      lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})},
+      nearest_clamp_sampler{this->device.create_sampler({  
+        .magnification_filter = daxa::Filter::NEAREST,
+        .minification_filter = daxa::Filter::NEAREST,
+        .mipmap_filter = daxa::Filter::NEAREST,
+        .name = "default nearest clamp sampler",
+    })}
 {
     shader_debug_context.init(device);
 }
@@ -92,4 +98,5 @@ GPUContext::~GPUContext()
     device.destroy_image(shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0]);
     device.destroy_image(shader_debug_context.vsm_debug_page_table.get_state().images[0]);
     device.destroy_sampler(lin_clamp_sampler);
+    device.destroy_sampler(nearest_clamp_sampler);
 }

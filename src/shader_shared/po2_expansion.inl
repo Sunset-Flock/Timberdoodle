@@ -4,7 +4,7 @@
 
 #include "shared.inl"
 
-#if DAXA_SHADERLANG == DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL
     #error "po2_expansion headers only available in c++ and slang-hlsl!"
 #endif
 

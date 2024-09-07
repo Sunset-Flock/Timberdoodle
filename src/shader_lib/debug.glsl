@@ -98,7 +98,7 @@ void debug_write_lens(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, daxa_I
     daxa_u32vec2 window_index;
     if (debug_in_lens(debug_info, xy, window_index))
     {
-#if (DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG)
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
         RWTexture2D<float4>::get(debug_lens_image)[window_index] = value;
 #else
         imageStore(daxa_image2D(debug_lens_image), daxa_i32vec2(window_index), value);

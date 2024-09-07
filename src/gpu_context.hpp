@@ -303,6 +303,7 @@ struct GPUContext
 
     // TODO(msakmary) REMOVE
     daxa::SamplerId lin_clamp_sampler = {};
+    daxa::SamplerId nearest_clamp_sampler = {};
 
     u32 counter = {};
     auto dummy_string() -> std::string;

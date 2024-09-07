@@ -290,7 +290,7 @@ struct CameraInfo
 
 daxa_f32mat4x4 mat_4x3_to_4x4(daxa_f32mat4x3 in_mat)
 {
-#if DAXA_SHADERLANG == DAXA_SHADERLANG_SLANG
+#if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
     // In slang the indexing is row major!
     // HLSL: RxCmat
     // GLSL: CxRmat

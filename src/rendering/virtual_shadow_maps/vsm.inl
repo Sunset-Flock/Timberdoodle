@@ -6,7 +6,7 @@
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
-#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     #include "../../shader_shared/po2_expansion.inl"
     #include "../rasterize_visbuffer/cull_meshes.inl"
 #endif
@@ -47,7 +47,7 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_he
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
-#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
     DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(Po2WorkExpansionBufferHead), meshlet_cull_po2expansion)
     DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_meshlet_cull_po2expansion)
@@ -106,7 +106,7 @@ struct GenDirtyBitHizPush
 };
 
 
-#if DAXA_SHADERLANG != DAXA_SHADERLANG_GLSL
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion0)
@@ -157,7 +157,7 @@ struct GenDirtyBitHizPush
     DAXA_DECL_TASK_HEAD_END
     struct CullAndDrawPagesPush
     {
-        #if !(DAXA_SHADER_LANG == DAXA_SHADERLANG_GLSL)
+        #if !(DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
             daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
         #endif
         daxa_u32 draw_list_type;

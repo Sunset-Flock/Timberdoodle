@@ -40,8 +40,8 @@ inline auto create_task_buffer(GPUContext * context, auto size, auto task_buf_na
 }
 
 Renderer::Renderer(
-    Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer)
-    : render_context{std::make_unique<RenderContext>(context)}, window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}
+    Window * window, GPUContext * context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer,  UIEngine * ui_engine)
+    : render_context{std::make_unique<RenderContext>(context)}, window{window}, context{context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
     zero_buffer = create_task_buffer(context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
@@ -423,6 +423,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     //     - generates list of visible meshlets
     //     - marks visible triangles of meshlet instances in bitfield.
     //     - can optionally generate list of unique triangles.
+    render_context->debug_image_clones.clear();
     using namespace daxa;
     TaskGraph task_list{{
         .device = this->context->device,
@@ -873,19 +874,34 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .rctx = render_context.get(),
     });
-    task_list.add_task({
-        .attachments = {
+
+    {
+        std::vector ui_attachments = {
             daxa::inl_attachment(daxa::TaskImageAccess::COLOR_ATTACHMENT, swapchain_image),
             daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, debug_lens_image),
-        },
-        .task = [=, this](daxa::TaskInterface ti)
+        };
+        u32 static_ui_attachment_count = ui_attachments.size();
+        for (u32 i = 0; i < render_context->debug_image_clones.size(); ++i)
         {
-            auto size = ti.device.image_info(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
-            imgui_renderer->record_commands(
-                ImGui::GetDrawData(), ti.recorder, ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0], size.x, size.y);
-        },
-        .name = "ImGui Draw",
-    });
+            ui_attachments.push_back(daxa::inl_attachment(daxa::TaskImageAccess::FRAGMENT_SHADER_SAMPLED, render_context->debug_image_clones[i]));
+        }
+
+        task_list.add_task({
+            .attachments = ui_attachments,
+            .task = [=, this](daxa::TaskInterface ti)
+            {
+                std::vector<daxa::ImageViewId> disposable_img_views = {};
+                ui_engine->tg_resource_debug_ui(ti, static_ui_attachment_count, disposable_img_views);
+                ImGui::Render();
+                for (auto view : disposable_img_views)
+                    ti.recorder.destroy_image_view_deferred(view);
+                auto size = ti.device.image_info(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
+                imgui_renderer->record_commands(
+                    ImGui::GetDrawData(), ti.recorder, ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0], size.x, size.y);
+            },
+            .name = "ImGui Draw",
+        });
+    }
 
     task_list.add_task({
         .attachments = {
