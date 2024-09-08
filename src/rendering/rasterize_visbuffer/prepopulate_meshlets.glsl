@@ -147,6 +147,9 @@ void main()
                 return;
             }
             
+
+            // debugPrintfEXT("process prev meshlet vis index %i, meshlet id %i\n", thread_index, prev_frame_meshlet_idx);
+
             // Write meshlet instance into draw list and instance list:
             deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
             uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;

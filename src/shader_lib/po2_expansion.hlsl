@@ -18,8 +18,8 @@ interface IPo2SrcWorkItems
 func get_expanded_work_item<SrcWrkItmT : IPo2SrcWorkItems>(Po2WorkExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, uint bucket_index, out Po2ExpandedWorkItem ret) -> bool
 {
     let argument_index = thread_index >> bucket_index;
-    let bucket_capacity = capacity_of_bucket(self.max_src_items, self.max_dst_items, bucket_index);
-    if (argument_index >= bucket_capacity)
+    let argument_count = self.bucket_sizes[bucket_index];
+    if (argument_index >= argument_count)
     {
         return false;
     }
@@ -56,7 +56,6 @@ func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, u
         let arg_allocation_success = bucket_arg_index < bucket_capacity;
         if (arg_allocation_success)
         {
-            // printf("src_work_item_index %i, orig_dst_item_count: %i, push arg index %i bucket %i, capacity %i\n", src_work_item_index, orig_dst_item_count, bucket_arg_index, bucket_index, bucket_capacity);
             (self.buckets[bucket_index])[bucket_arg_index] = src_work_item_index;
 
             // Now we also need to update the indirect argument

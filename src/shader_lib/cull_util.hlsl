@@ -57,7 +57,8 @@ bool is_meshlet_drawn_in_first_pass(
             // DEBUG_INDEX(
             //     mesh_instance_bitfield_offset_offset,
             //     0, 
-            //     first_pass_meshlets_bitfield_arena.offsets_section_size - 1);
+            //     first_pass_meshlets_bitfield_arena.offsets_section_size - 1,
+            //     "ASSERT ERROR: OUT OF BOUNDS ACCESS IN is_meshlet_drawn_in_first_pass on");
             if (meshlet_drawn_first_pass)
             {
                 return true;

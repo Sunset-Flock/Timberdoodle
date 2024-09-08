@@ -248,30 +248,11 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     info.first_pass_meshlets_bitfield_offsets = ent_to_mesh_inst_offsets_offsets; 
     info.first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena; 
     
-    info.task_graph.add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, ent_to_mesh_inst_offsets_offsets),
-        },
-        .task = [=](daxa::TaskInterface ti)
-        {
-            if(info.render_context->mesh_instance_counts.mesh_instance_count > 0)
-            {
-                auto size = sizeof(daxa_u32) * std::min(info.render_context->mesh_instance_counts.mesh_instance_count, MAX_ENTITIES);
-                ti.recorder.clear_buffer({
-                    .buffer = ti.get(ent_to_mesh_inst_offsets_offsets).ids[0],
-                    .size = size,
-                    .clear_value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
-                });
-            }
-        },
-        .name = "clear entity_to_mesh_group_offsets_buffer",
-    });
+    // TODO: only clear values for entities that are present in the mesh instances list.
+    info.task_graph.clear_buffer({ent_to_mesh_inst_offsets_offsets, FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID});
 
-    // clear the counters to 0 in the beginning of the arena
-    task_fill_buffer(
-        info.task_graph, first_pass_meshlets_bitfield_arena, 
-        daxa_u32vec2{0,0}
-    );
+    // TODO: only clear used part of buffer.
+    info.task_graph.clear_buffer({first_pass_meshlets_bitfield_arena, 0});
 
     auto clear_mesh_instance_bitfield_offsets_command = info.task_graph.create_transient_buffer({ sizeof(IndirectMemsetBufferCommand), "clear_mesh_instance_bitfield_offsets_command"});
     task_fill_buffer(

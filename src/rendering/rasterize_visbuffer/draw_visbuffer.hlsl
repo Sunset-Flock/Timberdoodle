@@ -191,7 +191,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     uint meshlet_inst_index,
     MeshletInstance meshlet_inst,
     bool cull_backfaces)
-{    
+{            
     const GPUMesh mesh = deref_i(push.uses.meshes, meshlet_inst.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
@@ -557,6 +557,7 @@ func entry_task_meshlet_cull(
         const uint meshlet_instance_idx = payload.task_shader_meshlet_instances_offset + local_survivor_index;
         // When we fail to push back into the meshlet instances we dont need to do anything extra.
         // get_meshlet_instance_from_arg_buckets will make sure that no meshlet indices past the max number are attempted to be drawn.
+
         if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
         {
             deref_i(deref(push.uses.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
@@ -577,6 +578,7 @@ func entry_task_meshlet_cull(
                 (~0u);
         }
     }
+
 
     // Remove all meshlets that couldnt be allocated.
     draw_meshlet = draw_meshlet && !allocation_failed;
