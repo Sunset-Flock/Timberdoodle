@@ -23,7 +23,7 @@ struct DebugDrawPush
 
 #include "../../gpu_context.hpp"
 
-static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.glsl";
+static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.hlsl";
 inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
@@ -61,11 +61,17 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_circles_pipeline_compil
     auto ret = draw_shader_debug_common_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_CIRCLE", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_CIRCLE", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_vertex_circle",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.name = "DrawShaderDebugCircles";
     ret.push_constant_size = sizeof(DebugDrawPush);
@@ -77,11 +83,17 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_rectangles_pipeline_com
     auto ret = draw_shader_debug_common_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_RECTANGLE", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_RECTANGLE", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_vertex_rectangle",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.name = "DrawShaderDebugRectangles";
     ret.push_constant_size = sizeof(DebugDrawPush);
@@ -93,11 +105,17 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_aabb_pipeline_compile_i
     auto ret = draw_shader_debug_common_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_AABB", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_AABB", "1"}}},
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},        
+        .compile_options = {
+            .entry_point = "entry_vertex_aabb",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.name = "DrawShaderDebugAABB";
     ret.push_constant_size = sizeof(DebugDrawPush);
@@ -110,11 +128,17 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_box_pipeline_compile_in
     auto ret = draw_shader_debug_common_pipeline_compile_info();
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_BOX", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_fragment",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.vertex_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {.defines = {{"DRAW_BOX", "1"}}},
+        .compile_options = {
+            .entry_point = "entry_vertex_box",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
     };
     ret.name = "DrawShaderDebugBox";
     ret.push_constant_size = sizeof(DebugDrawPush);
