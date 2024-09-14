@@ -1,6 +1,7 @@
 #include "renderer.hpp"
 
 #include "../shader_shared/scene.inl"
+#include "../daxa_helper.hpp"
 #include "../shader_shared/debug.inl"
 #include "../shader_shared/readback.inl"
 
@@ -141,44 +142,45 @@ void Renderer::compile_pipelines()
         }
         this->context->raster_pipelines[info.name] = compilation_result.value();
     }
-    std::vector<daxa::ComputePipelineCompileInfo> computes = {
-        {alloc_entity_to_mesh_instances_offsets_pipeline_compile_info()},
-        {set_entity_meshlets_visibility_bitmasks_pipeline_compile_info()},
-        {AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info},
-        {prepopulate_meshlet_instances_pipeline_compile_info()},
-        {IndirectMemsetBufferTask::pipeline_compile_info},
-        {analyze_visbufer_pipeline_compile_info()},
-        {gen_hiz_pipeline_compile_info()},
-        {write_swapchain_pipeline_compile_info()},
-        {shade_opaque_pipeline_compile_info()},
-        {expand_meshes_pipeline_compile_info()},
-        {PrefixSumCommandWriteTask::pipeline_compile_info},
-        {prefix_sum_upsweep_pipeline_compile_info()},
-        {prefix_sum_downsweep_pipeline_compile_info()},
-        {compute_transmittance_pipeline_compile_info()},
-        {compute_multiscattering_pipeline_compile_info()},
-        {compute_sky_pipeline_compile_info()},
-        {sky_into_cubemap_pipeline_compile_info()},
-        {gen_luminace_histogram_pipeline_compile_info()},
-        {gen_luminace_average_pipeline_compile_info()},
-        {vsm_free_wrapped_pages_pipeline_compile_info()},
-        {CullAndDrawPages_WriteCommandTask::pipeline_compile_info},
-        {vsm_mark_required_pages_pipeline_compile_info()},
-        {vsm_find_free_pages_pipeline_compile_info()},
-        {vsm_allocate_pages_pipeline_compile_info()},
-        {vsm_clear_pages_pipeline_compile_info()},
-        {vsm_gen_dirty_bit_hiz_pipeline_compile_info()},
-        {vsm_clear_dirty_bit_pipeline_compile_info()},
-        {vsm_debug_virtual_page_table_pipeline_compile_info()},
-        {vsm_debug_meta_memory_table_pipeline_compile_info()},
-        {decode_visbuffer_test_pipeline_info()},
-        {SplitAtomicVisbufferTask::pipeline_compile_info},
-        {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
-        {ray_trace_ao_compute_pipeline_info()},
+    std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(gen_hiz_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(write_swapchain_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(expand_meshes_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(PrefixSumCommandWriteTask::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(prefix_sum_upsweep_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(prefix_sum_downsweep_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(compute_transmittance_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(compute_multiscattering_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(compute_sky_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(sky_into_cubemap_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(gen_luminace_histogram_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_free_wrapped_pages_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(CullAndDrawPages_WriteCommandTask::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_mark_required_pages_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_find_free_pages_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_allocate_pages_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_clear_pages_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_gen_dirty_bit_hiz_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_clear_dirty_bit_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_debug_virtual_page_table_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_debug_meta_memory_table_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(decode_visbuffer_test_pipeline_info())},
+        {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
+        {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
+        {draw_debug_clone_pipeline_info()},
     };
     for (auto const & info : computes)
     {
-        auto compilation_result = this->context->pipeline_manager.add_compute_pipeline(info);
+        auto compilation_result = this->context->pipeline_manager.add_compute_pipeline2(info);
         if (compilation_result.value()->is_valid())
         {
             DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
@@ -891,7 +893,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .task = [=, this](daxa::TaskInterface ti)
             {
                 std::vector<daxa::ImageViewId> disposable_img_views = {};
-                ui_engine->tg_resource_debug_ui(ti, static_ui_attachment_count, disposable_img_views);
                 ImGui::Render();
                 for (auto view : disposable_img_views)
                     ti.recorder.destroy_image_view_deferred(view);

@@ -7,12 +7,20 @@
 #include "../timberdoodle.hpp"
 
 #include "../shader_shared/geometry.inl"
+#include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
 #include "../multithreading/thread_pool.hpp"
-#include "../rendering/scene_renderer_context.hpp"
 #include "asset_processor.hpp"
 using namespace tido::types;
+
+struct CPUMeshInstanceCounts
+{
+    u32 mesh_instance_count = {};
+    u32 prepass_instance_counts[PREPASS_DRAW_LIST_TYPES] = {};
+    u32 vsm_invalidate_instance_count = {};
+};
+
 /**
  * DESCRIPTION:
  * Scenes are described by entities and their resources.

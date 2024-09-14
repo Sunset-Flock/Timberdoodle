@@ -8,6 +8,7 @@
 
 #include "../window.hpp"
 #include "../scene/scene.hpp"
+#include "../rendering/scene_renderer_context.hpp"
 #include "../timberdoodle.hpp"
 #include "../scene/asset_processor.hpp"
 #include "../application_state.hpp"
@@ -101,7 +102,7 @@ struct UIEngine
         ~UIEngine();
         void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state);
 
-        void tg_resource_debug_ui(daxa::TaskInterface ti, u32 first_debug_clone_image, std::vector<daxa::ImageViewId> & disposable_img_views);
+        void tg_resource_debug_ui(RenderContext & render_ctx);
 
     private:
         struct DebugCloneUiState

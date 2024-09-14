@@ -1,6 +1,7 @@
 #pragma once
 
 #include <string>
+#include <set>
 #include <daxa/utils/imgui.hpp>
 
 #include "../window.hpp"
@@ -13,18 +14,36 @@
 
 #include "../gpu_context.hpp"
 
-struct CPUMeshInstanceCounts
-{
-    u32 mesh_instance_count = {};
-    u32 prepass_instance_counts[PREPASS_DRAW_LIST_TYPES] = {};
-    u32 vsm_invalidate_instance_count = {};
-};
-
 struct DynamicMesh
 {
     glm::mat4x4 prev_transform;
     glm::mat4x4 curr_transform;
     std::vector<AABB> meshlet_aabbs;
+};
+
+struct TgDebugImageViewSettings
+{
+    f64 min_v = 0.0;
+    f64 max_v = 1.0;
+    u32 mip = 0u;
+    u32 layer = 0u;
+    i32 rainbow_ints = false;
+    i32 nearest_filtering = false;
+    daxa_i32vec4 enabled_channels = { true, true, true, true };
+    // Written by tg:
+    bool slice_valid = true;
+    daxa::TaskImageAttachmentInfo attachment_info = {};
+    daxa::ImageInfo runtime_image_info = {};
+};
+
+struct TgDebugContext
+{
+    std::string task_image_name = "hiz";
+    TgDebugImageViewSettings ui_settings = {};
+    // Is a full copy of the inspected image.
+    // When freezing the image, this copy will contain all mips and slices available to the task.
+    daxa::ImageId image_debug_clone = {};
+    // Written by task graph:
 };
 
 // Used to store all information used only by the renderer.
@@ -135,6 +154,7 @@ struct RenderContext
     }
 
     // Data
+    TgDebugContext tg_debug = {};
     ReadbackValues general_readback;
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};

@@ -59,6 +59,8 @@ struct GenHizInfo
 
 #include "../scene_renderer_context.hpp"
 
+#include "../tasks/shader_debug_draws.inl"
+
 inline auto gen_hiz_pipeline_compile_info()
 {
     return daxa::ComputePipelineCompileInfo{
@@ -98,6 +100,8 @@ struct GenHizTask : GenHizTH::Task
         assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+
+        draw_debug_clone(ti, AT.globals, render_context);
     }
 };
 

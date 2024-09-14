@@ -394,10 +394,10 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                 calculate_percentiles = false;
             }
 
-            for(i32 stat = 0; stat < 3; stat++)
+            for (i32 stat = 0; stat < 3; stat++)
             {
                 if (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} ewa: ", task_names.at(stat)).c_str(), measurements.scrolling_ewa.at(stat).back().y).c_str()); }
-                else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} average: ",task_names.at(stat)).c_str(), measurements.scrolling_mean.at(stat).back().y).c_str()); }
+                else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} average: ", task_names.at(stat)).c_str(), measurements.scrolling_mean.at(stat).back().y).c_str()); }
                 else
                 {
                     ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} raw: ", task_names.at(stat)).c_str(), measurements.scrolling_raw.at(stat).back().y).c_str());
@@ -421,10 +421,12 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                 else if (selected_item == 1) { measurements_scrolling_selected = &measurements.scrolling_mean; }
                 else { measurements_scrolling_selected = &measurements.scrolling_raw; }
                 ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
-                if(!show_entire_interval)
+                if (!show_entire_interval)
                 {
                     ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-                } else {
+                }
+                else
+                {
                     ImPlot::SetupAxisLimits(ImAxis_X1, measurements_scrolling_selected->at(0).front().x, measurements_scrolling_selected->at(0).back().x, ImGuiCond_Always);
                 }
                 ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
@@ -461,7 +463,7 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             .post_settings = &render_ctx.render_data.postprocess_settings,
         });
     }
-    if (demo_window)
+    if (true)
     {
         ImGui::ShowDemoWindow();
     }
@@ -551,53 +553,102 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
         }
         ImGui::End();
     }
+    tg_resource_debug_ui(render_ctx);
 }
 
-void UIEngine::tg_resource_debug_ui(daxa::TaskInterface ti, u32 first_debug_clone_image, std::vector<daxa::ImageViewId> & disposable_img_views)
+void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
 {
     if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
     {
-        for (u32 attach = first_debug_clone_image; attach < static_cast<u32>(ti.attachment_infos.size()); ++attach)
+        // The ui update is staggered a frame.
+        // This is because the ui gets information from the task graph with a delay of one frame.
+        // Because of this we first shedule a draw for the previous frames debug image canvas.
+        auto & ui_settings = render_ctx.tg_debug.ui_settings;
+        ImTextureID tex_id = {};
+        daxa::ImageInfo clone_image_info = {};
+        daxa::ImageInfo const & image_info = ui_settings.runtime_image_info;
+        if (!render_ctx.tg_debug.image_debug_clone.is_empty())
         {
-            auto const image = daxa::TaskImageAttachmentIndex{attach};
-            DebugCloneUiState & state = debug_clone_states[ti.get(image).name];
-            auto const slice = ti.get(image).view.slice;
+            clone_image_info = render_ctx.gpuctx->device.image_info(render_ctx.tg_debug.image_debug_clone).value();
 
-            ImGui::Text("%s", ti.get(image).name);
-            ImGui::Text("slice: %s", daxa::to_string(slice).c_str());
-            ImGui::InputInt("mip", &state.selected_mip, 1);
-            state.selected_mip = std::clamp(state.selected_mip, i32(slice.base_mip_level), i32((slice.base_mip_level + slice.level_count - 1)));
-            ImGui::InputInt("layer", &state.selected_array_layer, 1);
-            state.selected_array_layer = std::clamp(state.selected_array_layer, i32(slice.base_array_layer), i32((slice.base_array_layer + slice.layer_count - 1)));
+            daxa::SamplerId sampler = context->lin_clamp_sampler;
+            if (ui_settings.nearest_filtering)
+            {
+                sampler = context->nearest_clamp_sampler;
+            }
+            tex_id = imgui_renderer.create_texture_id({
+                .image_view_id = render_ctx.tg_debug.image_debug_clone.default_view(),
+                .sampler_id = sampler,
+            });
+        }
+
+        // Now we actually process the ui.
+        daxa::TaskImageAttachmentInfo const & attachment_info = ui_settings.attachment_info;
+        auto slice = attachment_info.view.slice;
+
+        if (ImGui::BeginTable("Some Inspected Image", 2, ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit))
+        {
+            ImGui::TableSetupColumn("Inspector settings", ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit);
+            ImGui::TableSetupColumn("Image view", ImGuiTableColumnFlags_WidthStretch);
+            ImGui::TableNextColumn();
+            ImGui::PushItemWidth(140);
+            ImGui::SeparatorText("Inspector settings");
+            i32 imip = ui_settings.mip;
+            ImGui::InputInt("mip", &imip, 1);
+            ui_settings.mip = imip;
+            i32 ilayer = ui_settings.layer;
+            ImGui::InputInt("layer", &ilayer, 1);
+            ui_settings.layer = ilayer;
+            ImGui::Text("selected mip size: (%i,%i,%i)", std::max(image_info.size.x >> ui_settings.mip, 1u), std::max(image_info.size.y >> ui_settings.mip, 1u), std::max(image_info.size.z >> ui_settings.mip, 1u));
+            if (!ui_settings.slice_valid)
+                ImGui::PushStyleColor(ImGuiCol_Text, 0xFF0000FF);
+            ImGui::Text(ui_settings.slice_valid ? "" : "SELECTED SLICE INVALID");
+            if (!ui_settings.slice_valid)
+                ImGui::PopStyleColor();
             auto modes = std::array{
                 "Linear",
                 "Nearest",
             };
-            ImGui::Combo("sampler", &state.selected_sampler, modes.data(), modes.size());
-            daxa::SamplerId sampler = {};
-            switch (state.selected_sampler) {
-                case 0: sampler = context->lin_clamp_sampler; break;
-                case 1: sampler = context->nearest_clamp_sampler; break;
-                default: sampler = context->lin_clamp_sampler; break;
+            ImGui::Combo("sampler", &ui_settings.nearest_filtering, modes.data(), modes.size());
+
+            //const char* column_names[4] = { "red", "green", "blue", "alpha" };
+            if (ImGui::BeginTable("Channels", 4, ImGuiTableRowFlags_Headers | ImGuiTableFlags_NoBordersInBody))
+            {
+                std::array<bool, 4> channels = {
+                    static_cast<bool>(ui_settings.enabled_channels.x),
+                    static_cast<bool>(ui_settings.enabled_channels.y),
+                    static_cast<bool>(ui_settings.enabled_channels.z),
+                    static_cast<bool>(ui_settings.enabled_channels.w),
+                };
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("x", channels.data() + 0);
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("y", channels.data() + 1);
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("z", channels.data() + 2);
+                ImGui::TableNextColumn();
+                ImGui::Checkbox("w", channels.data() + 3);
+                ui_settings.enabled_channels.x = channels[0];
+                ui_settings.enabled_channels.y = channels[1];
+                ui_settings.enabled_channels.z = channels[2];
+                ui_settings.enabled_channels.w = channels[3];
+                ImGui::EndTable();
             }
+            ImGui::InputDouble("min value", &ui_settings.min_v);
+            ImGui::InputDouble("max value", &ui_settings.max_v);
 
-            auto view_info = ti.image_view_info(image).value();
-            view_info.slice.base_array_layer = state.selected_array_layer;
-            view_info.slice.layer_count = 1;
-            view_info.slice.base_mip_level = state.selected_mip;
-            view_info.slice.level_count = 1;
-            auto view = context->device.create_image_view(view_info); 
-            disposable_img_views.push_back(view);
-
-            auto const size = ti.info(image).value().size;
-            float const aspect = float(size.y) / float(size.x);
-            
-            auto tex_id = imgui_renderer.create_texture_id({
-                .image_view_id = view,
-                .sampler_id = sampler,
-            });
-            ImGui::Image(tex_id, ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect));
+            ImGui::TableNextColumn();
+            ImGui::SeparatorText(attachment_info.name);
+            ImGui::Text("slice used in task: %s", daxa::to_string(slice).c_str());
+            ImGui::Text("image total size: (%i,%i,%i), mips: %i, layers: %i", image_info.size.x, image_info.size.y, image_info.size.z, image_info.mip_level_count, image_info.array_layer_count);
+            if (tex_id)
+            {
+                float const aspect = float(clone_image_info.size.y) / float(clone_image_info.size.x);
+                ImGui::Image(tex_id, ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect));
+            }
+            ImGui::EndTable();
         }
+
         ImGui::End();
     }
 }
@@ -701,8 +752,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
         ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
         auto ao_modes = std::array{
             "None",
-            "RT"
-        };
+            "RT"};
         ImGui::Combo("ao mode", &settings.ao_mode, ao_modes.data(), ao_modes.size());
         ImGui::InputInt("ao samples", &settings.ao_samples);
         ImGui::SeparatorText("Debug Visualizations");
@@ -724,12 +774,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             };
             ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);
-            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool*>(&settings.enable_mesh_cull));
-            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool*>(&settings.enable_meshlet_cull));
-            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool*>(&settings.enable_triangle_cull));
-            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool*>(&settings.enable_atomic_visbuffer));
-            ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool*>(&settings.enable_merged_scene_blas));
-            ImGui::Checkbox("use_rt_pipeline_for_ao", reinterpret_cast<bool*>(&settings.use_rt_pipeline_for_ao));
+            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&settings.enable_mesh_cull));
+            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&settings.enable_meshlet_cull));
+            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&settings.enable_triangle_cull));
+            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&settings.enable_atomic_visbuffer));
+            ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool *>(&settings.enable_merged_scene_blas));
+            ImGui::Checkbox("use_rt_pipeline_for_ao", reinterpret_cast<bool *>(&settings.use_rt_pipeline_for_ao));
         }
     }
     ImGui::End();

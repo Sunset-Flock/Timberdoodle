@@ -15,13 +15,40 @@ DAXA_DECL_TASK_HEAD_END
 
 struct DebugDrawPush
 {
-    DAXA_TH_BLOB(DebugDrawH, attachments)
-    daxa_u32 draw_as_observer;
+    DebugDrawH::AttachmentShaderBlob attachments;
+    daxa::u32 draw_as_observer;
 };
 
-#if __cplusplus
+enum DrawDebugClone_Format
+{
+    DrawDebugClone_Format_FLOAT,
+    DrawDebugClone_Format_INT,
+    DrawDebugClone_Format_UINT,
+};
 
-#include "../../gpu_context.hpp"
+#define DEBUG_DRAW_CLONE_X 16
+#define DEBUG_DRAW_CLONE_Y 16
+struct DrawDebugClonePush
+{
+    daxa_BufferPtr(RenderGlobalData) globals;
+    daxa::ImageViewId src;
+    daxa::RWTexture2DIndex<daxa_f32vec4> dst;
+    daxa_u32vec2 src_size;
+    daxa::u32 image_view_type;
+    DrawDebugClone_Format format;
+    daxa::f32 float_min;
+    daxa::f32 float_max;
+    daxa::i32 int_min;
+    daxa::i32 int_max;
+    daxa::u32 uint_min;
+    daxa::u32 uint_max;
+    daxa::i32 rainbow_ints;
+    daxa_i32vec4 enabled_channels;
+};
+
+#if defined(__cplusplus)
+
+#include "../scene_renderer_context.hpp"
 
 static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.hlsl";
 inline daxa::RasterPipelineCompileInfo draw_shader_debug_common_pipeline_compile_info()
@@ -177,8 +204,10 @@ struct DebugDrawTask : DebugDrawH::Task
 
         render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
-        DebugDrawPush push{.draw_as_observer = rctx->render_data.settings.draw_from_observer};
-        assign_blob(push.attachments, ti.attachment_shader_blob);
+        DebugDrawPush push{
+            .attachments = ti.attachment_shader_blob,
+            .draw_as_observer = rctx->render_data.settings.draw_from_observer,
+        };
         render_cmd.push_constant(push);
 
         render_cmd.draw_indirect({
@@ -216,5 +245,432 @@ struct DebugDrawTask : DebugDrawH::Task
         ti.recorder = std::move(render_cmd).end_renderpass();
     }
 };
+
+inline auto draw_debug_clone_pipeline_info()
+{
+    return daxa::ComputePipelineCompileInfo2
+    {
+        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
+        .entry_point = "entry_draw_debug_clone",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = sizeof(DrawDebugClonePush),
+        .name = "draw_debug_clone",
+    };
+}
+
+
+void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex globals, RenderContext * rctx)
+{
+    std::vector<daxa::ImageMipArraySlice> task_slices = {};
+    int found_image = -1;
+    for (u32 i = 0; i < ti.attachment_infos.size(); ++i)
+    {
+        if (ti.attachment_infos[i].type != daxa::TaskAttachmentType::IMAGE)
+            continue;
+        auto& attach_info = ti.get(daxa::TaskImageAttachmentIndex{i});
+        auto img_info = ti.device.image_info(attach_info.ids[0]).value();
+        if (std::strcmp(img_info.name.c_str().data(), rctx->tg_debug.task_image_name.c_str()) == 0)
+        {
+            found_image = i;
+            task_slices.push_back(attach_info.view.slice);
+        }
+    }
+
+    if (found_image >= 0)
+    {
+        printf("found image!\n");
+        daxa::TaskImageAttachmentIndex src = {static_cast<u32>(found_image)};
+        auto const src_id = ti.get(src).ids[0];
+        auto const src_info = ti.info(src).value();
+
+        rctx->tg_debug.ui_settings.attachment_info = ti.get(src);
+
+        if (src_id.is_empty())
+        {
+            return;
+        }
+
+        auto& image_debug_clone = rctx->tg_debug.image_debug_clone;
+        auto& ui_settings = rctx->tg_debug.ui_settings;
+        ui_settings.runtime_image_info = src_info;
+
+        ui_settings.slice_valid = false;
+        for (auto & slice : task_slices)
+        {
+            ui_settings.slice_valid |= slice.contains(daxa::ImageMipArraySlice{
+                .base_mip_level = ui_settings.mip,
+                .base_array_layer = ui_settings.layer,
+            });
+        }
+
+        daxa::ImageInfo image_debug_clone_info = {};
+        image_debug_clone_info.dimensions = 2u;
+        image_debug_clone_info.size.x = std::max(1u, src_info.size.x >> ui_settings.mip);
+        image_debug_clone_info.size.y = std::max(1u, src_info.size.y >> ui_settings.mip);
+        image_debug_clone_info.size.z = 1u;
+        image_debug_clone_info.mip_level_count = 1u;
+        image_debug_clone_info.array_layer_count = 1u;
+        image_debug_clone_info.sample_count = 1u;
+        image_debug_clone_info.format = daxa::Format::R16G16B16A16_SFLOAT;
+        image_debug_clone_info.name = "tg image debug clone";
+        image_debug_clone_info.usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE;
+        
+        if (!image_debug_clone.is_empty())
+        {
+            auto current_clone_size = ti.device.image_info(image_debug_clone).value().size;
+            if (image_debug_clone_info.size.x != current_clone_size.x || image_debug_clone_info.size.y != current_clone_size.y)
+            {
+                ti.recorder.destroy_image_deferred(image_debug_clone);
+                image_debug_clone = ti.device.create_image(image_debug_clone_info);
+            }
+        }
+        else
+        {
+            image_debug_clone = ti.device.create_image(image_debug_clone_info);
+        }
+
+        ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+            .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+            .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .image_id = image_debug_clone,
+        });
+
+        ti.recorder.clear_image({
+            .clear_value = std::array{1.0f,0.0f,1.0f,1.0f}, 
+            .dst_image = image_debug_clone,
+        });
+
+        if (ui_settings.slice_valid)
+        {
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
+                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
+                .image_slice = ti.device.image_view_info(image_debug_clone.default_view()).value().slice,
+                .image_id = image_debug_clone,
+            });
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = ti.get(src).access,
+                .dst_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
+                .src_layout = ti.get(src).layout,
+                .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .image_slice = ti.get(src).view.slice,
+                .image_id = src_id,
+            });
+
+            ti.recorder.set_pipeline(*rctx->gpuctx->compute_pipelines.at(std::string("draw_debug_clone")));
+
+            DrawDebugClone_Format format = {};
+            switch (src_info.format)
+            {
+                case daxa::Format::UNDEFINED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R4G4_UNORM_PACK8: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R4G4B4A4_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B4G4R4A4_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R5G6B5_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B5G6R5_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R5G5B5A1_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B5G5R5A1_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A1R5G5B5_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R8G8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R8G8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R8G8B8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R8G8B8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::B8G8R8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::B8G8R8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8A8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8A8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8A8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8A8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R8G8B8A8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R8G8B8A8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R8G8B8A8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8A8_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8A8_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8A8_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8A8_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8A8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::B8G8R8A8_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::B8G8R8A8_SRGB: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A8B8G8R8_UNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A8B8G8R8_SNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A8B8G8R8_USCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A8B8G8R8_SSCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A8B8G8R8_UINT_PACK32: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::A8B8G8R8_SINT_PACK32: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::A8B8G8R8_SRGB_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2R10G10B10_UNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2R10G10B10_SNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2R10G10B10_USCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2R10G10B10_SSCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2R10G10B10_UINT_PACK32: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::A2R10G10B10_SINT_PACK32: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::A2B10G10R10_UNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2B10G10R10_SNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2B10G10R10_USCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2B10G10R10_SSCALED_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A2B10G10R10_UINT_PACK32: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::A2B10G10R10_SINT_PACK32: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R16_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R16_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R16_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R16G16_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R16G16_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R16G16B16_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R16G16B16_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16A16_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16A16_SNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16A16_USCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16A16_SSCALED: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R16G16B16A16_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R16G16B16A16_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R16G16B16A16_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R32_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R32_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R32_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R32G32_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R32G32_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R32G32_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R32G32B32_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R32G32B32_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R32G32B32_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R32G32B32A32_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R32G32B32A32_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R32G32B32A32_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R64_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R64_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R64_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R64G64_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R64G64_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R64G64_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R64G64B64_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R64G64B64_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R64G64B64_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R64G64B64A64_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::R64G64B64A64_SINT: format = DrawDebugClone_Format_INT; break;
+                case daxa::Format::R64G64B64A64_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B10G11R11_UFLOAT_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::E5B9G9R9_UFLOAT_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::D16_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::X8_D24_UNORM_PACK32: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::D32_SFLOAT: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::S8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::D16_UNORM_S8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::D24_UNORM_S8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::D32_SFLOAT_S8_UINT: format = DrawDebugClone_Format_UINT; break;
+                case daxa::Format::BC1_RGB_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC1_RGB_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC1_RGBA_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC1_RGBA_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC2_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC2_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC3_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC3_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC4_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC4_SNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC5_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC5_SNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC6H_UFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC6H_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC7_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::BC7_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8A1_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8A1_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8A8_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ETC2_R8G8B8A8_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::EAC_R11_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::EAC_R11_SNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::EAC_R11G11_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::EAC_R11G11_SNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_4x4_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_4x4_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x4_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x4_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x5_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x5_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x5_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x5_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x6_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x6_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x5_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x5_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x6_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x6_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x8_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x8_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x5_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x5_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x6_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x6_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x8_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x8_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x10_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x10_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x10_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x10_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x12_UNORM_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x12_SRGB_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8B8G8R8_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B8G8R8G8_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8_R8_3PLANE_420_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8R8_2PLANE_420_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8_R8_3PLANE_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8R8_2PLANE_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8_R8_3PLANE_444_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R10X6_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R10X6G10X6_UNORM_2PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R10X6G10X6B10X6A10X6_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6B10X6G10X6R10X6_422_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B10X6G10X6R10X6G10X6_422_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6_R10X6_3PLANE_420_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6R10X6_2PLANE_420_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6_R10X6_3PLANE_422_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6R10X6_2PLANE_422_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6_R10X6_3PLANE_444_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R12X4_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R12X4G12X4_UNORM_2PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::R12X4G12X4B12X4A12X4_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4B12X4G12X4R12X4_422_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B12X4G12X4R12X4G12X4_422_UNORM_4PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4_R12X4_3PLANE_420_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4R12X4_2PLANE_420_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4_R12X4_3PLANE_422_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4R12X4_2PLANE_422_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4_R12X4_3PLANE_444_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16B16G16R16_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::B16G16R16G16_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16_R16_3PLANE_420_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16R16_2PLANE_420_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16_R16_3PLANE_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16R16_2PLANE_422_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16_R16_3PLANE_444_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G8_B8R8_2PLANE_444_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G10X6_B10X6R10X6_2PLANE_444_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G12X4_B12X4R12X4_2PLANE_444_UNORM_3PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::G16_B16R16_2PLANE_444_UNORM: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A4R4G4B4_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::A4B4G4R4_UNORM_PACK16: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_4x4_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x4_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_5x5_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x5_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_6x6_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x5_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x6_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_8x8_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x5_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x6_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x8_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_10x10_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x10_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::ASTC_12x12_SFLOAT_BLOCK: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC1_2BPP_UNORM_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC1_4BPP_UNORM_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC2_2BPP_UNORM_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC2_4BPP_UNORM_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC1_2BPP_SRGB_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC1_4BPP_SRGB_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC2_2BPP_SRGB_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::PVRTC2_4BPP_SRGB_BLOCK_IMG: format = DrawDebugClone_Format_FLOAT; break;
+                case daxa::Format::MAX_ENUM: format = DrawDebugClone_Format_FLOAT; break;
+            }
+
+            daxa::ImageViewInfo src_image_view_info = ti.device.image_view_info(src_id.default_view()).value();
+            src_image_view_info.slice.base_mip_level = ui_settings.mip;
+            src_image_view_info.slice.base_array_layer = ui_settings.layer;
+            daxa::ImageViewId src_view = ti.device.create_image_view(src_image_view_info);
+            ti.recorder.destroy_image_view_deferred(src_view);
+            ti.recorder.push_constant(DrawDebugClonePush{
+                .globals = ti.device_address(globals).value(),
+                .src = src_view,
+                .dst = image_debug_clone.default_view(),
+                .src_size = { image_debug_clone_info.size.x, image_debug_clone_info.size.y },
+                .image_view_type = static_cast<u32>(ti.image_view_info(src).value().type),
+                .format = format,
+                .float_min = static_cast<f32>(ui_settings.min_v),
+                .float_max = static_cast<f32>(ui_settings.max_v),
+                .int_min = static_cast<i32>(ui_settings.min_v),
+                .int_max = static_cast<i32>(ui_settings.max_v),
+                .uint_min = static_cast<u32>(ui_settings.min_v),
+                .uint_max = static_cast<u32>(ui_settings.max_v),
+                .rainbow_ints = ui_settings.rainbow_ints,
+                .enabled_channels = ui_settings.enabled_channels,
+            }); 
+            ti.recorder.dispatch({
+                round_up_div(image_debug_clone_info.size.x, DEBUG_DRAW_CLONE_X),
+                round_up_div(image_debug_clone_info.size.y, DEBUG_DRAW_CLONE_Y),
+                1,
+            });
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
+                .dst_access = ti.get(src).access,
+                .src_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .dst_layout = ti.get(src).layout,
+                .image_slice = ti.get(src).view.slice,
+                .image_id = src_id,
+            });
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
+                .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
+                .src_layout = daxa::ImageLayout::GENERAL,
+                .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .image_id = image_debug_clone,
+            });
+        }
+        else // ui image slice NOT valid.
+        {
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
+                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .image_id = image_debug_clone,
+            });
+        }
+    }
+    else
+    {
+        printf("did not find image!\n");
+    }
+}
 
 #endif // #if __cplusplus
