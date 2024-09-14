@@ -21,28 +21,37 @@ struct DynamicMesh
     std::vector<AABB> meshlet_aabbs;
 };
 
-struct TgDebugImageViewSettings
+struct TgDebugImageInspectorState
 {
     f64 min_v = 0.0;
     f64 max_v = 1.0;
     u32 mip = 0u;
     u32 layer = 0u;
     i32 rainbow_ints = false;
-    i32 nearest_filtering = false;
+    i32 nearest_filtering = true;
     daxa_i32vec4 enabled_channels = { true, true, true, true };
+    daxa_i32vec2 mouse_pos_relative_to_display_image = { 0, 0 };
+    daxa_i32vec2 mouse_pos_relative_to_image = { 0, 0 };
+    daxa_i32vec2 display_image_size = { 0, 0 };
+    i32 resolution_draw_mode = 0;
+    bool fixed_display_mip_sizes = true;
+    bool freeze_image = false;
     // Written by tg:
     bool slice_valid = true;
     daxa::TaskImageAttachmentInfo attachment_info = {};
     daxa::ImageInfo runtime_image_info = {};
+    daxa::ImageId image_debug_clone = {};
+    daxa::ImageId frozen_image = {};
+    daxa::ImageId stale_image = {};
+    daxa::ImageId stale_image1 = {};
 };
 
 struct TgDebugContext
 {
     std::string task_image_name = "hiz";
-    TgDebugImageViewSettings ui_settings = {};
+    TgDebugImageInspectorState state = {};
     // Is a full copy of the inspected image.
     // When freezing the image, this copy will contain all mips and slices available to the task.
-    daxa::ImageId image_debug_clone = {};
     // Written by task graph:
 };
 

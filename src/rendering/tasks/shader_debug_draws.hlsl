@@ -194,27 +194,6 @@ func entry_fragment(VertexToPixel vertToPix) -> FragmentOut
 
 [[vk::push_constant]] DrawDebugClonePush draw_debug_clone_push;
 
-__generic<TVEC>
-func generic_read_texture(uint2 thread_index) -> TVEC
-{
-    let p = draw_debug_clone_push;
-    SamplerState sampler = p.globals->samplers.nearest_clamp.get();
-    float2 uv = (float2(thread_index) + 0.5f) * rcp(float2(p.src_size));
-    float uv1 = uv.x;
-    return Texture2D<TVEC>::get(p.src).SampleLevel(sampler, uv, 0);
-    // switch (p.format)
-    // {
-    //     /*REGULAR_1D*/ case 0: return Texture1D<TVEC>::get(p.src).SampleLevel(sampler, uv1, p.src_mip);
-    //     /*REGULAR_2D*/ case 1: return Texture2D<TVEC>::get(p.src).SampleLevel(sampler, uv, p.src_mip);
-    //     /*REGULAR_3D*/ case 2: return Texture3D<TVEC>::get(p.src).SampleLevel(sampler, float3(uv, p.src_layer), p.src_mip);
-    //     /*CUBE*/ case 3: return TVEC(); // unimplemented, use a image2darray view instead!
-    //     /*REGULAR_1D_ARRAY*/ case 4: return Texture1DArray<TVEC>::get(p.src).SampleLevel(sampler, float2(uv1, p.src_layer), p.src_mip);
-    //     /*REGULAR_2D_ARRAY*/ case 5: return Texture2DArray<TVEC>::get(p.src).SampleLevel(sampler, float3(uv, p.src_layer), p.src_mip);
-    //     /*CUBE_ARRAY*/  case 6: return TVEC();// unimplemented, use a image2darray view instead!
-    // }
-    // return TVEC();
-}
-
 float3 hsv2rgb(float3 c) {
     float4 k = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     float3 p = abs(frac(c.xxx + k.xyz) * 6.0 - k.www);
@@ -245,39 +224,36 @@ func entry_draw_debug_clone(uint2 thread_index : SV_DispatchThreadID)
     {
         case DrawDebugClone_Format::DrawDebugClone_Format_FLOAT: 
         {
-            var sample = generic_read_texture<float4>(thread_index);
-            float_sample = (sample - p.float_min) * rcp(p.float_max - p.float_min);
+            var sample = Texture2D<float4>::get(p.src).Load(uint3(thread_index, 0));
+            float_sample = float4((sample.rgb - p.float_min) * rcp(p.float_max - p.float_min), sample.a);
         }
         break;
         case DrawDebugClone_Format::DrawDebugClone_Format_INT: 
         {
-            var sample = generic_read_texture<int4>(thread_index);
+            var sample = Texture2D<int4>::get(p.src).Load(uint3(thread_index, 0));
             if (p.rainbow_ints)
                 float_sample = float4(rainbow_maker(sample.x), 1);
             else
-                float_sample = float4((sample - p.int_min) * rcp(p.int_max - p.int_min));
+                float_sample = float4((sample.rgb - p.int_min) * rcp(p.int_max - p.int_min), sample.a);
         }
         break;
         case DrawDebugClone_Format::DrawDebugClone_Format_UINT: 
         {
-            var sample = generic_read_texture<uint4>(thread_index);        
+            var sample = Texture2D<uint4>::get(p.src).Load(uint3(thread_index, 0));     
             if (p.rainbow_ints)
                 float_sample = float4(rainbow_maker(sample.x), 1);
             else
-                float_sample = float4((sample - p.uint_min) * rcp(p.uint_max - p.uint_min));    
+                float_sample = float4((sample.rgb - p.uint_min) * rcp(p.uint_max - p.uint_min), sample.a);    
         }
         break;
     }
 
-    // if (all(thread_index == uint2(0,0)))
-    // {
-    //     printf("x %i, y %i\n", p.src_size.x, p.src_size.y);
-    // }
-
     float_sample[0] = p.enabled_channels[0] != 0 ? float_sample[0] : 0.0f;
     float_sample[1] = p.enabled_channels[1] != 0 ? float_sample[1] : 0.0f;
     float_sample[2] = p.enabled_channels[2] != 0 ? float_sample[2] : 0.0f;
-    float_sample[3] = p.enabled_channels[3] != 0 ? float_sample[3] : 0.0f;
+    float_sample[3] = p.enabled_channels[3] != 0 ? float_sample[3] : 1.0f;
 
-    p.dst.get()[thread_index] = float_sample;
+
+    let previous_value = p.dst.get()[thread_index];
+    p.dst.get()[thread_index] = float4(lerp(previous_value.rgb, float_sample.rgb, float_sample.a), 1.0f);
 }
