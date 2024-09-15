@@ -16,13 +16,14 @@
 
 struct DynamicMesh
 {
-    glm::mat4x4 prev_transform;
-    glm::mat4x4 curr_transform;
-    std::vector<AABB> meshlet_aabbs;
+    glm::mat4x4 prev_transform = {};
+    glm::mat4x4 curr_transform = {};
+    std::vector<AABB> meshlet_aabbs = {};
 };
 
 struct TgDebugImageInspectorState
 {
+    // Written by ui:
     f64 min_v = 0.0;
     f64 max_v = 1.0;
     u32 mip = 0u;
@@ -36,11 +37,14 @@ struct TgDebugImageInspectorState
     i32 resolution_draw_mode = 0;
     bool fixed_display_mip_sizes = true;
     bool freeze_image = false;
+    bool active = false;
+    bool display_image_hovered = false;
+    bool freeze_image_hover_index = false;
     // Written by tg:
     bool slice_valid = true;
     daxa::TaskImageAttachmentInfo attachment_info = {};
     daxa::ImageInfo runtime_image_info = {};
-    daxa::ImageId image_debug_clone = {};
+    daxa::ImageId display_image = {};
     daxa::ImageId frozen_image = {};
     daxa::ImageId stale_image = {};
     daxa::ImageId stale_image1 = {};
@@ -48,11 +52,26 @@ struct TgDebugImageInspectorState
 
 struct TgDebugContext
 {
-    std::string task_image_name = "hiz";
-    TgDebugImageInspectorState state = {};
-    // Is a full copy of the inspected image.
-    // When freezing the image, this copy will contain all mips and slices available to the task.
-    // Written by task graph:
+    std::string task_image_name = "color_image";
+
+    std::unordered_map<std::string, std::set<std::string>> this_frame_task_attachments = {}; // cleared every frame.
+    std::unordered_map<std::string, TgDebugImageInspectorState> inspector_states = {};
+    std::set<std::string> active_inspectors = {};
+
+    void cleanup(daxa::Device device)
+    {
+        for (auto& inspector : inspector_states)
+        {
+            if (!inspector.second.display_image.is_empty())
+                device.destroy_image((inspector.second.display_image));
+            if (!inspector.second.frozen_image.is_empty())
+                device.destroy_image((inspector.second.frozen_image));
+            if (!inspector.second.stale_image.is_empty())
+                device.destroy_image((inspector.second.stale_image));
+            if (!inspector.second.stale_image1.is_empty())
+                device.destroy_image((inspector.second.stale_image1));
+        }
+    }
 };
 
 // Used to store all information used only by the renderer.
@@ -134,6 +153,7 @@ struct RenderContext
     }
     ~RenderContext()
     {
+        tg_debug.cleanup(gpuctx->device);
         gpuctx->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
         gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));

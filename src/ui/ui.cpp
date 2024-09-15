@@ -561,16 +561,45 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
 {
     if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        for (auto task : render_ctx.tg_debug.this_frame_task_attachments)
+        {
+            if (ImGui::CollapsingHeader(task.first.c_str()))
+            {
+                for (auto attach : task.second)
+                {
+                    if (ImGui::Button(attach.c_str()))
+                    {
+                        std::string inspector_key = task.first + " + " + attach;
+                        render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
+                        render_ctx.tg_debug.inspector_states[inspector_key].active = true;
+                    }
+                }
+            }
+        }
+
+        ImGui::End();
+
+        for (auto active_inspector_key : render_ctx.tg_debug.active_inspectors)
+        {
+            tg_debug_image_inspector(render_ctx, active_inspector_key);
+        }
+    }
+}
+
+void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key)
+{
+    auto & state = render_ctx.tg_debug.inspector_states[active_inspector_key];
+    if (ImGui::Begin(fmt::format("Inspector for {}", active_inspector_key.c_str()).c_str(), nullptr))
+    {
         // The ui update is staggered a frame.
         // This is because the ui gets information from the task graph with a delay of one frame.
         // Because of this we first shedule a draw for the previous frames debug image canvas.
-        auto & state = render_ctx.tg_debug.state;
         ImTextureID tex_id = {};
         daxa::ImageInfo clone_image_info = {};
         daxa::ImageInfo const & image_info = state.runtime_image_info;
-        if (!render_ctx.tg_debug.state.image_debug_clone.is_empty())
+        if (!state.display_image.is_empty())
         {
-            clone_image_info = render_ctx.gpuctx->device.image_info(render_ctx.tg_debug.state.image_debug_clone).value();
+            clone_image_info = render_ctx.gpuctx->device.image_info(state.display_image).value();
 
             daxa::SamplerId sampler = context->lin_clamp_sampler;
             if (state.nearest_filtering)
@@ -578,165 +607,178 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                 sampler = context->nearest_clamp_sampler;
             }
             tex_id = imgui_renderer.create_texture_id({
-                .image_view_id = render_ctx.tg_debug.state.image_debug_clone.default_view(),
+                .image_view_id = state.display_image.default_view(),
                 .sampler_id = sampler,
             });
-        }
-        u32 active_channels_of_format = tido::channel_count_of_format(image_info.format);
+            u32 active_channels_of_format = tido::channel_count_of_format(image_info.format);
 
-        // Now we actually process the ui.
-        daxa::TaskImageAttachmentInfo const & attachment_info = state.attachment_info;
-        auto slice = attachment_info.view.slice;
+            // Now we actually process the ui.
+            daxa::TaskImageAttachmentInfo const & attachment_info = state.attachment_info;
+            auto slice = attachment_info.view.slice;
 
-        if (ImGui::BeginTable("Some Inspected Image", 2, ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit))
-        {
-            ImGui::TableSetupColumn("Inspector settings", ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit);
-            ImGui::TableSetupColumn("Image view", ImGuiTableColumnFlags_WidthStretch);
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(140);
-            ImGui::SeparatorText("Inspector settings");
-            i32 imip = state.mip;
-            ImGui::InputInt("mip", &imip, 1);
-            state.mip = imip;
-            i32 ilayer = state.layer;
-            ImGui::InputInt("layer", &ilayer, 1);
-            state.layer = ilayer;
-            ImGui::Text("selected mip size: (%i,%i,%i)", std::max(image_info.size.x >> state.mip, 1u), std::max(image_info.size.y >> state.mip, 1u), std::max(image_info.size.z >> state.mip, 1u));
-            if (!state.slice_valid)
-                ImGui::PushStyleColor(ImGuiCol_Text, 0xFF0000FF);
-            ImGui::Text(state.slice_valid ? "" : "SELECTED SLICE INVALID");
-            if (!state.slice_valid)
-                ImGui::PopStyleColor();
-            auto modes = std::array{
-                "Linear",
-                "Nearest",
-            };
-            ImGui::Combo("sampler", &state.nearest_filtering, modes.data(), modes.size());
-            ImGui::Checkbox("freeze image", &state.freeze_image);
-
-            if (ImGui::BeginTable("Channels", 4, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit))
+            if (ImGui::BeginTable("Some Inspected Image", 2, ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit))
             {
-                std::array channel_names = {"r", "g", "b", "a"};
-                std::array<bool, 4> channels = {};
+                ImGui::TableSetupColumn("Inspector settings", ImGuiTableFlags_NoHostExtendX | ImGuiTableFlags_SizingFixedFit);
+                ImGui::TableSetupColumn("Image view", ImGuiTableColumnFlags_WidthStretch);
+                ImGui::TableNextColumn();
+                ImGui::SeparatorText("Inspector settings");
+                ImGui::PushItemWidth(80);
+                i32 imip = state.mip;
+                ImGui::InputInt("mip", &imip, 1);
+                state.mip = imip;
+                i32 ilayer = state.layer;
+                ImGui::SameLine();
+                ImGui::InputInt("layer", &ilayer, 1);
+                state.layer = ilayer;
+                ImGui::PushItemWidth(180);
+                ImGui::Text("selected mip size: (%i,%i,%i)", std::max(image_info.size.x >> state.mip, 1u), std::max(image_info.size.y >> state.mip, 1u), std::max(image_info.size.z >> state.mip, 1u));
+                if (!state.slice_valid)
+                    ImGui::PushStyleColor(ImGuiCol_Text, 0xFF0000FF);
+                ImGui::Text(state.slice_valid ? "" : "SELECTED SLICE INVALID");
+                if (!state.slice_valid)
+                    ImGui::PopStyleColor();
+                auto modes = std::array{
+                    "Linear",
+                    "Nearest",
+                };
+                ImGui::Combo("sampler", &state.nearest_filtering, modes.data(), modes.size());
+                ImGui::Checkbox("freeze image", &state.freeze_image);
 
-                u32 active_channel_count = 0;
-                i32 last_active_channel = -1;
-                for (u32 channel = 0; channel < 4; ++channel)
+                if (ImGui::BeginTable("Channels", 4, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit))
                 {
-                    channels[channel] = std::bit_cast<std::array<i32, 4>>(state.enabled_channels)[channel];
-                    active_channel_count += channels[channel] ? 1u : 0u;
-                    last_active_channel = channels[channel] ? channel : channels[channel];
-                }
+                    std::array channel_names = {"r", "g", "b", "a"};
+                    std::array<bool, 4> channels = {};
 
-                for (u32 channel = 0; channel < 4; ++channel)
+                    u32 active_channel_count = 0;
+                    i32 last_active_channel = -1;
+                    for (u32 channel = 0; channel < 4; ++channel)
+                    {
+                        channels[channel] = std::bit_cast<std::array<i32, 4>>(state.enabled_channels)[channel];
+                        active_channel_count += channels[channel] ? 1u : 0u;
+                        last_active_channel = channels[channel] ? channel : channels[channel];
+                    }
+
+                    for (u32 channel = 0; channel < 4; ++channel)
+                    {
+                        ImGui::BeginDisabled(channel >= active_channels_of_format);
+                        ImGui::TableNextColumn();
+                        bool const clicked = ImGui::Checkbox(channel_names[channel], channels.data() + channel);
+                        ImGui::EndDisabled();
+                        if (channel >= active_channels_of_format)
+                            ImGui::SetItemTooltip("image format does not have this channel");
+                    }
+
+                    state.enabled_channels.x = channels[0];
+                    state.enabled_channels.y = channels[1];
+                    state.enabled_channels.z = channels[2];
+                    state.enabled_channels.w = channels[3];
+                    ImGui::EndTable();
+                }
+                ImGui::PushItemWidth(90);
+                ImGui::InputDouble("min", &state.min_v);
+                ImGui::SetItemTooltip("min value only effects rgb, not alpha");
+                ImGui::SameLine();
+                ImGui::InputDouble("max", &state.max_v);
+                ImGui::SetItemTooltip("max value only effects rgb, not alpha");
+
+                if (state.display_image_hovered || state.freeze_image_hover_index)
                 {
-                    ImGui::BeginDisabled(channel >= active_channels_of_format);
-                    ImGui::TableNextColumn();
-                    bool const clicked = ImGui::Checkbox(channel_names[channel], channels.data() + channel);
-                    ImGui::EndDisabled();
-                    if (channel >= active_channels_of_format)
-                        ImGui::SetItemTooltip("image format does not have this channel");
+                    ImGui::SeparatorText("Mouse Picker");
+                    ImGui::Text("display index (%i,%i)", state.mouse_pos_relative_to_display_image.x, state.mouse_pos_relative_to_display_image.y);
+                    ImGui::SetItemTooltip("index of mouse relative to image in screen pixels");
+                    ImGui::Text("image index (%i,%i)", state.mouse_pos_relative_to_image.x, state.mouse_pos_relative_to_image.y);
+                    ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
                 }
+                ImGui::PopItemWidth();
 
-                state.enabled_channels.x = channels[0];
-                state.enabled_channels.y = channels[1];
-                state.enabled_channels.z = channels[2];
-                state.enabled_channels.w = channels[3];
+                ImGui::TableNextColumn();
+                ImGui::SeparatorText(attachment_info.name);
+                ImGui::Text("slice used in task: %s", daxa::to_string(slice).c_str());
+                ImGui::Text("size: (%i,%i,%i), mips: %i, layers: %i, format: %s",
+                    image_info.size.x,
+                    image_info.size.y,
+                    image_info.size.z,
+                    image_info.mip_level_count,
+                    image_info.array_layer_count,
+                    daxa::to_string(image_info.format).data());
+
+                auto resolution_draw_modes = std::array{
+                    "auto size",
+                    "1x",
+                    "1/2x",
+                    "1/4x",
+                    "1/8x",
+                    "1/16x",
+                    "2x",
+                    "4x",
+                    "8x",
+                    "16x",
+                };
+                auto resolution_draw_mode_factors = std::array{
+                    -1.0f,
+                    1.0f,
+                    1.0f / 2.0f,
+                    1.0f / 4.0f,
+                    1.0f / 8.0f,
+                    1.0f / 16.0f,
+                    2.0f,
+                    4.0f,
+                    8.0f,
+                    16.0f,
+                };
+                ImGui::SetNextItemWidth(100.0f);
+                ImGui::Combo("draw resolution mode", &state.resolution_draw_mode, resolution_draw_modes.data(), resolution_draw_modes.size());
+                ImGui::SameLine();
+                ImGui::Checkbox("fix mip sizes", &state.fixed_display_mip_sizes);
+                ImGui::SetItemTooltip("fixes all displayed mip sizes to be the scaled size of mip 0");
+                if (tex_id)
+                {
+                    float const aspect = static_cast<float>(clone_image_info.size.y) / static_cast<float>(clone_image_info.size.x);
+                    ImVec2 const auto_sized_draw_size = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect);
+                    ImVec2 image_display_size = auto_sized_draw_size;
+                    if (state.resolution_draw_mode != 0)
+                    {
+                        ImVec2 fixed_size_draw_size = {};
+                        if (state.fixed_display_mip_sizes)
+                        {
+                            fixed_size_draw_size.x = static_cast<float>(image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                            fixed_size_draw_size.y = static_cast<float>(image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                        }
+                        else
+                        {
+                            fixed_size_draw_size.x = static_cast<float>(clone_image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                            fixed_size_draw_size.y = static_cast<float>(clone_image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                        };
+
+                        image_display_size = fixed_size_draw_size;
+                    }
+
+                    ImVec2 start_pos = ImGui::GetCursorScreenPos();
+                    state.display_image_size = daxa_i32vec2(image_display_size.x, image_display_size.y);
+                    ImGui::BeginChild("scrollable image", ImVec2(0, 0), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImVec2 scroll_offset = ImVec2{ImGui::GetScrollX(), ImGui::GetScrollY()};
+                    if (state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_MouseMiddle))
+                    {
+                        ImGui::SetScrollX(ImGui::GetScrollX() - ImGui::GetIO().MouseDelta.x);
+                        ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+                    }
+                    ImGui::Image(tex_id, image_display_size);
+                    ImGui::SetItemTooltip("Usage: \n* middle mouse button to drag image when scrolled\n* left mouse button to freeze/unfreeze image hover index");
+                    ImGui::EndChild();
+                    ImVec2 mouse_pos = ImGui::GetMousePos();
+                    ImVec2 end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
+                    state.display_image_hovered = ImGui::IsMouseHoveringRect(start_pos, end_pos) && (ImGui::IsItemHovered() || ImGui::IsItemClicked());
+                    state.freeze_image_hover_index = state.freeze_image_hover_index ^ (state.display_image_hovered && ImGui::IsItemClicked());
+                    if (!state.freeze_image_hover_index)
+                    {
+                        state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
+                        state.mouse_pos_relative_to_image = daxa_i32vec2(
+                            ((ImGui::GetMousePos().x - start_pos.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(clone_image_info.size.x),
+                            ((ImGui::GetMousePos().y - start_pos.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(clone_image_info.size.y));
+                    }
+                }
                 ImGui::EndTable();
             }
-            ImGui::InputDouble("min value", &state.min_v);
-            ImGui::SetItemTooltip("min value only effects rgb, not alpha");
-            ImGui::InputDouble("max value", &state.max_v);
-            ImGui::SetItemTooltip("max value only effects rgb, not alpha");
-
-            if (state.mouse_pos_relative_to_display_image.x >= 0 &&
-                state.mouse_pos_relative_to_display_image.y >= 0 &&
-                state.mouse_pos_relative_to_display_image.x < state.display_image_size.x &&
-                state.mouse_pos_relative_to_display_image.y < state.display_image_size.y)
-            {
-                ImGui::SeparatorText("Mouse Picker");
-                ImGui::Text("display index (%i,%i)", state.mouse_pos_relative_to_display_image.x, state.mouse_pos_relative_to_display_image.y);
-                ImGui::SetItemTooltip("index of mouse relative to image in screen pixels");
-                ImGui::Text("image index (%i,%i)", state.mouse_pos_relative_to_image.x, state.mouse_pos_relative_to_image.y);
-                ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
-            }
-
-            ImGui::TableNextColumn();
-            ImGui::SeparatorText(attachment_info.name);
-            ImGui::Text("slice used in task: %s", daxa::to_string(slice).c_str());
-            ImGui::Text("size: (%i,%i,%i), mips: %i, layers: %i, format: %s",
-                image_info.size.x,
-                image_info.size.y,
-                image_info.size.z,
-                image_info.mip_level_count,
-                image_info.array_layer_count,
-                daxa::to_string(image_info.format).data());
-
-            auto resolution_draw_modes = std::array{
-                "auto size",
-                "1x",
-                "1/2x",
-                "1/4x",
-                "1/8x",
-                "1/16x",
-                "2x",
-                "4x",
-                "8x",
-                "16x",
-            };
-            auto resolution_draw_mode_factors = std::array{
-                -1.0f,
-                1.0f,
-                1.0f / 2.0f,
-                1.0f / 4.0f,
-                1.0f / 8.0f,
-                1.0f / 16.0f,
-                2.0f,
-                4.0f,
-                8.0f,
-                16.0f,
-            };
-            ImGui::SetNextItemWidth(100.0f);
-            ImGui::Combo("draw resolution mode", &state.resolution_draw_mode, resolution_draw_modes.data(), resolution_draw_modes.size());
-            ImGui::SameLine();
-            ImGui::Checkbox("fix mip sizes", &state.fixed_display_mip_sizes);
-            ImGui::SetItemTooltip("fixes all displayed mip sizes to be the scaled size of mip 0");
-            if (tex_id)
-            {
-                float const aspect = static_cast<float>(clone_image_info.size.y) / static_cast<float>(clone_image_info.size.x);
-                ImVec2 const auto_sized_draw_size = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect);
-                ImVec2 image_display_size = auto_sized_draw_size;
-                if (state.resolution_draw_mode != 0)
-                {
-                    ImVec2 fixed_size_draw_size = {};
-                    if (state.fixed_display_mip_sizes)
-                    {
-                        fixed_size_draw_size.x = static_cast<float>(image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                        fixed_size_draw_size.y = static_cast<float>(image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                    }
-                    else
-                    {
-                        fixed_size_draw_size.x = static_cast<float>(clone_image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                        fixed_size_draw_size.y = static_cast<float>(clone_image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                    };
-
-                    image_display_size = fixed_size_draw_size;
-                }
-
-                ImVec2 start_pos = ImGui::GetCursorScreenPos();
-                state.display_image_size = daxa_i32vec2(image_display_size.x, image_display_size.y);
-                ImGui::BeginChild("scrollable image", ImVec2(0, 0), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar);
-                ImVec2 scroll_offset = ImVec2{ImGui::GetScrollX(), ImGui::GetScrollY()};
-                ImGui::Image(tex_id, image_display_size);
-                ImGui::EndChild();
-                ImVec2 mouse_pos = ImGui::GetMousePos();
-                state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
-                state.mouse_pos_relative_to_image = daxa_i32vec2(
-                    ((ImGui::GetMousePos().x - start_pos.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(clone_image_info.size.x),
-                    ((ImGui::GetMousePos().y - start_pos.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(clone_image_info.size.y)
-                );
-            }
-            ImGui::EndTable();
         }
 
         ImGui::End();

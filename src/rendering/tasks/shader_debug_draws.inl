@@ -261,25 +261,23 @@ inline auto draw_debug_clone_pipeline_info()
 
 void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex globals, RenderContext * rctx)
 {
-    std::vector<daxa::ImageMipArraySlice> task_slices = {};
-    int found_image = -1;
     for (u32 i = 0; i < ti.attachment_infos.size(); ++i)
     {
         if (ti.attachment_infos[i].type != daxa::TaskAttachmentType::IMAGE)
             continue;
-        auto& attach_info = ti.get(daxa::TaskImageAttachmentIndex{i});
-        auto img_info = ti.device.image_info(attach_info.ids[0]).value();
-        if (std::strcmp(img_info.name.c_str().data(), rctx->tg_debug.task_image_name.c_str()) == 0)
-        {
-            found_image = i;
-            task_slices.push_back(attach_info.view.slice);
-        }
-    }
+        daxa::TaskImageAttachmentIndex src = {i};
+        auto& attach_info = ti.get(src);
 
-    if (found_image >= 0)
-    {
-        printf("found image!\n");
-        auto& state = rctx->tg_debug.state;
+        std::string key = std::string(ti.task_name) + " + " + ti.attachment_infos[i].name();
+        rctx->tg_debug.this_frame_task_attachments[std::string(ti.task_name)].emplace(std::string(ti.attachment_infos[i].name()));
+
+        if (!rctx->tg_debug.inspector_states.contains(key))
+            continue;
+        
+        auto& state = rctx->tg_debug.inspector_states.at(key);
+        if (!state.active)
+            continue;
+        
         // Destroy Stale images from last frame.
         if (!state.stale_image.is_empty())
         {
@@ -292,10 +290,8 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
             state.stale_image1 = {};
         }
 
-
-        daxa::TaskImageAttachmentIndex src = {static_cast<u32>(found_image)};
-        daxa::ImageId src_id = ti.get(src).ids[0];      // either src image id or frozen image id
-        daxa::ImageInfo src_info = ti.info(src).value();  // either src image info ir frozen image info
+        daxa::ImageId src_id = ti.get(src).ids[0];          // either src image id or frozen image id
+        daxa::ImageInfo src_info = ti.info(src).value();    // either src image info ir frozen image info
         if (state.freeze_image)
         {
             bool const freeze_image_this_frame = state.frozen_image.is_empty() && state.freeze_image;
@@ -333,7 +329,7 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                     .src_access = ti.get(src).access,
                     .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
                     .src_layout = ti.get(src).layout,
-                    .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    .dst_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
                     .image_slice = ti.get(src).view.slice,
                     .image_id = src_id,
                 });
@@ -357,7 +353,7 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                 ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                     .src_access = daxa::AccessConsts::TRANSFER_WRITE,
                     .dst_access = ti.get(src).access,
-                    .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                    .src_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
                     .dst_layout = ti.get(src).layout,
                     .image_slice = ti.get(src).view.slice,
                     .image_id = src_id,
@@ -390,50 +386,46 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
             return;
         }
 
-        state.slice_valid = false;
-        for (auto & slice : task_slices)
-        {
-            state.slice_valid |= slice.contains(daxa::ImageMipArraySlice{
-                .base_mip_level = state.mip,
-                .base_array_layer = state.layer,
-            });
-        }
+        state.slice_valid = state.attachment_info.view.slice.contains(daxa::ImageMipArraySlice{
+            .base_mip_level = state.mip,
+            .base_array_layer = state.layer,
+        });
 
-        daxa::ImageInfo image_debug_clone_info = {};
-        image_debug_clone_info.dimensions = 2u;
-        image_debug_clone_info.size.x = std::max(1u, src_info.size.x >> state.mip);
-        image_debug_clone_info.size.y = std::max(1u, src_info.size.y >> state.mip);
-        image_debug_clone_info.size.z = 1u;
-        image_debug_clone_info.mip_level_count = 1u;
-        image_debug_clone_info.array_layer_count = 1u;
-        image_debug_clone_info.sample_count = 1u;
-        image_debug_clone_info.format = daxa::Format::R16G16B16A16_SFLOAT;
-        image_debug_clone_info.name = "tg image debug clone";
-        image_debug_clone_info.usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE;
+        daxa::ImageInfo display_image_info = {};
+        display_image_info.dimensions = 2u;
+        display_image_info.size.x = std::max(1u, src_info.size.x >> state.mip);
+        display_image_info.size.y = std::max(1u, src_info.size.y >> state.mip);
+        display_image_info.size.z = 1u;
+        display_image_info.mip_level_count = 1u;
+        display_image_info.array_layer_count = 1u;
+        display_image_info.sample_count = 1u;
+        display_image_info.format = daxa::Format::R16G16B16A16_SFLOAT;
+        display_image_info.name = "tg image debug clone";
+        display_image_info.usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_DST;
         
-        if (!state.image_debug_clone.is_empty())
+        if (!state.display_image.is_empty())
         {
-            auto current_clone_size = ti.device.image_info(state.image_debug_clone).value().size;
-            if (image_debug_clone_info.size.x != current_clone_size.x || image_debug_clone_info.size.y != current_clone_size.y)
+            auto current_clone_size = ti.device.image_info(state.display_image).value().size;
+            if (display_image_info.size.x != current_clone_size.x || display_image_info.size.y != current_clone_size.y)
             {
-                state.stale_image = state.image_debug_clone;
-                state.image_debug_clone = ti.device.create_image(image_debug_clone_info);
+                state.stale_image = state.display_image;
+                state.display_image = ti.device.create_image(display_image_info);
             }
         }
         else
         {
-            state.image_debug_clone = ti.device.create_image(image_debug_clone_info);
+            state.display_image = ti.device.create_image(display_image_info);
         }
 
         ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
             .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .image_id = state.image_debug_clone,
+            .image_id = state.display_image,
         });
 
         ti.recorder.clear_image({
             .clear_value = std::array{1.0f,0.0f,1.0f,1.0f}, 
-            .dst_image = state.image_debug_clone,
+            .dst_image = state.display_image,
         });
 
         if (state.slice_valid)
@@ -443,8 +435,8 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                 .dst_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
                 .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
                 .dst_layout = daxa::ImageLayout::GENERAL,
-                .image_slice = ti.device.image_view_info(state.image_debug_clone.default_view()).value().slice,
-                .image_id = state.image_debug_clone,
+                .image_slice = ti.device.image_view_info(state.display_image.default_view()).value().slice,
+                .image_id = state.display_image,
             });
             if (!state.freeze_image)
             {
@@ -721,8 +713,8 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
             ti.recorder.push_constant(DrawDebugClonePush{
                 .globals = ti.device_address(globals).value(),
                 .src = src_view,
-                .dst = state.image_debug_clone.default_view(),
-                .src_size = { image_debug_clone_info.size.x, image_debug_clone_info.size.y },
+                .dst = state.display_image.default_view(),
+                .src_size = { display_image_info.size.x, display_image_info.size.y },
                 .image_view_type = static_cast<u32>(src_image_view_info.type),
                 .format = format,
                 .float_min = static_cast<f32>(state.min_v),
@@ -735,8 +727,8 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                 .enabled_channels = state.enabled_channels,
             }); 
             ti.recorder.dispatch({
-                round_up_div(image_debug_clone_info.size.x, DEBUG_DRAW_CLONE_X),
-                round_up_div(image_debug_clone_info.size.y, DEBUG_DRAW_CLONE_Y),
+                round_up_div(display_image_info.size.x, DEBUG_DRAW_CLONE_X),
+                round_up_div(display_image_info.size.y, DEBUG_DRAW_CLONE_Y),
                 1,
             });
             if (!state.freeze_image)
@@ -755,7 +747,7 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                 .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
                 .src_layout = daxa::ImageLayout::GENERAL,
                 .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                .image_id = state.image_debug_clone,
+                .image_id = state.display_image,
             });
         }
         else // ui image slice NOT valid.
@@ -765,13 +757,9 @@ void draw_debug_clone(daxa::TaskInterface ti, daxa::TaskBufferAttachmentIndex gl
                 .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
                 .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
                 .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                .image_id = state.image_debug_clone,
+                .image_id = state.display_image,
             });
         }
-    }
-    else
-    {
-        printf("did not find image!\n");
     }
 }
 

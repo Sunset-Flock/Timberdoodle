@@ -56,6 +56,7 @@ struct ShadeOpaquePush
 
 #include "../../gpu_context.hpp"
 #include "../scene_renderer_context.hpp"
+#include "shader_debug_draws.inl"
 
 inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
 {
@@ -110,6 +111,8 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         {
             ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
         }
+
+        draw_debug_clone(ti, AT.globals, render_context);
     }
 };
 #endif

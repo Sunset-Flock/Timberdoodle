@@ -431,6 +431,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .device = this->context->device,
         .swapchain = this->context->swapchain,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
+        // Extra flags are required for tg debug inspector:
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
@@ -698,7 +700,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // task_clear_buffer(task_list, visible_meshes_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlets_bitfield, 0);
     task_clear_buffer(task_list, visible_meshlet_instances, 0, 4);
-    task_clear_buffer(task_list, visible_mesh_instances, 0), 4;
+    task_clear_buffer(task_list, visible_mesh_instances, 0);
     task_list.add_task(AnalyzeVisBufferTask2{
         .views = std::array{
             AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,

@@ -103,6 +103,7 @@ struct UIEngine
         void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state);
 
         void tg_resource_debug_ui(RenderContext & render_ctx);
+        void tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key);
 
     private:
         struct DebugCloneUiState

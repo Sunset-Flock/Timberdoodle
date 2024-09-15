@@ -251,8 +251,12 @@ func entry_draw_debug_clone(uint2 thread_index : SV_DispatchThreadID)
     float_sample[0] = p.enabled_channels[0] != 0 ? float_sample[0] : 0.0f;
     float_sample[1] = p.enabled_channels[1] != 0 ? float_sample[1] : 0.0f;
     float_sample[2] = p.enabled_channels[2] != 0 ? float_sample[2] : 0.0f;
-    float_sample[3] = p.enabled_channels[3] != 0 ? float_sample[3] : 1.0f;
+    float_sample[3] = p.enabled_channels[3] != 0 && false ? float_sample[3] : 1.0f;
 
+    if (float_sample[0] != 0.0f)
+    {
+        //printf("LETS GOOO\n");
+    }
 
     let previous_value = p.dst.get()[thread_index];
     p.dst.get()[thread_index] = float4(lerp(previous_value.rgb, float_sample.rgb, float_sample.a), 1.0f);

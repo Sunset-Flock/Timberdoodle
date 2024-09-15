@@ -93,11 +93,11 @@ struct GenHizTask : GenHizTH::Task
         auto const dispatch_x = round_up_div(next_higher_po2_render_target_size.x * 2, GEN_HIZ_WINDOW_X);
         auto const dispatch_y = round_up_div(next_higher_po2_render_target_size.y * 2, GEN_HIZ_WINDOW_Y);
         GenHizPush push = {
+            .uses = ti.attachment_shader_blob,
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
             .mip_count = ti.get(AT.mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
         };
-        assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
 
@@ -159,7 +159,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .render_context = info.render_context,
     });
     
-    info.render_context->task_debug_clone_image(info.task_graph, *info.hiz, "hiz post build");
+    //info.render_context->task_debug_clone_image(info.task_graph, *info.hiz, "hiz post build");
 }
 
 #endif
