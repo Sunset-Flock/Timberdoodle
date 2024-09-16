@@ -192,7 +192,7 @@ func entry_fragment(VertexToPixel vertToPix) -> FragmentOut
 }
 
 
-[[vk::push_constant]] DrawDebugClonePush draw_debug_clone_push;
+[[vk::push_constant]] DebugTaskDrawDebugDisplayPush draw_debug_clone_push;
 
 float3 hsv2rgb(float3 c) {
     float4 k = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
@@ -211,53 +211,67 @@ float3 rainbow_maker(int i)
 
 [shader("compute")]
 [numthreads(DEBUG_DRAW_CLONE_X,DEBUG_DRAW_CLONE_Y,1)]
-func entry_draw_debug_clone(uint2 thread_index : SV_DispatchThreadID)
+func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
 {
     let p = draw_debug_clone_push;
 
     if (any(thread_index >= p.src_size))
         return;
 
-    float4 float_sample = float4(0,0,0,0);
+    float4 sample_color = float4(0,0,0,0);
+
+    let readback_pixel = all(thread_index == p.mouse_over_index);
 
     switch (p.format)
     {
-        case DrawDebugClone_Format::DrawDebugClone_Format_FLOAT: 
+        case 0: 
         {
             var sample = Texture2D<float4>::get(p.src).Load(uint3(thread_index, 0));
-            float_sample = float4((sample.rgb - p.float_min) * rcp(p.float_max - p.float_min), sample.a);
+            if (readback_pixel)
+            {
+                ((float4*)p.readback_ptr)[p.readback_index * 2] = sample;
+            }
+            sample_color = float4((sample.rgb - p.float_min) * rcp(p.float_max - p.float_min), sample.a);
         }
         break;
-        case DrawDebugClone_Format::DrawDebugClone_Format_INT: 
+        case 1: 
         {
             var sample = Texture2D<int4>::get(p.src).Load(uint3(thread_index, 0));
+            if (readback_pixel)
+            {
+                ((int4*)p.readback_ptr)[p.readback_index * 2] = sample;
+            }
             if (p.rainbow_ints)
-                float_sample = float4(rainbow_maker(sample.x), 1);
+                sample_color = float4(rainbow_maker(sample.x), 1);
             else
-                float_sample = float4((sample.rgb - p.int_min) * rcp(p.int_max - p.int_min), sample.a);
+                sample_color = float4((sample.rgb - p.int_min) * rcp(p.int_max - p.int_min), sample.a);
         }
         break;
-        case DrawDebugClone_Format::DrawDebugClone_Format_UINT: 
+        case 2: 
         {
             var sample = Texture2D<uint4>::get(p.src).Load(uint3(thread_index, 0));     
+            if (readback_pixel)
+            {
+                ((uint4*)p.readback_ptr)[p.readback_index * 2] = sample;
+            }
             if (p.rainbow_ints)
-                float_sample = float4(rainbow_maker(sample.x), 1);
+                sample_color = float4(rainbow_maker(sample.x), 1);
             else
-                float_sample = float4((sample.rgb - p.uint_min) * rcp(p.uint_max - p.uint_min), sample.a);    
+                sample_color = float4((sample.rgb - p.uint_min) * rcp(p.uint_max - p.uint_min), sample.a);    
         }
         break;
     }
 
-    float_sample[0] = p.enabled_channels[0] != 0 ? float_sample[0] : 0.0f;
-    float_sample[1] = p.enabled_channels[1] != 0 ? float_sample[1] : 0.0f;
-    float_sample[2] = p.enabled_channels[2] != 0 ? float_sample[2] : 0.0f;
-    float_sample[3] = p.enabled_channels[3] != 0 && false ? float_sample[3] : 1.0f;
+    sample_color[0] = p.enabled_channels[0] != 0 ? sample_color[0] : 0.0f;
+    sample_color[1] = p.enabled_channels[1] != 0 ? sample_color[1] : 0.0f;
+    sample_color[2] = p.enabled_channels[2] != 0 ? sample_color[2] : 0.0f;
+    sample_color[3] = p.enabled_channels[3] != 0 && false ? sample_color[3] : 1.0f;
 
-    if (float_sample[0] != 0.0f)
+    if (readback_pixel)
     {
-        //printf("LETS GOOO\n");
+        p.readback_ptr[p.readback_index * 2 + 1] = sample_color;
     }
 
     let previous_value = p.dst.get()[thread_index];
-    p.dst.get()[thread_index] = float4(lerp(previous_value.rgb, float_sample.rgb, float_sample.a), 1.0f);
+    p.dst.get()[thread_index] = float4(lerp(previous_value.rgb, sample_color.rgb, sample_color.a), 1.0f);
 }

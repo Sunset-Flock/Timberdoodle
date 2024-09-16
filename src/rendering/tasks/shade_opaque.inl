@@ -111,8 +111,6 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         {
             ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
         }
-
-        draw_debug_clone(ti, AT.globals, render_context);
     }
 };
 #endif

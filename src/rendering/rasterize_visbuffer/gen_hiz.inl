@@ -100,8 +100,6 @@ struct GenHizTask : GenHizTH::Task
         };
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-
-        draw_debug_clone(ti, AT.globals, render_context);
     }
 };
 

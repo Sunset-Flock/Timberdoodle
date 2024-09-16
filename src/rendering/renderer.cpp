@@ -176,7 +176,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
-        {draw_debug_clone_pipeline_info()},
+        {debug_task_draw_display_image_pipeline_info()},
     };
     for (auto const & info : computes)
     {
@@ -296,6 +296,9 @@ void Renderer::clear_select_buffers()
     TaskGraph list{{
         .device = this->context->device,
         .swapchain = this->context->swapchain,
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "clear task list",
     }};
     list.use_persistent_buffer(meshlet_instances);
@@ -339,6 +342,9 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
 {
     daxa::TaskGraph task_graph{{
         .device = context->device,
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "Calculate sky luts task graph",
     }};
     // TODO:    Do not use globals here, make a new buffer.
@@ -433,6 +439,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpuctx->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)

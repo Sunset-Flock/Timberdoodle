@@ -561,35 +561,92 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
 {
     if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        bool const clear_search = ImGui::Button("clear");
+        if (clear_search)
+            render_ctx.tg_debug.search_substr = {};
+        ImGui::SameLine();
+        ImGui::SetNextItemWidth(200);
+        ImGui::InputText("Search for Task", render_ctx.tg_debug.search_substr.data(), render_ctx.tg_debug.search_substr.size());
+        for (auto & c : render_ctx.tg_debug.search_substr)
+            c = std::tolower(c);
+
+        bool const search_used = render_ctx.tg_debug.search_substr[0] != '\0';
+
+        ImGui::BeginChild("Tasks");
         for (auto task : render_ctx.tg_debug.this_frame_task_attachments)
         {
-            if (ImGui::CollapsingHeader(task.first.c_str()))
+            if (task.task_name.size() == 0 || task.task_name.c_str()[0] == 0)
+                continue;
+
+            if (search_used)
             {
-                for (auto attach : task.second)
+                std::string compare_string = task.task_name;
+                for (auto & c : compare_string)
+                    c = std::tolower(c);
+                if (!strstr(compare_string.c_str(), render_ctx.tg_debug.search_substr.data()))
+                    continue;
+            }
+
+            if (ImGui::CollapsingHeader(task.task_name.c_str()))
+            {
+                for (auto attach : task.attachment_names)
                 {
                     if (ImGui::Button(attach.c_str()))
                     {
-                        std::string inspector_key = task.first + " + " + attach;
+                        std::string inspector_key = task.task_name + " + " + attach;
                         render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
                         render_ctx.tg_debug.inspector_states[inspector_key].active = true;
                     }
                 }
             }
         }
+        ImGui::EndChild();
 
         ImGui::End();
-
         for (auto active_inspector_key : render_ctx.tg_debug.active_inspectors)
         {
             tg_debug_image_inspector(render_ctx, active_inspector_key);
         }
     }
+    render_ctx.tg_debug.this_frame_task_attachments.clear();
+    render_ctx.tg_debug.this_frame_duplicate_task_name_counter.clear();
 }
 
+auto format_vec4_rows_float(daxa_f32vec4 vec) -> std::string
+{
+    return fmt::format("\n  R: {:15.7}\n  G: {:15.7}\n  B: {:15.7}\n  A: {:15.7}",
+        vec.x,
+        vec.y,
+        vec.z,
+        vec.w);
+}
+
+auto format_vec4_rows(Vec4Union vec_union, tido::ScalarKind scalar_kind) -> std::string
+{
+    switch (scalar_kind)
+    {
+        case tido::ScalarKind::FLOAT:
+            return format_vec4_rows_float(vec_union._float);
+        case tido::ScalarKind::INT:
+            return fmt::format("\n  R: {:15}\n  G: {:15}\n  B: {:15}\n  A: {:15}",
+                vec_union._int.x,
+                vec_union._int.y,
+                vec_union._int.z,
+                vec_union._int.w);
+        case tido::ScalarKind::UINT:
+            return fmt::format("\n  R: {:15}\n  G: {:15}\n  B: {:15}\n  A: {:15}",
+                vec_union._uint.x,
+                vec_union._uint.y,
+                vec_union._uint.z,
+                vec_union._uint.w);
+    }
+    return std::string();
+};
 void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key)
 {
+    render_ctx.tg_debug.readback_index = (render_ctx.tg_debug.readback_index + 1) % 3;
     auto & state = render_ctx.tg_debug.inspector_states[active_inspector_key];
-    if (ImGui::Begin(fmt::format("Inspector for {}", active_inspector_key.c_str()).c_str(), nullptr))
+    if (ImGui::Begin(fmt::format("Inspector for {}", active_inspector_key.c_str()).c_str(), nullptr, {}))
     {
         // The ui update is staggered a frame.
         // This is because the ui gets information from the task graph with a delay of one frame.
@@ -622,6 +679,10 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 ImGui::TableSetupColumn("Image view", ImGuiTableColumnFlags_WidthStretch);
                 ImGui::TableNextColumn();
                 ImGui::SeparatorText("Inspector settings");
+                ImGui::Checkbox("pre task", &state.pre_task);
+                ImGui::SameLine();
+                ImGui::Checkbox("freeze image", &state.freeze_image);
+                ImGui::SetItemTooltip("make sure to NOT have freeze image set when switching this setting. The frozen image is either pre or post.");
                 ImGui::PushItemWidth(80);
                 i32 imip = state.mip;
                 ImGui::InputInt("mip", &imip, 1);
@@ -630,6 +691,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 ImGui::SameLine();
                 ImGui::InputInt("layer", &ilayer, 1);
                 state.layer = ilayer;
+                ImGui::PopItemWidth();
                 ImGui::PushItemWidth(180);
                 ImGui::Text("selected mip size: (%i,%i,%i)", std::max(image_info.size.x >> state.mip, 1u), std::max(image_info.size.y >> state.mip, 1u), std::max(image_info.size.z >> state.mip, 1u));
                 if (!state.slice_valid)
@@ -642,7 +704,6 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                     "Nearest",
                 };
                 ImGui::Combo("sampler", &state.nearest_filtering, modes.data(), modes.size());
-                ImGui::Checkbox("freeze image", &state.freeze_image);
 
                 if (ImGui::BeginTable("Channels", 4, ImGuiTableFlags_NoBordersInBody | ImGuiTableFlags_SizingFixedFit))
                 {
@@ -674,6 +735,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                     state.enabled_channels.w = channels[3];
                     ImGui::EndTable();
                 }
+                ImGui::PopItemWidth();
                 ImGui::PushItemWidth(90);
                 ImGui::InputDouble("min", &state.min_v);
                 ImGui::SetItemTooltip("min value only effects rgb, not alpha");
@@ -681,13 +743,46 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 ImGui::InputDouble("max", &state.max_v);
                 ImGui::SetItemTooltip("max value only effects rgb, not alpha");
 
+                Vec4Union readback_raw = {};
+                daxa_f32vec4 readback_color = {};
+
+                tido::ScalarKind scalar_kind = tido::scalar_kind_of_format(image_info.format);
+                if (!state.readback_buffer.is_empty())
+                {
+                    switch (scalar_kind)
+                    {
+                        case tido::ScalarKind::FLOAT: readback_raw._float = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::INT:   readback_raw._int = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::UINT:  readback_raw._uint = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                    }
+                    readback_color = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2 + 1];
+                }
+
                 if (state.display_image_hovered || state.freeze_image_hover_index)
                 {
                     ImGui::SeparatorText("Mouse Picker");
-                    ImGui::Text("display index (%i,%i)", state.mouse_pos_relative_to_display_image.x, state.mouse_pos_relative_to_display_image.y);
-                    ImGui::SetItemTooltip("index of mouse relative to image in screen pixels");
-                    ImGui::Text("image index (%i,%i)", state.mouse_pos_relative_to_image.x, state.mouse_pos_relative_to_image.y);
-                    ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
+                    if (state.freeze_image_hover_index)
+                    {
+                        auto bgcol = ImVec4(0.21f, 0.21f, 0.21f, 0.54f);
+                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetColorU32(bgcol));
+                        ImGui::PushStyleColor(ImGuiCol_Text, 0xFFBBFFFF);
+                    }
+                    if (ImGui::BeginChild("Mouse Picker", {}, ImGuiChildFlags_AutoResizeY))
+                    {
+                        ImGui::SetItemTooltip("Press left lick while hovering over the displayed image to freeze the hovered image index.");
+                        ImGui::Text("image index (%i,%i) %s",
+                            state.frozen_mouse_pos_relative_to_image.x,
+                            state.frozen_mouse_pos_relative_to_image.y,
+                            state.freeze_image_hover_index ? "FROZEN" : "");
+                        ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
+                        ImGui::Text("raw value %s\n ", format_vec4_rows(state.frozen_readback_raw, scalar_kind).c_str());
+                        ImGui::SameLine();
+                        ImVec4 color = {state.frozen_readback_color.x, state.frozen_readback_color.y, state.frozen_readback_color.z, state.frozen_readback_color.w};
+                        ImGui::ColorButton("display color", color, ImGuiColorEditFlags_NoBorder, ImVec2(80, 80));
+                        ImGui::EndChild();
+                    }
+                    if (state.freeze_image_hover_index)
+                        ImGui::PopStyleColor(2);
                 }
                 ImGui::PopItemWidth();
 
@@ -755,7 +850,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
 
                     ImVec2 start_pos = ImGui::GetCursorScreenPos();
                     state.display_image_size = daxa_i32vec2(image_display_size.x, image_display_size.y);
-                    ImGui::BeginChild("scrollable image", ImVec2(0, 0), ImGuiChildFlags_Border, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::BeginChild("scrollable image", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_HorizontalScrollbar);
                     ImVec2 scroll_offset = ImVec2{ImGui::GetScrollX(), ImGui::GetScrollY()};
                     if (state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_MouseMiddle))
                     {
@@ -763,24 +858,28 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                         ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
                     }
                     ImGui::Image(tex_id, image_display_size);
-                    ImGui::SetItemTooltip("Usage: \n* middle mouse button to drag image when scrolled\n* left mouse button to freeze/unfreeze image hover index");
-                    ImGui::EndChild();
                     ImVec2 mouse_pos = ImGui::GetMousePos();
                     ImVec2 end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
                     state.display_image_hovered = ImGui::IsMouseHoveringRect(start_pos, end_pos) && (ImGui::IsItemHovered() || ImGui::IsItemClicked());
                     state.freeze_image_hover_index = state.freeze_image_hover_index ^ (state.display_image_hovered && ImGui::IsItemClicked());
+                    state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
+                    state.mouse_pos_relative_to_image = daxa_i32vec2(
+                        ((ImGui::GetMousePos().x - start_pos.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(clone_image_info.size.x),
+                        ((ImGui::GetMousePos().y - start_pos.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(clone_image_info.size.y));
                     if (!state.freeze_image_hover_index)
                     {
-                        state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
-                        state.mouse_pos_relative_to_image = daxa_i32vec2(
-                            ((ImGui::GetMousePos().x - start_pos.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(clone_image_info.size.x),
-                            ((ImGui::GetMousePos().y - start_pos.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(clone_image_info.size.y));
+                        state.frozen_mouse_pos_relative_to_display_image = state.mouse_pos_relative_to_display_image;
+                        state.frozen_mouse_pos_relative_to_image = state.mouse_pos_relative_to_image;
+                        state.frozen_readback_raw = readback_raw;
+                        state.frozen_readback_color = readback_color;
                     }
+                    ImGui::SetItemTooltip("index (%i,%i)%s", state.mouse_pos_relative_to_image.x, state.mouse_pos_relative_to_image.y, format_vec4_rows(readback_raw, scalar_kind).c_str());
+
+                    ImGui::EndChild();
                 }
                 ImGui::EndTable();
             }
         }
-
         ImGui::End();
     }
 }

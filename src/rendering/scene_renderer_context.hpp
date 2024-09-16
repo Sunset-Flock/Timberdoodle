@@ -21,6 +21,13 @@ struct DynamicMesh
     std::vector<AABB> meshlet_aabbs = {};
 };
 
+union Vec4Union
+{
+    daxa_f32vec4 _float = { 0, 0, 0, 0 };
+    daxa_i32vec4 _int;
+    daxa_u32vec4 _uint;
+};
+
 struct TgDebugImageInspectorState
 {
     // Written by ui:
@@ -31,18 +38,25 @@ struct TgDebugImageInspectorState
     i32 rainbow_ints = false;
     i32 nearest_filtering = true;
     daxa_i32vec4 enabled_channels = { true, true, true, true };
-    daxa_i32vec2 mouse_pos_relative_to_display_image = { 0, 0 };
-    daxa_i32vec2 mouse_pos_relative_to_image = { 0, 0 };
+    daxa_i32vec2 mouse_pos_relative_to_display_image = { 0, 0 };    
+    daxa_i32vec2 mouse_pos_relative_to_image = { 0, 0 };           
     daxa_i32vec2 display_image_size = { 0, 0 };
+
+    daxa_i32vec2 frozen_mouse_pos_relative_to_display_image = { 0, 0 };    
+    daxa_i32vec2 frozen_mouse_pos_relative_to_image = { 0, 0 };   
+    Vec4Union frozen_readback_raw = {};
+    daxa_f32vec4 frozen_readback_color = { 0, 0, 0, 0 };
     i32 resolution_draw_mode = 0;
     bool fixed_display_mip_sizes = true;
     bool freeze_image = false;
     bool active = false;
     bool display_image_hovered = false;
     bool freeze_image_hover_index = false;
+    bool pre_task = false;
     // Written by tg:
     bool slice_valid = true;
     daxa::TaskImageAttachmentInfo attachment_info = {};
+    daxa::BufferId readback_buffer = {};
     daxa::ImageInfo runtime_image_info = {};
     daxa::ImageId display_image = {};
     daxa::ImageId frozen_image = {};
@@ -52,9 +66,17 @@ struct TgDebugImageInspectorState
 
 struct TgDebugContext
 {
+    std::array<char, 256> search_substr = {};
     std::string task_image_name = "color_image";
+    u32 readback_index = 0;
 
-    std::unordered_map<std::string, std::set<std::string>> this_frame_task_attachments = {}; // cleared every frame.
+    struct TgDebugTask
+    {
+        std::string task_name = {};
+        std::vector<std::string> attachment_names = {};
+    };
+    std::unordered_map<std::string, usize> this_frame_duplicate_task_name_counter = {};
+    std::vector<TgDebugTask> this_frame_task_attachments = {}; // cleared every frame.
     std::unordered_map<std::string, TgDebugImageInspectorState> inspector_states = {};
     std::set<std::string> active_inspectors = {};
 
@@ -70,6 +92,8 @@ struct TgDebugContext
                 device.destroy_image((inspector.second.stale_image));
             if (!inspector.second.stale_image1.is_empty())
                 device.destroy_image((inspector.second.stale_image1));
+            if (!inspector.second.readback_buffer.is_empty())
+                device.destroy_buffer((inspector.second.readback_buffer));
         }
     }
 };
