@@ -594,8 +594,21 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                     if (ImGui::Button(attach.c_str()))
                     {
                         std::string inspector_key = task.task_name + " + " + attach;
-                        render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
-                        render_ctx.tg_debug.inspector_states[inspector_key].active = true;
+                        bool already_active = render_ctx.tg_debug.inspector_states[inspector_key].active;
+                        if (already_active)
+                        {
+                            auto iter = render_ctx.tg_debug.active_inspectors.find(inspector_key);
+                            if (iter != render_ctx.tg_debug.active_inspectors.end())
+                            {
+                                render_ctx.tg_debug.active_inspectors.erase(iter);
+                            }
+                            render_ctx.tg_debug.inspector_states[inspector_key].active = false;
+                        }
+                        else
+                        {
+                            render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
+                            render_ctx.tg_debug.inspector_states[inspector_key].active = true;
+                        }
                     }
                 }
             }
@@ -787,7 +800,6 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 ImGui::PopItemWidth();
 
                 ImGui::TableNextColumn();
-                ImGui::SeparatorText(attachment_info.name);
                 ImGui::Text("slice used in task: %s", daxa::to_string(slice).c_str());
                 ImGui::Text("size: (%i,%i,%i), mips: %i, layers: %i, format: %s",
                     image_info.size.x,
@@ -850,7 +862,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
 
                     ImVec2 start_pos = ImGui::GetCursorScreenPos();
                     state.display_image_size = daxa_i32vec2(image_display_size.x, image_display_size.y);
-                    ImGui::BeginChild("scrollable image", ImVec2(0, 0), ImGuiChildFlags_AutoResizeY, ImGuiWindowFlags_HorizontalScrollbar);
+                    ImGui::BeginChild("scrollable image", ImVec2(0, 0), {}, ImGuiWindowFlags_HorizontalScrollbar);
                     ImVec2 scroll_offset = ImVec2{ImGui::GetScrollX(), ImGui::GetScrollY()};
                     if (state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_MouseMiddle))
                     {
