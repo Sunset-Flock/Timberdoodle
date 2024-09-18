@@ -796,29 +796,28 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 if (state.display_image_hovered || state.freeze_image_hover_index)
                 {
                     ImGui::SeparatorText("Mouse Picker");
-                    if (state.freeze_image_hover_index)
-                    {
-                        auto bgcol = ImVec4(0.21f, 0.21f, 0.21f, 0.54f);
-                        ImGui::PushStyleColor(ImGuiCol_ChildBg, ImGui::GetColorU32(bgcol));
-                        ImGui::PushStyleColor(ImGuiCol_Text, 0xFFBBFFFF);
-                    }
-                    if (ImGui::BeginChild("Mouse Picker", {}, ImGuiChildFlags_AutoResizeY))
-                    {
+                    auto draw_func = [&state, scalar_kind](){
+                        if (state.freeze_image_hover_index) { ImGui::PushStyleColor(ImGuiCol_Text, 0xFFBBFFFF); }
+
+                        ImGui::Dummy({0, 2});
                         ImGui::SetItemTooltip("Press left lick while hovering over the displayed image to freeze the hovered image index.");
-                        ImGui::Text("image index (%i,%i) %s",
+                        ImGui::Text("  image index (%i,%i) %s",
                             state.frozen_mouse_pos_relative_to_image.x,
                             state.frozen_mouse_pos_relative_to_image.y,
                             state.freeze_image_hover_index ? "FROZEN" : "");
                         ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
-                        ImGui::Text("raw value %s\n ", format_vec4_rows(state.frozen_readback_raw, scalar_kind).c_str());
+                        ImGui::Text("  raw value %s\n ", format_vec4_rows(state.frozen_readback_raw, scalar_kind).c_str());
                         ImGui::SameLine();
                         ImVec4 color = {state.frozen_readback_color.x, state.frozen_readback_color.y, state.frozen_readback_color.z, state.frozen_readback_color.w};
                         ImGui::ColorButton("display color", color, ImGuiColorEditFlags_NoBorder, ImVec2(80, 80));
-                        ImGui::EndChild();
-                    }
-                    if (state.freeze_image_hover_index)
-                        ImGui::PopStyleColor(2);
+
+                        if (state.freeze_image_hover_index) { ImGui::PopStyleColor(1); }
+                    };
+
+                    auto bgcol = ImVec4(0.21f, 0.21f, 0.21f, 0.54f);
+                    draw_with_bg_rect(draw_func, 0, bgcol);
                 }
+
                 ImGui::PopItemWidth();
 
                 ImGui::TableNextColumn();
