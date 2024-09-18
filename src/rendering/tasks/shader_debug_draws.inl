@@ -275,10 +275,10 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
         daxa::TaskImageAttachmentIndex src = {i};
         auto& attach_info = ti.get(src);
 
-        std::string key = std::string(ti.task_name) + " + " + ti.attachment_infos[i].name();
+        std::string key = std::string(ti.task_name) + "::AT." + ti.attachment_infos[i].name();
         if (pre_task)
         {
-            tg_debug.this_frame_task_attachments[this_frame_task_index].attachment_names.push_back(std::string(ti.attachment_infos[i].name()));
+            tg_debug.this_frame_task_attachments[this_frame_task_index].attachments.push_back(ti.attachment_infos[i]);
         }
 
         if (!tg_debug.inspector_states.contains(key))
@@ -305,7 +305,7 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
         if (state.readback_buffer.is_empty())
         {
             state.readback_buffer = ti.device.create_buffer({
-                .size = sizeof(daxa_f32vec4) * 2 /*unprocessed value and processed value*/ * 4 /*frames in flight*/,
+                .size = sizeof(daxa_f32vec4) * 2 /*raw,color*/ * 4 /*frames in flight*/,
                 .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = std::string("readback buffer for ") + key,
             });

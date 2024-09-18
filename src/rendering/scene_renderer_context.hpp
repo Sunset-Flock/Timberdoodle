@@ -73,7 +73,7 @@ struct TgDebugContext
     struct TgDebugTask
     {
         std::string task_name = {};
-        std::vector<std::string> attachment_names = {};
+        std::vector<daxa::TaskAttachmentInfo> attachments = {};
     };
     std::unordered_map<std::string, usize> this_frame_duplicate_task_name_counter = {};
     std::vector<TgDebugTask> this_frame_task_attachments = {}; // cleared every frame.

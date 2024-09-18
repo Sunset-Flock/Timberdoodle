@@ -589,11 +589,11 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
 
             if (ImGui::CollapsingHeader(task.task_name.c_str()))
             {
-                for (auto attach : task.attachment_names)
+                for (auto attach : task.attachments)
                 {
-                    if (ImGui::Button(attach.c_str()))
+                    if (ImGui::Button(attach.name()))
                     {
-                        std::string inspector_key = task.task_name + " + " + attach;
+                        std::string inspector_key = task.task_name + "::AT." + attach.name();
                         bool already_active = render_ctx.tg_debug.inspector_states[inspector_key].active;
                         if (already_active)
                         {
@@ -609,6 +609,16 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                             render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
                             render_ctx.tg_debug.inspector_states[inspector_key].active = true;
                         }
+                    }
+                    ImGui::SameLine();
+                    switch (attach.type)
+                    {
+                        case daxa::TaskAttachmentType::IMAGE:
+                            ImGui::Text("| view: %s", daxa::to_string(attach.value.image.view.slice).c_str());
+                            ImGui::SameLine();
+                            ImGui::Text((fmt::format("| task access: {}", daxa::to_string(attach.value.image.task_access))).c_str());
+                        break;
+                        default: break;
                     }
                 }
             }
@@ -654,7 +664,8 @@ auto format_vec4_rows(Vec4Union vec_union, tido::ScalarKind scalar_kind) -> std:
                 vec_union._uint.w);
     }
     return std::string();
-};
+}
+
 void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key)
 {
     render_ctx.tg_debug.readback_index = (render_ctx.tg_debug.readback_index + 1) % 3;
@@ -734,11 +745,14 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
 
                     for (u32 channel = 0; channel < 4; ++channel)
                     {
-                        ImGui::BeginDisabled(channel >= active_channels_of_format);
+                        auto const disabled = channel >= active_channels_of_format;
+                        ImGui::BeginDisabled(disabled);
+                        if (disabled)
+                            channels[channel] = false;
                         ImGui::TableNextColumn();
                         bool const clicked = ImGui::Checkbox(channel_names[channel], channels.data() + channel);
                         ImGui::EndDisabled();
-                        if (channel >= active_channels_of_format)
+                        if (disabled)
                             ImGui::SetItemTooltip("image format does not have this channel");
                     }
 
@@ -758,18 +772,26 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
 
                 Vec4Union readback_raw = {};
                 daxa_f32vec4 readback_color = {};
+                daxa_f32vec4 readback_color_min = {};
+                daxa_f32vec4 readback_color_max = {};
 
                 tido::ScalarKind scalar_kind = tido::scalar_kind_of_format(image_info.format);
                 if (!state.readback_buffer.is_empty())
                 {
                     switch (scalar_kind)
                     {
-                        case tido::ScalarKind::FLOAT: readback_raw._float = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::INT:   readback_raw._int = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::UINT:  readback_raw._uint = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::FLOAT: readback_raw._float   = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::INT:   readback_raw._int     = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::UINT:  readback_raw._uint    = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
                     }
-                    readback_color = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2 + 1];
+                    auto floatvec_readback = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value();
+                    auto flt_min = std::numeric_limits<f32>::min();
+                    auto flt_max = std::numeric_limits<f32>::max();
+                    readback_color = floatvec_readback[render_ctx.tg_debug.readback_index * 2 + 1];
                 }
+
+                printf("min: %s\n", format_vec4_rows_float(readback_color_min).c_str());
+                printf("max: %s\n", format_vec4_rows_float(readback_color_max).c_str());
 
                 if (state.display_image_hovered || state.freeze_image_hover_index)
                 {
@@ -841,7 +863,9 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 if (tex_id)
                 {
                     float const aspect = static_cast<float>(clone_image_info.size.y) / static_cast<float>(clone_image_info.size.x);
-                    ImVec2 const auto_sized_draw_size = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect);
+                    ImVec2 const auto_sized_draw_size_x_based = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect);
+                    ImVec2 const auto_sized_draw_size_y_based = ImVec2(ImGui::GetContentRegionAvail().y / aspect, ImGui::GetContentRegionAvail().y);
+                    ImVec2 const auto_sized_draw_size = auto_sized_draw_size_x_based.x < auto_sized_draw_size_y_based.x ? auto_sized_draw_size_x_based : auto_sized_draw_size_y_based;
                     ImVec2 image_display_size = auto_sized_draw_size;
                     if (state.resolution_draw_mode != 0)
                     {
