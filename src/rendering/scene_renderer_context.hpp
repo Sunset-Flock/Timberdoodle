@@ -39,11 +39,10 @@ struct TgDebugImageInspectorState
     i32 nearest_filtering = true;
     daxa_i32vec4 enabled_channels = { true, true, true, true };
     daxa_i32vec2 mouse_pos_relative_to_display_image = { 0, 0 };    
-    daxa_i32vec2 mouse_pos_relative_to_image = { 0, 0 };           
+    daxa_i32vec2 mouse_pos_relative_to_image_mip0 = { 0, 0 };           
     daxa_i32vec2 display_image_size = { 0, 0 };
 
-    daxa_i32vec2 frozen_mouse_pos_relative_to_display_image = { 0, 0 };    
-    daxa_i32vec2 frozen_mouse_pos_relative_to_image = { 0, 0 };   
+    daxa_i32vec2 frozen_mouse_pos_relative_to_image_mip0 = { 0, 0 };   
     Vec4Union frozen_readback_raw = {};
     daxa_f32vec4 frozen_readback_color = { 0, 0, 0, 0 };
     i32 resolution_draw_mode = 0;
@@ -66,6 +65,10 @@ struct TgDebugImageInspectorState
 
 struct TgDebugContext
 {
+    daxa_f32vec2 override_mouse_picker_uv = {};
+    bool request_mouse_picker_override = {};
+    bool override_mouse_picker = {};
+    bool override_frozen_state = {};
     std::array<char, 256> search_substr = {};
     std::string task_image_name = "color_image";
     u32 readback_index = 0;

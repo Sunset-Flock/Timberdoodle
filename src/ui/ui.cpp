@@ -617,7 +617,7 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                             ImGui::Text("| view: %s", daxa::to_string(attach.value.image.view.slice).c_str());
                             ImGui::SameLine();
                             ImGui::Text((fmt::format("| task access: {}", daxa::to_string(attach.value.image.task_access))).c_str());
-                        break;
+                            break;
                         default: break;
                     }
                 }
@@ -631,13 +631,22 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
             tg_debug_image_inspector(render_ctx, active_inspector_key);
         }
     }
+    if (render_ctx.tg_debug.request_mouse_picker_override)
+    {
+        render_ctx.tg_debug.override_mouse_picker = true;
+    }
+    else
+    {
+        render_ctx.tg_debug.override_mouse_picker = false;
+    }
+    render_ctx.tg_debug.request_mouse_picker_override = false;
     render_ctx.tg_debug.this_frame_task_attachments.clear();
     render_ctx.tg_debug.this_frame_duplicate_task_name_counter.clear();
 }
 
 auto format_vec4_rows_float(daxa_f32vec4 vec) -> std::string
 {
-    return fmt::format("\n  R: {:15.7}\n  G: {:15.7}\n  B: {:15.7}\n  A: {:15.7}",
+    return fmt::format("R: {:10.7}\nG: {:10.7}\nB: {:10.7}\nA: {:10.7}",
         vec.x,
         vec.y,
         vec.z,
@@ -651,13 +660,13 @@ auto format_vec4_rows(Vec4Union vec_union, tido::ScalarKind scalar_kind) -> std:
         case tido::ScalarKind::FLOAT:
             return format_vec4_rows_float(vec_union._float);
         case tido::ScalarKind::INT:
-            return fmt::format("\n  R: {:15}\n  G: {:15}\n  B: {:15}\n  A: {:15}",
+            return fmt::format("R: {:11}\nG: {:11}\nB: {:11}\nA: {:11}",
                 vec_union._int.x,
                 vec_union._int.y,
                 vec_union._int.z,
                 vec_union._int.w);
         case tido::ScalarKind::UINT:
-            return fmt::format("\n  R: {:15}\n  G: {:15}\n  B: {:15}\n  A: {:15}",
+            return fmt::format("R: {:11}\nG: {:11}\nB: {:11}\nA: {:11}",
                 vec_union._uint.x,
                 vec_union._uint.y,
                 vec_union._uint.z,
@@ -780,9 +789,9 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 {
                     switch (scalar_kind)
                     {
-                        case tido::ScalarKind::FLOAT: readback_raw._float   = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::INT:   readback_raw._int     = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::UINT:  readback_raw._uint    = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::FLOAT: readback_raw._float = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::INT:   readback_raw._int = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::UINT:  readback_raw._uint = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
                     }
                     auto floatvec_readback = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value();
                     auto flt_min = std::numeric_limits<f32>::min();
@@ -790,32 +799,59 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                     readback_color = floatvec_readback[render_ctx.tg_debug.readback_index * 2 + 1];
                 }
 
-                printf("min: %s\n", format_vec4_rows_float(readback_color_min).c_str());
-                printf("max: %s\n", format_vec4_rows_float(readback_color_max).c_str());
-
-                if (state.display_image_hovered || state.freeze_image_hover_index)
-                {
-                    ImGui::SeparatorText("Mouse Picker");
-                    auto draw_func = [&state, scalar_kind](){
-                        if (state.freeze_image_hover_index) { ImGui::PushStyleColor(ImGuiCol_Text, 0xFFBBFFFF); }
-
-                        ImGui::Dummy({0, 2});
-                        ImGui::SetItemTooltip("Press left lick while hovering over the displayed image to freeze the hovered image index.");
-                        ImGui::Text("  image index (%i,%i) %s",
-                            state.frozen_mouse_pos_relative_to_image.x,
-                            state.frozen_mouse_pos_relative_to_image.y,
-                            state.freeze_image_hover_index ? "FROZEN" : "");
-                        ImGui::SetItemTooltip("index of mouse relative to image in actual image pixels. Value scaled by actualsize/displaysize");
-                        ImGui::Text("  raw value %s\n ", format_vec4_rows(state.frozen_readback_raw, scalar_kind).c_str());
-                        ImGui::SameLine();
-                        ImVec4 color = {state.frozen_readback_color.x, state.frozen_readback_color.y, state.frozen_readback_color.z, state.frozen_readback_color.w};
-                        ImGui::ColorButton("display color", color, ImGuiColorEditFlags_NoBorder, ImVec2(80, 80));
-
-                        if (state.freeze_image_hover_index) { ImGui::PopStyleColor(1); }
+                constexpr auto MOUSE_PICKER_FREEZE_COLOR = 0xFFBBFFFF;
+                auto mouse_picker = [&](daxa_i32vec2 image_idx, bool frozen, Vec4Union readback_union){
+                    if (frozen) { 
+                        ImGui::PushStyleColor(ImGuiCol_Text, MOUSE_PICKER_FREEZE_COLOR);
+                    }
+                    //ImGui::Dummy({0, 2});
+                    constexpr auto MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH = 7;
+                    constexpr auto MOUSE_PICKER_MAGNIFIER_DISPLAY_SIZE = ImVec2{70.0f, 70.0f};
+                    daxa_i32vec2 image_idx_at_mip = {
+                        image_idx.x >> state.mip,
+                        image_idx.y >> state.mip,
                     };
+                    ImVec2 magnify_start_uv = {
+                        float(image_idx_at_mip.x - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2)) * (1.0f / float(clone_image_info.size.x)),
+                        float(image_idx_at_mip.y - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2)) * (1.0f / float(clone_image_info.size.y)),
+                    };
+                    ImVec2 magnify_end_uv = {
+                        float(image_idx_at_mip.x + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2+1) * (1.0f / float(clone_image_info.size.x)),
+                        float(image_idx_at_mip.y + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2+1) * (1.0f / float(clone_image_info.size.y)),
+                    };
+                    if (tex_id && image_idx.x >= 0 && image_idx.y >= 0 && image_idx.x < image_info.size.x && image_idx.y < image_info.size.y)
+                    {
+                        ImGui::Image(tex_id, MOUSE_PICKER_MAGNIFIER_DISPLAY_SIZE, magnify_start_uv, magnify_end_uv);
+                    }
+                    if (frozen) { 
+                        ImGui::PopStyleColor(1);
+                    }
+                    ImGui::SameLine();
+                    daxa_i32vec2 index_at_mip = {
+                        image_idx.x >> state.mip,
+                        image_idx.y >> state.mip,
+                    };
+                    ImGui::Text("(%5d,%5d) %s\n%s",
+                        index_at_mip.x,
+                        index_at_mip.y,
+                        frozen ? "FROZEN" : "      ",
+                        format_vec4_rows(readback_union, scalar_kind).c_str());
+                };
 
-                    auto bgcol = ImVec4(0.21f, 0.21f, 0.21f, 0.54f);
-                    draw_with_bg_rect(draw_func, 0, bgcol);
+                ImGui::SeparatorText("Mouse Picker (?)\n");
+                ImGui::SetItemTooltip(
+                    "Usage:\n"
+                    "  * left click on image to freeze selection, left click again to unfreeze\n"
+                    "  * hold shift to replicate the selection on all other open inspector mouse pickers (also replicates freezes)\n"
+                    "  * use middle mouse button to grab and move zoomed in image"
+                );
+                if (state.display_image_hovered || state.freeze_image_hover_index || render_ctx.tg_debug.override_mouse_picker)
+                {
+                    mouse_picker(state.frozen_mouse_pos_relative_to_image_mip0, state.freeze_image_hover_index, state.frozen_readback_raw);
+                }
+                else
+                {
+                    mouse_picker(daxa_i32vec2{0,0}, false, {});
                 }
 
                 ImGui::PopItemWidth();
@@ -893,23 +929,87 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                         ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
                     }
                     ImGui::Image(tex_id, image_display_size);
-                    ImVec2 mouse_pos = ImGui::GetMousePos();
-                    ImVec2 end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
+                    ImVec2 const mouse_pos = ImGui::GetMousePos();
+                    ImVec2 const end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
+                    ImVec2 const display_image_size = {
+                        end_pos.x - start_pos.x,
+                        end_pos.y - start_pos.y,
+                    };
                     state.display_image_hovered = ImGui::IsMouseHoveringRect(start_pos, end_pos) && (ImGui::IsItemHovered() || ImGui::IsItemClicked());
                     state.freeze_image_hover_index = state.freeze_image_hover_index ^ (state.display_image_hovered && ImGui::IsItemClicked());
                     state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
-                    state.mouse_pos_relative_to_image = daxa_i32vec2(
-                        ((ImGui::GetMousePos().x - start_pos.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(clone_image_info.size.x),
-                        ((ImGui::GetMousePos().y - start_pos.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(clone_image_info.size.y));
+                    render_ctx.tg_debug.request_mouse_picker_override |= state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_LeftShift);
+                
+                    bool const override_other_inspectors = render_ctx.tg_debug.override_mouse_picker && state.display_image_hovered;
+                    bool const get_overriden = render_ctx.tg_debug.override_mouse_picker && !state.display_image_hovered;
+                    if (override_other_inspectors)
+                    {
+                        render_ctx.tg_debug.override_frozen_state = state.freeze_image_hover_index;
+                        render_ctx.tg_debug.override_mouse_picker_uv = {
+                            float(state.mouse_pos_relative_to_display_image.x) / display_image_size.x,
+                            float(state.mouse_pos_relative_to_display_image.y) / display_image_size.y,
+                        };
+                    }
+                    if (get_overriden)
+                    {
+                        state.freeze_image_hover_index = render_ctx.tg_debug.override_frozen_state;
+                        state.mouse_pos_relative_to_display_image = {
+                            i32(render_ctx.tg_debug.override_mouse_picker_uv.x * display_image_size.x),
+                            i32(render_ctx.tg_debug.override_mouse_picker_uv.y * display_image_size.y),
+                        };
+                    }
+
+                    state.mouse_pos_relative_to_image_mip0 = daxa_i32vec2(
+                        ((state.mouse_pos_relative_to_display_image.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(image_info.size.x),
+                        ((state.mouse_pos_relative_to_display_image.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(image_info.size.y));
+                    
                     if (!state.freeze_image_hover_index)
                     {
-                        state.frozen_mouse_pos_relative_to_display_image = state.mouse_pos_relative_to_display_image;
-                        state.frozen_mouse_pos_relative_to_image = state.mouse_pos_relative_to_image;
+                        state.frozen_mouse_pos_relative_to_image_mip0 = state.mouse_pos_relative_to_image_mip0;
                         state.frozen_readback_raw = readback_raw;
                         state.frozen_readback_color = readback_color;
                     }
-                    ImGui::SetItemTooltip("index (%i,%i)%s", state.mouse_pos_relative_to_image.x, state.mouse_pos_relative_to_image.y, format_vec4_rows(readback_raw, scalar_kind).c_str());
-
+                    if (state.display_image_hovered)
+                    {
+                        ImGui::BeginTooltip();
+                        mouse_picker(state.mouse_pos_relative_to_image_mip0, false, readback_raw);
+                        ImGui::EndTooltip();
+                    }
+                    if (state.display_image_hovered || render_ctx.tg_debug.override_mouse_picker)
+                    {
+                        ImVec2 const frozen_mouse_pos_relative_to_display_image = {
+                            float(state.mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * display_image_size.x,
+                            float(state.mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * display_image_size.y,
+                        };
+                        ImVec2 const window_marker_pos = {
+                            start_pos.x + frozen_mouse_pos_relative_to_display_image.x,
+                            start_pos.y + frozen_mouse_pos_relative_to_display_image.y,
+                        };
+                        ImGui::GetWindowDrawList()->AddCircle(window_marker_pos, 5.0f, ImGui::GetColorU32(ImVec4{
+                            readback_color.x > 0.5f ? 0.0f : 1.0f,
+                            readback_color.y > 0.5f ? 0.0f : 1.0f,
+                            readback_color.z > 0.5f ? 0.0f : 1.0f,
+                            1.0f,
+                        }));
+                    }
+                    if (state.freeze_image_hover_index)
+                    {
+                        ImVec2 const frozen_mouse_pos_relative_to_display_image = {
+                            float(state.frozen_mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * display_image_size.x,
+                            float(state.frozen_mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * display_image_size.y,
+                        };
+                        ImVec2 const window_marker_pos = {
+                            start_pos.x + frozen_mouse_pos_relative_to_display_image.x,
+                            start_pos.y + frozen_mouse_pos_relative_to_display_image.y,
+                        };
+                        auto inv_color = ImVec4{
+                            state.frozen_readback_color.x > 0.5f ? 0.0f : 1.0f,
+                            state.frozen_readback_color.y > 0.5f ? 0.0f : 1.0f,
+                            state.frozen_readback_color.z > 0.5f ? 0.0f : 1.0f,
+                            1.0f,
+                        };
+                        ImGui::GetWindowDrawList()->AddCircle(window_marker_pos, 5.0f, ImGui::GetColorU32(inv_color));
+                    }
                     ImGui::EndChild();
                 }
                 ImGui::EndTable();

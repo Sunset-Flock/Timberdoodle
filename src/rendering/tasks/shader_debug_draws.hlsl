@@ -210,20 +210,6 @@ float3 rainbow_maker(int i)
     return (0.2987123 * float(i), 1.0f, 1.0f);
 }
 
-func crosshair(uint2 index, uint2 cursor) -> bool
-{
-    uint dist = 0;
-    if (index.x == cursor.x)
-    {
-       dist = uint(abs(int(index.y) - int(cursor.y)));
-    }
-    else if (index.y == cursor.y)
-    {
-       dist = uint(abs(int(index.x) - int(cursor.x)));
-    }
-    return dist >= 1 && dist <= 3;
-}
-
 [shader("compute")]
 [numthreads(DEBUG_DRAW_CLONE_X,DEBUG_DRAW_CLONE_Y,1)]
 func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
@@ -283,13 +269,6 @@ func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
     sample_color[1] = p.enabled_channels[1] != 0 ? sample_color[1] : 0.0f;
     sample_color[2] = p.enabled_channels[2] != 0 ? sample_color[2] : 0.0f;
     sample_color[3] = p.enabled_channels[3] != 0 ? sample_color[3] : 1.0f;
-
-    if (crosshair(thread_index, p.mouse_over_index))
-    {
-        sample_color[0] = 1.0f - clamp(sample_color[0], 0.0f, 1.0f);
-        sample_color[1] = 1.0f - clamp(sample_color[1], 0.0f, 1.0f);
-        sample_color[2] = 1.0f - clamp(sample_color[2], 0.0f, 1.0f);
-    }
 
     if (one_channel_active)
     {

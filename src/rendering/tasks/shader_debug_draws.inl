@@ -508,7 +508,10 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
                 .uint_max = static_cast<u32>(state.max_v),
                 .rainbow_ints = state.rainbow_ints,
                 .enabled_channels = state.enabled_channels,
-                .mouse_over_index = state.mouse_pos_relative_to_image,
+                .mouse_over_index = {
+                    state.mouse_pos_relative_to_image_mip0.x >> state.mip,
+                    state.mouse_pos_relative_to_image_mip0.y >> state.mip,
+                },
                 .readback_ptr = ti.device.device_address(state.readback_buffer).value(),
                 .readback_index = tg_debug.readback_index,
             }); 
