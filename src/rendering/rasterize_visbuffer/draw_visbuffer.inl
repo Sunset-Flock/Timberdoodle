@@ -93,7 +93,7 @@ struct CullMeshletsDrawVisbufferPush
 #endif
 
 #if defined(__cplusplus)
-#include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
@@ -333,7 +333,7 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView atomic_visbuffer = {};
-    daxa::TaskImageView debug_image = {};
+    daxa::TaskImageView debug_image = {};    
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView overdraw_image = {};
 };
@@ -374,7 +374,7 @@ struct TaskDrawVisbufferInfo
     daxa::TaskBufferView combined_transforms = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView atomic_visbuffer = {};
-    daxa::TaskImageView debug_image = {};
+    daxa::TaskImageView debug_image = {};    
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView overdraw_image = {};
 };

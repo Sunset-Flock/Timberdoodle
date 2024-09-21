@@ -14,6 +14,8 @@
 
 #define RT_AO_X 8
 #define RT_AO_Y 8
+#define RTAO_DENOISER_X 8
+#define RTAO_DENOISER_Y 8
 
 DAXA_DECL_TASK_HEAD_BEGIN(RayTraceAmbientOcclusionH)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -36,9 +38,25 @@ struct RayTraceAmbientOcclusionPush
     RayTraceAmbientOcclusionH::AttachmentShaderBlob attach;
 };
 
+DAXA_DECL_TASK_HEAD_BEGIN(RTAODenoiserH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, src)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32>, dst);
+DAXA_DECL_TASK_HEAD_END
+
+struct RTAODenoiserPush
+{
+    RTAODenoiserH::AttachmentShaderBlob attach;
+    daxa_u32vec2 size;
+    daxa_f32vec2 inv_size;
+};
+
+// auto constexpr size = sizeof(RTAODenoiserH::AttachmentShaderBlob);
+
 #if defined(__cplusplus)
 
-#include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 
 inline auto ray_trace_ao_compute_pipeline_info() -> daxa::ComputePipelineCompileInfo
 {
@@ -144,6 +162,37 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
                 ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
             }
         }
+    }
+};
+
+inline auto rtao_denoiser_pipeline_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return {
+        .source = daxa::ShaderFile{"./src/rendering/ray_tracing/ray_tracing.hlsl"},
+        .entry_point = "entry_rtao_denoiser",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(RayTraceAmbientOcclusionPush)),
+    };
+}
+
+struct RTAODeoinserTask : RTAODenoiserH::Task
+{
+    AttachmentViews views = {};
+    GPUContext * context = {};
+    RenderContext * r_context = {};
+    void callback(daxa::TaskInterface ti)
+    {
+        auto info = ti.info(AT.src).value();
+        ti.recorder.set_pipeline(*context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
+        ti.recorder.push_constant(RTAODenoiserPush{
+            .attach = ti.attachment_shader_blob,
+            .size = {info.size.x,info.size.y},
+            .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
+        });
+        ti.recorder.dispatch({
+            round_up_div(info.size.x, RTAO_DENOISER_X),
+            round_up_div(info.size.y, RTAO_DENOISER_Y),
+        });
     }
 };
 

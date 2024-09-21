@@ -300,3 +300,35 @@ void miss(inout RayPayload payload)
 {
     payload.hit = false;
 }
+
+
+#define DENOISER_TAP_WIDTH 3
+[[vk::push_constant]] RTAODenoiserPush denoiser_push;
+[shader("compute")]
+[numthreads(RTAO_DENOISER_X, RTAO_DENOISER_Y, 1)]
+void entry_rtao_denoiser(uint2 svtid : SV_DispatchThreadID)
+{
+    let p = denoiser_push;
+
+    if (any(greaterThan(svtid, p.size)))
+    {
+        return;
+    }
+
+    // Reads and box blurrs a 6x6 area.
+    // Uses 3x3 taps. Each tap is doing a 2x2 linear interpolation.
+    // All samples are averaged for the box blur.
+    const int2 start_index = int2(svtid) - int2(2 * (DENOISER_TAP_WIDTH/2), 2 * (DENOISER_TAP_WIDTH/2));
+    const float2 start_uv = float2(start_index) * p.inv_size;
+    const float2 tap_uv_increment = 2.0f * p.inv_size;
+    float average = 0.0f;
+    for (uint i = 0; i < DENOISER_TAP_WIDTH * DENOISER_TAP_WIDTH; ++i)
+    {
+        let x = i % DENOISER_TAP_WIDTH;
+        let y = i / DENOISER_TAP_WIDTH;
+
+        let v = p.attach.src.get().SampleLevel(p.attach.globals.samplers.linear_clamp.get(), start_uv + tap_uv_increment * float2(x,y), 0.0f).r;
+        average += v * (1.0f / (DENOISER_TAP_WIDTH * DENOISER_TAP_WIDTH));
+    }
+    p.attach.dst.get()[svtid] = average;
+}

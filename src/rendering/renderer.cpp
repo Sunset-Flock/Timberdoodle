@@ -177,6 +177,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
         {debug_task_draw_display_image_pipeline_info()},
+        {rtao_denoiser_pipeline_info()},
     };
     for (auto const & info : computes)
     {
@@ -478,7 +479,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     task_clear_image(task_list, debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f});
 
     auto debug_image = task_list.create_transient_image({
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .format = daxa::Format::R32G32B32A32_SFLOAT,
         .size = {
             render_context->render_data.settings.render_target_size.x,
             render_context->render_data.settings.render_target_size.y,
@@ -523,17 +524,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
         },
         .name = "update global buffers",
-    });
-
-    task_list.add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, debug_image),
-            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, overdraw_image),
-            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, depth),
-            daxa::inl_attachment(daxa::TaskImageAccess::COMPUTE_SHADER_SAMPLED, visbuffer),
-        },
-        .task = [=](daxa::TaskInterface ti) {},
-        .name = "dummy",
     });
 
     auto sky = task_list.create_transient_image({
@@ -737,7 +727,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .combined_transforms = scene->_gpu_entity_combined_transforms,
             .vis_image = visbuffer,
             .atomic_visbuffer = atomic_visbuffer,
-            .debug_image = debug_image,
             .depth_image = depth,
             .overdraw_image = overdraw_image,
         });
@@ -775,36 +764,49 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
     if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
     {
-        ao_image = task_list.create_transient_image({
+        auto ao_image_info = daxa::TaskTransientImageInfo{
             .format = daxa::Format::R16_SFLOAT,
             .size = {
                 render_context->render_data.settings.render_target_size.x,
                 render_context->render_data.settings.render_target_size.y,
                 1,
             },
-            .name = "ao_image",
-        });
+            .name = "ao_image_raw",
+        };
+        ao_image = task_list.create_transient_image(ao_image_info);
+        ao_image_info.name = "ao_image";
+        auto ao_image_raw = task_list.create_transient_image(ao_image_info);
         task_clear_image(task_list, ao_image, daxa::ClearValue{std::array{0.0f,0.0f,0.0f,0.0f}});
+        task_list.add_task(RayTraceAmbientOcclusionTask{
+            .views = std::array{
+                RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
+                RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
+                RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
+                RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
+                RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
+                RayTraceAmbientOcclusionH::AT.sky | sky,
+                RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
+                RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
+                RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
+                RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
+                RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+                RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
+                RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
+            },
+            .context = context,
+            .r_context = render_context.get(),
+        });
+        task_list.add_task(RTAODeoinserTask{
+            .views = std::array{
+                RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
+                RTAODeoinserTask::AT.depth | depth,
+                RTAODeoinserTask::AT.src | ao_image_raw,
+                RTAODeoinserTask::AT.dst | ao_image,
+            },
+            .context = context,
+            .r_context = render_context.get(),
+        });
     }
-    task_list.add_task(RayTraceAmbientOcclusionTask{
-        .views = std::array{
-            RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
-            RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
-            RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
-            RayTraceAmbientOcclusionH::AT.ao_image | ao_image,
-            RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
-            RayTraceAmbientOcclusionH::AT.sky | sky,
-            RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
-            RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
-            RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
-            RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
-            RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-            RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
-            RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
-        },
-        .context = context,
-        .r_context = render_context.get(),
-    });
     task_list.add_task(DecodeVisbufferTestTask{
         .views = std::array{
             DecodeVisbufferTestH::AT.globals | render_context->tgpu_render_data,

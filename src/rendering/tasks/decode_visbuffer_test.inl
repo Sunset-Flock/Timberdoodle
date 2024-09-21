@@ -48,7 +48,7 @@ struct DecodeVisbufferTestTask : DecodeVisbufferTestH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*context->compute_pipelines.at(decode_visbuffer_test_pipeline_info().name));
-        auto const image_id = ti.get(AT.debug_image).ids[0];
+        auto const image_id = ti.get(AT.vis_image).ids[0];
         auto const image_info = ti.device.image_info(image_id).value();
         DecodeVisbufferTestPush push = {
             .size = { static_cast<f32>(image_info.size.x), static_cast<f32>(image_info.size.y) },
