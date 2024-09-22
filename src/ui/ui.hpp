@@ -98,12 +98,12 @@ struct UIEngine
         PropertyViewer property_viewer = {};
         PerfMeasurements measurements = {};
 
-        UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * context);
+        UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state);
+        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state);
 
-        void tg_resource_debug_ui(RenderContext & render_ctx);
-        void tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key);
+        void tg_resource_debug_ui(RenderContext & render_context);
+        void tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key);
 
     private:
         struct DebugCloneUiState
@@ -129,7 +129,7 @@ struct UIEngine
             "deps\\timberdoodle_assets\\ui\\icons\\collection.png",
             "deps\\timberdoodle_assets\\ui\\icons\\sun.png",
         };
-        GPUContext * context;
+        GPUContext * gpu_context;
         bool gather_perm_measurements = true;
         bool show_entire_interval = false;
         f32 text_font_size = 15.0f;

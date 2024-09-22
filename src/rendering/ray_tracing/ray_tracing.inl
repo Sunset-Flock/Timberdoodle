@@ -131,19 +131,19 @@ inline auto ray_trace_ao_rt_pipeline_info() -> daxa::RayTracingPipelineCompileIn
 struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     RenderContext * r_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        if (ti.get(AT.tlas).ids[0] != context->dummy_tlas_id)
+        if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
         {
             RayTraceAmbientOcclusionPush push = { };
             push.attach = ti.attachment_shader_blob;
             auto const & ao_image = ti.device.image_info(ti.get(AT.ao_image).ids[0]).value();
             if(r_context->render_data.settings.use_rt_pipeline_for_ao) 
             {
-                auto const & rt_pipeline = context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
+                auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
                 ti.recorder.set_pipeline(*rt_pipeline.pipeline);
                 ti.recorder.push_constant(push);
                 ti.recorder.trace_rays({
@@ -155,7 +155,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
             }
             else
             {
-                ti.recorder.set_pipeline(*context->compute_pipelines.at(ray_trace_ao_compute_pipeline_info().name));
+                ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(ray_trace_ao_compute_pipeline_info().name));
                 ti.recorder.push_constant(push);
                 u32 const dispatch_x = round_up_div(ao_image.size.x, RT_AO_X);
                 u32 const dispatch_y = round_up_div(ao_image.size.y, RT_AO_Y);
@@ -178,12 +178,12 @@ inline auto rtao_denoiser_pipeline_info() -> daxa::ComputePipelineCompileInfo2
 struct RTAODeoinserTask : RTAODenoiserH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     RenderContext * r_context = {};
     void callback(daxa::TaskInterface ti)
     {
         auto info = ti.info(AT.src).value();
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
         ti.recorder.push_constant(RTAODenoiserPush{
             .attach = ti.attachment_shader_blob,
             .size = {info.size.x,info.size.y},

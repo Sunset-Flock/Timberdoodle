@@ -91,10 +91,10 @@ void setup_colors()
     // clang-format on
 };
 
-UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * context)
-    : scene_graph(&imgui_renderer, &icons, context->lin_clamp_sampler),
-      property_viewer(&imgui_renderer, &icons, context->lin_clamp_sampler),
-      context{context}
+UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * gpu_context)
+    : scene_graph(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
+      property_viewer(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
+      gpu_context{gpu_context}
 {
     auto * imgui_context = ImGui::CreateContext();
     auto * implot_context = ImPlot::CreateContext();
@@ -120,11 +120,11 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({context->device, context->swapchain.get_format(), imgui_context, false});
+    imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, false});
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & context, RenderContext & render_ctx, Scene const & scene, ApplicationState & app_state)
+void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -169,16 +169,16 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
     {
         if (ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            bool enable = s_cast<bool>(render_ctx.render_data.vsm_settings.enable);
-            bool force_clip_level = s_cast<bool>(render_ctx.render_data.vsm_settings.force_clip_level);
-            bool enable_caching = s_cast<bool>(render_ctx.render_data.vsm_settings.enable_caching);
+            bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
+            bool force_clip_level = s_cast<bool>(render_context.render_data.vsm_settings.force_clip_level);
+            bool enable_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_caching);
             ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
             {
                 ImGui::Text("Draw cascade frustum");
                 ImGui::SetWindowFontScale(0.5);
                 for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
                 {
-                    ImGui::Checkbox(fmt::format("##clips{}", clip).c_str(), &render_ctx.draw_clip_frustum.at(clip));
+                    ImGui::Checkbox(fmt::format("##clips{}", clip).c_str(), &render_context.draw_clip_frustum.at(clip));
                     ImGui::SameLine();
                 }
                 ImGui::SetWindowFontScale(1.0);
@@ -187,8 +187,8 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                 ImGui::SetWindowFontScale(0.5);
                 for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
                 {
-                    ImGui::BeginDisabled(!render_ctx.draw_clip_frustum.at(clip));
-                    ImGui::Checkbox(fmt::format("##pages{}", clip).c_str(), &render_ctx.draw_clip_frustum_pages.at(clip));
+                    ImGui::BeginDisabled(!render_context.draw_clip_frustum.at(clip));
+                    ImGui::Checkbox(fmt::format("##pages{}", clip).c_str(), &render_context.draw_clip_frustum_pages.at(clip));
                     ImGui::EndDisabled();
                     ImGui::SameLine();
                 }
@@ -199,32 +199,32 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             ImGui::Checkbox("Enable VSM", &enable);
             ImGui::Checkbox("Force clip level", &force_clip_level);
             ImGui::Checkbox("Enable caching", &enable_caching);
-            auto use_simplified_light_matrix = s_cast<bool>(render_ctx.render_data.vsm_settings.use_simplified_light_matrix);
+            auto use_simplified_light_matrix = s_cast<bool>(render_context.render_data.vsm_settings.use_simplified_light_matrix);
             ImGui::Checkbox("Use simplified light matrix", &use_simplified_light_matrix);
-            render_ctx.render_data.vsm_settings.use_simplified_light_matrix = use_simplified_light_matrix;
-            ImGui::SliderFloat("Clip 0 scale", &render_ctx.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
-            ImGui::SliderFloat("Clip selection bias", &render_ctx.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
-            ImGui::SliderFloat("Slope bias", &render_ctx.render_data.vsm_settings.slope_bias, 0.0, 10.0);
-            ImGui::SliderFloat("Constant bias", &render_ctx.render_data.vsm_settings.constant_bias, 0.0, 20.0);
+            render_context.render_data.vsm_settings.use_simplified_light_matrix = use_simplified_light_matrix;
+            ImGui::SliderFloat("Clip 0 scale", &render_context.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
+            ImGui::SliderFloat("Clip selection bias", &render_context.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
+            ImGui::SliderFloat("Slope bias", &render_context.render_data.vsm_settings.slope_bias, 0.0, 10.0);
+            ImGui::SliderFloat("Constant bias", &render_context.render_data.vsm_settings.constant_bias, 0.0, 20.0);
             ImGui::BeginDisabled(!force_clip_level);
-            i32 forced_clip_level = render_ctx.render_data.vsm_settings.forced_clip_level;
+            i32 forced_clip_level = render_context.render_data.vsm_settings.forced_clip_level;
             ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
             ImGui::EndDisabled();
-            render_ctx.render_data.vsm_settings.enable = enable;
-            render_ctx.render_data.vsm_settings.force_clip_level = force_clip_level;
-            render_ctx.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
-            render_ctx.render_data.vsm_settings.enable_caching = enable_caching;
+            render_context.render_data.vsm_settings.enable = enable;
+            render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
+            render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
+            render_context.render_data.vsm_settings.enable_caching = enable_caching;
 
             ImGui::Image(
                 imgui_renderer.create_texture_id({
-                    .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
                 }),
                 ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
             ImGui::Image(
                 imgui_renderer.create_texture_id({
-                    .image_view_id = render_ctx.gpuctx->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
                 }),
                 ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         }
@@ -239,21 +239,21 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             ImGui::SliderFloat("spacing", &scene_graph.icon_text_spacing, 1.0f, 50.0f);
             ImGui::SliderFloat("indent", &scene_graph.indent, 1.0f, 50.0f);
             ImGui::Separator();
-            ImGui::InputScalarN("resolution", ImGuiDataType_U32, &render_ctx.render_data.settings.render_target_size, 2);
+            ImGui::InputScalarN("resolution", ImGuiDataType_U32, &render_context.render_data.settings.render_target_size, 2);
         }
         ImGui::End();
     }
     if (widget_renderer_statistics)
     {
         perf_sample_count += 1;
-        auto get_exec_time_from_timestamp = [&render_ctx](u32 timestamp_start_index) -> u64
+        auto get_exec_time_from_timestamp = [&render_context](u32 timestamp_start_index) -> u64
         {
             // Timestamps ready
-            if (render_ctx.vsm_timestamp_results.at(timestamp_start_index + 1) != 0u &&
-                render_ctx.vsm_timestamp_results.at(timestamp_start_index + 3) != 0u)
+            if (render_context.vsm_timestamp_results.at(timestamp_start_index + 1) != 0u &&
+                render_context.vsm_timestamp_results.at(timestamp_start_index + 3) != 0u)
             {
-                auto const end_timestamp = render_ctx.vsm_timestamp_results.at(timestamp_start_index + 2);
-                auto const start_timestamp = render_ctx.vsm_timestamp_results.at(timestamp_start_index);
+                auto const end_timestamp = render_context.vsm_timestamp_results.at(timestamp_start_index + 2);
+                auto const start_timestamp = render_context.vsm_timestamp_results.at(timestamp_start_index);
                 return end_timestamp - start_timestamp;
             }
             else
@@ -269,7 +269,7 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             "Sampling"};
 
         static float t = 0;
-        t += gather_perm_measurements ? render_ctx.render_data.delta_time : 0.0f;
+        t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
         bool auto_reset_timings = false;
         if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
@@ -277,11 +277,11 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             {
                 ImGui::Text("Max Meshlet Instances %i", MAX_MESHLET_INSTANCES);
                 ImGui::Text("Max Mesh Instances %i", MAX_MESH_INSTANCES);
-                u32 first_pass_meshlets = render_ctx.general_readback.first_pass_meshlet_count[0] + render_ctx.general_readback.first_pass_meshlet_count[1];
-                u32 second_pass_meshlets = render_ctx.general_readback.second_pass_meshlet_count[0] + render_ctx.general_readback.second_pass_meshlet_count[1];
+                u32 first_pass_meshlets = render_context.general_readback.first_pass_meshlet_count[0] + render_context.general_readback.first_pass_meshlet_count[1];
+                u32 second_pass_meshlets = render_context.general_readback.second_pass_meshlet_count[0] + render_context.general_readback.second_pass_meshlet_count[1];
                 ImGui::Text("Meshlets drawn first pass %i", first_pass_meshlets);
                 ImGui::Text("Meshlets drawn second pass %i", second_pass_meshlets);
-                ImGui::Text("Visible Meshes %i", render_ctx.general_readback.visible_meshes);
+                ImGui::Text("Visible Meshes %i", render_context.general_readback.visible_meshes);
             }
             ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)
@@ -455,13 +455,13 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
     }
     if (renderer_settings)
     {
-        ui_renderer_settings(scene, render_ctx.render_data.settings);
+        ui_renderer_settings(scene, render_context.render_data.settings);
     }
     if (widget_property_viewer)
     {
         property_viewer.render({
-            .sky_settings = &render_ctx.render_data.sky_settings,
-            .post_settings = &render_ctx.render_data.postprocess_settings,
+            .sky_settings = &render_context.render_data.sky_settings,
+            .post_settings = &render_context.render_data.postprocess_settings,
         });
     }
     if (true)
@@ -475,7 +475,7 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
             auto & cinematic_camera = app_state.cinematic_camera;
             ImGui::SeparatorText("Observer Camera");
             {
-                IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_ctx.render_data.settings.draw_from_observer);
+                IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_context.render_data.settings.draw_from_observer);
                 ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
                 app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
                 std::array<char const * const, 3> modes = {
@@ -483,8 +483,8 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                     "redraw meshlet post cull",
                     "redraw all drawn meshlets",
                 };
-                ImGui::Combo("observer draw pass mode", &render_ctx.render_data.settings.observer_show_pass, modes.data(), modes.size());
-                auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_ctx.render_data.settings).view);
+                ImGui::Combo("observer draw pass mode", &render_context.render_data.settings.observer_show_pass, modes.data(), modes.size());
+                auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_context.render_data.settings).view);
                 ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
             }
             ImGui::SeparatorText("Cinematic Camera");
@@ -511,42 +511,42 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
                 ImGui::InputFloat("debug f32vec4 drag speed", &debug_f32vec4_drag_speed);
                 ImGui::DragFloat4(
                     "debug f32vec4",
-                    reinterpret_cast<f32 *>(&render_ctx.gpuctx->shader_debug_context.shader_debug_input.debug_fvec4), debug_f32vec4_drag_speed);
+                    reinterpret_cast<f32 *>(&render_context.gpu_context->shader_debug_context.shader_debug_input.debug_fvec4), debug_f32vec4_drag_speed);
                 ImGui::DragInt4(
                     "debug i32vec4",
-                    reinterpret_cast<i32 *>(&render_ctx.gpuctx->shader_debug_context.shader_debug_input.debug_ivec4));
+                    reinterpret_cast<i32 *>(&render_context.gpu_context->shader_debug_context.shader_debug_input.debug_ivec4));
                 ImGui::Text(
                     "out debug f32vec4: (%f,%f,%f,%f)",
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.x,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.y,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.z,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_fvec4.w);
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.x,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.y,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.z,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.w);
                 ImGui::Text(
                     "out debug i32vec4: (%i,%i,%i,%i)",
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.x,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.y,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.z,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.debug_ivec4.w);
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.x,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.y,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.z,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.w);
             }
             ImGui::SeparatorText("Debug Shader Lens");
             {
                 ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
                 ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
-                ImGui::Checkbox("draw_magnified_area_rect", &render_ctx.gpuctx->shader_debug_context.draw_magnified_area_rect);
-                ImGui::InputInt("detector window size", &render_ctx.gpuctx->shader_debug_context.detector_window_size, 2);
+                ImGui::Checkbox("draw_magnified_area_rect", &render_context.gpu_context->shader_debug_context.draw_magnified_area_rect);
+                ImGui::InputInt("detector window size", &render_context.gpu_context->shader_debug_context.detector_window_size, 2);
                 ImGui::Text(
                     "detector texel position: (%i,%i)",
-                    render_ctx.gpuctx->shader_debug_context.detector_window_position.x,
-                    render_ctx.gpuctx->shader_debug_context.detector_window_position.y);
+                    render_context.gpu_context->shader_debug_context.detector_window_position.x,
+                    render_context.gpu_context->shader_debug_context.detector_window_position.y);
                 ImGui::Text(
                     "detector center value: (%f,%f,%f,%f)",
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
-                    render_ctx.gpuctx->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
+                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
                 auto debug_lens_image_view_id = imgui_renderer.create_texture_id({
-                    .image_view_id = render_ctx.gpuctx->shader_debug_context.debug_lens_image.default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_ctx.render_data.samplers.nearest_clamp),
+                    .image_view_id = render_context.gpu_context->shader_debug_context.debug_lens_image.default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
                 });
                 auto const width = ImGui::GetContentRegionMax().x;
                 ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
@@ -554,26 +554,26 @@ void UIEngine::main_update(GPUContext const & context, RenderContext & render_ct
         }
         ImGui::End();
     }
-    tg_resource_debug_ui(render_ctx);
+    tg_resource_debug_ui(render_context);
 }
 
-void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
+void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
 {
     if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         bool const clear_search = ImGui::Button("clear");
         if (clear_search)
-            render_ctx.tg_debug.search_substr = {};
+            render_context.tg_debug.search_substr = {};
         ImGui::SameLine();
         ImGui::SetNextItemWidth(200);
-        ImGui::InputText("Search for Task", render_ctx.tg_debug.search_substr.data(), render_ctx.tg_debug.search_substr.size());
-        for (auto & c : render_ctx.tg_debug.search_substr)
+        ImGui::InputText("Search for Task", render_context.tg_debug.search_substr.data(), render_context.tg_debug.search_substr.size());
+        for (auto & c : render_context.tg_debug.search_substr)
             c = std::tolower(c);
 
-        bool const search_used = render_ctx.tg_debug.search_substr[0] != '\0';
+        bool const search_used = render_context.tg_debug.search_substr[0] != '\0';
 
         ImGui::BeginChild("Tasks");
-        for (auto task : render_ctx.tg_debug.this_frame_task_attachments)
+        for (auto task : render_context.tg_debug.this_frame_task_attachments)
         {
             if (task.task_name.size() == 0 || task.task_name.c_str()[0] == 0)
                 continue;
@@ -583,7 +583,7 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                 std::string compare_string = task.task_name;
                 for (auto & c : compare_string)
                     c = std::tolower(c);
-                if (!strstr(compare_string.c_str(), render_ctx.tg_debug.search_substr.data()))
+                if (!strstr(compare_string.c_str(), render_context.tg_debug.search_substr.data()))
                     continue;
             }
 
@@ -594,20 +594,20 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
                     if (ImGui::Button(attach.name()))
                     {
                         std::string inspector_key = task.task_name + "::AT." + attach.name();
-                        bool already_active = render_ctx.tg_debug.inspector_states[inspector_key].active;
+                        bool already_active = render_context.tg_debug.inspector_states[inspector_key].active;
                         if (already_active)
                         {
-                            auto iter = render_ctx.tg_debug.active_inspectors.find(inspector_key);
-                            if (iter != render_ctx.tg_debug.active_inspectors.end())
+                            auto iter = render_context.tg_debug.active_inspectors.find(inspector_key);
+                            if (iter != render_context.tg_debug.active_inspectors.end())
                             {
-                                render_ctx.tg_debug.active_inspectors.erase(iter);
+                                render_context.tg_debug.active_inspectors.erase(iter);
                             }
-                            render_ctx.tg_debug.inspector_states[inspector_key].active = false;
+                            render_context.tg_debug.inspector_states[inspector_key].active = false;
                         }
                         else
                         {
-                            render_ctx.tg_debug.active_inspectors.emplace(inspector_key);
-                            render_ctx.tg_debug.inspector_states[inspector_key].active = true;
+                            render_context.tg_debug.active_inspectors.emplace(inspector_key);
+                            render_context.tg_debug.inspector_states[inspector_key].active = true;
                         }
                     }
                     ImGui::SameLine();
@@ -626,22 +626,22 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_ctx)
         ImGui::EndChild();
 
         ImGui::End();
-        for (auto active_inspector_key : render_ctx.tg_debug.active_inspectors)
+        for (auto active_inspector_key : render_context.tg_debug.active_inspectors)
         {
-            tg_debug_image_inspector(render_ctx, active_inspector_key);
+            tg_debug_image_inspector(render_context, active_inspector_key);
         }
     }
-    if (render_ctx.tg_debug.request_mouse_picker_override)
+    if (render_context.tg_debug.request_mouse_picker_override)
     {
-        render_ctx.tg_debug.override_mouse_picker = true;
+        render_context.tg_debug.override_mouse_picker = true;
     }
     else
     {
-        render_ctx.tg_debug.override_mouse_picker = false;
+        render_context.tg_debug.override_mouse_picker = false;
     }
-    render_ctx.tg_debug.request_mouse_picker_override = false;
-    render_ctx.tg_debug.this_frame_task_attachments.clear();
-    render_ctx.tg_debug.this_frame_duplicate_task_name_counter.clear();
+    render_context.tg_debug.request_mouse_picker_override = false;
+    render_context.tg_debug.this_frame_task_attachments.clear();
+    render_context.tg_debug.this_frame_duplicate_task_name_counter.clear();
 }
 
 auto format_vec4_rows_float(daxa_f32vec4 vec) -> std::string
@@ -675,10 +675,10 @@ auto format_vec4_rows(Vec4Union vec_union, tido::ScalarKind scalar_kind) -> std:
     return std::string();
 }
 
-void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string active_inspector_key)
+void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key)
 {
-    render_ctx.tg_debug.readback_index = (render_ctx.tg_debug.readback_index + 1) % 3;
-    auto & state = render_ctx.tg_debug.inspector_states[active_inspector_key];
+    render_context.tg_debug.readback_index = (render_context.tg_debug.readback_index + 1) % 3;
+    auto & state = render_context.tg_debug.inspector_states[active_inspector_key];
     if (ImGui::Begin(fmt::format("Inspector for {}", active_inspector_key.c_str()).c_str(), nullptr, {}))
     {
         // The ui update is staggered a frame.
@@ -689,12 +689,12 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
         daxa::ImageInfo const & image_info = state.runtime_image_info;
         if (!state.display_image.is_empty())
         {
-            clone_image_info = render_ctx.gpuctx->device.image_info(state.display_image).value();
+            clone_image_info = render_context.gpu_context->device.image_info(state.display_image).value();
 
-            daxa::SamplerId sampler = context->lin_clamp_sampler;
+            daxa::SamplerId sampler = gpu_context->lin_clamp_sampler;
             if (state.nearest_filtering)
             {
-                sampler = context->nearest_clamp_sampler;
+                sampler = gpu_context->nearest_clamp_sampler;
             }
             tex_id = imgui_renderer.create_texture_id({
                 .image_view_id = state.display_image.default_view(),
@@ -789,14 +789,14 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                 {
                     switch (scalar_kind)
                     {
-                        case tido::ScalarKind::FLOAT: readback_raw._float = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::INT:   readback_raw._int = context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
-                        case tido::ScalarKind::UINT:  readback_raw._uint = context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_ctx.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::FLOAT: readback_raw._float = gpu_context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value()[render_context.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::INT:   readback_raw._int = gpu_context->device.buffer_host_address_as<daxa_i32vec4>(state.readback_buffer).value()[render_context.tg_debug.readback_index * 2]; break;
+                        case tido::ScalarKind::UINT:  readback_raw._uint = gpu_context->device.buffer_host_address_as<daxa_u32vec4>(state.readback_buffer).value()[render_context.tg_debug.readback_index * 2]; break;
                     }
-                    auto floatvec_readback = context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value();
+                    auto floatvec_readback = gpu_context->device.buffer_host_address_as<daxa_f32vec4>(state.readback_buffer).value();
                     auto flt_min = std::numeric_limits<f32>::min();
                     auto flt_max = std::numeric_limits<f32>::max();
-                    readback_color = floatvec_readback[render_ctx.tg_debug.readback_index * 2 + 1];
+                    readback_color = floatvec_readback[render_context.tg_debug.readback_index * 2 + 1];
                 }
 
                 constexpr auto MOUSE_PICKER_FREEZE_COLOR = 0xFFBBFFFF;
@@ -845,7 +845,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                     "  * hold shift to replicate the selection on all other open inspector mouse pickers (also replicates freezes)\n"
                     "  * use middle mouse button to grab and move zoomed in image"
                 );
-                if (state.display_image_hovered || state.freeze_image_hover_index || render_ctx.tg_debug.override_mouse_picker)
+                if (state.display_image_hovered || state.freeze_image_hover_index || render_context.tg_debug.override_mouse_picker)
                 {
                     mouse_picker(state.frozen_mouse_pos_relative_to_image_mip0, state.freeze_image_hover_index, state.frozen_readback_raw);
                 }
@@ -938,24 +938,24 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                     state.display_image_hovered = ImGui::IsMouseHoveringRect(start_pos, end_pos) && (ImGui::IsItemHovered() || ImGui::IsItemClicked());
                     state.freeze_image_hover_index = state.freeze_image_hover_index ^ (state.display_image_hovered && ImGui::IsItemClicked());
                     state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
-                    render_ctx.tg_debug.request_mouse_picker_override |= state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_LeftShift);
+                    render_context.tg_debug.request_mouse_picker_override |= state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_LeftShift);
                 
-                    bool const override_other_inspectors = render_ctx.tg_debug.override_mouse_picker && state.display_image_hovered;
-                    bool const get_overriden = render_ctx.tg_debug.override_mouse_picker && !state.display_image_hovered;
+                    bool const override_other_inspectors = render_context.tg_debug.override_mouse_picker && state.display_image_hovered;
+                    bool const get_overriden = render_context.tg_debug.override_mouse_picker && !state.display_image_hovered;
                     if (override_other_inspectors)
                     {
-                        render_ctx.tg_debug.override_frozen_state = state.freeze_image_hover_index;
-                        render_ctx.tg_debug.override_mouse_picker_uv = {
+                        render_context.tg_debug.override_frozen_state = state.freeze_image_hover_index;
+                        render_context.tg_debug.override_mouse_picker_uv = {
                             float(state.mouse_pos_relative_to_display_image.x) / display_image_size.x,
                             float(state.mouse_pos_relative_to_display_image.y) / display_image_size.y,
                         };
                     }
                     if (get_overriden)
                     {
-                        state.freeze_image_hover_index = render_ctx.tg_debug.override_frozen_state;
+                        state.freeze_image_hover_index = render_context.tg_debug.override_frozen_state;
                         state.mouse_pos_relative_to_display_image = {
-                            i32(render_ctx.tg_debug.override_mouse_picker_uv.x * display_image_size.x),
-                            i32(render_ctx.tg_debug.override_mouse_picker_uv.y * display_image_size.y),
+                            i32(render_context.tg_debug.override_mouse_picker_uv.x * display_image_size.x),
+                            i32(render_context.tg_debug.override_mouse_picker_uv.y * display_image_size.y),
                         };
                     }
 
@@ -975,7 +975,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_ctx, std::string 
                         mouse_picker(state.mouse_pos_relative_to_image_mip0, false, readback_raw);
                         ImGui::EndTooltip();
                     }
-                    if (state.display_image_hovered || render_ctx.tg_debug.override_mouse_picker)
+                    if (state.display_image_hovered || render_context.tg_debug.override_mouse_picker)
                     {
                         ImVec2 const frozen_mouse_pos_relative_to_display_image = {
                             float(state.mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * display_image_size.x,
@@ -1157,7 +1157,7 @@ UIEngine::~UIEngine()
     {
         if (!icons.at(icon_idx).is_empty())
         {
-            context->device.destroy_image(icons.at(icon_idx));
+            gpu_context->device.destroy_image(icons.at(icon_idx));
         }
     }
     ImPlot::DestroyContext();

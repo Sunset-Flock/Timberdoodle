@@ -42,7 +42,7 @@ namespace tido
                 CAMERA,
                 LIGHT
             };
-            ImGuiContext * context = {};
+            ImGuiContext * gpu_context = {};
             ImGuiTable * table = {};
             ImGuiWindow * window = {};
             daxa::ImGuiRenderer * renderer = {};

@@ -23,15 +23,15 @@ layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
 void main()
 {
     uint mesh_instance_index = gl_GlobalInvocationID.x;
-    uint mesh_instance_count = min(deref(push.uses.mesh_instances).count, MAX_MESH_INSTANCES);
+    uint mesh_instance_count = min(deref(push.attach.mesh_instances).count, MAX_MESH_INSTANCES);
     if (mesh_instance_index >= mesh_instance_count)
     {
         return;
     }
-    MeshInstance mesh_instance = deref_i(deref(push.uses.mesh_instances).instances, mesh_instance_index);
+    MeshInstance mesh_instance = deref_i(deref(push.attach.mesh_instances).instances, mesh_instance_index);
     uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
 
-    const uint mesh_group_index = deref(push.uses.entity_mesh_groups[mesh_instance.entity_index]);
+    const uint mesh_group_index = deref(push.attach.entity_mesh_groups[mesh_instance.entity_index]);
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         // Entity has no mesh group.
@@ -44,7 +44,7 @@ void main()
         return;
     }
     
-    GPUMeshGroup mesh_group = deref(push.uses.mesh_groups[mesh_group_index]);
+    GPUMeshGroup mesh_group = deref(push.attach.mesh_groups[mesh_group_index]);
     if (mesh_group.count == 0)
     {
         // Broken mesh group
@@ -53,7 +53,7 @@ void main()
 
     /// bug zone begin
     const bool locked_entities_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
-        deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
+        deref(push.attach.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
     );
@@ -64,24 +64,24 @@ void main()
     /// bug zone end
 
     uint allocation_offset = atomicAdd(
-        push.uses.bitfield_arena.offsets_section_size, 
+        push.attach.bitfield_arena.offsets_section_size, 
         mesh_group.count
     );
     const uint offsets_section_size = allocation_offset + mesh_group.count;
     if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - 2))
     {
         atomicExchange(
-            deref(push.uses.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
+            deref(push.attach.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
             allocation_offset
         );
         // Write indirect clear command, clearing the section used to store the mesh bitfield offsets.
         atomicMax(
-            deref(push.uses.clear_arena_command).size, 
+            deref(push.attach.clear_arena_command).size, 
             offsets_section_size
         );
         const uint needed_clear_workgroups = round_up_div(offsets_section_size, INDIRECT_MEMSET_BUFFER_X);
         atomicMax(
-            deref(push.uses.clear_arena_command).dispatch.x, 
+            deref(push.attach.clear_arena_command).dispatch.x, 
             needed_clear_workgroups
         );
     }
@@ -92,13 +92,13 @@ void main()
 layout(local_size_x = 1) in;
 void main()
 {
-    const uint needed_threads = deref(push.uses.visible_meshlets_prev).count;
+    const uint needed_threads = deref(push.attach.visible_meshlets_prev).count;
     const uint needed_workgroups = round_up_div(needed_threads, WORKGROUP_SIZE);
     DispatchIndirectStruct command;
     command.x = needed_workgroups;
     command.y = 1;
     command.z = 1;
-    deref(push.uses.command) = command;
+    deref(push.attach.command) = command;
 }
 #endif
 
@@ -106,28 +106,28 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {    
-    const uint count = deref(push.uses.visible_meshlets_prev).count; 
+    const uint count = deref(push.attach.visible_meshlets_prev).count; 
     const uint thread_index = gl_GlobalInvocationID.x;
     if (thread_index >= count)
     {
         return;
     }
 
-    const uint prev_frame_meshlet_idx = deref(push.uses.visible_meshlets_prev).meshlet_ids[thread_index];
-    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.uses.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
+    const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
+    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
 
-    const uint first_pass_meshgroup_bitfield_offset = deref(push.uses.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
+    const uint first_pass_meshgroup_bitfield_offset = deref(push.attach.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
     if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
         (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
     {
         const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
         // Offset is valid, need to check if mesh instance offset is valid now.
-        const uint first_pass_mesh_instance_bitfield_offset = push.uses.bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
+        const uint first_pass_mesh_instance_bitfield_offset = push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
         if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
             (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
         {
             // Try to allocate new meshlet instance:
-            const uint meshlet_instance_index = atomicAdd(deref(push.uses.meshlet_instances).first_count, 1);
+            const uint meshlet_instance_index = atomicAdd(deref(push.attach.meshlet_instances).first_count, 1);
             if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
             {
                 // Overrun Meshlet instance buffer!
@@ -137,7 +137,7 @@ void main()
             const uint in_bitfield_u32_index = prev_frame_vis_meshlet.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
             const uint in_u32_bit = prev_frame_vis_meshlet.meshlet_index % 32;
             const uint in_u32_mask = 1u << in_u32_bit;
-            const uint prior_bitfield_u32 = atomicOr(push.uses.bitfield_arena.uints[in_bitfield_u32_index], in_u32_mask);
+            const uint prior_bitfield_u32 = atomicOr(push.attach.bitfield_arena.uints[in_bitfield_u32_index], in_u32_mask);
             if ((prior_bitfield_u32 & in_u32_mask) != 0)
             {
                 // SHOULD NEVER HAPPEN:
@@ -151,11 +151,11 @@ void main()
             // debugPrintfEXT("process prev meshlet vis index %i, meshlet id %i\n", thread_index, prev_frame_meshlet_idx);
 
             // Write meshlet instance into draw list and instance list:
-            deref(deref(push.uses.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
+            deref(deref(push.attach.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
             uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
-                GPUMaterial material = deref(push.uses.materials[prev_frame_vis_meshlet.material_index]);
+                GPUMaterial material = deref(push.attach.materials[prev_frame_vis_meshlet.material_index]);
                 opaque_draw_list_type_index = material.alpha_discard_enabled ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
             }
             // Scalarize appends to the draw lists.
@@ -170,8 +170,8 @@ void main()
                     continue;
                 }
                 // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
-                const uint opaque_draw_list_index = atomicAdd(deref(push.uses.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
-                deref(deref(push.uses.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
+                const uint opaque_draw_list_index = atomicAdd(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
+                deref(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
             } 
         }
     }
@@ -182,15 +182,15 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
-    const uint bitfield_arena_base_offset = push.uses.bitfield_arena.offsets_section_size;
+    const uint bitfield_arena_base_offset = push.attach.bitfield_arena.offsets_section_size;
     if (gl_GlobalInvocationID.x == 0)
     {
         // One thread must write the offset past the mesh instance offset section.
-        deref(push.uses.clear_arena_command).offset = bitfield_arena_base_offset + 2 /*buffer head*/;
-        // debugPrintfEXT("deref(push.uses.visible_meshlets_prev).count %i\n", deref(push.uses.visible_meshlets_prev).count);
+        deref(push.attach.clear_arena_command).offset = bitfield_arena_base_offset + 2 /*buffer head*/;
+        // debugPrintfEXT("deref(push.attach.visible_meshlets_prev).count %i\n", deref(push.attach.visible_meshlets_prev).count);
     }
 
-    const uint count = deref(push.uses.visible_meshlets_prev).count;
+    const uint count = deref(push.attach.visible_meshlets_prev).count;
     const uint thread_index = gl_GlobalInvocationID.x;
     if (thread_index >= count)
     {
@@ -198,10 +198,10 @@ void main()
         return;
     }
 
-    const uint prev_frame_meshlet_idx = deref(push.uses.visible_meshlets_prev).meshlet_ids[thread_index];
-    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.uses.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
+    const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
+    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
 
-    const uint entity_to_meshgroup_bitfield_offset = deref(push.uses.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
+    const uint entity_to_meshgroup_bitfield_offset = deref(push.attach.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
     if (entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID || 
         entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED)
     {
@@ -212,7 +212,7 @@ void main()
     // Try to lock the mesh instance offset:
     const uint mesh_instance_bitfield_offset_offset = entity_to_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
     const bool locked_mesh_instance_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
-        push.uses.bitfield_arena.uints[mesh_instance_bitfield_offset_offset],
+        push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset],
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
     );
@@ -222,7 +222,7 @@ void main()
         return;
     }
 
-    GPUMesh mesh = deref(push.uses.meshes[prev_frame_vis_meshlet.mesh_index]);
+    GPUMesh mesh = deref(push.attach.meshes[prev_frame_vis_meshlet.mesh_index]);
     if (mesh.mesh_buffer.value == 0)
     {
         // Unloaded Mesh
@@ -231,7 +231,7 @@ void main()
 
     // Try to allocate bitfield space:
     const uint needed_bitfield_u32_size = round_up_div(mesh.meshlet_count, 32);
-    const uint bitfield_section_local_offset = atomicAdd(push.uses.bitfield_arena.bitfield_section_size, needed_bitfield_u32_size);
+    const uint bitfield_section_local_offset = atomicAdd(push.attach.bitfield_arena.bitfield_section_size, needed_bitfield_u32_size);
     const uint bitfield_allocation_offset = bitfield_arena_base_offset + bitfield_section_local_offset;
     const uint potentially_used_bitfield_size = bitfield_allocation_offset + needed_bitfield_u32_size;
     const uint potentially_used_bitfield_size_section_local = bitfield_section_local_offset + needed_bitfield_u32_size;
@@ -246,11 +246,11 @@ void main()
     // - Write clear bitfield section indirect command 
 
     // Write allocated bitfield offset to mesh instances offset
-    atomicExchange(push.uses.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_allocation_offset);
+    atomicExchange(push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_allocation_offset);
 
     // Write clear bitfield section indirect command:
     const uint needed_clear_workgroups = round_up_div(potentially_used_bitfield_size_section_local, INDIRECT_MEMSET_BUFFER_X);
-    atomicMax(deref(push.uses.clear_arena_command).dispatch.x, needed_clear_workgroups);
-    atomicMax(deref(push.uses.clear_arena_command).size, potentially_used_bitfield_size_section_local);
+    atomicMax(deref(push.attach.clear_arena_command).dispatch.x, needed_clear_workgroups);
+    atomicMax(deref(push.attach.clear_arena_command).size, potentially_used_bitfield_size_section_local);
 }
 #endif

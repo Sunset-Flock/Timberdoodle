@@ -32,14 +32,13 @@ DAXA_DECL_TASK_HEAD_END
 
 struct ExpandMeshesToMeshletsPush
 {
-    DAXA_TH_BLOB(ExpandMeshesToMeshletsH, uses)
+    ExpandMeshesToMeshletsH::AttachmentShaderBlob attach;
     daxa::b32 cull_meshes;
     // Only used for vsms:
     daxa::u32 cascade;
 };
 
 #if defined(__cplusplus)
-#include "../../gpu_context.hpp"
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
@@ -69,12 +68,12 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
     u32 cascade = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
         ExpandMeshesToMeshletsPush push = {
+            .attach = ti.attachment_shader_blob,
             .cull_meshes = cull_meshes,
             .cascade = cascade,
         };
-        assign_blob(push.uses, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         auto total_mesh_draws =
             render_context->mesh_instance_counts.prepass_instance_counts[0] +
@@ -87,7 +86,7 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
 struct TaskExpandMeshesToMeshletsInfo
 {
     RenderContext * render_context = {};
-    daxa::TaskGraph & task_list;
+    daxa::TaskGraph & tg;
     bool cull_meshes = {};
     // Used for VSM page culling:
     daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
@@ -109,15 +108,15 @@ struct TaskExpandMeshesToMeshletsInfo
 };
 void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
-    auto opaque_po2expansion = info.task_list.create_transient_buffer({
+    auto opaque_po2expansion = info.tg.create_transient_buffer({
         .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
         .name = info.buffer_name_prefix + "opaque_meshlet_cull_po2expansion",
     });
-    auto masked_opaque_po2expansion = info.task_list.create_transient_buffer({
+    auto masked_opaque_po2expansion = info.tg.create_transient_buffer({
         .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
         .name = info.buffer_name_prefix + "masked_opaque_meshlet_cull_po2expansion",
     });
-    info.task_list.add_task({
+    info.tg.add_task({
         .attachments = {
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, opaque_po2expansion),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, masked_opaque_po2expansion),
@@ -134,7 +133,7 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         .name = "init meshlet cull arg buckets buffer",
     });
 
-    info.task_list.add_task(ExpandMeshesToMeshletsTask{
+    info.tg.add_task(ExpandMeshesToMeshletsTask{
         .views = std::array{
             ExpandMeshesToMeshletsH::AT.globals | info.globals,
             ExpandMeshesToMeshletsH::AT.mesh_instances | info.mesh_instances,

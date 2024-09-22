@@ -61,9 +61,8 @@ struct GenLuminanceHistogramTask : GenLuminanceHistogramH::Task
             (offscreen_resolution.x + COMPUTE_HISTOGRAM_WG_X - 1) / COMPUTE_HISTOGRAM_WG_X,
             (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
         };
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
-        GenLuminanceHistogramH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
+        GenLuminanceHistogramH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
     }
@@ -72,13 +71,12 @@ struct GenLuminanceHistogramTask : GenLuminanceHistogramH::Task
 struct GenLuminanceAverageTask : GenLuminanceAverageH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
-        GenLuminanceAverageH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
+        GenLuminanceAverageH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = 1});
     }

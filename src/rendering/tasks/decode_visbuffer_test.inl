@@ -44,17 +44,17 @@ inline daxa::ComputePipelineCompileInfo decode_visbuffer_test_pipeline_info()
 struct DecodeVisbufferTestTask : DecodeVisbufferTestH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(decode_visbuffer_test_pipeline_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(decode_visbuffer_test_pipeline_info().name));
         auto const image_id = ti.get(AT.vis_image).ids[0];
         auto const image_info = ti.device.image_info(image_id).value();
         DecodeVisbufferTestPush push = {
+            .attachments = ti.attachment_shader_blob,
             .size = { static_cast<f32>(image_info.size.x), static_cast<f32>(image_info.size.y) },
             .inv_size = { 1.0f / static_cast<f32>(image_info.size.x), 1.0f / static_cast<f32>(image_info.size.y) },
         };
-        assign_blob(push.attachments, ti.attachment_shader_blob);
         ti.recorder.push_constant(push);
         u32 const dispatch_x = round_up_div(image_info.size.x, DECODE_VISBUFFER_TEST_X);
         u32 const dispatch_y = round_up_div(image_info.size.y, DECODE_VISBUFFER_TEST_Y);

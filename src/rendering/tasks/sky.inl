@@ -106,7 +106,7 @@ inline daxa::ComputePipelineCompileInfo sky_into_cubemap_pipeline_compile_info()
 struct ComputeTransmittanceTask : ComputeTransmittanceH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
@@ -115,9 +115,9 @@ struct ComputeTransmittanceTask : ComputeTransmittanceH::Task
             (transmittance_size.x + TRANSMITTANCE_X - 1) / TRANSMITTANCE_X,
             (transmittance_size.y + TRANSMITTANCE_Y - 1) / TRANSMITTANCE_Y,
         };
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(compute_transmittance_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(compute_transmittance_pipeline_compile_info().name));
         ComputeTransmittanceH::AttachmentShaderBlob push{};
-        assign_blob(push, ti.attachment_shader_blob);
+        push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
     }
@@ -130,8 +130,8 @@ struct ComputeMultiscatteringTask : ComputeMultiscatteringH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const multiscattering_size = render_context->gpuctx->device.image_info(ti.get(AT.multiscattering).ids[0]).value().size;
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
+        auto const multiscattering_size = render_context->gpu_context->device.image_info(ti.get(AT.multiscattering).ids[0]).value().size;
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
         ComputeMultiscatteringH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = multiscattering_size.x, .y = multiscattering_size.y});
@@ -145,12 +145,12 @@ struct ComputeSkyTask : ComputeSkyH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const sky_size = render_context->gpuctx->device.image_info(ti.get(AT.sky).ids[0]).value().size;
+        auto const sky_size = render_context->gpu_context->device.image_info(ti.get(AT.sky).ids[0]).value().size;
         auto const dispatch_size = u32vec2{
             (sky_size.x + SKY_X - 1) / SKY_X,
             (sky_size.y + SKY_Y - 1) / SKY_Y,
         };
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(compute_sky_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_sky_pipeline_compile_info().name));
         ComputeSkyH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
@@ -160,13 +160,13 @@ struct ComputeSkyTask : ComputeSkyH::Task
 struct SkyIntoCubemapTask : SkyIntoCubemapH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(sky_into_cubemap_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(sky_into_cubemap_pipeline_compile_info().name));
         SkyIntoCubemapH::AttachmentShaderBlob push{};
-        assign_blob(push, ti.attachment_shader_blob);
+        push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({
             (IBL_CUBE_RES + IBL_CUBE_X - 1) / IBL_CUBE_X,

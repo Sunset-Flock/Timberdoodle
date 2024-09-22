@@ -57,7 +57,7 @@ static auto raw_image_data_from_URI(RawImageDataFromURIInfo const & info) -> Raw
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_ABSOLUTE_PATH;
     }
-    /// NOTE: I don't really see how fileoffsets could be valid in a URI context. Since we have no information about the size
+    /// NOTE: I don't really see how fileoffsets could be valid in a URI gpu_context. Since we have no information about the size
     //        of the data we always just load everything in the file. Having just a single offset thus does not allow to pack
     //        multiple images into a single file so we just error on this for now.
     if (info.uri.fileByteOffset != 0)

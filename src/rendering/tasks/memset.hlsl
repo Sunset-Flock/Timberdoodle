@@ -8,12 +8,12 @@
 void entry_indmemset(uint3 dtid : SV_DispatchThreadID)
 {
     uint index = dtid.x;
-    IndirectMemsetBufferCommand command = deref(ind_memset_push.uses.command);
+    IndirectMemsetBufferCommand command = deref(ind_memset_push.attach.command);
     if (index > command.size)
     {
         return;
     }
-    deref_i(ind_memset_push.uses.dst, index + command.offset) = command.value;
+    deref_i(ind_memset_push.attach.dst, index + command.offset) = command.value;
 }
 
 [[vk::push_constant]] MemcpyBufferPush memcpy_push;
@@ -26,6 +26,6 @@ void entry_memcpy(uint3 dtid : SV_DispatchThreadID)
     {
         return;
     }
-    uint value = deref_i(memcpy_push.uses.src, index + memcpy_push.src_offset);
-    deref_i(memcpy_push.uses.dst, index + memcpy_push.dst_offset) = value;
+    uint value = deref_i(memcpy_push.attach.src, index + memcpy_push.src_offset);
+    deref_i(memcpy_push.attach.dst, index + memcpy_push.dst_offset) = value;
 }

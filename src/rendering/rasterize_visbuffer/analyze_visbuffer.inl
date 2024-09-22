@@ -24,7 +24,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct AnalyzeVisbufferPush2
 {
-    DAXA_TH_BLOB(AnalyzeVisbuffer2H, uses)
+    AnalyzeVisbuffer2H::AttachmentShaderBlob attach;
     daxa_u32vec2 size;
     daxa_f32vec2 inv_size;
 };
@@ -50,13 +50,13 @@ inline daxa::ComputePipelineCompileInfo analyze_visbufer_pipeline_compile_info()
 struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
         auto [x, y, z] = ti.device.image_info(ti.get(AnalyzeVisbuffer2H::AT.visbuffer).ids[0]).value().size;
         ti.recorder.push_constant(AnalyzeVisbufferPush2{
-            .uses = ti.attachment_shader_blob,
+            .attach = ti.attachment_shader_blob,
             .size = {x, y},
             .inv_size = {1.0f / float(x), 1.0f / float(y)},
         });

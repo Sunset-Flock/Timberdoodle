@@ -10,24 +10,24 @@
 func update_tri_mask_and_write_visible_meshlet(uint meshlet_instance_index, uint meshlet_triangle_mask)
 {
     uint prev_tri_mask;
-    InterlockedOr(push.uses.meshlet_visibility_bitfield[meshlet_instance_index], meshlet_triangle_mask, prev_tri_mask);
+    InterlockedOr(push.attach.meshlet_visibility_bitfield[meshlet_instance_index], meshlet_triangle_mask, prev_tri_mask);
     if (prev_tri_mask == 0)
     {
         // When the prev tri mask was zero, this is the first thread to see this meshlet.
         // The first thread to see a meshlet writes it to the visible meshlet list.
         uint visible_meshlets_index;
-        InterlockedAdd(push.uses.visible_meshlets.count, 1, visible_meshlets_index);
-        push.uses.visible_meshlets.meshlet_ids[visible_meshlets_index] = meshlet_instance_index;
+        InterlockedAdd(push.attach.visible_meshlets.count, 1, visible_meshlets_index);
+        push.attach.visible_meshlets.meshlet_ids[visible_meshlets_index] = meshlet_instance_index;
 
         // Too slow, probably need extra compute pass scanning visible meshlets.
-        // MeshletInstance meshlet_instance = push.uses.meshlet_instances.meshlets[meshlet_instance_index];
+        // MeshletInstance meshlet_instance = push.attach.meshlet_instances.meshlets[meshlet_instance_index];
         // uint prev_mesh_mark;
-        // InterlockedOr(push.uses.mesh_visibility_bitfield[meshlet_instance.mesh_instance_index], 1, prev_mesh_mark);
+        // InterlockedOr(push.attach.mesh_visibility_bitfield[meshlet_instance.mesh_instance_index], 1, prev_mesh_mark);
         // if (prev_mesh_mark == 0)
         // {
         //     uint visible_meshes_index;
-        //     InterlockedAdd(push.uses.visible_meshes.count, 1, visible_meshes_index);
-        //     push.uses.visible_meshes.mesh_ids[visible_meshes_index] = meshlet_instance.mesh_instance_index;
+        //     InterlockedAdd(push.attach.visible_meshes.count, 1, visible_meshes_index);
+        //     push.attach.visible_meshes.mesh_ids[visible_meshes_index] = meshlet_instance.mesh_instance_index;
         // }
     }
 }
@@ -42,15 +42,15 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
 
     // Load list of 4 visbuffer ids. Filter out invalid ids. Duplicate Ids are filtered out later.
     let gather_uv = (float2(sampleIndex) + 1.0f) * push.inv_size;
-    let tex = Texture2D<uint>::get(push.uses.visbuffer);
-    let smplr = SamplerState::get(push.uses.globals.samplers.linear_clamp);
+    let tex = Texture2D<uint>::get(push.attach.visbuffer);
+    let smplr = SamplerState::get(push.attach.globals.samplers.linear_clamp);
     uint4 vis_ids;
-    if (push.uses.globals.settings.enable_atomic_visbuffer)
+    if (push.attach.globals.settings.enable_atomic_visbuffer)
     {
-        vis_ids[0] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(0,0)]);
-        vis_ids[1] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(0,1)]);
-        vis_ids[2] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(1,0)]);
-        vis_ids[3] = uint(tex_rw_u64_table[push.uses.visbuffer.index()][sampleIndex + uint2(1,1)]);
+        vis_ids[0] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(0,0)]);
+        vis_ids[1] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(0,1)]);
+        vis_ids[2] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(1,0)]);
+        vis_ids[3] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(1,1)]);
     }
     else
     {

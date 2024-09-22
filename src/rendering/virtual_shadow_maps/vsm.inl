@@ -361,12 +361,11 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
-        FreeWrappedPagesH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
+        FreeWrappedPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::BOTTOM_OF_PIPE, .query_index = 0 + timestamp_start_index});
         ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
@@ -383,17 +382,16 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        auto const depth_resolution = render_context->gpuctx->device.image_info(ti.get(AT.depth).ids[0]).value().size;
+        auto const depth_resolution = render_context->gpu_context->device.image_info(ti.get(AT.depth).ids[0]).value().size;
         auto const dispatch_size = u32vec2{
             (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
             (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
         };
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_mark_required_pages_pipeline_compile_info().name));
-        MarkRequiredPagesH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_mark_required_pages_pipeline_compile_info().name));
+        MarkRequiredPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 2 + timestamp_start_index});
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
@@ -413,12 +411,11 @@ struct FindFreePagesTask : FindFreePagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
-        FindFreePagesH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
+        FindFreePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 4 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_x_size, 1, 1});
@@ -435,12 +432,11 @@ struct AllocatePagesTask : AllocatePagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
-        AllocatePagesH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
+        AllocatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 6 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
@@ -460,12 +456,12 @@ struct ClearPagesTask : ClearPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
         ClearPagesPush push = {};
         push.use64bit = render_context->render_data.vsm_settings.use64bit;
-        assign_blob(push.attachments, ti.attachment_shader_blob);
+        push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 8 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
@@ -485,16 +481,16 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
         auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
         auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
         GenDirtyBitHizPush push = {
             .mip_count = ti.get(AT.vsm_dirty_bit_hiz).view.slice.level_count,
         };
-        assign_blob(push.attachments, ti.attachment_shader_blob);
+        push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 10 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
@@ -511,10 +507,10 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        auto const memory_block_view = render_context->gpuctx->device.create_image_view({
+        auto const memory_block_view = render_context->gpu_context->device.create_image_view({
             .type = daxa::ImageViewType::REGULAR_2D,
             .format = render_context->render_data.vsm_settings.use64bit ? daxa::Format::R64_UINT : daxa::Format::R32_UINT,
             .image = render_context->render_data.vsm_settings.use64bit ? ti.get(AT.vsm_memory_block64).ids[0] : ti.get(AT.vsm_memory_block).ids[0],
@@ -532,7 +528,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .slope_factor = render_context->render_data.vsm_settings.slope_bias,
         });
         auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPagesH::AttachmentShaderBlob)).value();
-        ti.assign_attachment_shader_blob(reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address)->value);
+        *reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
         for (u32 cascade = 0; cascade < 16; ++cascade)
         {
             daxa::BufferId po2expansion;
@@ -559,7 +555,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
             {
                 auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
-                render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
+                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
                 for (u32 i = 0; i < 32; ++i)
                 {
                     CullAndDrawPagesPush push = {
@@ -594,12 +590,11 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
-        ClearDirtyBitH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
+        ClearDirtyBitH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_GRAPHICS, .query_index = 14 + timestamp_start_index});
         ti.recorder.dispatch_indirect({
@@ -623,12 +618,11 @@ struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_virtual_page_table_pipeline_compile_info().name));
-        DebugVirtualPageTableH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_debug_virtual_page_table_pipeline_compile_info().name));
+        DebugVirtualPageTableH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 16 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
@@ -649,12 +643,11 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(vsm_debug_meta_memory_table_pipeline_compile_info().name));
-        DebugMetaMemoryTableH::AttachmentShaderBlob push = {};
-        assign_blob(push, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_debug_meta_memory_table_pipeline_compile_info().name));
+        DebugMetaMemoryTableH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 18 + timestamp_start_index});
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
@@ -695,7 +688,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         },
         .task = [info](daxa::TaskInterface ti)
         {
-            u32 const fif_index = info.render_context->render_data.frame_index % (info.render_context->gpuctx->swapchain.info().max_allowed_frames_in_flight + 1);
+            u32 const fif_index = info.render_context->render_data.frame_index % (info.render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
             u32 const timestamp_start_index = info.vsm_state->PER_FRAME_TIMESTAMP_COUNT * fif_index;
             ti.recorder.reset_timestamps({
                 .query_pool = info.vsm_state->vsm_timeline_query_pool,
@@ -777,7 +770,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     if (!info.vsm_state->overdraw_debug_image.is_null())
     {
-        task_clear_image(*info.tg, info.vsm_state->overdraw_debug_image, std::array{0,0,0,0});
+        info.tg->clear_image({info.vsm_state->overdraw_debug_image, std::array{0u, 0u, 0u, 0u}});
     }
     info.tg->add_task(ClearPagesTask{
         .views = std::array{
@@ -809,7 +802,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     {
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
             .render_context = info.render_context,
-            .task_list = *info.tg,
+            .tg = *info.tg,
             .cull_meshes = true,
             .vsm_hip = info.vsm_state->dirty_pages_hiz,
             .vsm_cascade = cascade,
@@ -881,25 +874,25 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .per_frame_timestamp_count = info.vsm_state->PER_FRAME_TIMESTAMP_COUNT,
     });
 
-    task_clear_image(*info.tg, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f});
+    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
     info.tg->add_task(DebugVirtualPageTableTask{
         .views = std::array{
             daxa::attachment_view(DebugVirtualPageTableH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
             daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpuctx->shader_debug_context.vsm_debug_page_table),
+            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,
         .per_frame_timestamp_count = info.vsm_state->PER_FRAME_TIMESTAMP_COUNT,
     });
 
-    task_clear_image(*info.tg, info.render_context->gpuctx->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f});
+    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
     info.tg->add_task(DebugMetaMemoryTableTask{
         .views = std::array{
             daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpuctx->shader_debug_context.vsm_debug_meta_memory_table),
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,
@@ -1215,7 +1208,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
     }
 }
 
-inline void fill_vsm_invalidation_mask(std::vector<DynamicMesh> const & meshes, VSMState & state, ShaderDebugDrawContext & context)
+inline void fill_vsm_invalidation_mask(std::vector<DynamicMesh> const & meshes, VSMState & state, ShaderDebugDrawContext & gpu_context)
 {
     ShaderDebugAABBDraw aabb_draw = {};
     aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
@@ -1247,7 +1240,7 @@ inline void fill_vsm_invalidation_mask(std::vector<DynamicMesh> const & meshes, 
             //     aabb_draw.position = {ws_center.x, ws_center.y, ws_center.z};
             //     aabb_draw.size = {ws_size.x, ws_size.y, ws_size.z};
             //     aabb_draw.color = i == 0 ? daxa_f32vec3{0.0, 1.0, 0.0} : daxa_f32vec3{0.0, 0.0, 1.0};
-            //     context.cpu_debug_aabb_draws.push_back(aabb_draw);
+            //     gpu_context.cpu_debug_aabb_draws.push_back(aabb_draw);
             // }
 
             for (i32 clip_level = 0; clip_level < VSM_CLIP_LEVELS; clip_level++)

@@ -36,14 +36,14 @@ namespace tido
                     ImGuiTableFlags_RowBg |
                     ImGuiTableFlags_NoBordersInBody;
                 ImGui::BeginTable("Scene Hierarchy", 1, flags);
-                context = ImGui::GetCurrentContext();
-                table = context->CurrentTable;
-                window = context->CurrentWindow;
+                gpu_context = ImGui::GetCurrentContext();
+                table = gpu_context->CurrentTable;
+                window = gpu_context->CurrentWindow;
                 ImGui::TableSetupScrollFreeze(0, 1); // Make top row always visible
                 ImGui::TableSetupColumn("Name");
 
-                f32 const icon_y_size = icon_size + context->Style.CellPadding.y * 2.0f;
-                f32 const label_y_size = ImGui::CalcTextSize("x").y + context->Style.CellPadding.y * 2.0f;
+                f32 const icon_y_size = icon_size + gpu_context->Style.CellPadding.y * 2.0f;
+                f32 const label_y_size = ImGui::CalcTextSize("x").y + gpu_context->Style.CellPadding.y * 2.0f;
                 f32 const real_cell_max_y = std::max(icon_y_size, label_y_size);
                 row_min_height = real_cell_max_y;
                 clipper.Begin(current_row ? current_row : INT_MAX, real_cell_max_y);
@@ -67,7 +67,7 @@ namespace tido
                 cell_row_bb.Max.x,
                 std::max(
                     cell_row_bb.Max.y,
-                    cell_row_bb.Min.y + label_height + context->Style.CellPadding.y * 2.0f));
+                    cell_row_bb.Min.y + label_height + gpu_context->Style.CellPadding.y * 2.0f));
         }
 
         void SceneGraph::end(bool began)
@@ -102,7 +102,7 @@ namespace tido
             ImGui::TableNextColumn();
 
             ImRect cell_bounds = get_cell_bounds();
-            f32 const real_cell_max_y = std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size + context->Style.CellPadding.y * 2.0f);
+            f32 const real_cell_max_y = std::max(cell_bounds.Max.y, cell_bounds.Min.y + icon_size + gpu_context->Style.CellPadding.y * 2.0f);
             ImRect real_cell_bounds = ImRect(cell_bounds.Min, ImVec2(cell_bounds.Max.x, real_cell_max_y));
 
             ImVec2 font_size = ImGui::CalcTextSize("x");

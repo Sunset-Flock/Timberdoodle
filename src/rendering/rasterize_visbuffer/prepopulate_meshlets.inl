@@ -57,31 +57,31 @@ DAXA_DECL_TASK_HEAD_END
 
 struct AllocEntToMeshInstOffsetsOffsetsPush
 {
-    DAXA_TH_BLOB(AllocEntToMeshInstOffsetsOffsetsH, uses)
+    DAXA_TH_BLOB(AllocEntToMeshInstOffsetsOffsetsH, attach)
     daxa_u32 dummy;
 };
 
 struct PrepopMeshletInstancesCommWPush
 {
-    DAXA_TH_BLOB(PrepopMeshletInstancesCommWH, uses)
+    DAXA_TH_BLOB(PrepopMeshletInstancesCommWH, attach)
     daxa_u32 dummy;
 };
 
 struct AllocMeshletInstBitfieldsPush
 {
-    DAXA_TH_BLOB(AllocMeshletInstBitfieldsH, uses)
+    DAXA_TH_BLOB(AllocMeshletInstBitfieldsH, attach)
     daxa_u32 dummy;
 };
 
 struct WriteFirstPassMeshletsAndBitfieldsPush
 {
-    DAXA_TH_BLOB(WriteFirstPassMeshletsAndBitfieldsH, uses)
+    DAXA_TH_BLOB(WriteFirstPassMeshletsAndBitfieldsH, attach)
     daxa_u32 dummy;
 };
 
 #if __cplusplus
 
-#include "../../gpu_context.hpp"
+#include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
 static constexpr char PRE_POPULATE_MESHLET_INSTANCES_PATH[] =
@@ -91,15 +91,13 @@ using AllocMeshletInstBitfieldsCommandWriteTask = SimpleComputeTask<
     PrepopMeshletInstancesCommWH::Task,
     PrepopMeshletInstancesCommWPush,
     PRE_POPULATE_MESHLET_INSTANCES_PATH,
-    "main"
->;
+    "main">;
 
 // using AllocMeshletInstBitfieldsCommandWriteTask =
 //     WriteIndirectDispatchArgsPushBaseTask<
-//     PrepopMeshletInstancesCommW, 
-//     PRE_POPULATE_MESHLET_INSTANCES_PATH, 
+//     PrepopMeshletInstancesCommW,
+//     PRE_POPULATE_MESHLET_INSTANCES_PATH,
 //     PrepopMeshletInstancesCommWPush>;
-
 
 inline auto prepopulate_meshlet_instances_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo
 {
@@ -113,17 +111,17 @@ inline auto prepopulate_meshlet_instances_pipeline_compile_info() -> daxa::Compu
 struct AllocMeshletInstBitfieldsTask : AllocMeshletInstBitfieldsH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(prepopulate_meshlet_instances_pipeline_compile_info().name));
-        AllocMeshletInstBitfieldsPush push = {};
-        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prepopulate_meshlet_instances_pipeline_compile_info().name));
+        AllocMeshletInstBitfieldsPush push = {
+            .attach = ti.attachment_shader_blob,
+        };
         ti.recorder.push_constant(push);
         ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AllocMeshletInstBitfieldsH::AT.command).ids[0]});
     }
 };
-
 
 inline auto set_entity_meshlets_visibility_bitmasks_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo
 {
@@ -138,12 +136,13 @@ inline auto set_entity_meshlets_visibility_bitmasks_pipeline_compile_info() -> d
 struct WriteFirstPassMeshletsAndBitfieldsTask : WriteFirstPassMeshletsAndBitfieldsH::Task
 {
     AttachmentViews views = {};
-    GPUContext * context = {};
+    GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*context->compute_pipelines.at(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info().name));
-        WriteFirstPassMeshletsAndBitfieldsPush push = {};
-        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info().name));
+        WriteFirstPassMeshletsAndBitfieldsPush push = {
+            .attach = ti.attachment_shader_blob,
+        };
         ti.recorder.push_constant(push);
         ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(WriteFirstPassMeshletsAndBitfieldsH::AT.command).ids[0]});
     }
@@ -165,26 +164,24 @@ struct AllocEntToMeshInstOffsetsOffsetsTask : AllocEntToMeshInstOffsetsOffsetsH:
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        u32 const draw_list_total_count = 
-            render_context->mesh_instance_counts.prepass_instance_counts[0] + 
+        u32 const draw_list_total_count =
+            render_context->mesh_instance_counts.prepass_instance_counts[0] +
             render_context->mesh_instance_counts.prepass_instance_counts[1];
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info().name));
-        AllocEntToMeshInstOffsetsOffsetsPush push = {};
-        assign_blob(push.uses, ti.attachment_shader_blob);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info().name));
+        AllocEntToMeshInstOffsetsOffsetsPush push = {
+            .attach = ti.attachment_shader_blob,
+        };
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch({
-            round_up_div(draw_list_total_count, ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X),
+        ti.recorder.dispatch({round_up_div(draw_list_total_count, ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X),
             1,
-            1
-        });
+            1});
     }
 };
-
 
 struct PrepopInfo
 {
     RenderContext * render_context = {};
-    daxa::TaskGraph & task_graph;
+    daxa::TaskGraph & tg;
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView materials = {};
@@ -207,7 +204,7 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     // - Fills MeshInstance lists for first pass.
     // - Fills Bitfield, each bit describing if a meshet of the draw lists was drawn in first pass
     //   - U32Arena: a buffer used for quick, per-frame linear allocation containing bitfields and offsets
-    //   - entity_to_mesh_group_offsets_offsets: 
+    //   - entity_to_mesh_group_offsets_offsets:
     //       buffer containing array with an entry per entity.
     //       each entry is an offset into a list of offsets.
     //       each of these offsets points to a section in the arena.
@@ -237,35 +234,34 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
     // AllocateEntityToMeshInstanceBitfieldOffsets allocates a list of offsets for each entity.
     // Each entities list has entries for each mesh instance of that entity.
     // THe entries are offsets into the arena, pointing to that mesh instances bitfield.
-    auto ent_to_mesh_inst_offsets_offsets = info.task_graph.create_transient_buffer({
+    auto ent_to_mesh_inst_offsets_offsets = info.tg.create_transient_buffer({
         .size = sizeof(daxa_u32) * MAX_ENTITIES,
         .name = "entity_to_mesh_group_offsets_buffer",
     });
-    auto first_pass_meshlets_bitfield_arena = info.task_graph.create_transient_buffer({
+    auto first_pass_meshlets_bitfield_arena = info.tg.create_transient_buffer({
         .size = sizeof(daxa_u32) * FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE,
         .name = "first pass meshlet bitfield arena",
     });
-    info.first_pass_meshlets_bitfield_offsets = ent_to_mesh_inst_offsets_offsets; 
-    info.first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena; 
-    
+    info.first_pass_meshlets_bitfield_offsets = ent_to_mesh_inst_offsets_offsets;
+    info.first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena;
+
     // TODO: only clear values for entities that are present in the mesh instances list.
-    info.task_graph.clear_buffer({ent_to_mesh_inst_offsets_offsets, FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID});
+    info.tg.clear_buffer({.buffer = ent_to_mesh_inst_offsets_offsets, .clear_value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID });
 
     // TODO: only clear used part of buffer.
-    info.task_graph.clear_buffer({first_pass_meshlets_bitfield_arena, 0});
+    info.tg.clear_buffer({.buffer = first_pass_meshlets_bitfield_arena, .clear_value = 0});
 
-    auto clear_mesh_instance_bitfield_offsets_command = info.task_graph.create_transient_buffer({ sizeof(IndirectMemsetBufferCommand), "clear_mesh_instance_bitfield_offsets_command"});
+    auto clear_mesh_instance_bitfield_offsets_command = info.tg.create_transient_buffer({sizeof(IndirectMemsetBufferCommand), "clear_mesh_instance_bitfield_offsets_command"});
     task_fill_buffer(
-        info.task_graph, clear_mesh_instance_bitfield_offsets_command, 
+        info.tg, clear_mesh_instance_bitfield_offsets_command,
         IndirectMemsetBufferCommand{
-            .dispatch = {0,1,1},
+            .dispatch = {0, 1, 1},
             .offset = 2,
             .size = 0,
             .value = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
-        }
-    );
+        });
 
-    info.task_graph.add_task(AllocEntToMeshInstOffsetsOffsetsTask{
+    info.tg.add_task(AllocEntToMeshInstOffsetsOffsetsTask{
         .views = std::array{
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(AllocEntToMeshInstOffsetsOffsetsH::AT.mesh_instances, info.mesh_instances),
@@ -278,37 +274,37 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
         .render_context = info.render_context,
     });
 
-    info.task_graph.add_task(IndirectMemsetBufferTask{
+    info.tg.add_task(IndirectMemsetBufferTask{
         .views = std::array{
-            daxa::attachment_view(IndirectMemsetBufferH::AT.command, clear_mesh_instance_bitfield_offsets_command ),
-            daxa::attachment_view(IndirectMemsetBufferH::AT.dst, first_pass_meshlets_bitfield_arena ),
+            daxa::attachment_view(IndirectMemsetBufferH::AT.command, clear_mesh_instance_bitfield_offsets_command),
+            daxa::attachment_view(IndirectMemsetBufferH::AT.dst, first_pass_meshlets_bitfield_arena),
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
     });
 
-    auto clear_bitfields_command = info.task_graph.create_transient_buffer({ sizeof(IndirectMemsetBufferCommand), "clear_bitfields_command" });
-    task_fill_buffer(info.task_graph, clear_bitfields_command, IndirectMemsetBufferCommand{
-        .dispatch = {0,1,1},
-        .offset = 0,
-        .size = 0,
-        .value = 0,
-    });
+    auto clear_bitfields_command = info.tg.create_transient_buffer({sizeof(IndirectMemsetBufferCommand), "clear_bitfields_command"});
+    task_fill_buffer(info.tg, clear_bitfields_command, IndirectMemsetBufferCommand{
+                                                           .dispatch = {0, 1, 1},
+                                                           .offset = 0,
+                                                           .size = 0,
+                                                           .value = 0,
+                                                       });
 
-    auto command_buffer = info.task_graph.create_transient_buffer({
+    auto command_buffer = info.tg.create_transient_buffer({
         sizeof(DispatchIndirectStruct),
         "cb prepopulate_meshlet_instances",
     });
 
-    info.task_graph.add_task(AllocMeshletInstBitfieldsCommandWriteTask{
+    info.tg.add_task(AllocMeshletInstBitfieldsCommandWriteTask{
         .views = std::array{
             daxa::attachment_view(PrepopMeshletInstancesCommWH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(PrepopMeshletInstancesCommWH::AT.visible_meshlets_prev, info.visible_meshlets_prev),
             daxa::attachment_view(PrepopMeshletInstancesCommWH::AT.command, command_buffer),
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
     });
 
-    info.task_graph.add_task(AllocMeshletInstBitfieldsTask{
+    info.tg.add_task(AllocMeshletInstBitfieldsTask{
         .views = std::array{
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.command, command_buffer),
@@ -319,18 +315,18 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.clear_arena_command, clear_bitfields_command),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.bitfield_arena, first_pass_meshlets_bitfield_arena),
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
     });
 
-    info.task_graph.add_task(IndirectMemsetBufferTask{
+    info.tg.add_task(IndirectMemsetBufferTask{
         .views = std::array{
-            daxa::attachment_view(IndirectMemsetBufferH::AT.command, clear_bitfields_command ),
-            daxa::attachment_view(IndirectMemsetBufferH::AT.dst, first_pass_meshlets_bitfield_arena ),
+            daxa::attachment_view(IndirectMemsetBufferH::AT.command, clear_bitfields_command),
+            daxa::attachment_view(IndirectMemsetBufferH::AT.dst, first_pass_meshlets_bitfield_arena),
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
     });
 
-    info.task_graph.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
+    info.tg.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
         .views = std::array{
             daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.command, command_buffer),
@@ -341,7 +337,7 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
             daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.meshlet_instances, info.meshlet_instances),
             daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.bitfield_arena, first_pass_meshlets_bitfield_arena),
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
     });
 }
 #endif

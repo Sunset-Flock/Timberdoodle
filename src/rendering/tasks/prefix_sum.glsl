@@ -7,7 +7,7 @@ DAXA_DECL_PUSH_CONSTANT(PrefixSumWriteCommandPush, push)
 layout(local_size_x = 1) in;
 void main()
 {
-    const uint value_count = deref(push.uses.value_count[push.uint_offset]);
+    const uint value_count = deref(push.attach.value_count[push.uint_offset]);
     const uint block_count = (value_count + PREFIX_SUM_BLOCK_SIZE - 1) / PREFIX_SUM_BLOCK_SIZE;
     DispatchIndirectValueCount command_and_count;
     
@@ -15,19 +15,19 @@ void main()
     command_and_count.command.y = 1;
     command_and_count.command.z = 1;
     command_and_count.value_count = value_count;
-    deref(push.uses.upsweep_command0) = command_and_count;
+    deref(push.attach.upsweep_command0) = command_and_count;
      
     command_and_count.command.x = (block_count + PREFIX_SUM_BLOCK_SIZE - 1) / PREFIX_SUM_BLOCK_SIZE;
     command_and_count.command.y = 1;
     command_and_count.command.z = 1;
     command_and_count.value_count = block_count;
-    deref(push.uses.upsweep_command1) = command_and_count;
+    deref(push.attach.upsweep_command1) = command_and_count;
 
     command_and_count.command.x = block_count;
     command_and_count.command.y = 1;
     command_and_count.command.z = 1;
     command_and_count.value_count = value_count;
-    deref(push.uses.downsweep_command) = command_and_count;
+    deref(push.attach.downsweep_command) = command_and_count;
 }
 #endif
 
@@ -65,12 +65,12 @@ void main()
     const uint warp_id = gl_SubgroupID;
     const uint warp_index = gl_SubgroupInvocationID;
     const uint src_index = global_index * push.range.uint_src_stride + push.range.uint_src_offset;
-    const uint value_count = deref(push.uses.command).value_count;
+    const uint value_count = deref(push.attach.command).value_count;
 
     uint value = 0;
     if (global_index < value_count)
     {
-        value = deref(push.uses.src[src_index]);
+        value = deref(push.attach.src[src_index]);
     }
     prefix_sum(
         warp_index,
@@ -78,12 +78,12 @@ void main()
         value);
     if (gl_LocalInvocationID .x == (PREFIX_SUM_BLOCK_SIZE - 1)) 
     {
-        deref(push.uses.block_sums[gl_WorkGroupID.x]) = value;
+        deref(push.attach.block_sums[gl_WorkGroupID.x]) = value;
     }
     if (global_index < value_count)
     {
         const uint out_index = global_index * push.range.uint_dst_stride + push.range.uint_dst_offset;
-        deref(push.uses.dst[out_index]) = value;
+        deref(push.attach.dst[out_index]) = value;
     }
 }
 #endif // #if defined(UPSWEEP)
@@ -95,15 +95,15 @@ void main()
 {
     const uint value_index = gl_GlobalInvocationID.x + PREFIX_SUM_BLOCK_SIZE; // Skip the first block.
     const uint left_block_index = gl_WorkGroupID.x;
-    const uint value_count = deref(push.uses.command).value_count;
+    const uint value_count = deref(push.attach.command).value_count;
 
     if (value_index >= value_count)
     {
         return;
     }
 
-    const uint block_sum = deref(push.uses.block_sums[left_block_index]);
+    const uint block_sum = deref(push.attach.block_sums[left_block_index]);
     const uint index = push.range.uint_dst_offset + push.range.uint_dst_stride * value_index;
-    deref(push.uses.values[index]) = deref(push.uses.values[index]) + block_sum;
+    deref(push.attach.values[index]) = deref(push.attach.values[index]) + block_sum;
 }
 #endif // #if defined(DOWNSWEEP)

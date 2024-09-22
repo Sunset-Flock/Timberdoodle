@@ -25,7 +25,7 @@ struct _MAP_Test { constexpr static int I = 0; };
 #define TEST(X) _MAP_ ## X::I
 
 GPUContext::GPUContext(Window const & window)
-    : context{daxa::create_instance({})}, device{this->context.create_device({
+    : gpu_context{daxa::create_instance({})}, device{this->gpu_context.create_device({
           .max_allowed_images = 100000, 
           .max_allowed_buffers = 100000,
           .name = "Sandbox Device"

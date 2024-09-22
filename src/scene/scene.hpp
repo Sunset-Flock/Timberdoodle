@@ -221,7 +221,7 @@ struct Scene
     // TODO(msakmary) REMOVE ME - this is a giant hack
     std::vector<AABB> REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = {};
 
-    Scene(daxa::Device device, GPUContext * context);
+    Scene(daxa::Device device, GPUContext * gpu_context);
     ~Scene();
 
     enum struct LoadManifestErrorCode

@@ -30,13 +30,13 @@ DAXA_DECL_TASK_HEAD_END
 
 struct IndirectMemsetBufferPush
 {
-    DAXA_TH_BLOB(IndirectMemsetBufferH, uses)
+    DAXA_TH_BLOB(IndirectMemsetBufferH, attach)
     daxa_u32 dummy;
 };
 
 struct MemcpyBufferPush
 {
-    DAXA_TH_BLOB(MemcpyBufferH, uses)
+    DAXA_TH_BLOB(MemcpyBufferH, attach)
     // In u32's
     daxa_u32 src_offset;
     daxa_u32 dst_offset;

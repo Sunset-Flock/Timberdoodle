@@ -219,26 +219,26 @@ void Application::update()
     }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
     {
-        _renderer->context->shader_debug_context.detector_window_position = {
+        _renderer->gpu_context->shader_debug_context.detector_window_position = {
             _window->get_cursor_x(),
             _window->get_cursor_y(),
         };
     }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
     {
-        _renderer->context->shader_debug_context.detector_window_position.x -= 1;
+        _renderer->gpu_context->shader_debug_context.detector_window_position.x -= 1;
     }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
     {
-        _renderer->context->shader_debug_context.detector_window_position.x += 1;
+        _renderer->gpu_context->shader_debug_context.detector_window_position.x += 1;
     }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
     {
-        _renderer->context->shader_debug_context.detector_window_position.y -= 1;
+        _renderer->gpu_context->shader_debug_context.detector_window_position.y -= 1;
     }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
     {
-        _renderer->context->shader_debug_context.detector_window_position.y += 1;
+        _renderer->gpu_context->shader_debug_context.detector_window_position.y += 1;
     }
 
     if (app_state.reset_observer)

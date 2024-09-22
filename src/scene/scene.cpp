@@ -91,7 +91,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
 // static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 // Returns root entity of loaded asset.
-static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & ctx) -> RenderEntityId;
+static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context) -> RenderEntityId;
 
 auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {

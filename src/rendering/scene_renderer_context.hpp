@@ -104,15 +104,15 @@ struct TgDebugContext
 // Used to store all information used only by the renderer.
 // Shared with task callbacks.
 // Global for a frame within the renderer.
-// For reusable sub-components of the renderer, use a new context.
+// For reusable sub-components of the renderer, use a new gpu_context.
 struct RenderContext
 {
-    RenderContext(GPUContext * ctx) : gpuctx{ctx}
+    RenderContext(GPUContext * gpu_context) : gpu_context{gpu_context}
     {
         tgpu_render_data = daxa::TaskBuffer{daxa::TaskBufferInfo{
             .initial_buffers = {
                 .buffers = std::array{
-                    ctx->device.create_buffer({
+                    gpu_context->device.create_buffer({
                         .size = sizeof(RenderGlobalData),
                         .name = "scene render data",
                     }),
@@ -121,16 +121,16 @@ struct RenderContext
             .name = "scene render data",
         }};
         render_data.samplers = {
-            .linear_clamp = gpuctx->device.create_sampler({
+            .linear_clamp = gpu_context->device.create_sampler({
                 .name = "linear clamp sampler",
             }),
-            .linear_repeat = gpuctx->device.create_sampler({
+            .linear_repeat = gpu_context->device.create_sampler({
                 .address_mode_u = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_v = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_w = daxa::SamplerAddressMode::REPEAT,
                 .name = "linear repeat sampler",
             }),
-            .nearest_repeat = gpuctx->device.create_sampler({
+            .nearest_repeat = gpu_context->device.create_sampler({
                 .magnification_filter = daxa::Filter::NEAREST,
                 .minification_filter = daxa::Filter::NEAREST,
                 .address_mode_u = daxa::SamplerAddressMode::REPEAT,
@@ -138,13 +138,13 @@ struct RenderContext
                 .address_mode_w = daxa::SamplerAddressMode::REPEAT,
                 .name = "linear repeat sampler",
             }),
-            .nearest_clamp = gpuctx->device.create_sampler({
+            .nearest_clamp = gpu_context->device.create_sampler({
                 .magnification_filter = daxa::Filter::NEAREST,
                 .minification_filter = daxa::Filter::NEAREST,
                 .mipmap_filter = daxa::Filter::NEAREST,
                 .name = "nearest clamp sampler",
             }),
-            .linear_repeat_ani = gpuctx->device.create_sampler({
+            .linear_repeat_ani = gpu_context->device.create_sampler({
                 .address_mode_u = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_v = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_w = daxa::SamplerAddressMode::REPEAT,
@@ -153,7 +153,7 @@ struct RenderContext
                 .max_anisotropy = 16.0f,
                 .name = "linear repeat ani sampler",
             }),
-            .nearest_repeat_ani = gpuctx->device.create_sampler({
+            .nearest_repeat_ani = gpu_context->device.create_sampler({
                 .magnification_filter = daxa::Filter::NEAREST,
                 .minification_filter = daxa::Filter::NEAREST,
                 .mipmap_filter = daxa::Filter::LINEAR,
@@ -165,7 +165,7 @@ struct RenderContext
                 .max_anisotropy = 16.0f,
                 .name = "nearest repeat ani sampler",
             }),
-            .normals = gpuctx->device.create_sampler({
+            .normals = gpu_context->device.create_sampler({
                 .address_mode_u = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_v = daxa::SamplerAddressMode::REPEAT,
                 .address_mode_w = daxa::SamplerAddressMode::REPEAT,
@@ -176,38 +176,27 @@ struct RenderContext
                 .name = "normals sampler",
             }),
         };
-        render_data.debug = gpuctx->device.buffer_device_address(gpuctx->shader_debug_context.buffer).value();
+        render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
     }
     ~RenderContext()
     {
-        tg_debug.cleanup(gpuctx->device);
-        gpuctx->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_clamp));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat_ani));
-        gpuctx->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
+        tg_debug.cleanup(gpu_context->device);
+        gpu_context->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_clamp));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat_ani));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
     }
 
     // GPUContext containing all shared global-ish gpu related data.
-    GPUContext * gpuctx = {};
+    GPUContext * gpu_context = {};
     // Passed from scene to renderer each frame to specify what should be drawn.
     CPUMeshInstanceCounts mesh_instance_counts = {};
 
     daxa::TaskBuffer tgpu_render_data = {};
-    std::vector<daxa::TaskImageView> debug_image_clones = {};
-
-    auto task_debug_clone_image(daxa::TaskGraph tg, daxa::TaskImageView view, std::string new_name) -> daxa::TaskImageView
-    {
-        auto info = tg.transient_image_info(view);
-        info.name = new_name;
-        auto clone = tg.create_transient_image(info);
-        tg.copy_image_to_image(view, clone);
-        debug_image_clones.push_back(clone);
-        return clone;
-    }
 
     // Data
     TgDebugContext tg_debug = {};

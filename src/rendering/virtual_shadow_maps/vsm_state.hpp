@@ -46,17 +46,17 @@ struct VSMState
     static constexpr u32 PER_FRAME_TIMESTAMP_COUNT = VSM_TASK_COUNT * 2;
 
 
-    void initialize_persitent_state(GPUContext * context)
+    void initialize_persitent_state(GPUContext * gpu_context)
     {
-        vsm_timeline_query_pool = context->device.create_timeline_query_pool({
-            .query_count = PER_FRAME_TIMESTAMP_COUNT * s_cast<u32>(context->swapchain.info().max_allowed_frames_in_flight + 1),
+        vsm_timeline_query_pool = gpu_context->device.create_timeline_query_pool({
+            .query_count = PER_FRAME_TIMESTAMP_COUNT * s_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight + 1),
             .name = "vsm_timestamp_query_pool"
         });
 
         globals = daxa::TaskBuffer({
             .initial_buffers = {
                 .buffers = std::array{
-                    context->device.create_buffer({
+                    gpu_context->device.create_buffer({
                         .size = static_cast<daxa_u32>(sizeof(VSMGlobals)),
                         .name = "vsm globals physical buffer",
                     }),
@@ -68,7 +68,7 @@ struct VSMState
         memory_block = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
-                    context->device.create_image({
+                    gpu_context->device.create_image({
                         .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                         .format = daxa::Format::R32_SFLOAT,
                         .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
@@ -82,7 +82,7 @@ struct VSMState
         memory_block64 = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
-                    context->device.create_image({
+                    gpu_context->device.create_image({
                         .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                         .format = daxa::Format::R64_UINT,
                         .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
@@ -97,7 +97,7 @@ struct VSMState
         meta_memory_table = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
-                    context->device.create_image({
+                    gpu_context->device.create_image({
                         .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                         .format = daxa::Format::R32_UINT,
                         .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
@@ -115,7 +115,7 @@ struct VSMState
         page_table = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
-                    context->device.create_image({
+                    gpu_context->device.create_image({
                         .format = daxa::Format::R32_UINT,
                         .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
                         .array_layer_count = VSM_CLIP_LEVELS,
@@ -133,7 +133,7 @@ struct VSMState
         page_height_offsets = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
-                    context->device.create_image({
+                    gpu_context->device.create_image({
                         .format = daxa::Format::R32_SINT,
                         .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
                         .array_layer_count = VSM_CLIP_LEVELS,
@@ -150,7 +150,7 @@ struct VSMState
 
 
         auto upload_task_graph = daxa::TaskGraph({
-            .device = context->device,
+            .device = gpu_context->device,
             .name = "upload task graph",
         });
         upload_task_graph.use_persistent_image(page_table);
@@ -180,14 +180,14 @@ struct VSMState
         });
     }
 
-    void cleanup_persistent_state(GPUContext * context)
+    void cleanup_persistent_state(GPUContext * gpu_context)
     {
-        context->device.destroy_buffer(globals.get_state().buffers[0]);
-        context->device.destroy_image(memory_block.get_state().images[0]);
-        context->device.destroy_image(memory_block64.get_state().images[0]);
-        context->device.destroy_image(meta_memory_table.get_state().images[0]);
-        context->device.destroy_image(page_table.get_state().images[0]);
-        context->device.destroy_image(page_height_offsets.get_state().images[0]);
+        gpu_context->device.destroy_buffer(globals.get_state().buffers[0]);
+        gpu_context->device.destroy_image(memory_block.get_state().images[0]);
+        gpu_context->device.destroy_image(memory_block64.get_state().images[0]);
+        gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
+        gpu_context->device.destroy_image(page_table.get_state().images[0]);
+        gpu_context->device.destroy_image(page_height_offsets.get_state().images[0]);
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
@@ -276,8 +276,8 @@ struct VSMState
             }); 
         }
 
-        task_clear_buffer(tg, allocation_count, 0);
-        task_clear_buffer(tg, find_free_pages_header, 0);
+        tg.clear_buffer({.buffer = allocation_count, .clear_value = 0});
+        tg.clear_buffer({.buffer = find_free_pages_header, .clear_value = 0});
     }
 
     void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)

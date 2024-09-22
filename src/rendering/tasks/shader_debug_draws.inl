@@ -172,7 +172,7 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_box_pipeline_compile_in
 struct DebugDrawTask : DebugDrawH::Task
 {
     AttachmentViews views = {};
-    RenderContext * rctx = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
         auto const colorImageSize = ti.device.image_info(ti.get(AT.color_image).ids[0]).value().size;
@@ -198,40 +198,40 @@ struct DebugDrawTask : DebugDrawH::Task
         };
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
 
-        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_circles_pipeline_compile_info().name));
 
         DebugDrawPush push{
             .attachments = ti.attachment_shader_blob,
-            .draw_as_observer = rctx->render_data.settings.draw_from_observer,
+            .draw_as_observer = render_context->render_data.settings.draw_from_observer,
         };
         render_cmd.push_constant(push);
 
         render_cmd.draw_indirect({
-            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_rectangles_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_aabb_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),
             .is_indexed = false,
         });
-        render_cmd.set_pipeline(*rctx->gpuctx->raster_pipelines.at(draw_shader_debug_box_pipeline_compile_info().name));
+        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_box_pipeline_compile_info().name));
         render_cmd.draw_indirect({
-            .draw_command_buffer = rctx->gpuctx->shader_debug_context.buffer,
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
             .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draw_indirect_info),
             .draw_count = 1,
             .draw_command_stride = sizeof(DrawIndirectStruct),

@@ -20,7 +20,7 @@
 // This should idealy handle all rendering related information and functionality.
 struct Renderer
 {
-    Renderer(Window *window, GPUContext *context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
+    Renderer(Window *window, GPUContext *gpu_context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
     ~Renderer();
 
     void compile_pipelines();
@@ -62,7 +62,7 @@ struct Renderer
 
     std::unique_ptr<RenderContext> render_context = {};
     Window *window = {};
-    GPUContext *context = {};
+    GPUContext *gpu_context = {};
     Scene *scene = {};
     UIEngine *ui_engine = {};
     AssetProcessor *asset_manager = {};

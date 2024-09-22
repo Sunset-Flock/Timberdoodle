@@ -67,26 +67,26 @@ DAXA_DECL_TASK_HEAD_END
 
 struct SplitAtomicVisbufferPush
 {
-    SplitAtomicVisbufferH::AttachmentShaderBlob uses;
+    SplitAtomicVisbufferH::AttachmentShaderBlob attach;
     daxa_u32vec2 size;
 };
 
 struct DrawVisbufferPush_WriteCommand
 {
-    DAXA_TH_BLOB(DrawVisbuffer_WriteCommandH, uses)
+    DrawVisbuffer_WriteCommandH::AttachmentShaderBlob attach;
     daxa_u32 pass;
 };
 
 struct DrawVisbufferPush
 {
-    DAXA_TH_BLOB(DrawVisbufferH, uses)
+    DrawVisbufferH::AttachmentShaderBlob attach;
     daxa_u32 pass;
 };
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 struct CullMeshletsDrawVisbufferPush
 {
-    DAXA_TH_BLOB(CullMeshletsDrawVisbufferH, uses)
+    CullMeshletsDrawVisbufferH::AttachmentShaderBlob attach;
     daxa_u32 draw_list_type;
     daxa_u32 bucket_index;
 };
@@ -237,9 +237,11 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 .task_shader_cull = false, 
                 .alpha_masked_geo = opaque_draw_list_type != 0,
             }.to_index()];
-            render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(pipeline_info.name));
-            DrawVisbufferPush push{ .pass = pass };
-            assign_blob(push.uses, ti.attachment_shader_blob);
+            render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
+            DrawVisbufferPush push{ 
+                .attach = ti.attachment_shader_blob,
+                .pass = pass,
+            };
             render_cmd.push_constant(push);
             render_cmd.draw_mesh_tasks_indirect({
                 .indirect_buffer = ti.get(AT.draw_commands).ids[0],
@@ -294,14 +296,14 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 .task_shader_cull = true, 
                 .alpha_masked_geo = opaque_draw_list_type != 0,
             }.to_index()];
-            render_cmd.set_pipeline(*render_context->gpuctx->raster_pipelines.at(pipeline_info.name));
+            render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
             for (u32 i = 0; i < 32; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {
+                    .attach = ti.attachment_shader_blob,
                     .draw_list_type = opaque_draw_list_type,
                     .bucket_index = i,
                 };
-                assign_blob(push.uses, ti.attachment_shader_blob);
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({
                     .indirect_buffer = buffer,
@@ -318,7 +320,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
 struct TaskCullAndDrawVisbufferInfo
 {
     RenderContext * render_context = {};
-    daxa::TaskGraph & task_graph;
+    daxa::TaskGraph & tg;
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
     daxa::TaskBufferView entity_meta_data = {};
     daxa::TaskBufferView entity_meshgroups = {};
@@ -339,7 +341,7 @@ struct TaskCullAndDrawVisbufferInfo
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
-    info.task_graph.add_task(CullMeshletsDrawVisbufferTask{
+    info.tg.add_task(CullMeshletsDrawVisbufferTask{
         .views = std::array{
             CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
             CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
@@ -365,7 +367,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
 struct TaskDrawVisbufferInfo
 {
     RenderContext * render_context = {};
-    daxa::TaskGraph & task_graph;
+    daxa::TaskGraph & tg;
     u32 const pass = {};
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView meshlet_instances = {};
@@ -381,14 +383,14 @@ struct TaskDrawVisbufferInfo
 
 inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 {
-    auto draw_commands_array = info.task_graph.create_transient_buffer({
+    auto draw_commands_array = info.tg.create_transient_buffer({
         .size = 2 * static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct))),
-        .name = std::string("draw visbuffer command buffer array") + info.render_context->gpuctx->dummy_string(),
+        .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
     });
 
     if (info.render_context->render_data.settings.enable_atomic_visbuffer)
     {
-        task_clear_image(info.task_graph, info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u});
+        info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
     }
 
     DrawVisbuffer_WriteCommandTask2 write_task = {
@@ -397,15 +399,15 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             DrawVisbuffer_WriteCommandH::AT.meshlet_instances | info.meshlet_instances,
             DrawVisbuffer_WriteCommandH::AT.draw_commands | draw_commands_array,
         },
-        .context = info.render_context->gpuctx,
+        .gpu_context = info.render_context->gpu_context,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass},
         .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
     };
-    info.task_graph.add_task(write_task);
+    info.tg.add_task(write_task);
 
     if (info.overdraw_image != daxa::NullTaskImage)
     {
-        task_clear_image(info.task_graph, info.overdraw_image, std::array{0u,0u,0u,0u});
+        info.tg.clear_image({info.overdraw_image, std::array{0u, 0u, 0u, 0u}});
     }
 
     DrawVisbufferTask draw_task = {
@@ -425,6 +427,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .render_context = info.render_context,
         .pass = info.pass,
     };
-    info.task_graph.add_task(draw_task);
+    info.tg.add_task(draw_task);
 }
 #endif // #if defined(__cplusplus)

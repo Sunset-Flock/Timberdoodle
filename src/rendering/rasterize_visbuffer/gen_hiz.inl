@@ -21,7 +21,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct GenHizPush
 {
-    DAXA_TH_BLOB(GenHizTH, uses)
+    DAXA_TH_BLOB(GenHizTH, attach)
     daxa_RWBufferPtr(daxa_u32) counter;
     daxa_u32 mip_count;
     daxa_u32 total_workgroup_count;
@@ -85,7 +85,7 @@ struct GenHizTask : GenHizTH::Task
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_hiz_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_hiz_pipeline_compile_info().name));
         daxa_u32vec2 next_higher_po2_render_target_size = {
             render_context->render_data.settings.next_lower_po2_render_target_size.x,
             render_context->render_data.settings.next_lower_po2_render_target_size.y,
@@ -93,7 +93,7 @@ struct GenHizTask : GenHizTH::Task
         auto const dispatch_x = round_up_div(next_higher_po2_render_target_size.x * 2, GEN_HIZ_WINDOW_X);
         auto const dispatch_y = round_up_div(next_higher_po2_render_target_size.y * 2, GEN_HIZ_WINDOW_Y);
         GenHizPush push = {
-            .uses = ti.attachment_shader_blob,
+            .attach = ti.attachment_shader_blob,
             .counter = ti.allocator->allocate_fill(0u).value().device_address,
             .mip_count = ti.get(AT.mips).view.slice.level_count,
             .total_workgroup_count = dispatch_x * dispatch_y,
@@ -109,7 +109,7 @@ struct GenHizTask : GenHizTH::Task
 //     RenderContext * render_context = {};
 //     void callback(daxa::TaskInterface ti)
 //     {
-//         ti.recorder.set_pipeline(*render_context->gpuctx->compute_pipelines.at(gen_hiz_pipeline_compile_info2().name));
+//         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_hiz_pipeline_compile_info2().name));
 //         daxa_u32vec2 next_higher_po2_render_target_size = {
 //             render_context->render_data.settings.next_lower_po2_render_target_size.x,
 //             render_context->render_data.settings.next_lower_po2_render_target_size.y,
@@ -117,9 +117,8 @@ struct GenHizTask : GenHizTH::Task
 //         auto const dispatch_x = round_up_div(next_higher_po2_render_target_size.x * 2, GEN_HIZ_WINDOW_X);
 //         auto const dispatch_y = round_up_div(next_higher_po2_render_target_size.y * 2, GEN_HIZ_WINDOW_Y);
 //         GenHizPush2 push = {
-//             .
+//             .attach = ti.attachment_shader_blob,
 //         };
-//         assign_blob(push.uses, ti.attachment_shader_blob);
 //         ti.recorder.push_constant(push);
 //         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
 //     }
@@ -128,7 +127,7 @@ struct GenHizTask : GenHizTH::Task
 struct TaskGenHizSinglePassInfo
 {
     RenderContext * render_context = {};
-    daxa::TaskGraph & task_graph;
+    daxa::TaskGraph & tg;
     daxa::TaskImageView src = {};
     daxa::TaskBufferView globals = {};
     daxa::TaskImageView * hiz = {};
@@ -140,7 +139,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             info.render_context->render_data.settings.next_lower_po2_render_target_size.y);
     daxa_u32 mip_count = static_cast<daxa_u32>(std::ceil(std::log2(std::max(hiz_size.x, hiz_size.y))));
     mip_count = std::min(mip_count, u32(GEN_HIZ_LEVELS_PER_DISPATCH));
-    *info.hiz = info.task_graph.create_transient_image({
+    *info.hiz = info.tg.create_transient_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = {hiz_size.x, hiz_size.y, 1},
         .mip_level_count = mip_count,
@@ -148,7 +147,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .sample_count = 1,
         .name = "hiz",
     });
-    info.task_graph.add_task(GenHizTask{
+    info.tg.add_task(GenHizTask{
         .views = std::array{
             daxa::attachment_view(GenHizTH::AT.globals, info.globals),
             daxa::attachment_view(GenHizTH::AT.src, info.src),

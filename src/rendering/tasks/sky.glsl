@@ -72,7 +72,7 @@ struct RaymarchResult
 
 RaymarchResult integrate_scattered_luminance(vec3 world_position, vec3 world_direction, vec3 sun_direction, float sample_count)
 {
-    daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
+    daxa_BufferPtr(SkySettings) settings = deref(push.attach.globals).sky_settings_ptr;
     RaymarchResult result = RaymarchResult(vec3(0.0, 0.0, 0.0), vec3(0.0, 0.0, 0.0));
     vec3 planet_zero = vec3(0.0, 0.0, 0.0);
     float planet_intersection_distance = ray_sphere_intersect_nearest(
@@ -127,7 +127,7 @@ RaymarchResult integrate_scattered_luminance(vec3 world_position, vec3 world_dir
         /* uv coordinates later used to sample transmittance texture */
         vec2 trans_texture_uv = transmittance_lut_to_uv(transmittance_lut_params, deref(settings).atmosphere_bottom, deref(settings).atmosphere_top);
 
-        vec3 transmittance_to_sun = texture(daxa_sampler2D(push.uses.transmittance, push.sampler_id), trans_texture_uv).rgb;
+        vec3 transmittance_to_sun = texture(daxa_sampler2D(push.attach.transmittance, push.sampler_id), trans_texture_uv).rgb;
 
         MediumSample m_sample = sample_medium(settings, new_position);
         vec3 medium_scattering = m_sample.mie_scattering + m_sample.rayleigh_scattering;
@@ -173,7 +173,7 @@ RaymarchResult integrate_scattered_luminance(vec3 world_position, vec3 world_dir
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 64) in;
 void main()
 {
-    daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
+    daxa_BufferPtr(SkySettings) settings = deref(push.attach.globals).sky_settings_ptr;
     const float sample_count = 20;
 
     vec2 uv = (vec2(gl_GlobalInvocationID.xy) + vec2(0.5, 0.5)) / vec2(deref(settings).multiscattering_dimensions.xy);
@@ -278,7 +278,7 @@ void main()
         const vec3 sum_of_all_multiscattering_events_contribution = vec3(1.0 / (1.0 - r.x), 1.0 / (1.0 - r.y), 1.0 / (1.0 - r.z));
         vec3 lum = inscattered_luminance_sum * sum_of_all_multiscattering_events_contribution;
 
-        imageStore(daxa_image2D(push.uses.multiscattering), ivec2(gl_GlobalInvocationID.xy), vec4(lum, 1.0));
+        imageStore(daxa_image2D(push.attach.multiscattering), ivec2(gl_GlobalInvocationID.xy), vec4(lum, 1.0));
     }
 }
 #endif // MULTISCATTERING
@@ -323,7 +323,7 @@ float hg_draine_phase(float cos_theta, float diameter)
 
 vec3 get_multiple_scattering(vec3 world_position, float view_zenith_cos_angle)
 {
-    daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
+    daxa_BufferPtr(SkySettings) settings = deref(push.attach.globals).sky_settings_ptr;
     vec2 uv = clamp(vec2(view_zenith_cos_angle * 0.5 + 0.5,
                         (length(world_position) - deref(settings).atmosphere_bottom) /
                             (deref(settings).atmosphere_top - deref(settings).atmosphere_bottom)),
@@ -331,12 +331,12 @@ vec3 get_multiple_scattering(vec3 world_position, float view_zenith_cos_angle)
     uv = vec2(from_unit_to_subuv(uv.x, deref(settings).multiscattering_dimensions.x),
         from_unit_to_subuv(uv.y, deref(settings).multiscattering_dimensions.y));
 
-    return texture(daxa_sampler2D(push.uses.multiscattering, push.sampler_id), uv).rgb;
+    return texture(daxa_sampler2D(push.attach.multiscattering, push.sampler_id), uv).rgb;
 }
 
 vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, vec3 sun_direction, int sample_count)
 {
-    daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
+    daxa_BufferPtr(SkySettings) settings = deref(push.attach.globals).sky_settings_ptr;
     vec3 planet_zero = vec3(0.0, 0.0, 0.0);
     float planet_intersection_distance = ray_sphere_intersect_nearest(
         world_position, world_direction, planet_zero, deref(settings).atmosphere_bottom);
@@ -401,7 +401,7 @@ vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, ve
 
         /* uv coordinates later used to sample transmittance texture */
         vec2 trans_texture_uv = transmittance_lut_to_uv(transmittance_lut_params, deref(settings).atmosphere_bottom, deref(settings).atmosphere_top);
-        vec3 transmittance_to_sun = texture(daxa_sampler2D(push.uses.transmittance, push.sampler_id), trans_texture_uv).rgb;
+        vec3 transmittance_to_sun = texture(daxa_sampler2D(push.attach.transmittance, push.sampler_id), trans_texture_uv).rgb;
 
         vec3 phase_times_scattering = m_sample.mie_scattering * mie_phase_value + m_sample.rayleigh_scattering * rayleigh_phase_value;
 
@@ -434,10 +434,10 @@ vec3 integrate_scattered_luminance(vec3 world_position, vec3 world_direction, ve
 layout(local_size_x = SKY_X_DISPATCH, local_size_y = SKY_Y_DISPATCH) in;
 void main()
 {
-    daxa_BufferPtr(SkySettings) settings = deref(push.uses.globals).sky_settings_ptr;
+    daxa_BufferPtr(SkySettings) settings = deref(push.attach.globals).sky_settings_ptr;
     if (all(lessThan(gl_GlobalInvocationID.xy, deref(settings).sky_dimensions)))
     {
-        vec3 world_position = deref(push.uses.globals).camera.position * M_TO_KM_SCALE;
+        vec3 world_position = deref(push.attach.globals).camera.position * M_TO_KM_SCALE;
         world_position.z += deref(settings).atmosphere_bottom + BASE_HEIGHT_OFFSET;
         const float camera_height = length(world_position);
 
@@ -471,13 +471,13 @@ void main()
         if (!move_to_top_atmosphere(world_position, world_direction, deref(settings).atmosphere_bottom, deref(settings).atmosphere_top))
         {
             /* No intersection with the atmosphere */
-            imageStore(daxa_image2D(push.uses.sky), ivec2(gl_GlobalInvocationID.xy), vec4(0.0, 0.0, 0.0, 1.0));
+            imageStore(daxa_image2D(push.attach.sky), ivec2(gl_GlobalInvocationID.xy), vec4(0.0, 0.0, 0.0, 1.0));
             return;
         }
         const vec3 luminance = integrate_scattered_luminance(world_position, world_direction, local_sun_direction, 50);
         const vec3 inv_luminance = 1.0 / max(luminance, vec3(1.0 / 1048576.0));
         const float inv_mult = min(1048576.0, max(inv_luminance.x, max(inv_luminance.y, inv_luminance.z)));
-        imageStore(daxa_image2D(push.uses.sky), ivec2(gl_GlobalInvocationID.xy), vec4(luminance * inv_mult, 1.0/inv_mult));
+        imageStore(daxa_image2D(push.attach.sky), ivec2(gl_GlobalInvocationID.xy), vec4(luminance * inv_mult, 1.0/inv_mult));
     }
 }
 #endif // SKY
