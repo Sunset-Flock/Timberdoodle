@@ -450,5 +450,25 @@ namespace tido
             case daxa::Format::D32_SFLOAT_S8_UINT: return true;
         }
         return false;
+    }    
+    
+    auto compute_shader_info(char const * ident) -> daxa::ComputePipelineCompileInfo2
+    {
+        std::string str(ident);
+        auto offset = str.find(':');
+        std::string path = str.substr(0, offset);
+        std::string entry = str.substr(offset+1, str.size());
+        daxa::ComputePipelineCompileInfo2 ret = {
+            .source = daxa::ShaderFile{path},
+            .entry_point = entry,
+            .language = daxa::ShaderLanguage::SLANG,
+            .defines = {},
+            .enable_debug_info = {},
+            .create_flags = {},
+            .required_subgroup_size = {},
+            .push_constant_size = {},
+            .name = str,
+        };
+        return ret;
     }
 } // namespace tido

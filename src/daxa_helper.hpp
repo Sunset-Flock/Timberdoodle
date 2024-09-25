@@ -19,4 +19,6 @@ namespace tido
     auto scalar_kind_of_format(daxa::Format format) -> ScalarKind;
 
     auto is_format_depth_stencil(daxa::Format format) -> bool;
+
+    auto compute_shader_info(char const * ident) -> daxa::ComputePipelineCompileInfo2;
 }

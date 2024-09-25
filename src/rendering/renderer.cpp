@@ -143,13 +143,14 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {tido::upgrade_compute_pipeline_compile_info(gen_hiz_pipeline_compile_info())},
+        {gen_hiz_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(gen_hiz_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(write_swapchain_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(expand_meshes_pipeline_compile_info())},
