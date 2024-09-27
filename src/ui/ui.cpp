@@ -931,7 +931,8 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     ImGui::Image(tex_id, image_display_size);
                     ImVec2 const mouse_pos = ImGui::GetMousePos();
                     ImVec2 const end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
-                    ImVec2 const display_image_size = {
+                    
+                    ImVec2 const clipped_display_image_size = {
                         end_pos.x - start_pos.x,
                         end_pos.y - start_pos.y,
                     };
@@ -946,22 +947,26 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     {
                         render_context.tg_debug.override_frozen_state = state.freeze_image_hover_index;
                         render_context.tg_debug.override_mouse_picker_uv = {
-                            float(state.mouse_pos_relative_to_display_image.x) / display_image_size.x,
-                            float(state.mouse_pos_relative_to_display_image.y) / display_image_size.y,
+                            float(state.mouse_pos_relative_to_display_image.x) / clipped_display_image_size.x,
+                            float(state.mouse_pos_relative_to_display_image.y) / clipped_display_image_size.y,
                         };
                     }
                     if (get_overriden)
                     {
                         state.freeze_image_hover_index = render_context.tg_debug.override_frozen_state;
                         state.mouse_pos_relative_to_display_image = {
-                            i32(render_context.tg_debug.override_mouse_picker_uv.x * display_image_size.x),
-                            i32(render_context.tg_debug.override_mouse_picker_uv.y * display_image_size.y),
+                            i32(render_context.tg_debug.override_mouse_picker_uv.x * clipped_display_image_size.x),
+                            i32(render_context.tg_debug.override_mouse_picker_uv.y * clipped_display_image_size.y),
                         };
                     }
 
                     state.mouse_pos_relative_to_image_mip0 = daxa_i32vec2(
                         ((state.mouse_pos_relative_to_display_image.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(image_info.size.x),
                         ((state.mouse_pos_relative_to_display_image.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(image_info.size.y));
+                    
+                    float x = ImGui::GetScrollMaxX();
+                    float y = ImGui::GetScrollMaxY();
+                    printf("scroll: %f,%f\n", x, y);
                     
                     if (!state.freeze_image_hover_index)
                     {
@@ -978,8 +983,8 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     if (state.display_image_hovered || render_context.tg_debug.override_mouse_picker)
                     {
                         ImVec2 const frozen_mouse_pos_relative_to_display_image = {
-                            float(state.mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * display_image_size.x,
-                            float(state.mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * display_image_size.y,
+                            float(state.mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * state.display_image_size.x - scroll_offset.x,
+                            float(state.mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * state.display_image_size.y - scroll_offset.y,
                         };
                         ImVec2 const window_marker_pos = {
                             start_pos.x + frozen_mouse_pos_relative_to_display_image.x,
@@ -995,8 +1000,8 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     if (state.freeze_image_hover_index)
                     {
                         ImVec2 const frozen_mouse_pos_relative_to_display_image = {
-                            float(state.frozen_mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * display_image_size.x,
-                            float(state.frozen_mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * display_image_size.y,
+                            float(state.frozen_mouse_pos_relative_to_image_mip0.x) / float(image_info.size.x) * state.display_image_size.x - scroll_offset.x,
+                            float(state.frozen_mouse_pos_relative_to_image_mip0.y) / float(image_info.size.y) * state.display_image_size.y - scroll_offset.y,
                         };
                         ImVec2 const window_marker_pos = {
                             start_pos.x + frozen_mouse_pos_relative_to_display_image.x,
