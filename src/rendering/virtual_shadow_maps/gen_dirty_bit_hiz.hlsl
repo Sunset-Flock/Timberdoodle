@@ -61,7 +61,7 @@ void downsample_64x64(
     }
     const uint2 glob_wg_dst_offset0 = (uint2(GEN_DIRTY_BIT_HIZ_X_WINDOW, GEN_DIRTY_BIT_HIZ_Y_WINDOW) * grid_index.xy) / 2;
     [[unroll]]
-    for(uint i = 2; i < mip_count; ++i)
+    for(uint i = 2; i < mip_count - 1; ++i)
     {
         const uint ping_pong_src_index = (i & 1u);
         const uint ping_pong_dst_index = ((i + 1) & 1u);
