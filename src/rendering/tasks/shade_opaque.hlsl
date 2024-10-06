@@ -470,12 +470,6 @@ void main(
                 output_value.rgb = debug_albedo;
                 break;
             }
-            case DEBUG_DRAW_MODE_DEBUG_IMAGE:
-            {
-                float4 debug_color = Texture2D<float4>::get(AT_FROM_PUSH.debug_image)[index];
-                output_value.rgb = lerp(shaded_color.rgb, debug_color.rgb, debug_color.aaa);
-                break;
-            }
             case DEBUG_DRAW_MODE_DEPTH:
             {
                 float depth = AT_FROM_PUSH.atomic_visbuffer.value != 0 ? atomic_depth : tri_data.depth;
@@ -540,5 +534,6 @@ void main(
         index,
         float4(exposed_color, 1.0f),
     );
+    
     AT_FROM_PUSH.color_image.get()[index] = exposed_color;
 }

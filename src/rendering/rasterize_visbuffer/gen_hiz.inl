@@ -49,27 +49,31 @@ struct GenHizPush
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenHizH2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<float>, src)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
-struct GenHizPush2
+struct GenHizData
 {
     GenHizH2::AttachmentShaderBlob attach;
     daxa_RWBufferPtr(daxa_u32) workgroup_finish_counter;
     daxa_u32 total_workgroup_count;
     daxa_u32 mip_count;
-    //daxa_u32vec2 dst_mip0_size;
+    daxa_u32vec2 dst_mip0_size;
+};
+
+struct GenHizPush2
+{
+    daxa_BufferPtr(GenHizData) data;
 };
 
 #endif // #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 
 #if defined(__cplusplus)
 
-constexpr usize s = sizeof(GenHizPush2);
-
 // HLSL version is buggy:
-// #define HIZ2 1
+#define HIZ2 1
 
 #include "../scene_renderer_context.hpp"
 
@@ -89,6 +93,7 @@ struct TaskGenHizSinglePassInfo
     daxa::TaskGraph & tg;
     daxa::TaskImageView src = {};
     daxa::TaskBufferView globals = {};
+    daxa::TaskImageView debug_image = {};
     daxa::TaskImageView * hiz = {};
 };
 void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
@@ -109,6 +114,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
     info.tg.add_task(daxa::InlineTaskWithHead<GenHizH2::Task>{
         .views = std::array{
             daxa::attachment_view(GenHizH2::AT.globals, info.globals),
+            daxa::attachment_view(GenHizH2::AT.debug_image, info.debug_image),
             daxa::attachment_view(GenHizH2::AT.src, info.src),
             daxa::attachment_view(GenHizH2::AT.hiz, *info.hiz),
         },
@@ -122,14 +128,15 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             };
             auto const dispatch_x = round_up_div(next_higher_po2_render_target_size.x * 2, GEN_HIZ_WINDOW_X);
             auto const dispatch_y = round_up_div(next_higher_po2_render_target_size.y * 2, GEN_HIZ_WINDOW_Y);
-            GenHizPush2 push = {
+            GenHizData data = {
                 .attach = ti.attachment_shader_blob,
                 .workgroup_finish_counter = ti.allocator->allocate_fill(0u).value().device_address,
                 .total_workgroup_count = dispatch_x * dispatch_y,
                 .mip_count = ti.get(AT.hiz).view.slice.level_count,
-                //.dst_mip0_size = daxa_u32vec2{ ti.info(AT.hiz).value().size.x, ti.info(AT.hiz).value().size.y },
+                .dst_mip0_size = daxa_u32vec2{ ti.info(AT.hiz).value().size.x, ti.info(AT.hiz).value().size.y },
             };
-            ti.recorder.push_constant(push);
+            auto data_alloc = ti.allocator->allocate_fill(data, 8).value();
+            ti.recorder.push_constant(data_alloc.device_address);
             ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y });
         },
     });

@@ -122,5 +122,9 @@ void main()
         const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
         gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
     }
+
+    daxa_f32vec4 debug_color = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
+    gamma_correct.rgb = mix(gamma_correct.rgb, pow(debug_color.rgb, vec3(1.0/2.2)), debug_color.a);
+
     imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, 1));
 }

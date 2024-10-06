@@ -485,8 +485,8 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
 
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
-        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
-        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, 64);
+        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
+        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
         GenDirtyBitHizPush push = {
             .mip_count = ti.get(AT.vsm_dirty_bit_hiz).view.slice.level_count,
         };

@@ -800,11 +800,13 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                 }
 
                 constexpr auto MOUSE_PICKER_FREEZE_COLOR = 0xFFBBFFFF;
-                auto mouse_picker = [&](daxa_i32vec2 image_idx, bool frozen, Vec4Union readback_union){
-                    if (frozen) { 
+                auto mouse_picker = [&](daxa_i32vec2 image_idx, bool frozen, Vec4Union readback_union)
+                {
+                    if (frozen)
+                    {
                         ImGui::PushStyleColor(ImGuiCol_Text, MOUSE_PICKER_FREEZE_COLOR);
                     }
-                    //ImGui::Dummy({0, 2});
+                    // ImGui::Dummy({0, 2});
                     constexpr auto MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH = 7;
                     constexpr auto MOUSE_PICKER_MAGNIFIER_DISPLAY_SIZE = ImVec2{70.0f, 70.0f};
                     daxa_i32vec2 image_idx_at_mip = {
@@ -812,18 +814,19 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                         image_idx.y >> state.mip,
                     };
                     ImVec2 magnify_start_uv = {
-                        float(image_idx_at_mip.x - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2)) * (1.0f / float(clone_image_info.size.x)),
-                        float(image_idx_at_mip.y - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2)) * (1.0f / float(clone_image_info.size.y)),
+                        float(image_idx_at_mip.x - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH / 2)) * (1.0f / float(clone_image_info.size.x)),
+                        float(image_idx_at_mip.y - (MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH / 2)) * (1.0f / float(clone_image_info.size.y)),
                     };
                     ImVec2 magnify_end_uv = {
-                        float(image_idx_at_mip.x + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2+1) * (1.0f / float(clone_image_info.size.x)),
-                        float(image_idx_at_mip.y + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH/2+1) * (1.0f / float(clone_image_info.size.y)),
+                        float(image_idx_at_mip.x + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH / 2 + 1) * (1.0f / float(clone_image_info.size.x)),
+                        float(image_idx_at_mip.y + MOUSE_PICKER_MAGNIFIER_TEXEL_WIDTH / 2 + 1) * (1.0f / float(clone_image_info.size.y)),
                     };
                     if (tex_id && image_idx.x >= 0 && image_idx.y >= 0 && image_idx.x < image_info.size.x && image_idx.y < image_info.size.y)
                     {
                         ImGui::Image(tex_id, MOUSE_PICKER_MAGNIFIER_DISPLAY_SIZE, magnify_start_uv, magnify_end_uv);
                     }
-                    if (frozen) { 
+                    if (frozen)
+                    {
                         ImGui::PopStyleColor(1);
                     }
                     ImGui::SameLine();
@@ -843,15 +846,14 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     "Usage:\n"
                     "  * left click on image to freeze selection, left click again to unfreeze\n"
                     "  * hold shift to replicate the selection on all other open inspector mouse pickers (also replicates freezes)\n"
-                    "  * use middle mouse button to grab and move zoomed in image"
-                );
+                    "  * use middle mouse button to grab and move zoomed in image");
                 if (state.display_image_hovered || state.freeze_image_hover_index || render_context.tg_debug.override_mouse_picker)
                 {
                     mouse_picker(state.frozen_mouse_pos_relative_to_image_mip0, state.freeze_image_hover_index, state.frozen_readback_raw);
                 }
                 else
                 {
-                    mouse_picker(daxa_i32vec2{0,0}, false, {});
+                    mouse_picker(daxa_i32vec2{0, 0}, false, {});
                 }
 
                 ImGui::PopItemWidth();
@@ -931,7 +933,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     ImGui::Image(tex_id, image_display_size);
                     ImVec2 const mouse_pos = ImGui::GetMousePos();
                     ImVec2 const end_pos = ImVec2{start_pos.x + image_display_size.x, start_pos.y + image_display_size.y};
-                    
+
                     ImVec2 const clipped_display_image_size = {
                         end_pos.x - start_pos.x,
                         end_pos.y - start_pos.y,
@@ -940,7 +942,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     state.freeze_image_hover_index = state.freeze_image_hover_index ^ (state.display_image_hovered && ImGui::IsItemClicked());
                     state.mouse_pos_relative_to_display_image = daxa_i32vec2(mouse_pos.x - start_pos.x, mouse_pos.y - start_pos.y);
                     render_context.tg_debug.request_mouse_picker_override |= state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_LeftShift);
-                
+
                     bool const override_other_inspectors = render_context.tg_debug.override_mouse_picker && state.display_image_hovered;
                     bool const get_overriden = render_context.tg_debug.override_mouse_picker && !state.display_image_hovered;
                     if (override_other_inspectors)
@@ -963,11 +965,10 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                     state.mouse_pos_relative_to_image_mip0 = daxa_i32vec2(
                         ((state.mouse_pos_relative_to_display_image.x + scroll_offset.x) / static_cast<float>(state.display_image_size.x)) * static_cast<float>(image_info.size.x),
                         ((state.mouse_pos_relative_to_display_image.y + scroll_offset.y) / static_cast<float>(state.display_image_size.y)) * static_cast<float>(image_info.size.y));
-                    
+
                     float x = ImGui::GetScrollMaxX();
                     float y = ImGui::GetScrollMaxY();
-                    printf("scroll: %f,%f\n", x, y);
-                    
+
                     if (!state.freeze_image_hover_index)
                     {
                         state.frozen_mouse_pos_relative_to_image_mip0 = state.mouse_pos_relative_to_image_mip0;
@@ -991,11 +992,11 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
                             start_pos.y + frozen_mouse_pos_relative_to_display_image.y,
                         };
                         ImGui::GetWindowDrawList()->AddCircle(window_marker_pos, 5.0f, ImGui::GetColorU32(ImVec4{
-                            readback_color.x > 0.5f ? 0.0f : 1.0f,
-                            readback_color.y > 0.5f ? 0.0f : 1.0f,
-                            readback_color.z > 0.5f ? 0.0f : 1.0f,
-                            1.0f,
-                        }));
+                                                                                           readback_color.x > 0.5f ? 0.0f : 1.0f,
+                                                                                           readback_color.y > 0.5f ? 0.0f : 1.0f,
+                                                                                           readback_color.z > 0.5f ? 0.0f : 1.0f,
+                                                                                           1.0f,
+                                                                                       }));
                     }
                     if (state.freeze_image_hover_index)
                     {
@@ -1136,7 +1137,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
                 "Entity Id",
                 "VSM Overdraw",
                 "VSM Clip Level",
-                "Debug Image",
                 "DEPTH",
                 "ALBEDO",
                 "NORMAL",

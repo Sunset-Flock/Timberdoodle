@@ -622,7 +622,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
 
     daxa::TaskImageView hiz = {};
-    task_gen_hiz_single_pass({render_context.get(), tg, depth, render_context->tgpu_render_data, &hiz});
+    task_gen_hiz_single_pass({render_context.get(), tg, depth, render_context->tgpu_render_data, debug_image, &hiz});
 
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
     tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -875,6 +875,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.add_task(WriteSwapchainTask{
         .views = std::array{
             WriteSwapchainH::AT.globals | render_context->tgpu_render_data,
+            WriteSwapchainH::AT.debug_image | debug_image,
             WriteSwapchainH::AT.swapchain | swapchain_image,
             WriteSwapchainH::AT.color_image | color_image,
         },

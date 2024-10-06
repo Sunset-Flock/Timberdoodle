@@ -154,7 +154,7 @@ void entry_rt_ao(
 
         let ao_value = 1.0f - float(hit_count) * rcp(AO_RAY_COUNT);
         push.attach.ao_image.get()[svtid.xy] = ao_value;
-        push.attach.debug_image.get()[svtid.xy] = float4(ao_value.xxx, 1.0f);
+        //push.attach.debug_image.get()[svtid.xy] = float4(ao_value.xxx, 1.0f);
     }
 }
 
@@ -240,7 +240,7 @@ void ray_gen()
 
         let ao_value = 1.0f - float(hit_count) * rcp(AO_RAY_COUNT);
         push.attach.ao_image.get()[index.xy] = ao_value;
-        push.attach.debug_image.get()[index.xy] = float4(ao_value.xxx, 1.0f);
+        //push.attach.debug_image.get()[index.xy] = float4(ao_value.xxx, 1.0f);
     }
 }
 
