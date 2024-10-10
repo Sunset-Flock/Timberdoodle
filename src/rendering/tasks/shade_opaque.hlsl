@@ -332,11 +332,6 @@ void main(
 
     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
 
-    #if SHADER_DEBUG_VISBUFFER
-        let instantiated_meshlet_index = meshlet_instance_index_from_triangle_id(triangle_id);
-        triangle_id_valid = triangle_id_valid && (instantiated_meshlet_index < MAX_MESHLET_INSTANCES);
-    #endif
-
     if(triangle_id_valid)
     {
         float4x4 view_proj;
@@ -454,7 +449,7 @@ void main(
                 }
                 break;
             }
-            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index * 10 + tri_data.triangle_index; break;
+            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index * 10 + tri_data.meshlet_triangle_index; break;
             case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index; break;
             case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_data.meshlet_instance.entity_index; break;
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 

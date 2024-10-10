@@ -64,11 +64,6 @@ void entry_rt_ao(
 
     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
 
-    #if SHADER_DEBUG_VISBUFFER
-        let instantiated_meshlet_index = meshlet_instance_index_from_triangle_id(triangle_id);
-        triangle_id_valid = triangle_id_valid && (instantiated_meshlet_index < MAX_MESHLET_INSTANCES);
-    #endif
-
     if(triangle_id_valid)
     {
         float4x4 view_proj;
@@ -182,11 +177,6 @@ void ray_gen()
     float4 debug_value = float4(0);
 
     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
-
-    #if SHADER_DEBUG_VISBUFFER
-        let instantiated_meshlet_index = meshlet_instance_index_from_triangle_id(triangle_id);
-        triangle_id_valid = triangle_id_valid && (instantiated_meshlet_index < MAX_MESHLET_INSTANCES);
-    #endif
 
     if(triangle_id_valid)
     {

@@ -318,8 +318,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             primitive.set_cull_primitive(cull_primitive);
             if (!cull_primitive)
             {
-                uint visibility_id;
-                encode_triangle_id(meshlet_inst_index, in_meshlet_triangle_index, visibility_id);
+                uint visibility_id = TRIANGLE_ID_MAKE(meshlet_inst_index, in_meshlet_triangle_index);
                 primitive.set_visibility_id(cull_primitive ? ~0u : visibility_id);
                 if (P is MeshShaderMaskPrimitive)
                 {

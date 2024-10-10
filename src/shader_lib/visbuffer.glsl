@@ -18,34 +18,14 @@
  * we also know exactly what part of each mesh we are from the vis id.
 */
 
-void encode_triangle_id(uint instantiated_meshlet_index, uint triangle_index, out uint id)
-{
-    #if SHADER_DEBUG_VISBUFFER
-        if (instantiated_meshlet_index >= MAX_MESHLET_INSTANCES)
-        {
-            id = INVALID_TRIANGLE_ID;
-        }
-        else
-    #endif
-    {
-        id = (instantiated_meshlet_index << 7) | (triangle_index);
-    }
-}
-
 uint meshlet_instance_index_from_triangle_id(uint id)
 {
-    return id >> 7;
+    return TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(id);
 }
 
 uint triangle_index_from_triangle_id(uint id)
 {
-    return id & 0x7F;
-}
-
-void decode_triangle_id(uint id, out uint instantiated_meshlet_index, out uint triangle_index)
-{
-    instantiated_meshlet_index = meshlet_instance_index_from_triangle_id(id);
-    triangle_index = triangle_index_from_triangle_id(id);
+    return TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(id);
 }
 
 // Credit: http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
@@ -144,7 +124,7 @@ daxa_f32vec4 visgeo_interpolate_vec4(daxa_f32vec3 derivator, daxa_f32vec4 v0, da
 struct VisbufferTriangleData
 {
     uint meshlet_instance_index;
-    uint triangle_index;
+    uint meshlet_triangle_index;
     MeshletInstance meshlet_instance;
     BarycentricDeriv bari_deriv;
     daxa_u32vec3 vertex_indices;
@@ -168,7 +148,8 @@ VisbufferTriangleData visgeo_triangle_data(
     daxa_BufferPtr(daxa_f32mat4x3) combined_transforms)
 {
     VisbufferTriangleData ret;
-    decode_triangle_id(triangle_id, ret.meshlet_instance_index, ret.triangle_index);
+    ret.meshlet_instance_index = TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(triangle_id);
+    ret.meshlet_triangle_index = TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(triangle_id);
 
     ret.meshlet_instance = deref_i(deref(meshlet_instances).meshlets, ret.meshlet_instance_index);
 
@@ -176,9 +157,9 @@ VisbufferTriangleData visgeo_triangle_data(
     Meshlet meshlet = deref_i(mesh.meshlets, ret.meshlet_instance.meshlet_index);
 
     const daxa_u32vec3 micro_indices = daxa_u32vec3(
-        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.triangle_index * 3 + 0),
-        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.triangle_index * 3 + 1),
-        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.triangle_index * 3 + 2)
+        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.meshlet_triangle_index * 3 + 0),
+        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.meshlet_triangle_index * 3 + 1),
+        get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.meshlet_triangle_index * 3 + 2)
     );
 
     ret.vertex_indices = daxa_u32vec3(

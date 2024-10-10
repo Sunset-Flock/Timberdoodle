@@ -7,6 +7,17 @@
 #include "shader_lib/visbuffer.glsl"
 #include "shader_lib/misc.hlsl"
 
+func visible_triangle_mask_bit_from_tri_id(uint meshlet_triangle_index) -> uint
+{
+    #if MAX_TRIANGLES_PER_MESHLET > 64
+        return 1u << (meshlet_triangle_index >> 2u);
+    #elif MAX_TRIANGLES_PER_MESHLET > 32
+        return 1u << (meshlet_triangle_index >> 1u);
+    #else
+        return 1u << meshlet_triangle_index;
+    #endif
+}
+
 func update_tri_mask_and_write_visible_meshlet(uint meshlet_instance_index, uint meshlet_triangle_mask)
 {
     uint prev_tri_mask;
@@ -61,8 +72,8 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
     uint4 meshlet_instance_indices = {0,0,0,0};
     [[unroll]] for (uint i = 0; i < 4; ++i)
     {
-        meshlet_instance_indices[i] = meshlet_instance_index_from_triangle_id(vis_ids[i]);
-        meshlet_triangle_masks[i] = triangle_mask_bit_from_triangle_index(triangle_index_from_triangle_id(vis_ids[i]));
+        meshlet_instance_indices[i] = TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(vis_ids[i]);
+        meshlet_triangle_masks[i] = visible_triangle_mask_bit_from_tri_id(TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(vis_ids[i]));
         bool list_entry_valid = true;
         list_entry_valid = list_entry_valid && (vis_ids[i] != INVALID_TRIANGLE_ID);
         list_entry_valid = list_entry_valid && (meshlet_instance_indices[i] < MAX_MESHLET_INSTANCES);

@@ -1,32 +1,26 @@
 #pragma once
 
+// INFO:
+// This file should contain general information for geometry rendering/reading in shading
+// Ideally this file only contains structs used for shading
+// There will always be a lot of overlap with drawing and culling of the geometry pipeline.
+// If possible split rasterization/culling only data into geometry_pipeline.inl
+
 #include <daxa/daxa.inl>
 #include "shared.inl"
+#include "visbuffer.inl"
 
 #define INVALID_MESHLET_INDEX (~(0u))
 
+#define MAX_MESHLET_INSTANCES TRIANGLE_ID_MAX_MESHLET_INSTANCES
 // MUST never be greater then 124!
 #define MAX_TRIANGLES_PER_MESHLET (64)
-
 // MUST never be greater then MAX_TRIANGLES_PER_MESHLET * 3!
 #define MAX_VERTICES_PER_MESHLET (64)
 
 #define ENTITY_MESHLET_VISIBILITY_ARENA_SIZE (1<<20)
 #define ENTITY_MESHLET_VISIBILITY_ARENA_BIT_SIZE (ENTITY_MESHLET_VISIBILITY_ARENA_SIZE * 8)
 #define ENTITY_MESHLET_VISIBILITY_ARENA_UINT_SIZE (ENTITY_MESHLET_VISIBILITY_ARENA_SIZE / 4)
-
-#if defined(DAXA_SHADER) && DAXA_SHADER
-uint triangle_mask_bit_from_triangle_index(uint triangle_index)
-{
-    #if MAX_TRIANGLES_PER_MESHLET > 64
-        return 1u << (triangle_index >> 2u);
-    #elif MAX_TRIANGLES_PER_MESHLET > 32
-        return 1u << (triangle_index >> 1u);
-    #else
-        return 1u << triangle_index;
-    #endif
-}
-#endif // #if defined(DAXA_SHADER) && DAXA_SHADER
 
 // TODO: split this struct into multiple arrays!
 // !!NEEDS TO BE ABI COMPATIBLE WITH meshopt_Meshlet!!
