@@ -56,4 +56,41 @@ Additionally to debug views Timberdoodle also includes additional set of debug t
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/meshlet_bistro.png)
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/culling_bistro.png)
 
-### Two pass Meshlet culling (Patrick Ahrens)
+### Two Pass Culling Pipeline (Patrick Ahrens)
+
+Tido uses a visibility buffer based two pass culling. This has several advantages over more conventional two pass culling. To show the difference i ll make a birds eye description of how tido performs two pass culling and how it is conventionally done:
+
+Conventional two-pass culling:
+* Step 1: Build hierarchical depth image (hiz) from last frames depth image
+* Step 2: Cull all mesh instances
+* Step 3: Cull meshlet instances of non-culled mesh instances
+* Step 4. Draw non-culled meshlet instances
+* Step 5: Build hierarchical depth image (hiz) for current new depth image
+* Step 6: Cull all mesh instances
+* Step 7: Cull meshlet instances of non-culled mesh instances
+* Step 8. Draw non-culled meshlet instances
+
+And here is how tido performs two pass culling using the visibility buffer:
+
+* Step 1: Analyze triangle id image of last frame, build list of visible meshlets
+* Step 2: Build meshlet bitfield, marking all meshlets drawn in first pass (used to avoid drawing these meshlets a second time in the second pass)
+* Step 3: Draw triangle id and depth for all visible meshlets from the previous frame.
+* Step 4: Build hierarchical z buffer (hiz) from the drawn depth map.
+* Step 5: Cull all mesh instances against frustum and hiz
+* Step 6: Cull meshlets of non-culled meshes against frustum and hiz
+* Step 7: Draw triangle id and depth of all non-culled meshlets
+
+Steps 4-8 in the conventional way and Steps 3-7 in the tido way are very similar.
+But Steps 1-3 and 1-2 in tido are very different. Instead of culling all meshles and meshlets, tido uses the tri id image from the last frame, to build a list of visible meshlets. 
+These pre steps are quite different but take a similar amount of time on the gpu. 
+
+The first benefit of the tido approach is, that the amount of geo drawn in the first pass is much lower. This is because hiz culling is necessarily conservative and coarse. It will always have many false negatives, drawing more geo than is actually visible. Using the triangle id image has the big advantage of giving you the exact meshlets that are visible. This typically reduces the meshlet count drawn by 40-70%, leading to a speedup of 30-60% for the first pass draws!
+
+The second big benefit arises from two smaller changes to the analyze triangle id image pass. Firstly, move it from `Step 1` to `Step 7`. This gives us the list of visible meshlets not only of the last but also the current frame. Secondly, also write out the visible triangles in the analyze triangle id image pass.
+
+It might be surprising, due to the high spacial coherence, writing out hte visible triangles is actually very cheap and does not change the runtime much at all.
+
+Now with this we can perform perfectly culled forward shading! Forward shading is still the fastest way to draw when we arent quad occupancy limited AND/OR the vertex shader is much more expensive than the pixel shader (this is the case for example when drawing motion vectors for animated geo).
+
+Other details:
+All meshlet culling is performed by task/amplification shaders in the mesh shading pipeline. Aside from meshlet culling, tido also does fine grained triangle culling. This is especially effective for very large triangles.

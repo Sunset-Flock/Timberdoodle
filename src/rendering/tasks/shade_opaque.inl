@@ -65,7 +65,7 @@ inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.hlsl"},
             .compile_options = {
-                .entry_point = "main",
+                .entry_point = "entry_main_cs",
                 .language = daxa::ShaderLanguage::SLANG,
             },
         },

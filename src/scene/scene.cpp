@@ -1338,7 +1338,11 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
                 {
                     u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                     auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
-                    bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                    bool is_alpha_discard = false;
+                    if (mesh.material_index.has_value())
+                    {
+                        is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                    }
 
                     build_geometries.push_back({
                         .vertex_data = mesh.runtime->vertex_positions,
@@ -1491,7 +1495,11 @@ auto Scene::process_entities() -> CPUMeshInstances
                 {
                     u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                     auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
-                    bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                    bool is_alpha_discard = false;
+                    if (mesh.material_index.has_value())
+                    {
+                        is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                    }
 
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;

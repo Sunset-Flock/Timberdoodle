@@ -49,8 +49,7 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderG
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_u32), first_pass_meshlets_bitfield_offsets)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, U32ArenaBufferRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
@@ -328,7 +327,6 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView mesh_groups = {};
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
-    daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
     daxa::TaskBufferView meshlet_instances = {};
@@ -347,7 +345,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
             CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
             CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
-            CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_offsets | info.first_pass_meshlets_bitfield_offsets,
             CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
             CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
             CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,

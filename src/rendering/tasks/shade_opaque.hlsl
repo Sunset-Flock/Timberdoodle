@@ -305,7 +305,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
 
 [numthreads(SHADE_OPAQUE_WG_X, SHADE_OPAQUE_WG_Y, 1)]
 [shader("compute")]
-void main(
+void entry_main_cs(
     uint3 svdtid : SV_DispatchThreadID
 )
 {

@@ -41,7 +41,7 @@ inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_bu
 }
 
 Renderer::Renderer(
-    Window * window, GPUContext * gpu_context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer,  UIEngine * ui_engine)
+    Window * window, GPUContext * gpu_context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer, UIEngine * ui_engine)
     : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
     zero_buffer = create_task_buffer(gpu_context, sizeof(u32), "zero_buffer", "zero_buffer");
@@ -49,7 +49,7 @@ Renderer::Renderer(
     meshlet_instances_last_frame = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(gpu_context, sizeof(f32), "luminance average", "luminance_average");
-    general_readback_buffer = daxa::TaskBuffer{ gpu_context->device, { sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer" }};
+    general_readback_buffer = daxa::TaskBuffer{gpu_context->device, {sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer"}};
     visible_meshlet_instances = create_task_buffer(gpu_context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
@@ -147,7 +147,7 @@ void Renderer::compile_pipelines()
         {gen_hiz_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info)},
+        // {tido::upgrade_compute_pipeline_compile_info(AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
@@ -299,8 +299,10 @@ void Renderer::clear_select_buffers()
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        .pre_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "clear task list",
     }};
     tg.use_persistent_buffer(meshlet_instances);
@@ -345,8 +347,10 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     daxa::TaskGraph tg{{
         .device = gpu_context->device,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        .pre_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "Calculate sky luts task graph",
     }};
     // TODO:    Do not use globals here, make a new buffer.
@@ -401,7 +405,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // - pre-populate meshlet instances from last frame (~25mics for 1440p RTX4080)
     //     - uses list of visible meshlets of last frame (visible_meshlet_instances) and meshlet instance list from last
     //     frame (meshlet_instances_last_frame)
-    //     - checks if visible meshlet from last frame is also to be drawn this frame 
+    //     - checks if visible meshlet from last frame is also to be drawn this frame
     //     - builds bitfields (entity_meshlet_visibility_bitfield_offsets), that denote if a meshlet of an entity is
     //     drawn in the first pass.
     //     - bitfield rebuild into a little arena buffer every frame from scratch.
@@ -438,8 +442,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti) { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        .pre_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
@@ -499,7 +505,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .name = "overdraw_image",
         });
-        tg.clear_image({overdraw_image, std::array{0,0,0,0}});
+        tg.clear_image({overdraw_image, std::array{0, 0, 0, 0}});
     }
 
     daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
@@ -565,7 +571,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "clear meshlet instance buffer",
     });
 
-    daxa::TaskBufferView first_pass_meshlets_bitfield_offsets = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     task_prepopulate_meshlet_instances(PrepopInfo{
         .render_context = render_context.get(),
@@ -578,11 +583,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .visible_meshlets_prev = visible_meshlet_instances,
         .meshlet_instances_last_frame = meshlet_instances_last_frame,
         .meshlet_instances = meshlet_instances,
-        .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
     });
 
-    #if 1
+#if 1
 
     task_draw_visbuffer({
         .render_context = render_context.get(),
@@ -609,14 +613,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = render_context->gpu_context,
             .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [=, this](){ 
+            .dispatch_callback = [=, this]()
+            {
                 return daxa::DispatchInfo{
                     round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
                     round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1
-                ,};
+                    1,
+                };
             },
-        }); 
+        });
     }
 
     daxa::TaskImageView hiz = {};
@@ -650,7 +655,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .mesh_groups = scene->_gpu_mesh_group_manifest,
         .meshes = scene->_gpu_mesh_manifest,
         .material_manifest = scene->_gpu_material_manifest,
-        .first_pass_meshlets_bitfield_offsets = first_pass_meshlets_bitfield_offsets,
         .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
         .hiz = hiz,
         .meshlet_instances = meshlet_instances,
@@ -739,14 +743,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = render_context->gpu_context,
             .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [this](){ 
+            .dispatch_callback = [this]()
+            {
                 return daxa::DispatchInfo{
                     round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
                     round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1
-                ,};
+                    1,
+                };
             },
-        }); 
+        });
     }
     tg.submit({});
 
@@ -774,8 +779,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         ao_image = tg.create_transient_image(ao_image_info);
         ao_image_info.name = "ao_image";
         auto ao_image_raw = tg.create_transient_image(ao_image_info);
-        tg.clear_image({ao_image_raw, std::array{0.0f,0.0f,0.0f,0.0f}});
-        tg.clear_image({ao_image, std::array{0.0f,0.0f,0.0f,0.0f}});
+        tg.clear_image({ao_image_raw, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(RayTraceAmbientOcclusionTask{
             .views = std::array{
                 RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
@@ -926,14 +931,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].first_count, first_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].second_count, second_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
-            
+
             render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
         },
         .name = "general readback",
     });
 
-
-    #endif
+#endif
 
     tg.submit({});
     tg.present({});
@@ -1046,8 +1050,8 @@ void Renderer::render_frame(
         render_context->render_data.sky_settings = render_context->render_data.sky_settings;
         sky_task_graph.execute({});
     }
-    bool sun_moved = std::bit_cast<f32vec3>(render_context->prev_sky_settings.sun_direction) == 
-                     std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction); 
+    bool sun_moved = std::bit_cast<f32vec3>(render_context->prev_sky_settings.sun_direction) ==
+                     std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction);
     render_context->render_data.vsm_settings.sun_moved = sun_moved ? 0u : 1u;
     render_context->prev_settings = render_context->render_data.settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;

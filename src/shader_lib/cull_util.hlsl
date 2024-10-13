@@ -34,11 +34,10 @@
 
 bool is_meshlet_drawn_in_first_pass(
     MeshletInstance meshlet_inst,
-    daxa_BufferPtr(daxa_u32) first_pass_meshlets_bitfield_offsets,
-    U32ArenaBufferRef first_pass_meshlets_bitfield_arena
+    SFPMBitfieldRef first_pass_meshlets_bitfield_arena
 )
 {
-    const uint first_pass_meshgroup_bitfield_offset = deref_i(first_pass_meshlets_bitfield_offsets, meshlet_inst.entity_index);
+    const uint first_pass_meshgroup_bitfield_offset = first_pass_meshlets_bitfield_arena.entity_to_meshlist_offsets[meshlet_inst.entity_index];
     if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
         (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
     {

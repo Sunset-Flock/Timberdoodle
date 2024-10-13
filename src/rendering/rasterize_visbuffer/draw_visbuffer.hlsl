@@ -513,7 +513,7 @@ func entry_task_meshlet_cull(
     }
     if (valid_meshlet)
     {
-        valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.attach.first_pass_meshlets_bitfield_offsets, push.attach.first_pass_meshlets_bitfield_arena );
+        valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.attach.first_pass_meshlets_bitfield_arena );
     }
 
     bool draw_meshlet = valid_meshlet;

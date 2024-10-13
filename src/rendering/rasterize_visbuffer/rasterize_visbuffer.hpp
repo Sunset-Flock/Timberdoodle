@@ -9,7 +9,7 @@
 #include "cull_meshes.inl"
 #include "analyze_visbuffer.inl"
 #include "gen_hiz.inl"
-#include "prepopulate_meshlets.inl"
+#include "select_first_pass_meshlets.inl"
 
 #include "../scene_renderer_context.hpp"
 

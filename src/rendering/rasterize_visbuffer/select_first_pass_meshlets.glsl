@@ -2,11 +2,9 @@
 
 #include <daxa/daxa.inl>
 
-#include "prepopulate_meshlets.inl"
+#include "select_first_pass_meshlets.inl"
 
-#if defined(PrepopMeshletInstancesCommWH_SHADER)
-DAXA_DECL_PUSH_CONSTANT(PrepopMeshletInstancesCommWPush, push)
-#elif defined(WriteFirstPassMeshletsAndBitfields_SHADER)
+#if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
 DAXA_DECL_PUSH_CONSTANT(WriteFirstPassMeshletsAndBitfieldsPush, push)
 #elif defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
 DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
@@ -14,14 +12,24 @@ DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
 DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 #endif
 
-// #include "shader_lib/cull_util.hlsl"
-
 #define WORKGROUP_SIZE PREPOPULATE_MESHLET_INSTANCES_X
 
 #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
 layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
 void main()
 {
+    if (all(equal(gl_GlobalInvocationID, uvec3(0,0,0))))
+    {
+        const uint needed_threads = deref(push.attach.visible_meshlets_prev).count;
+        const uint needed_workgroups = round_up_div(needed_threads, WORKGROUP_SIZE);
+        DispatchIndirectStruct command;
+        command.x = needed_workgroups;
+        command.y = 1;
+        command.z = 1;
+        deref(push.attach.command) = command;
+        // Initialize offset to be past the dynamic_offset counter and entity offsets.
+        push.attach.bitfield_arena.dynamic_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
+    }
     uint mesh_instance_index = gl_GlobalInvocationID.x;
     uint mesh_instance_count = min(deref(push.attach.mesh_instances).count, MAX_MESH_INSTANCES);
     if (mesh_instance_index >= mesh_instance_count)
@@ -51,9 +59,19 @@ void main()
         return;
     }
 
-    /// bug zone begin
+    // /// bug zone begin
+    // const bool locked_entities_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
+    //     deref(push.attach.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
+    //     FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
+    //     FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
+    // );
+    // if (!locked_entities_offset)
+    // {
+    //     return;
+    // }    
+    
     const bool locked_entities_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
-        deref(push.attach.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
+        push.attach.bitfield_arena.entity_to_meshlist_offsets[mesh_instance.entity_index],
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
     );
@@ -64,43 +82,19 @@ void main()
     /// bug zone end
 
     uint allocation_offset = atomicAdd(
-        push.attach.bitfield_arena.offsets_section_size, 
+        push.attach.bitfield_arena.dynamic_offset, 
         mesh_group.count
-    );
+    ) + FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
     const uint offsets_section_size = allocation_offset + mesh_group.count;
-    if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - 2))
+    if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE))
     {
         atomicExchange(
-            deref(push.attach.ent_to_mesh_inst_offsets_offsets[mesh_instance.entity_index]),
+            push.attach.bitfield_arena.entity_to_meshlist_offsets[mesh_instance.entity_index],
             allocation_offset
-        );
-        // Write indirect clear command, clearing the section used to store the mesh bitfield offsets.
-        atomicMax(
-            deref(push.attach.clear_arena_command).size, 
-            offsets_section_size
-        );
-        const uint needed_clear_workgroups = round_up_div(offsets_section_size, INDIRECT_MEMSET_BUFFER_X);
-        atomicMax(
-            deref(push.attach.clear_arena_command).dispatch.x, 
-            needed_clear_workgroups
         );
     }
 }
 #endif // #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
-
-#if defined(PrepopMeshletInstancesCommWH_SHADER)
-layout(local_size_x = 1) in;
-void main()
-{
-    const uint needed_threads = deref(push.attach.visible_meshlets_prev).count;
-    const uint needed_workgroups = round_up_div(needed_threads, WORKGROUP_SIZE);
-    DispatchIndirectStruct command;
-    command.x = needed_workgroups;
-    command.y = 1;
-    command.z = 1;
-    deref(push.attach.command) = command;
-}
-#endif
 
 #if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
 layout(local_size_x = WORKGROUP_SIZE) in;
@@ -116,7 +110,7 @@ void main()
     const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
     const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
 
-    const uint first_pass_meshgroup_bitfield_offset = deref(push.attach.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
+    const uint first_pass_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[prev_frame_vis_meshlet.entity_index];
     if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
         (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
     {
@@ -182,14 +176,6 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
-    const uint bitfield_arena_base_offset = push.attach.bitfield_arena.offsets_section_size;
-    if (gl_GlobalInvocationID.x == 0)
-    {
-        // One thread must write the offset past the mesh instance offset section.
-        deref(push.attach.clear_arena_command).offset = bitfield_arena_base_offset + 2 /*buffer head*/;
-        // debugPrintfEXT("deref(push.attach.visible_meshlets_prev).count %i\n", deref(push.attach.visible_meshlets_prev).count);
-    }
-
     const uint count = deref(push.attach.visible_meshlets_prev).count;
     const uint thread_index = gl_GlobalInvocationID.x;
     if (thread_index >= count)
@@ -201,7 +187,7 @@ void main()
     const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
     const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
 
-    const uint entity_to_meshgroup_bitfield_offset = deref(push.attach.ent_to_mesh_inst_offsets_offsets[prev_frame_vis_meshlet.entity_index]);
+    const uint entity_to_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[prev_frame_vis_meshlet.entity_index];
     if (entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID || 
         entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED)
     {
@@ -231,11 +217,10 @@ void main()
 
     // Try to allocate bitfield space:
     const uint needed_bitfield_u32_size = round_up_div(mesh.meshlet_count, 32);
-    const uint bitfield_section_local_offset = atomicAdd(push.attach.bitfield_arena.bitfield_section_size, needed_bitfield_u32_size);
-    const uint bitfield_allocation_offset = bitfield_arena_base_offset + bitfield_section_local_offset;
-    const uint potentially_used_bitfield_size = bitfield_allocation_offset + needed_bitfield_u32_size;
+    const uint bitfield_section_local_offset = atomicAdd(push.attach.bitfield_arena.dynamic_offset, needed_bitfield_u32_size);
+    const uint potentially_used_bitfield_size = bitfield_section_local_offset + needed_bitfield_u32_size;
     const uint potentially_used_bitfield_size_section_local = bitfield_section_local_offset + needed_bitfield_u32_size;
-    if (potentially_used_bitfield_size >= (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - 2))
+    if (potentially_used_bitfield_size >= (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE))
     {
         // Allocation failed, as we do not fit into the arena!
         return;
@@ -246,11 +231,6 @@ void main()
     // - Write clear bitfield section indirect command 
 
     // Write allocated bitfield offset to mesh instances offset
-    atomicExchange(push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_allocation_offset);
-
-    // Write clear bitfield section indirect command:
-    const uint needed_clear_workgroups = round_up_div(potentially_used_bitfield_size_section_local, INDIRECT_MEMSET_BUFFER_X);
-    atomicMax(deref(push.attach.clear_arena_command).dispatch.x, needed_clear_workgroups);
-    atomicMax(deref(push.attach.clear_arena_command).size, potentially_used_bitfield_size_section_local);
+    atomicExchange(push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_section_local_offset);
 }
 #endif
