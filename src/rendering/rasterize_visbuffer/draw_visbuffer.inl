@@ -287,7 +287,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
             );
         }
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPES; ++opaque_draw_list_type)
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
             auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
             auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
@@ -320,7 +320,7 @@ struct TaskCullAndDrawVisbufferInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & tg;
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
     daxa::TaskBufferView entity_meta_data = {};
     daxa::TaskBufferView entity_meshgroups = {};
     daxa::TaskBufferView entity_combined_transforms = {};

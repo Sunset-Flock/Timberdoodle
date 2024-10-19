@@ -661,7 +661,7 @@ struct TaskDrawVSMsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph * tg = {};
     VSMState * vsm_state = {};
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansions = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansions = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskBufferView meshes = {};

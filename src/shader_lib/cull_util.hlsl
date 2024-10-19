@@ -156,13 +156,17 @@ bool is_ndc_aabb_hiz_depth_occluded(
     daxa_ImageViewId hiz
 )
 {
+    // HIZ res is a power of two and might differ from any mip level size of the scenes resolution.
     const daxa_f32vec2 f_hiz_resolution = hiz_res;
+    // UV(NDC) -> (NDC + 1.0f) * 0.5f
     const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
+    // IDX(UV) -> floor(UV * IMG_SIZE)
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
+    // Example: MIN_X 3 MAX_X 4, MAX_X - MIN_X = 1 + 1 = 2.
+    const float pixel_width = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
+    const float mip = ceil(log2(max(2.0f, pixel_width))) - 1 /* we want one mip lower, as we sample a quad */;
 
     // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
     // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
@@ -185,6 +189,39 @@ bool is_ndc_aabb_hiz_depth_occluded(
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
     const bool depth_cull = meshlet_ndc_aabb.ndc_max.z < conservative_depth;
+
+    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
+    //if (depth_cull)
+    for (uint i = 0; i < 120; ++i)
+    {
+        {
+            // No clue what this one does...
+            ShaderDebugRectangleDraw rectangle;
+            const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
+            rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
+            rectangle.span = rec_size.xy;
+            rectangle.color = daxa_f32vec3(0, 1, 1);
+            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, rectangle);
+        }
+        {
+            ShaderDebugRectangleDraw used_hiz_tex_rect;
+            const daxa_f32vec2 min_r = quad_corner_texel << imip;
+            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, meshlet_ndc_aabb.ndc_max.z) - daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z));
+            used_hiz_tex_rect.center = daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z) + (rec_size * 0.5);
+            used_hiz_tex_rect.span = rec_size.xy;
+            used_hiz_tex_rect.color = daxa_f32vec3(1, 0, 1);
+            used_hiz_tex_rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_rectangle(GLOBALS.debug, used_hiz_tex_rect);
+        }
+    }
+    #endif
+
     return depth_cull;
 }
 
@@ -200,8 +237,8 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
-    const float pixel_range = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float mip = ceil(log2(max(2.0f, pixel_range))) - 1 /* we want one mip lower, as we sample a quad */;
+    const float pixel_width = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
+    const float mip = ceil(log2(max(2.0f, pixel_width))) - 1 /* we want one mip lower, as we sample a quad */;
 
     // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
     // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
@@ -267,37 +304,15 @@ bool is_meshlet_occluded(
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz_res, hiz);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
-    if (depth_cull)
+    //if (depth_cull)
     {
-        ShaderDebugAABBDraw aabb1;
-        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
-        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
-        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.debug, aabb1);
         {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
-            rectangle.center = ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-        {
-            const daxa_f32vec2 min_r = quad_corner_texel << imip;
-            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
-            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
-            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
-            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
-            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
-            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(1, 0, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
+            ShaderDebugAABBDraw ndc_aabb;
+            ndc_aabb.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+            ndc_aabb.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+            ndc_aabb.color = daxa_f32vec3(0.1, 0.5, 1);
+            ndc_aabb.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            debug_draw_aabb(GLOBALS.debug, ndc_aabb);
         }
     }
     #endif
@@ -342,39 +357,39 @@ bool is_mesh_occluded(
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(camera, meshlet_ndc_aabb, hiz_res, hiz);
 
-    if (false && depth_cull && debug)
-    {
-        ShaderDebugAABBDraw aabb1;
-        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
-        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
-        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(debug, aabb1);
-        {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
-            rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(debug, rectangle);
-        }
-        // {
-        //     const daxa_f32vec2 min_r = quad_corner_texel << imip;
-        //     const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
-        //     const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
-        //     const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
-        //     const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
-        //     const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-        //     ShaderDebugRectangleDraw rectangle;
-        //     const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
-        //     rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
-        //     rectangle.span = rec_size.xy;
-        //     rectangle.color = daxa_f32vec3(1, 0, 1);
-        //     rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-        //     debug_draw_rectangle(debug, rectangle);
-        // }
-    }
+    //if (false && depth_cull && debug)
+    //{
+    //    ShaderDebugAABBDraw aabb1;
+    //    aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+    //    aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+    //    aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+    //    aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    //    debug_draw_aabb(debug, aabb1);
+    //    {
+    //        ShaderDebugRectangleDraw rectangle;
+    //        const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
+    //        rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
+    //        rectangle.span = rec_size.xy;
+    //        rectangle.color = daxa_f32vec3(0, 1, 1);
+    //        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //        debug_draw_rectangle(debug, rectangle);
+    //    }
+    //    // {
+    //    //     const daxa_f32vec2 min_r = quad_corner_texel << imip;
+    //    //     const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+    //    //     const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+    //    //     const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+    //    //     const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+    //    //     const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+    //    //     ShaderDebugRectangleDraw rectangle;
+    //    //     const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
+    //    //     rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+    //    //     rectangle.span = rec_size.xy;
+    //    //     rectangle.color = daxa_f32vec3(1, 0, 1);
+    //    //     rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //    //     debug_draw_rectangle(debug, rectangle);
+    //    // }
+    //}
 
     return depth_cull;
 }
@@ -413,39 +428,39 @@ bool is_mesh_occluded_vsm(
     const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, mesh_ndc_aabb, hiz, cascade);
 
     #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
-    if (page_opacity_cull)
-    {
-        ShaderDebugAABBDraw aabb1;
-        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
-        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
-        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.debug, aabb1);
-        {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
-            rectangle.center = ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-        {
-            const daxa_f32vec2 min_r = quad_corner_texel << imip;
-            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
-            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
-            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
-            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
-            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
-            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(1, 0, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-    }
+    //if (page_opacity_cull)
+    //{
+    //    ShaderDebugAABBDraw aabb1;
+    //    aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+    //    aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+    //    aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+    //    aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    //    debug_draw_aabb(GLOBALS.debug, aabb1);
+    //    {
+    //        ShaderDebugRectangleDraw rectangle;
+    //        const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
+    //        rectangle.center = ndc_min + (rec_size * 0.5);
+    //        rectangle.span = rec_size.xy;
+    //        rectangle.color = daxa_f32vec3(0, 1, 1);
+    //        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //        debug_draw_rectangle(GLOBALS.debug, rectangle);
+    //    }
+    //    {
+    //        const daxa_f32vec2 min_r = quad_corner_texel << imip;
+    //        const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+    //        const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+    //        const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+    //        const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+    //        const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+    //        ShaderDebugRectangleDraw rectangle;
+    //        const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
+    //        rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
+    //        rectangle.span = rec_size.xy;
+    //        rectangle.color = daxa_f32vec3(1, 0, 1);
+    //        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //        debug_draw_rectangle(GLOBALS.debug, rectangle);
+    //    }
+    //}
     #endif
 
     return page_opacity_cull;
@@ -510,14 +525,14 @@ bool is_meshlet_occluded_vsm(
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_inst.meshlet_index);
     if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
     {
-        #if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
-            ShaderDebugCircleDraw circle;
-            circle.position = ws_center;
-            circle.radius = scaled_radius;
-            circle.color = daxa_f32vec3(1,1,0);
-            circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            debug_draw_circle(GLOBALS.debug, circle);
-        #endif
+        //#if defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus)
+        //    ShaderDebugCircleDraw circle;
+        //    circle.position = ws_center;
+        //    circle.radius = scaled_radius;
+        //    circle.color = daxa_f32vec3(1,1,0);
+        //    circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        //    debug_draw_circle(GLOBALS.debug, circle);
+        //#endif
         // return true;
     }
 
@@ -525,41 +540,41 @@ bool is_meshlet_occluded_vsm(
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
 
-    #if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
-    if (page_opacity_cull)
-    {
-        ShaderDebugAABBDraw aabb1;
-        aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
-        aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
-        aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
-        aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        debug_draw_aabb(GLOBALS.debug, aabb1);
-        {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (ndc_max - ndc_min);
-            rectangle.center = ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-        {
-            const daxa_f32vec2 min_r = quad_corner_texel << imip;
-            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
-            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
-            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
-            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
-            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, ndc_max.z) - daxa_f32vec3(min_r_ndc, ndc_min.z));
-            rectangle.center = daxa_f32vec3(min_r_ndc, ndc_min.z) + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(1, 0, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(GLOBALS.debug, rectangle);
-        }
-    }
-    #endif
+    //#if (defined(GLOBALS) && CULLING_DEBUG_DRAWS || defined(__cplusplus))
+    //if (page_opacity_cull)
+    //{
+    //    ShaderDebugAABBDraw aabb1;
+    //    aabb1.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
+    //    aabb1.size = mul(model_matrix, daxa_f32vec4(meshlet_aabb.size,0)).xyz;
+    //    aabb1.color = daxa_f32vec3(0.1, 0.5, 1);
+    //    aabb1.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    //    debug_draw_aabb(GLOBALS.debug, aabb1);
+    //    {
+    //        ShaderDebugRectangleDraw rectangle;
+    //        const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
+    //        rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
+    //        rectangle.span = rec_size.xy;
+    //        rectangle.color = daxa_f32vec3(0, 1, 1);
+    //        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //        debug_draw_rectangle(GLOBALS.debug, rectangle);
+    //    }
+    //    {
+    //        const daxa_f32vec2 min_r = quad_corner_texel << imip;
+    //        const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+    //        const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+    //        const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+    //        const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+    //        const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+    //        ShaderDebugRectangleDraw rectangle;
+    //        const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, meshlet_ndc_aabb.ndc_max.z) - daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z));
+    //        rectangle.center = daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z) + (rec_size * 0.5);
+    //        rectangle.span = rec_size.xy;
+    //        rectangle.color = daxa_f32vec3(1, 0, 1);
+    //        rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+    //        debug_draw_rectangle(GLOBALS.debug, rectangle);
+    //    }
+    //}
+    //#endif
 
     return page_opacity_cull;
 }

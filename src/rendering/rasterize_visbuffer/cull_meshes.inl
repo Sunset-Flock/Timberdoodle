@@ -102,7 +102,7 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskBufferView meshgroups = {};
     daxa::TaskBufferView entity_transforms = {};
     daxa::TaskBufferView entity_combined_transforms = {};
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> & opaque_meshlet_cull_po2expansions;
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> & opaque_meshlet_cull_po2expansions;
     DispatchIndirectStruct dispatch_clear = {0, 1, 1};
     std::string buffer_name_prefix = "";
 };

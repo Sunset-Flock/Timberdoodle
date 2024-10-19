@@ -7,15 +7,15 @@
 #if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
 DAXA_DECL_PUSH_CONSTANT(WriteFirstPassMeshletsAndBitfieldsPush, push)
 #elif defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
-DAXA_DECL_PUSH_CONSTANT(AllocEntToMeshInstOffsetsOffsetsPush, push)
+DAXA_DECL_PUSH_CONSTANT(AllocEntBitfieldListsPush, push)
 #elif defined(AllocMeshletInstBitfields_SHADER)
 DAXA_DECL_PUSH_CONSTANT(AllocMeshletInstBitfieldsPush, push)
 #endif
 
-#define WORKGROUP_SIZE PREPOPULATE_MESHLET_INSTANCES_X
+#define WORKGROUP_SIZE SFPM_X
 
 #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
-layout(local_size_x = ALLOC_ENT_TO_MESH_INST_OFFSETS_OFFSETS_X) in;
+layout(local_size_x = SFPM_X) in;
 void main()
 {
     if (all(equal(gl_GlobalInvocationID, uvec3(0,0,0))))
@@ -84,7 +84,7 @@ void main()
     uint allocation_offset = atomicAdd(
         push.attach.bitfield_arena.dynamic_offset, 
         mesh_group.count
-    ) + FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
+    );
     const uint offsets_section_size = allocation_offset + mesh_group.count;
     if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE))
     {
@@ -95,82 +95,6 @@ void main()
     }
 }
 #endif // #if defined(AllocEntToMeshInstOffsetsOffsets_SHADER)
-
-#if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
-layout(local_size_x = WORKGROUP_SIZE) in;
-void main()
-{    
-    const uint count = deref(push.attach.visible_meshlets_prev).count; 
-    const uint thread_index = gl_GlobalInvocationID.x;
-    if (thread_index >= count)
-    {
-        return;
-    }
-
-    const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
-    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
-
-    const uint first_pass_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[prev_frame_vis_meshlet.entity_index];
-    if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
-        (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
-    {
-        const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
-        // Offset is valid, need to check if mesh instance offset is valid now.
-        const uint first_pass_mesh_instance_bitfield_offset = push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
-        if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
-            (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
-        {
-            // Try to allocate new meshlet instance:
-            const uint meshlet_instance_index = atomicAdd(deref(push.attach.meshlet_instances).first_count, 1);
-            if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
-            {
-                // Overrun Meshlet instance buffer!
-                return;
-            }
-
-            const uint in_bitfield_u32_index = prev_frame_vis_meshlet.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
-            const uint in_u32_bit = prev_frame_vis_meshlet.meshlet_index % 32;
-            const uint in_u32_mask = 1u << in_u32_bit;
-            const uint prior_bitfield_u32 = atomicOr(push.attach.bitfield_arena.uints[in_bitfield_u32_index], in_u32_mask);
-            if ((prior_bitfield_u32 & in_u32_mask) != 0)
-            {
-                // SHOULD NEVER HAPPEN:
-                // - THIS MEANS WE HAVE DUPLICATE MESHLETS IN THE VISIBLE MESHLET LIST!
-                // - THIS MEANS WE HAVE DRAWN THOSE MESHLETS MULTIPLE TIMES SOMEHOW!
-                debugPrintfEXT("GPU ASSERT FAILED: DUPLICATE MESHLET %i\n", prev_frame_meshlet_idx);
-                return;
-            }
-            
-
-            // debugPrintfEXT("process prev meshlet vis index %i, meshlet id %i\n", thread_index, prev_frame_meshlet_idx);
-
-            // Write meshlet instance into draw list and instance list:
-            deref(deref(push.attach.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
-            uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;
-            if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
-            {
-                GPUMaterial material = deref(push.attach.materials[prev_frame_vis_meshlet.material_index]);
-                opaque_draw_list_type_index = material.alpha_discard_enabled ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
-            }
-            // Scalarize appends to the draw lists.
-            // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
-            // This allows for scalar atomic ops and packed writeouts.
-            // Drawlist type count are low, scalarization will most likely always improve perf.
-            [[unroll]]
-            for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
-            {
-                if (opaque_draw_list_type_index != draw_list_type)
-                {
-                    continue;
-                }
-                // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
-                const uint opaque_draw_list_index = atomicAdd(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
-                deref(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
-            } 
-        }
-    }
-}
-#endif
 
 #if defined(AllocMeshletInstBitfields_SHADER)
 layout(local_size_x = WORKGROUP_SIZE) in;
@@ -232,5 +156,87 @@ void main()
 
     // Write allocated bitfield offset to mesh instances offset
     atomicExchange(push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_section_local_offset);
+}
+#endif
+
+
+#if defined(WriteFirstPassMeshletsAndBitfields_SHADER)
+layout(local_size_x = WORKGROUP_SIZE) in;
+void main()
+{    
+    const uint count = deref(push.attach.visible_meshlets_prev).count; 
+    const uint thread_index = gl_GlobalInvocationID.x;
+    if (thread_index >= count)
+    {
+        return;
+    }
+
+    if (thread_index == 0)
+    {
+        deref(deref(push.attach.globals).readback).sfpm_bitfield_arena_requested = push.attach.bitfield_arena.dynamic_offset;
+    }
+
+    const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
+    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
+
+    const uint first_pass_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[prev_frame_vis_meshlet.entity_index];
+    if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
+        (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
+    {
+        const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
+        // Offset is valid, need to check if mesh instance offset is valid now.
+        const uint first_pass_mesh_instance_bitfield_offset = push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
+        if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
+            (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
+        {
+            // Try to allocate new meshlet instance:
+            const uint meshlet_instance_index = atomicAdd(deref(push.attach.meshlet_instances).first_count, 1);
+            if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
+            {
+                // Overrun Meshlet instance buffer!
+                return;
+            }
+
+            const uint in_bitfield_u32_index = prev_frame_vis_meshlet.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
+            const uint in_u32_bit = prev_frame_vis_meshlet.meshlet_index % 32;
+            const uint in_u32_mask = 1u << in_u32_bit;
+            const uint prior_bitfield_u32 = atomicOr(push.attach.bitfield_arena.uints[in_bitfield_u32_index], in_u32_mask);
+            if ((prior_bitfield_u32 & in_u32_mask) != 0)
+            {
+                // SHOULD NEVER HAPPEN:
+                // - THIS MEANS WE HAVE DUPLICATE MESHLETS IN THE VISIBLE MESHLET LIST!
+                // - THIS MEANS WE HAVE DRAWN THOSE MESHLETS MULTIPLE TIMES SOMEHOW!
+                debugPrintfEXT("GPU ASSERT FAILED: DUPLICATE MESHLET %i\n", prev_frame_meshlet_idx);
+                return;
+            }
+            
+
+            // debugPrintfEXT("process prev meshlet vis index %i, meshlet id %i\n", thread_index, prev_frame_meshlet_idx);
+
+            // Write meshlet instance into draw list and instance list:
+            deref(deref(push.attach.meshlet_instances).meshlets[meshlet_instance_index]) = prev_frame_vis_meshlet;
+            uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;
+            if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
+            {
+                GPUMaterial material = deref(push.attach.materials[prev_frame_vis_meshlet.material_index]);
+                opaque_draw_list_type_index = material.alpha_discard_enabled ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
+            }
+            // Scalarize appends to the draw lists.
+            // Scalarized atomics probably give consecutive retrun values for each thread within the warp (true on RTX4080).
+            // This allows for scalar atomic ops and packed writeouts.
+            // Drawlist type count are low, scalarization will most likely always improve perf.
+            [[unroll]]
+            for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++draw_list_type)
+            {
+                if (opaque_draw_list_type_index != draw_list_type)
+                {
+                    continue;
+                }
+                // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
+                const uint opaque_draw_list_index = atomicAdd(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
+                deref(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
+            } 
+        }
+    }
 }
 #endif

@@ -49,7 +49,7 @@ Renderer::Renderer(
     meshlet_instances_last_frame = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(gpu_context, sizeof(f32), "luminance average", "luminance_average");
-    general_readback_buffer = daxa::TaskBuffer{gpu_context->device, {sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, "general readback buffer"}};
+    general_readback_buffer = daxa::TaskBuffer{gpu_context->device, {sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE, "general readback buffer"}};
     visible_meshlet_instances = create_task_buffer(gpu_context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
@@ -143,11 +143,11 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {sfpm_allocate_ent_bitfield_lists()},
         {tido::upgrade_compute_pipeline_compile_info(gen_hiz_pipeline_compile_info())},
         {gen_hiz_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
-        // {tido::upgrade_compute_pipeline_compile_info(AllocMeshletInstBitfieldsCommandWriteTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
@@ -439,6 +439,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
+        .reorder_tasks = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
@@ -627,7 +628,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView hiz = {};
     task_gen_hiz_single_pass({render_context.get(), tg, depth, render_context->tgpu_render_data, debug_image, &hiz});
 
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansion = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
     tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
         .render_context = render_context.get(),
         .tg = tg,
@@ -1029,6 +1030,10 @@ void Renderer::render_frame(
     }
     daxa::DeviceAddress render_data_device_address =
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
+
+    render_context->render_data.readback = 
+        gpu_context->device.buffer_device_address(general_readback_buffer.get_state().buffers[0]).value() +
+        sizeof(ReadbackValues) * (render_context->render_data.frame_index % 4);
     if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name

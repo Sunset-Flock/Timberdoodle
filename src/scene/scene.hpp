@@ -17,7 +17,7 @@ using namespace tido::types;
 struct CPUMeshInstanceCounts
 {
     u32 mesh_instance_count = {};
-    u32 prepass_instance_counts[PREPASS_DRAW_LIST_TYPES] = {};
+    u32 prepass_instance_counts[PREPASS_DRAW_LIST_TYPE_COUNT] = {};
     u32 vsm_invalidate_instance_count = {};
 };
 
@@ -145,7 +145,7 @@ using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;
 struct CPUMeshInstances
 {
     std::vector<MeshInstance> mesh_instances = {};
-    std::vector<u32> prepass_draw_lists[PREPASS_DRAW_LIST_TYPES] = {{}, {}};
+    std::vector<u32> prepass_draw_lists[PREPASS_DRAW_LIST_TYPE_COUNT] = {{}, {}};
     std::vector<u32> vsm_invalidate_draw_list = {};
 };
 

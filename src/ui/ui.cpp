@@ -282,6 +282,13 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 ImGui::Text("Meshlets drawn first pass %i", first_pass_meshlets);
                 ImGui::Text("Meshlets drawn second pass %i", second_pass_meshlets);
                 ImGui::Text("Visible Meshes %i", render_context.general_readback.visible_meshes);
+                u32 used_dynamic_section_sfpm_bitfield = render_context.general_readback.sfpm_bitfield_arena_requested;
+                u32 dynamic_section_sfpm_bitfield_size = FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES);
+                f32 bitfield_arena_percentage_used = static_cast<f32>(used_dynamic_section_sfpm_bitfield) / static_cast<f32>(dynamic_section_sfpm_bitfield_size) * 100.0f;
+                ImGui::Text("Used First Pass Bitfield Memory %fmb / %fmb = %f%%", 
+                    static_cast<f32>(used_dynamic_section_sfpm_bitfield * 4) * 0.000001f, 
+                    static_cast<f32>(dynamic_section_sfpm_bitfield_size * 4) * 0.000001, 
+                    bitfield_arena_percentage_used);
             }
             ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)

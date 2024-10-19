@@ -13,7 +13,7 @@
 
 #define PREPASS_DRAW_LIST_OPAQUE 0
 #define PREPASS_DRAW_LIST_MASKED 1
-#define PREPASS_DRAW_LIST_TYPES 2
+#define PREPASS_DRAW_LIST_TYPE_COUNT 2
 
 struct MeshDrawList
 {
@@ -70,7 +70,7 @@ struct MeshInstancesBufferHead
     // For example in the pre-pass we only need to have a list per pipeline permutation, no need to care about all the different lists, 
     // we simply pick the pre-pass lists and carry on.
     // This generally also helps keeping the cose less coupled.
-    MeshDrawList prepass_draw_lists[PREPASS_DRAW_LIST_TYPES];
+    MeshDrawList prepass_draw_lists[PREPASS_DRAW_LIST_TYPE_COUNT];
     // Contains all meshes that changed over frames, eg streamed in this frame or moved.
     MeshDrawList vsm_invalidate_draw_list;
 }; 
@@ -84,7 +84,7 @@ inline void fill_draw_list_buffer_head(daxa::DeviceAddress address, uint8_t* hos
     auto device_address_back_offset = address + sizeof(MeshInstancesBufferHead);
     ret.instances = device_address_back_offset;
     device_address_back_offset += sizeof(MeshInstance) * MAX_MESH_INSTANCES;
-    for (uint32_t draw_list = 0; draw_list < PREPASS_DRAW_LIST_TYPES; ++draw_list)
+    for (uint32_t draw_list = 0; draw_list < PREPASS_DRAW_LIST_TYPE_COUNT; ++draw_list)
     {
         ret.prepass_draw_lists[draw_list].instances = device_address_back_offset;
         device_address_back_offset += sizeof(daxa_u32) * MAX_MESH_INSTANCES;

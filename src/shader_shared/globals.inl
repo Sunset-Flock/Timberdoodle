@@ -4,6 +4,8 @@
 
 #include "shared.inl"
 #include "debug.inl"
+#include "readback.inl"
+#include "volumetric.inl"
 
 struct RenderGlobalData
 {
@@ -15,9 +17,11 @@ struct RenderGlobalData
     Settings settings;
     SkySettings sky_settings;
     VSMSettings vsm_settings;
+    VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
+    daxa_RWBufferPtr(ReadbackValues) readback;
 };
 DAXA_DECL_BUFFER_PTR(RenderGlobalData)

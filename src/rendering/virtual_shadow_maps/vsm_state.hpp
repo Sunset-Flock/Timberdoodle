@@ -34,7 +34,7 @@ struct VSMState
     daxa::TaskBufferView allocate_indirect = {};
     daxa::TaskBufferView clear_indirect = {};
     daxa::TaskBufferView clear_dirty_bit_indirect = {};
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPES> meshlet_cull_po2expansions = {};
+    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansions = {};
 
     daxa::TimelineQueryPool vsm_timeline_query_pool = {};
 

@@ -1113,7 +1113,12 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
             u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
             auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
 
-            bool const is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+            bool is_alpha_discard = false;
+            if (mesh.material_index.has_value())
+            {
+                is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+            }
+
             geometries.push_back({
                 .vertex_data = mesh.runtime->vertex_positions,
                 .max_vertex = mesh.runtime->vertex_count - 1,
@@ -1183,7 +1188,11 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
             {
                 u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                 auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
-                is_alpha_discard |= _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                
+                if (mesh.material_index.has_value())
+                {
+                    is_alpha_discard |= _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                }
             }
 
             auto const t = r_ent->combined_transform;
@@ -1532,7 +1541,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instanc
     buffer_head.instances = offset;
     buffer_head.count = static_cast<u32>(cpu_mesh_instances.mesh_instances.size());
     offset += sizeof(MeshInstance) * cpu_mesh_instances.mesh_instances.size();
-    for (int i = 0; i < PREPASS_DRAW_LIST_TYPES; ++i)
+    for (int i = 0; i < PREPASS_DRAW_LIST_TYPE_COUNT; ++i)
     {
         buffer_head.prepass_draw_lists[i].instances = offset;
         buffer_head.prepass_draw_lists[i].count = static_cast<u32>(cpu_mesh_instances.prepass_draw_lists[i].size());
@@ -1566,7 +1575,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instanc
 
     buffer_head.instances += device_address;
     cpu_mesh_instance_counts.mesh_instance_count = cpu_mesh_instances.mesh_instances.size();
-    for (int draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
+    for (int draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++draw_list_type)
     {
         std::memcpy(
             host_address + buffer_head.prepass_draw_lists[draw_list_type].instances,

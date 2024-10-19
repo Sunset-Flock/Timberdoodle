@@ -2,6 +2,13 @@
 
 #include "draw_visbuffer.inl"
 
+[[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
+[[vk::push_constant]] SplitAtomicVisbufferPush split_atimic_visbuffer_p;
+[[vk::push_constant]] DrawVisbufferPush draw_p;
+[[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
+
+#define GLOBALS cull_meshlets_draw_visbuffer_push.attach.globals
+
 #include "shader_shared/cull_util.inl"
 
 #include "shader_lib/visbuffer.glsl"
@@ -11,17 +18,12 @@
 #include "shader_lib/po2_expansion.hlsl"
 #include "shader_lib/misc.hlsl"
 
-[[vk::push_constant]] DrawVisbufferPush_WriteCommand write_cmd_p;
-[[vk::push_constant]] SplitAtomicVisbufferPush split_atimic_visbuffer_p;
-[[vk::push_constant]] DrawVisbufferPush draw_p;
-[[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
-
 [shader("compute")]
 [numthreads(1,1,1)]
 void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
 {
     DrawVisbufferPush_WriteCommand push = write_cmd_p;
-    for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPES; ++draw_list_type)
+    for (uint draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++draw_list_type)
     {
         uint meshlets_to_draw = get_meshlet_draw_count(
             push.attach.globals,
