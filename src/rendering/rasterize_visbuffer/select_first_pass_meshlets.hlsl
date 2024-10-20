@@ -1,8 +1,7 @@
 #include <daxa/daxa.inl>
 
 #include "select_first_pass_meshlets.inl"
-
-#define GPU_ASSERT_STRING "GPU ASSERT FAILED IN \"" __FILE__ "\": "
+#include "shader_lib/debug.glsl"
 
 // Problems:
 // As we iterate over the draw list in the allocation for meshlists,
@@ -14,7 +13,6 @@
 [numthreads(SFPM_ALLOC_ENT_BITFIELD_LISTS_X,1,1)]
 func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
 {
-    return;
     let push = alloc_ent_mesh_offset_lists_push;
     
     // First thread writes command for following SFPM dispatches.

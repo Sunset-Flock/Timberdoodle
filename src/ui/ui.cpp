@@ -273,22 +273,51 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
         bool auto_reset_timings = false;
         if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
         {
-            ImGui::SeparatorText("General Statistics");
+            // Calculate Statistics:
+            u32 mesh_instance_count = render_context.mesh_instance_counts.mesh_instance_count;
+            u32 first_pass_meshlets = render_context.general_readback.first_pass_meshlet_count[0] + render_context.general_readback.first_pass_meshlet_count[1];
+            u32 second_pass_meshlets = render_context.general_readback.second_pass_meshlet_count[0] + render_context.general_readback.second_pass_meshlet_count[1];
+            u32 total_meshlets_drawn = first_pass_meshlets + second_pass_meshlets;
+            
+            u32 used_dynamic_section_sfpm_bitfield = render_context.general_readback.sfpm_bitfield_arena_requested;
+            u32 dynamic_section_sfpm_bitfield_size = FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES);
+            struct VisbufferPipelineStat
             {
-                ImGui::Text("Max Meshlet Instances %i", MAX_MESHLET_INSTANCES);
-                ImGui::Text("Max Mesh Instances %i", MAX_MESH_INSTANCES);
-                u32 first_pass_meshlets = render_context.general_readback.first_pass_meshlet_count[0] + render_context.general_readback.first_pass_meshlet_count[1];
-                u32 second_pass_meshlets = render_context.general_readback.second_pass_meshlet_count[0] + render_context.general_readback.second_pass_meshlet_count[1];
-                ImGui::Text("Meshlets drawn first pass %i", first_pass_meshlets);
-                ImGui::Text("Meshlets drawn second pass %i", second_pass_meshlets);
-                ImGui::Text("Visible Meshes %i", render_context.general_readback.visible_meshes);
-                u32 used_dynamic_section_sfpm_bitfield = render_context.general_readback.sfpm_bitfield_arena_requested;
-                u32 dynamic_section_sfpm_bitfield_size = FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES);
-                f32 bitfield_arena_percentage_used = static_cast<f32>(used_dynamic_section_sfpm_bitfield) / static_cast<f32>(dynamic_section_sfpm_bitfield_size) * 100.0f;
-                ImGui::Text("Used First Pass Bitfield Memory %fmb / %fmb = %f%%", 
-                    static_cast<f32>(used_dynamic_section_sfpm_bitfield * 4) * 0.000001f, 
-                    static_cast<f32>(dynamic_section_sfpm_bitfield_size * 4) * 0.000001, 
-                    bitfield_arena_percentage_used);
+                char const * name = {};
+                u32 value = {};
+                u32 max_value = {};
+            };
+            std::array visbuffer_pipeline_stats = {
+                VisbufferPipelineStat{"Mesh Instances (Unculled)", mesh_instance_count, MAX_MESH_INSTANCES},
+                VisbufferPipelineStat{"First Pass Meshlets", first_pass_meshlets, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Second Pass Meshlets", second_pass_meshlets, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Total Meshlet Instances", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"First Pass Bitfield Use", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
+            };
+
+            ImGui::SeparatorText("Visbuffer Pipeline Statistics");
+            {
+                if (ImGui::BeginTable("Test", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                {
+                    ImGui::TableSetupColumn("Value Name", {});
+                    ImGui::TableSetupColumn("Value", {});
+                    ImGui::TableSetupColumn("Value Max", {});
+                    ImGui::TableSetupColumn("Value %", {});
+                    ImGui::TableHeadersRow();
+                    for (auto const& stat : visbuffer_pipeline_stats)
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text(stat.name);
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%i", stat.value);
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%i", stat.max_value);
+                        ImGui::TableSetColumnIndex(3);
+                        ImGui::Text("%f%%", static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f);
+                    }
+                    ImGui::EndTable();
+                }
             }
             ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)

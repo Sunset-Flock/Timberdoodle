@@ -1,8 +1,10 @@
 #pragma once
 
+#extension GL_EXT_debug_printf : enable
+
 #include "shader_shared/debug.inl"
 
-#extension GL_EXT_debug_printf : enable
+#define GPU_ASSERT_STRING "GPU ASSERT FAILED IN \"" __FILE__ "\": "
 
 void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
 {
