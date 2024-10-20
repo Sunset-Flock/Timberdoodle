@@ -7,7 +7,7 @@
 [[vk::push_constant]] DrawVisbufferPush draw_p;
 [[vk::push_constant]] CullMeshletsDrawVisbufferPush cull_meshlets_draw_visbuffer_push;
 
-#define GLOBALS cull_meshlets_draw_visbuffer_push.attach.globals
+// #define GLOBALS cull_meshlets_draw_visbuffer_push.attach.globals
 
 #include "shader_shared/cull_util.inl"
 

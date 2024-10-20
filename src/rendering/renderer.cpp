@@ -852,6 +852,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
+            ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
         },
         .render_context = render_context.get(),
         .timeline_pool = vsm_state.vsm_timeline_query_pool,

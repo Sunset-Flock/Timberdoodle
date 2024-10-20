@@ -103,7 +103,7 @@ void main()
     {
         return;
     }
-    vec3 gamma_correct = vec3(0,0,0);
+    vec3 color = vec3(0,0,0);
     if (deref(push.attachments.globals).settings.anti_aliasing_mode == AA_MODE_SUPER_SAMPLE)
     {
         for (uint y = 0; y < 2; ++y)
@@ -112,7 +112,7 @@ void main()
             {
                 const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index * 2 + ivec2(x,y));
                 const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
-                gamma_correct += pow(tonemapped_color, vec3(1.0/2.2)) * 0.25f;
+                color += tonemapped_color * 0.25f;
             }
         }
     }
@@ -120,11 +120,13 @@ void main()
     {
         const vec4 exposed_color = imageLoad(daxa_image2D(push.attachments.color_image), index);
         const vec3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
-        gamma_correct = pow(tonemapped_color, vec3(1.0/2.2));
+        color = tonemapped_color;
     }
 
     daxa_f32vec4 debug_color = texelFetch(daxa_texture2D(push.attachments.debug_image), index, 0);
-    gamma_correct.rgb = mix(gamma_correct.rgb, pow(debug_color.rgb, vec3(1.0/2.2)), debug_color.a);
+    color.rgb = mix(color.rgb, debug_color.rgb, debug_color.a);
+
+    vec3 gamma_correct = pow(color, vec3(1.0/2.2));
 
     imageStore(daxa_image2D(push.attachments.swapchain), index, vec4(gamma_correct.rgb, 1));
 }

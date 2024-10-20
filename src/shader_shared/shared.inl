@@ -278,7 +278,6 @@ struct CameraInfo
 };
 
 #if DAXA_SHADER
-#define my_sizeof(T) uint64_t(daxa_BufferPtr(T)(daxa_u64(0)) + 1)
 
 daxa_f32mat4x4 mat_4x3_to_4x4(daxa_f32mat4x3 in_mat)
 {

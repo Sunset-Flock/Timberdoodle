@@ -1,3 +1,5 @@
+#pragma once
+
 #include "daxa/daxa.inl"
 
 #include "shared.inl"
@@ -14,3 +16,5 @@ struct VolumetricSettings
     }
 #endif
 };
+
+#define VOLUMETRIC_SKY_DEPTH 10000.0f

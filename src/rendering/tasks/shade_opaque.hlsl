@@ -1,3 +1,4 @@
+#define DAXA_RAY_TRACING 1
 #include <daxa/daxa.inl>
 #include "shade_opaque.inl"
 
@@ -8,17 +9,18 @@
 #include "shader_lib/sky_util.glsl"
 #include "shader_lib/vsm_util.glsl"
 #include "shader_lib/misc.hlsl"
+#include "shader_lib/volumetric.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
-#define AT_FROM_PUSH deref(push_opaque.attachments).attachments
+#define AT deref(push_opaque.attachments).attachments
 
 float compute_exposure(float average_luminance) 
 {
-    const float exposure_bias = AT_FROM_PUSH.globals->postprocess_settings.exposure_bias;
-    const float calibration = AT_FROM_PUSH.globals->postprocess_settings.calibration;
-    const float sensor_sensitivity = AT_FROM_PUSH.globals->postprocess_settings.exposure_bias;
+    const float exposure_bias = AT.globals->postprocess_settings.exposure_bias;
+    const float calibration = AT.globals->postprocess_settings.calibration;
+    const float sensor_sensitivity = AT.globals->postprocess_settings.exposure_bias;
     const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
 	const float exposure = 1.0 / (1.2 * exp2(ev100));
 	return exposure;
@@ -68,8 +70,8 @@ float3 get_sun_direct_lighting(daxa_BufferPtr(SkySettings) settings, float3 view
         float3(0.0) : 
         get_sun_illuminance(
             settings,
-            AT_FROM_PUSH.transmittance,
-            AT_FROM_PUSH.globals->samplers.linear_clamp,
+            AT.transmittance,
+            AT.globals->samplers.linear_clamp,
             view_direction,
             length(world_position),
             dot(settings->sun_direction, normalize(world_position))
@@ -81,16 +83,16 @@ float3 get_sun_direct_lighting(daxa_BufferPtr(SkySettings) settings, float3 view
 float3 get_view_direction(float2 ndc_xy)
 {
     float3 world_direction; 
-    if(AT_FROM_PUSH.globals->settings.draw_from_observer == 1)
+    if(AT.globals->settings.draw_from_observer == 1)
     {
-        const float3 camera_position = AT_FROM_PUSH.globals->observer_camera.position;
-        const float4 unprojected_pos = mul(AT_FROM_PUSH.globals->observer_camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
+        const float3 camera_position = AT.globals->observer_camera.position;
+        const float4 unprojected_pos = mul(AT.globals->observer_camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
         world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
     }
     else 
     {
-        const float3 camera_position = AT_FROM_PUSH.globals->camera.position;
-        const float4 unprojected_pos = mul(AT_FROM_PUSH.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
+        const float3 camera_position = AT.globals->camera.position;
+        const float4 unprojected_pos = mul(AT.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
         world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
     }
     return world_direction;
@@ -100,17 +102,17 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
 {
     float3 color = float3(1.0, 1.0, 1.0);
 
-    const float4x4 inv_projection_view = AT_FROM_PUSH.globals->camera.inv_view_proj;
-    const bool level_forced = AT_FROM_PUSH.globals->vsm_settings.force_clip_level != 0;
-    const int force_clip_level = level_forced ? AT_FROM_PUSH.globals->vsm_settings.forced_clip_level : -1;
+    const float4x4 inv_projection_view = AT.globals->camera.inv_view_proj;
+    const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
+    const int force_clip_level = level_forced ? AT.globals->vsm_settings.forced_clip_level : -1;
 
     ClipInfo clip_info;
-    uint2 render_target_size = AT_FROM_PUSH.globals->settings.render_target_size;
+    uint2 render_target_size = AT.globals->settings.render_target_size;
     float real_depth = depth;
     float2 real_uv = uv;
-    if(AT_FROM_PUSH.globals->settings.draw_from_observer == 1u)
+    if(AT.globals->settings.draw_from_observer == 1u)
     {
-        const float4 main_cam_proj_world = mul(AT_FROM_PUSH.globals->camera.view_proj, float4(world_position, 1.0));
+        const float4 main_cam_proj_world = mul(AT.globals->camera.view_proj, float4(world_position, 1.0));
         const float2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
         if(main_cam_proj_world.w < 0.0 || abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0)
         {
@@ -125,25 +127,25 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
         real_depth,
         inv_projection_view,
         force_clip_level,
-        AT_FROM_PUSH.vsm_clip_projections,
-        AT_FROM_PUSH.vsm_globals,
-        AT_FROM_PUSH.globals
+        AT.vsm_clip_projections,
+        AT.vsm_globals,
+        AT.globals
     ));
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return color; }
 
     const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(clip_info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), clip_info.clip_level);
-    const uint is_dynamic_invalidated = unwrap_vsm_page_from_mask(vsm_page_pix_coords, AT_FROM_PUSH.vsm_wrapped_pages);
-    const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT_FROM_PUSH.vsm_clip_projections);
-    const uint page_entry = Texture2DArray<uint>::get(AT_FROM_PUSH.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
+    const uint is_dynamic_invalidated = unwrap_vsm_page_from_mask(vsm_page_pix_coords, AT.vsm_wrapped_pages);
+    const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT.vsm_clip_projections);
+    const uint page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
 
     if(get_is_allocated(page_entry))
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
         uint overdraw_amount = 0;
-        if (AT_FROM_PUSH.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
+        if (AT.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
-            overdraw_amount = RWTexture2D<uint>::get(AT_FROM_PUSH.vsm_overdraw_debug)[physical_texel_coords].x;
+            overdraw_amount = RWTexture2D<uint>::get(AT.vsm_overdraw_debug)[physical_texel_coords].x;
         }
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
         bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
@@ -167,7 +169,7 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
                 color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
             }
         }
-        if (AT_FROM_PUSH.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
+        if (AT.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
             const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
             color.rgb = overdraw_color;
@@ -181,8 +183,8 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
 
 int get_height_depth_offset(int3 vsm_page_texel_coords)
 {
-    const int page_draw_camera_height = Texture2DArray<int>::get(AT_FROM_PUSH.vsm_page_height_offsets).Load(int4(vsm_page_texel_coords, 0)).r;
-    const int current_camera_height = deref_i(AT_FROM_PUSH.vsm_clip_projections, vsm_page_texel_coords.z).height_offset;
+    const int page_draw_camera_height = Texture2DArray<int>::get(AT.vsm_page_height_offsets).Load(int4(vsm_page_texel_coords, 0)).r;
+    const int current_camera_height = deref_i(AT.vsm_clip_projections, vsm_page_texel_coords.z).height_offset;
     const int height_difference = current_camera_height - page_draw_camera_height;
     // const int height_difference =  page_draw_camera_height - current_camera_height;
     return height_difference;
@@ -198,15 +200,15 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     if (push_opaque.attachments.attachments.globals.vsm_settings.use64bit != 0)
     {
         // TODO
-        // const float vsm_sample = asfloat(uint(Texture2Duint64view[AT_FROM_PUSH.vsm_memory_block64.index()].Load(int3(physical_texel_coords, 0)).r));
+        // const float vsm_sample = asfloat(uint(Texture2Duint64view[AT.vsm_memory_block64.index()].Load(int3(physical_texel_coords, 0)).r));
     }
     else
     {
-        vsm_sample = Texture2D<float>::get(AT_FROM_PUSH.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
+        vsm_sample = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
     }
 
-    const float4x4 vsm_shadow_view = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.view;
-    const float4x4 vsm_shadow_proj = deref_i(AT_FROM_PUSH.vsm_clip_projections, clip_info.clip_level).camera.proj;
+    const float4x4 vsm_shadow_view = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.view;
+    const float4x4 vsm_shadow_proj = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.proj;
 
     const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
@@ -216,24 +218,24 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
     const float vsm_projected_depth = vsm_projected_world.z / vsm_projected_world.w;
 
-    const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT_FROM_PUSH.vsm_clip_projections);
+    const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT.vsm_clip_projections);
     const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
     return is_in_shadow ? 0.0 : 1.0;
 }
 
 float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_norm_dot)
 {
-    const bool level_forced = AT_FROM_PUSH.globals->vsm_settings.force_clip_level != 0;
-    const int force_clip_level = level_forced ? AT_FROM_PUSH.globals->vsm_settings.forced_clip_level : -1;
+    const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
+    const int force_clip_level = level_forced ? AT.globals->vsm_settings.forced_clip_level : -1;
 
-    const float4x4 inv_projection_view = AT_FROM_PUSH.globals->camera.inv_view_proj;
-    uint2 render_target_size = AT_FROM_PUSH.globals->settings.render_target_size;
+    const float4x4 inv_projection_view = AT.globals->camera.inv_view_proj;
+    uint2 render_target_size = AT.globals->settings.render_target_size;
     ClipInfo clip_info;
     float real_depth = depth;
     float2 real_uv = uv;
-    if(AT_FROM_PUSH.globals->settings.draw_from_observer == 1u)
+    if(AT.globals->settings.draw_from_observer == 1u)
     {
-        const float4 main_cam_proj_world = mul(AT_FROM_PUSH.globals->camera.view_proj, float4(world_position, 1.0));
+        const float4 main_cam_proj_world = mul(AT.globals->camera.view_proj, float4(world_position, 1.0));
         const float2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
         real_uv = (ndc + float2(1.0)) / float2(2.0);
         real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
@@ -244,9 +246,9 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
         real_depth,
         inv_projection_view,
         force_clip_level,
-        AT_FROM_PUSH.vsm_clip_projections,
-        AT_FROM_PUSH.vsm_globals,
-        AT_FROM_PUSH.globals
+        AT.vsm_clip_projections,
+        AT.vsm_globals,
+        AT.globals
     );
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
@@ -275,8 +277,8 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
             let filter_view_space_offset = float4(filter_rot_offset * filter_radius * pow(1.0, clip_levels[level]), 0.0, 0.0);
             const daxa_f32vec3 center_world_space = world_space_from_uv( real_uv, real_depth, inv_projection_view);
 
-            let clip_proj = AT_FROM_PUSH.vsm_clip_projections[clip_levels[level]].camera.proj;
-            let clip_view = AT_FROM_PUSH.vsm_clip_projections[clip_levels[level]].camera.view;
+            let clip_proj = AT.vsm_clip_projections[clip_levels[level]].camera.proj;
+            let clip_view = AT.vsm_clip_projections[clip_levels[level]].camera.view;
 
             let view_space_world_pos = mul(clip_view, float4(world_position, 1.0));
             let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
@@ -287,8 +289,8 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
 
             if(all(greaterThanEqual(offset_info.clip_depth_uv, 0.0)) && all(lessThan(offset_info.clip_depth_uv, 1.0)))
             {
-                let vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(offset_info, AT_FROM_PUSH.vsm_clip_projections);
-                let page_entry = Texture2DArray<uint>::get(AT_FROM_PUSH.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
+                let vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(offset_info, AT.vsm_clip_projections);
+                let page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
                 let height_offset = get_height_depth_offset(vsm_page_texel_coords);
                 if(get_is_allocated(page_entry))
                 {
@@ -311,18 +313,18 @@ void entry_main_cs(
 {
     let push = push_opaque;
     const int2 index = svdtid.xy;
-    const float2 screen_uv = float2(svdtid.xy) * AT_FROM_PUSH.globals->settings.render_target_size_inv;
+    const float2 screen_uv = (float2(svdtid.xy) + 0.5f) * AT.globals->settings.render_target_size_inv;
 
-    const float3 atmo_camera_position = AT_FROM_PUSH.globals->settings.draw_from_observer == 1 ? 
-        AT_FROM_PUSH.globals->observer_camera.position * M_TO_KM_SCALE :
-        AT_FROM_PUSH.globals->camera.position * M_TO_KM_SCALE;
-    const float3 bottom_atmo_offset = float3(0,0, AT_FROM_PUSH.globals->sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
+    const float3 atmo_camera_position = AT.globals->settings.draw_from_observer == 1 ? 
+        AT.globals->observer_camera.position * M_TO_KM_SCALE :
+        AT.globals->camera.position * M_TO_KM_SCALE;
+    const float3 bottom_atmo_offset = float3(0,0, AT.globals->sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const float3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
 
     uint triangle_id;
-    if(all(lessThan(index, AT_FROM_PUSH.globals->settings.render_target_size)))
+    if(all(lessThan(index, AT.globals->settings.render_target_size)))
     {
-        triangle_id = Texture2D<uint>::get(AT_FROM_PUSH.vis_image).Load(int3(index, 0), int2(0)).x;
+        triangle_id = Texture2D<uint>::get(AT.vis_image).Load(int3(index, 0), int2(0)).x;
     } else {
         triangle_id = INVALID_TRIANGLE_ID;
     }
@@ -332,24 +334,28 @@ void entry_main_cs(
 
     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
 
+    float4x4 view_proj;
+    float3 camera_position;
+    if(AT.globals->settings.draw_from_observer == 1)
+    {
+        view_proj = AT.globals->observer_camera.view_proj;
+        camera_position = AT.globals->observer_camera.position;
+    }
+    else 
+    {
+        view_proj = AT.globals->camera.view_proj;
+        camera_position = AT.globals->camera.position;
+    }
+
+    let pixel_ndc = float4(screen_uv * 2.0f - 1.0f, 0.0f, 1.0f);
+    let primary_ray = normalize(mul(AT.globals.camera.inv_view_proj, pixel_ndc).xyz);
+    float world_space_depth = 0.0f;
+
     if(triangle_id_valid)
     {
-        float4x4 view_proj;
-        float3 camera_position;
-        if(AT_FROM_PUSH.globals->settings.draw_from_observer == 1)
-        {
-            view_proj = AT_FROM_PUSH.globals->observer_camera.view_proj;
-            camera_position = AT_FROM_PUSH.globals->observer_camera.position;
-        }
-        else 
-        {
-            view_proj = AT_FROM_PUSH.globals->camera.view_proj;
-            camera_position = AT_FROM_PUSH.globals->camera.position;
-        }
-
-        daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT_FROM_PUSH.instantiated_meshlets;
-        daxa_BufferPtr(GPUMesh) meshes = AT_FROM_PUSH.meshes;
-        daxa_BufferPtr(daxa_f32mat4x3) combined_transforms = AT_FROM_PUSH.combined_transforms;
+        daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT.instantiated_meshlets;
+        daxa_BufferPtr(GPUMesh) meshes = AT.meshes;
+        daxa_BufferPtr(daxa_f32mat4x3) combined_transforms = AT.combined_transforms;
         VisbufferTriangleData tri_data = visgeo_triangle_data(
             triangle_id,
             float2(index),
@@ -359,7 +365,10 @@ void entry_main_cs(
             instantiated_meshlets,
             meshes,
             combined_transforms
-        );
+        );        
+
+        world_space_depth = length(tri_data.world_position - camera_position);
+
         float3 normal = tri_data.world_normal;
         GPUMaterial material;
         material.diffuse_texture_id.value = 0;
@@ -370,15 +379,15 @@ void entry_main_cs(
         material.base_color = float3(1.0);
         if(tri_data.meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
-            material = AT_FROM_PUSH.material_manifest[tri_data.meshlet_instance.material_index];
+            material = AT.material_manifest[tri_data.meshlet_instance.material_index];
         }
 
         float3 albedo = float3(material.base_color);
         if(material.diffuse_texture_id.value != 0)
         {
             albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
-                // SamplerState::get(AT_FROM_PUSH.globals->samplers.nearest_repeat_ani),
-                SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_repeat_ani),
+                // SamplerState::get(AT.globals->samplers.nearest_repeat_ani),
+                SamplerState::get(AT.globals->samplers.linear_repeat_ani),
                 tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
             ).rgb;
         }
@@ -389,7 +398,7 @@ void entry_main_cs(
             if(material.normal_compressed_bc5_rg)
             {
                 const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(AT_FROM_PUSH.globals->samplers.normals),
+                    SamplerState::get(AT.globals->samplers.normals),
                     tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
                 ).rg;
                 const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
@@ -399,7 +408,7 @@ void entry_main_cs(
             else
             {
                 const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(AT_FROM_PUSH.globals->samplers.normals),
+                    SamplerState::get(AT.globals->samplers.normals),
                     tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
                 ).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
@@ -408,20 +417,20 @@ void entry_main_cs(
             normal = mul(tbn, normal_map_value);
         }
 
-        const float3 sun_direction = AT_FROM_PUSH.globals->sky_settings.sun_direction;
+        const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
-        const float vsm_shadow = AT_FROM_PUSH.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
+        const float vsm_shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * vsm_shadow.x;
 
-        const float3 atmo_camera_position = AT_FROM_PUSH.globals->camera.position * M_TO_KM_SCALE;
+        const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
 
-        const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
-        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT_FROM_PUSH.sky_ibl).SampleLevel(SamplerState::get(AT_FROM_PUSH.globals->samplers.linear_clamp), normal, 0);
+        const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
+        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
         float ambient_occlusion = 1.0f;
-        const bool ao_enabled = (AT_FROM_PUSH.globals.settings.ao_mode != AO_MODE_NONE) && !AT_FROM_PUSH.ao_image.id.is_empty();
+        const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled)
         {
-            ambient_occlusion = AT_FROM_PUSH.ao_image.get().Load(index);
+            ambient_occlusion = AT.ao_image.get().Load(index);
         }
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         const float3 lighting = direct_lighting + (indirect_lighting * ambient_occlusion);
@@ -431,19 +440,19 @@ void entry_main_cs(
         float3 dummy_color = float3(1,0,1);
         uint id_to_visualize = ~0u;
         float atomic_depth = 0;
-        if (AT_FROM_PUSH.atomic_visbuffer.value != 0)
+        if (AT.atomic_visbuffer.value != 0)
         {
-            daxa::u64 visdepth = tex_u64_table[AT_FROM_PUSH.atomic_visbuffer.index()][index];
+            daxa::u64 visdepth = tex_u64_table[AT.atomic_visbuffer.index()][index];
             atomic_depth = asfloat(uint(visdepth >> 32));
         }
-        switch(AT_FROM_PUSH.globals->settings.debug_draw_mode)
+        switch(AT.globals->settings.debug_draw_mode)
         {
             case DEBUG_DRAW_MODE_OVERDRAW:
             {
-                if (AT_FROM_PUSH.overdraw_image.value != 0)
+                if (AT.overdraw_image.value != 0)
                 {
-                    let value = Texture2D<uint>::get(AT_FROM_PUSH.overdraw_image)[index].x;
-                    let scaled_value = float(value) * AT_FROM_PUSH.globals->settings.debug_overdraw_scale;
+                    let value = Texture2D<uint>::get(AT.overdraw_image)[index].x;
+                    let scaled_value = float(value) * AT.globals->settings.debug_overdraw_scale;
                     let color = TurboColormap(scaled_value);
                     output_value.rgb = color;
                 }
@@ -467,8 +476,8 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DEPTH:
             {
-                float depth = AT_FROM_PUSH.atomic_visbuffer.value != 0 ? atomic_depth : tri_data.depth;
-                let color = unband_z_color(index.x, index.y, linearise_depth(AT_FROM_PUSH.globals.camera.near_plane, depth));
+                float depth = AT.atomic_visbuffer.value != 0 ? atomic_depth : tri_data.depth;
+                let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.camera.near_plane, depth));
                 output_value.rgb = color;
                 break;
             }
@@ -505,30 +514,43 @@ void entry_main_cs(
     }
     else 
     {
+        world_space_depth = VOLUMETRIC_SKY_DEPTH;
+
         const float2 ndc_xy = screen_uv * 2.0 - 1.0;
         const float3 view_direction = get_view_direction(ndc_xy);
         const float3 atmosphere_direct_illuminnace = get_atmosphere_illuminance_along_ray(
-            AT_FROM_PUSH.globals->sky_settings_ptr,
-            AT_FROM_PUSH.transmittance,
-            AT_FROM_PUSH.sky,
-            AT_FROM_PUSH.globals->samplers.linear_clamp,
+            AT.globals->sky_settings_ptr,
+            AT.transmittance,
+            AT.sky,
+            AT.globals->samplers.linear_clamp,
             view_direction,
             bottom_atmo_offset_camera_position
         );
-        const float3 sun_direct_illuminance = get_sun_direct_lighting(AT_FROM_PUSH.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
+        const float3 sun_direct_illuminance = get_sun_direct_lighting(AT.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
         const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
 
-    const float exposure = compute_exposure(deref(AT_FROM_PUSH.luminance_average));
+    
+    const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;
+    rand_seed(thread_seed);
+    let sun_direction = AT.globals->sky_settings.sun_direction;
+    VolumetricResult volumetric = volumetric_extinction_inscatter(camera_position, primary_ray, world_space_depth, daxa::acceleration_structures[AT.tlas.index()], sun_direction);
+    let endpoint = camera_position + primary_ray * world_space_depth;
+
+    output_value.rgb = output_value.rgb * volumetric.transmittance + volumetric.inscattering;
+
+    //RWTexture2D<float4>::get(AT.debug_image)[index] = float4(frac(endpoint), 1.0f);
+
+    const float exposure = compute_exposure(deref(AT.luminance_average));
     float3 exposed_color = output_value.rgb * exposure;
     debug_write_lens(
-        AT_FROM_PUSH.globals->debug,
-        AT_FROM_PUSH.debug_lens_image,
+        AT.globals->debug,
+        AT.debug_lens_image,
         index,
         float4(exposed_color, 1.0f),
     );
     
-    AT_FROM_PUSH.color_image.get()[index] = exposed_color;
+    AT.color_image.get()[index] = exposed_color;
 }
