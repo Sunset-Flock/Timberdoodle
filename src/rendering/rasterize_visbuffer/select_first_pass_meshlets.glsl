@@ -122,7 +122,7 @@ void main()
     // Try to lock the mesh instance offset:
     const uint mesh_instance_bitfield_offset_offset = entity_to_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
     const bool locked_mesh_instance_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
-        push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset],
+        push.attach.bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset],
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED
     );
@@ -155,7 +155,7 @@ void main()
     // - Write clear bitfield section indirect command 
 
     // Write allocated bitfield offset to mesh instances offset
-    atomicExchange(push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset], bitfield_section_local_offset);
+    atomicExchange(push.attach.bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset], bitfield_section_local_offset);
 }
 #endif
 
@@ -185,7 +185,7 @@ void main()
     {
         const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
         // Offset is valid, need to check if mesh instance offset is valid now.
-        const uint first_pass_mesh_instance_bitfield_offset = push.attach.bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
+        const uint first_pass_mesh_instance_bitfield_offset = push.attach.bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset];
         if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
             (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
         {
@@ -200,7 +200,7 @@ void main()
             const uint in_bitfield_u32_index = prev_frame_vis_meshlet.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
             const uint in_u32_bit = prev_frame_vis_meshlet.meshlet_index % 32;
             const uint in_u32_mask = 1u << in_u32_bit;
-            const uint prior_bitfield_u32 = atomicOr(push.attach.bitfield_arena.uints[in_bitfield_u32_index], in_u32_mask);
+            const uint prior_bitfield_u32 = atomicOr(push.attach.bitfield_arena.dynamic_section[in_bitfield_u32_index], in_u32_mask);
             if ((prior_bitfield_u32 & in_u32_mask) != 0)
             {
                 // SHOULD NEVER HAPPEN:

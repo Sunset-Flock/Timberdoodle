@@ -279,20 +279,21 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             u32 second_pass_meshlets = render_context.general_readback.second_pass_meshlet_count[0] + render_context.general_readback.second_pass_meshlet_count[1];
             u32 total_meshlets_drawn = first_pass_meshlets + second_pass_meshlets;
             
-            u32 used_dynamic_section_sfpm_bitfield = render_context.general_readback.sfpm_bitfield_arena_requested;
-            u32 dynamic_section_sfpm_bitfield_size = FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES);
+            u32 used_dynamic_section_sfpm_bitfield = (render_context.general_readback.sfpm_bitfield_arena_requested * 4) / 1000;
+            u32 dynamic_section_sfpm_bitfield_size = (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES)) / 1000;
             struct VisbufferPipelineStat
             {
                 char const * name = {};
+                char const * unit = {};
                 u32 value = {};
                 u32 max_value = {};
             };
             std::array visbuffer_pipeline_stats = {
-                VisbufferPipelineStat{"Mesh Instances (Unculled)", mesh_instance_count, MAX_MESH_INSTANCES},
-                VisbufferPipelineStat{"First Pass Meshlets", first_pass_meshlets, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Second Pass Meshlets", second_pass_meshlets, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Total Meshlet Instances", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"First Pass Bitfield Use", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
+                VisbufferPipelineStat{"Mesh Instances (Unculled)", "", mesh_instance_count, MAX_MESH_INSTANCES},
+                VisbufferPipelineStat{"First Pass Meshlets", "", first_pass_meshlets, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Second Pass Meshlets", "", second_pass_meshlets, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Total Meshlet Instances", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
             };
 
             ImGui::SeparatorText("Visbuffer Pipeline Statistics");
@@ -310,9 +311,9 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                         ImGui::TableSetColumnIndex(0);
                         ImGui::Text(stat.name);
                         ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%i", stat.value);
+                        ImGui::Text("%i%s", stat.value, stat.unit);
                         ImGui::TableSetColumnIndex(2);
-                        ImGui::Text("%i", stat.max_value);
+                        ImGui::Text("%i%s", stat.max_value, stat.unit);
                         ImGui::TableSetColumnIndex(3);
                         ImGui::Text("%f%%", static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f);
                     }

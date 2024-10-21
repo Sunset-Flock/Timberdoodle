@@ -121,7 +121,7 @@ DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) SFPMBitfieldRef
 {
     daxa_u32 entity_to_meshlist_offsets[MAX_ENTITIES];
     daxa_u32 dynamic_offset;
-    daxa_u32 uints[];
+    daxa_u32 dynamic_section[];
 };
 
 #else
@@ -132,7 +132,7 @@ struct SFPMMeshletBitfieldBuffer
 {
     daxa_u32 entity_to_meshlist_offsets[MAX_ENTITIES];
     daxa_u32 dynamic_offset;
-    daxa_u32 uints[1];
+    daxa_u32 dynamic_section[1];
 };
 
 #endif 
@@ -144,8 +144,7 @@ struct SFPMMeshletBitfieldBuffer
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED (~0u ^ 1u)
 #define FIRST_PASS_MESHLET_BITFIELD_OFFSET_DEBUG (~0u ^ 2u)
 
-#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<22u)
-
+#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<21u)
 #define FIRST_OPAQUE_PASS_BITFIELD_ARENA_BASE_OFFSET MAX_ENTITIES
 
 /// --- Mesh Instance Draw List End ---

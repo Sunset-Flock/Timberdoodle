@@ -25,8 +25,9 @@ func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
         command.y = 1;
         command.z = 1;
         *push.attach.command = command;
-        // Initialize offset to be past the dynamic_offset counter and entity offsets.
-        push.attach.bitfield_arena.dynamic_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
+        // As 0 is used as a clear value for the arena, we must have the 0 offset be invalid.
+        // The first index reserved should therefor be 1.
+        push.attach.bitfield_arena.dynamic_offset = 1;
     }
 
     uint threads_mapped = 0;
@@ -92,7 +93,7 @@ func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
 
     uint allocation_offset = 0;
     InterlockedAdd(push.attach.bitfield_arena.dynamic_offset, mesh_group.count, allocation_offset);
-    allocation_offset += FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
+    // allocation_offset += FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
     let offsets_section_size = allocation_offset + mesh_group.count;
     if (offsets_section_size < FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE)
     {

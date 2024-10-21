@@ -43,7 +43,7 @@ bool is_meshlet_drawn_in_first_pass(
     {
         const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + meshlet_inst.in_mesh_group_index;
         // Offset is valid, need to check if mesh instance offset is valid now.
-        const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.uints[mesh_instance_bitfield_offset_offset];
+        const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset];
         if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
             (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
         {
@@ -51,7 +51,7 @@ bool is_meshlet_drawn_in_first_pass(
             uint in_bitfield_u32_index = meshlet_inst.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
             const uint in_u32_bit = meshlet_inst.meshlet_index % 32;
             const uint in_u32_mask = 1u << in_u32_bit;
-            const uint bitfield_u32 = first_pass_meshlets_bitfield_arena.uints[in_bitfield_u32_index];
+            const uint bitfield_u32 = first_pass_meshlets_bitfield_arena.dynamic_section[in_bitfield_u32_index];
             const bool meshlet_drawn_first_pass = (bitfield_u32 & in_u32_mask) != 0;
             // DEBUG_INDEX(
             //     mesh_instance_bitfield_offset_offset,
