@@ -105,6 +105,7 @@ Application::Application()
     }
 
     app_state.last_time_point = std::chrono::steady_clock::now();
+    _renderer->render_context->render_times.enable_render_times = true;
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 

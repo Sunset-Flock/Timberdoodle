@@ -137,7 +137,10 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             };
             auto data_alloc = ti.allocator->allocate_fill(data, 8).value();
             ti.recorder.push_constant(data_alloc.device_address);
+            
+            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_GEN_HIZ);
             ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y });
+            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_GEN_HIZ);
         },
     });
     #else

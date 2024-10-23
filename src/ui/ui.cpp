@@ -262,11 +262,6 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 return 0ull;
             }
         };
-        f32 const weight = 0.99;
-        static constexpr std::array task_names{
-            "Bookkeeping",
-            "VSM draw",
-            "Sampling"};
 
         static float t = 0;
         t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
@@ -295,10 +290,9 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 VisbufferPipelineStat{"Total Meshlet Instances", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
                 VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
             };
-
             ImGui::SeparatorText("Visbuffer Pipeline Statistics");
             {
-                if (ImGui::BeginTable("Test", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
                 {
                     ImGui::TableSetupColumn("Value Name", {});
                     ImGui::TableSetupColumn("Value", {});
@@ -317,6 +311,35 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                         ImGui::TableSetColumnIndex(3);
                         ImGui::Text("%f%%", static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f);
                     }
+                    ImGui::EndTable();
+                }
+                if (ImGui::BeginTable("Visbuffer GPU Time Metrics", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                {
+                    ImGui::TableSetupColumn("Timing", {});
+                    ImGui::TableSetupColumn("Value", {});
+                    ImGui::TableSetupColumn("Value Smooth", {});
+                    ImGui::TableHeadersRow();
+                    u64 total = {};
+                    u64 total_smooth = {};
+                    for (auto const& visbuffer_render_time : RenderTimes::GROUP_RENDER_TIMES[RenderTimes::GROUP_VISBUFFER])
+                    {
+                        ImGui::TableNextRow();
+                        ImGui::TableSetColumnIndex(0);
+                        ImGui::Text("%s", RenderTimes::to_string(visbuffer_render_time));
+                        ImGui::TableSetColumnIndex(1);
+                        ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
+                        ImGui::TableSetColumnIndex(2);
+                        ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
+                        total += render_context.render_times.get(visbuffer_render_time);
+                        total_smooth += render_context.render_times.get_smooth(visbuffer_render_time);
+                    }
+                    ImGui::TableNextRow();
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Text("VISBUFFER_TOTAL");
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%fmics", static_cast<f32>(total) * 0.001f);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%fmics", static_cast<f32>(total_smooth) * 0.001f);
                     ImGui::EndTable();
                 }
             }
@@ -338,70 +361,40 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             if (ImGui::Button("Reset timings") || auto_reset_timings)
             {
                 t = 0;
-                for (i32 i = 0; i < 10; i++)
+                for (i32 i = 0; i < render_times_history.scrolling_ewa.size(); i++)
                 {
-                    measurements.vsm_timings_ewa.at(i) = 0.0f;
-                    measurements.vsm_timings_mean.at(i) = 0.0f;
-                    measurements.mean_sample_count = 0;
-                }
-                for (i32 i = 0; i < 3; i++)
-                {
-                    measurements.scrolling_ewa.at(i).erase();
-                    measurements.scrolling_mean.at(i).erase();
-                    measurements.scrolling_raw.at(i).erase();
+                    render_times_history.scrolling_ewa.at(i).erase();
+                    render_times_history.scrolling_mean.at(i).erase();
+                    render_times_history.scrolling_raw.at(i).erase();
                 }
             }
             ImGui::SameLine();
             ImGui::Checkbox("Show entire measured interval", &show_entire_interval);
-            f32 rolling_mean_weight = s_cast<f32>(measurements.mean_sample_count) / s_cast<f32>(measurements.mean_sample_count + 1);
-            for (u32 i = 0; i < 11; i++)
-            {
-                u64 const timestamp_value = s_cast<f32>(get_exec_time_from_timestamp(i * 4)) / 1'000.0f;
-                measurements.vsm_timings_raw.at(i) = timestamp_value;
-                if (timestamp_value != 0)
+
+            // ==== update scrolling times for render time groups =====
+
+            f32 const rolling_mean_weight = s_cast<f32>(render_times_history.mean_sample_count) / s_cast<f32>(render_times_history.mean_sample_count + 1);
+            f32 const ewa_weight = 0.95f;
+            for (u32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; ++group_i)
+            {    
+                std::span<RenderTimes::RenderTimesEnum const> group_times = RenderTimes::GROUP_RENDER_TIMES[group_i];
+
+                f32 raw = 0.0f;
+                for (auto time : group_times)
                 {
-                    measurements.vsm_timings_ewa.at(i) = measurements.vsm_timings_ewa.at(i) * weight + (1.0f - weight) * timestamp_value;
-                    measurements.vsm_timings_mean.at(i) = measurements.vsm_timings_mean.at(i) * rolling_mean_weight + timestamp_value * (1.0f - rolling_mean_weight);
+                    raw += static_cast<u32>(render_context.render_times.get(time)) * 0.001f; 
                 }
+                render_times_history.scrolling_raw.at(group_i).add_point(ImVec2(t, raw));
+
+                f32 const new_rolling_average = render_times_history.scrolling_mean.at(group_i).back().y * rolling_mean_weight + raw * (1.0f - rolling_mean_weight);
+                render_times_history.scrolling_mean.at(group_i).add_point(ImVec2(t, new_rolling_average));
+
+                f32 const new_ewa = render_times_history.scrolling_ewa.at(group_i).back().y * ewa_weight + (1.0f - ewa_weight) * raw;
+                render_times_history.scrolling_ewa.at(group_i).add_point(ImVec2(t, new_ewa));
             }
-            measurements.mean_sample_count += 1;
-            //  ========================= BOOKKEEPING =======================================
-            f32 bookkeeping_ewa = 0.0;
-            f32 bookkeeping_average = 0.0;
-            f32 bookkeeping_raw = 0.0;
-            for (u32 i = 0; i < 6; i++)
-            {
-                bookkeeping_raw += measurements.vsm_timings_raw.at(i);
-                bookkeeping_ewa += measurements.vsm_timings_ewa.at(i);
-                bookkeeping_average += measurements.vsm_timings_mean.at(i);
-            }
-            if (gather_perm_measurements)
-            {
-                measurements.scrolling_raw.at(0).add_point(ImVec2(t, bookkeeping_raw == 0.0 ? measurements.scrolling_raw.at(0).back().y : bookkeeping_raw));
-                measurements.scrolling_ewa.at(0).add_point(ImVec2(t, bookkeeping_ewa));
-                measurements.scrolling_mean.at(0).add_point(ImVec2(t, bookkeeping_average));
-            }
-            // ========================== DRAW ==============================================
-            f32 draw_raw = measurements.vsm_timings_raw.at(6);
-            f32 draw_ewa = measurements.vsm_timings_ewa.at(6);
-            f32 draw_average = measurements.vsm_timings_mean.at(6);
-            if (gather_perm_measurements)
-            {
-                measurements.scrolling_raw.at(1).add_point(ImVec2(t, draw_raw == 0.0 ? measurements.scrolling_raw.at(1).back().y : draw_raw));
-                measurements.scrolling_ewa.at(1).add_point(ImVec2(t, draw_ewa));
-                measurements.scrolling_mean.at(1).add_point(ImVec2(t, draw_average));
-            }
-            // ========================== SAMPLE =============================================
-            f32 sample_raw = measurements.vsm_timings_raw.at(10);
-            f32 sample_ewa = measurements.vsm_timings_ewa.at(10);
-            f32 sample_average = measurements.vsm_timings_mean.at(10);
-            if (gather_perm_measurements)
-            {
-                measurements.scrolling_raw.at(2).add_point(ImVec2(t, sample_raw == 0.0 ? measurements.scrolling_raw.at(2).back().y : sample_raw));
-                measurements.scrolling_ewa.at(2).add_point(ImVec2(t, sample_ewa));
-                measurements.scrolling_mean.at(2).add_point(ImVec2(t, sample_average));
-            }
-            // ================================================================================
+            render_times_history.mean_sample_count += 1;
+
+            // ========================================================
 
             static i32 selected_item = 0;
             std::array<char const *, 3> items = {"exp. weight average", "rolling average", "raw values"};
@@ -432,16 +425,36 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 calculate_percentiles = false;
             }
 
-            for (i32 stat = 0; stat < 3; stat++)
+            for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
             {
-                if (selected_item == 0) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} ewa: ", task_names.at(stat)).c_str(), measurements.scrolling_ewa.at(stat).back().y).c_str()); }
-                else if (selected_item == 1) { ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} average: ", task_names.at(stat)).c_str(), measurements.scrolling_mean.at(stat).back().y).c_str()); }
+                if (selected_item == 0) { 
+                    ImGui::TextUnformatted(
+                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{} ewa: ", 
+                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
+                        render_times_history.scrolling_ewa.at(group_i).back().y).c_str()
+                    ); 
+                }
+                else if (selected_item == 1) 
+                { 
+                    ImGui::TextUnformatted(
+                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{} average: ", 
+                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
+                        render_times_history.scrolling_mean.at(group_i).back().y).c_str()
+                    ); 
+                }
                 else
                 {
-                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", fmt::format("{} raw: ", task_names.at(stat)).c_str(), measurements.scrolling_raw.at(stat).back().y).c_str());
+                    ImGui::TextUnformatted(
+                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{} raw: ", 
+                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
+                        render_times_history.scrolling_raw.at(group_i).back().y).c_str()
+                    );
                     if (calculate_percentiles)
                     {
-                        auto sorted_values = measurements.scrolling_raw.at(stat).data;
+                        auto sorted_values = render_times_history.scrolling_raw.at(group_i).data;
                         std::sort(sorted_values.begin(), sorted_values.end(),
                             [](auto const & a, auto const & b) -> bool
                             { return a.y < b.y; });
@@ -454,10 +467,10 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             static float history = 20.0f;
             if (ImPlot::BeginPlot("##Scrolling"))
             {
-                decltype(measurements.scrolling_ewa) * measurements_scrolling_selected;
-                if (selected_item == 0) { measurements_scrolling_selected = &measurements.scrolling_ewa; }
-                else if (selected_item == 1) { measurements_scrolling_selected = &measurements.scrolling_mean; }
-                else { measurements_scrolling_selected = &measurements.scrolling_raw; }
+                decltype(render_times_history.scrolling_ewa) * measurements_scrolling_selected = {};
+                if (selected_item == 0) { measurements_scrolling_selected = &render_times_history.scrolling_ewa; }
+                else if (selected_item == 1) { measurements_scrolling_selected = &render_times_history.scrolling_mean; }
+                else { measurements_scrolling_selected = &render_times_history.scrolling_raw; }
                 ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
                 if (!show_entire_interval)
                 {
@@ -470,10 +483,10 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
                 ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
                 ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
-                for (i32 i = 0; i < 3; i++)
+                for (i32 i = 0; i < measurements_scrolling_selected->size(); i++)
                 {
                     ImPlot::PlotLine(
-                        task_names.at(i),
+                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(i)),
                         &measurements_scrolling_selected->at(i).data[0].x,
                         &measurements_scrolling_selected->at(i).data[0].y,
                         measurements_scrolling_selected->at(i).data.size(),

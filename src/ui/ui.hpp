@@ -33,7 +33,7 @@ using namespace tido::ui;
     VALUE = bvalue ? 1 : 0;\
 }
 
-struct PerfMeasurements
+struct RenderTimesHistory
 {
     template<typename T, i32 size>
     struct ScrollingBuffer
@@ -69,12 +69,9 @@ struct PerfMeasurements
             }
         }
     };
-    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_ewa = {};
-    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_mean = {};
-    std::array<ScrollingBuffer<ImVec2, 10000>, 3> scrolling_raw = {};
-    std::array<f32, 11> vsm_timings_ewa = {};
-    std::array<f32, 11> vsm_timings_mean = {};
-    std::array<f32, 11> vsm_timings_raw = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_ewa = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_mean = {};
+    std::array<ScrollingBuffer<ImVec2, 10000>, RenderTimes::GROUP_COUNT> scrolling_raw = {};
     i32 mean_sample_count = {};
 };
 
@@ -96,7 +93,7 @@ struct UIEngine
         daxa::ImGuiRenderer imgui_renderer = {};
         SceneGraph scene_graph = {};
         PropertyViewer property_viewer = {};
-        PerfMeasurements measurements = {};
+        RenderTimesHistory render_times_history = {};
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();

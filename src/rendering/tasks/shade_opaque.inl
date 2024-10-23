@@ -78,14 +78,9 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
-    daxa::TimelineQueryPool timeline_pool = {};
-    u32 const per_frame_timestamp_count = {};
     
     void callback(daxa::TaskInterface ti)
     {
-        u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-        u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
-
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
         auto const color_image_id = ti.get(AT.color_image).ids[0];
         auto const color_image_info = ti.device.image_info(color_image_id).value();
@@ -101,17 +96,10 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         ti.recorder.push_constant(push);
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
-        // TODO(msakmary): make nicer:
-        if (render_context->render_data.vsm_settings.enable)
-        {
-            ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS, .query_index = 20 + timestamp_start_index});
-        }
+
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::SHADE_OPAQUE);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        // TODO(msakmary): make nicer:
-        if (render_context->render_data.vsm_settings.enable)
-        {
-            ti.recorder.write_timestamp({.query_pool = timeline_pool, .pipeline_stage = daxa::PipelineStageFlagBits::COMPUTE_SHADER, .query_index = 21 + timestamp_start_index});
-        }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::SHADE_OPAQUE);
     }
 };
 #endif

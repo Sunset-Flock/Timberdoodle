@@ -29,8 +29,8 @@ func volumetric_extinction_inscatter(float3 origin, float3 ray, float t, Raytrac
     ret.inscattering = 0.0f.xxx;
 
     // Shitty Raymarch
-    let march_step_size = 0.3;
-    for (uint i = 0; i < 256; ++i)
+    let march_step_size = 1.5;
+    for (uint i = 0; i < 32; ++i)
     {
         let march_t = i * march_step_size + march_step_size * rand();
         if (march_t >= t) 

@@ -227,8 +227,13 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 }
             );
         }
+        if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
+        {
+            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_FIRST_PASS);
+        }
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
+
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
             auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
@@ -250,6 +255,11 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
             });
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
+
+        if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
+        {
+            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_FIRST_PASS);
+        }
     }
 };
 
@@ -286,7 +296,9 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 }
             );
         }
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_SECOND_PASS);
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
+        
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
             auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
@@ -313,6 +325,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
             }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_SECOND_PASS);
     }
 };
 

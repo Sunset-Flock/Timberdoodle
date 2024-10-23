@@ -179,7 +179,7 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
 {
     AttachmentViews views = {};
     GPUContext * gpu_context = {};
-    RenderContext * r_context = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
         auto info = ti.info(AT.src).value();
@@ -189,10 +189,13 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
             .size = {info.size.x,info.size.y},
             .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
         });
+        
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
         ti.recorder.dispatch({
             round_up_div(info.size.x, RTAO_DENOISER_X),
             round_up_div(info.size.y, RTAO_DENOISER_Y),
         });
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
     }
 };
 

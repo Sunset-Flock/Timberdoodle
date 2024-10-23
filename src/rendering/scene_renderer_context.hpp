@@ -101,6 +101,198 @@ struct TgDebugContext
     }
 };
 
+namespace RenderTimes
+{
+    enum RenderTimesEnum
+    {
+        VISBUFFER_DRAW_FIRST_PASS,
+        VISBUFFER_GEN_HIZ,
+        VISBUFFER_DRAW_SECOND_PASS,
+        VISBUFFER_ANALYZE,
+        RAY_TRACED_AMBIENT_OCCLUSION,
+        SHADE_OPAQUE,
+        VSM_FREE_WRAPPED_PAGES,
+        VSM_MARK_REQUIRED_PAGES,
+        VSM_FIND_FREE_PAGES,
+        VSM_ALLOCATE_PAGES,
+        VSM_CLEAR_PAGES,
+        VSM_GEN_DIRY_BIT_HIZ,
+        VSM_CULL_AND_DRAW_PAGES,
+        VSM_CLEAR_DIRY_BITS,
+        COUNT,
+    };
+
+    static constexpr inline std::array<char const *, RenderTimesEnum::COUNT> NAMES = {
+        "VISBUFFER_DRAW_FIRST_PASS",
+        "VISBUFFER_GEN_HIZ",
+        "VISBUFFER_DRAW_SECOND_PASS",
+        "VISBUFFER_ANALYZE",
+        "RAY_TRACED_AMBIENT_OCCLUSION",
+        "VSM_FREE_WRAPPED_PAGES",
+        "VSM_MARK_REQUIRED_PAGES",
+        "VSM_FIND_FREE_PAGES",
+        "VSM_ALLOCATE_PAGES",
+        "VSM_CLEAR_PAGES",
+        "VSM_GEN_DIRY_BIT_HIZ",
+        "VSM_CULL_AND_DRAW_PAGES",
+        "VSM_CLEAR_DIRY_BITS",
+        "SHADE_OPAQUE",
+    };
+
+    static constexpr inline auto to_string(RenderTimesEnum index) -> char const *
+    {
+        return NAMES[index];
+    }
+
+    enum RenderGroupTimesEnum
+    {
+        GROUP_VISBUFFER,
+        GROUP_AMBIENT_OCCLUSION,
+        GROUP_SHADE_OPAQUE,
+        GROUP_VSM_BOOKKEEPING,
+        GROUP_VSM_DRAW,
+        GROUP_COUNT
+    };
+
+    static constexpr inline std::array<char const *, RenderTimesEnum::COUNT> GROUP_NAMES = {
+        "GROUP_VISBUFFER",
+        "GROUP_AMBIENT_OCCLUSION",
+        "GROUP_SHADE_OPAQUE",
+        "GROUP_VSM_BOOKKEEPING",
+        "GROUP_VSM_CULL_AND_DRAW",
+    };
+
+    static constexpr inline auto to_string(RenderGroupTimesEnum index) -> char const *
+    {
+        return GROUP_NAMES[index];
+    }
+
+    static constexpr inline std::array GROUP_VISBUFFER_TIMES = std::array{
+        VISBUFFER_DRAW_FIRST_PASS,
+        VISBUFFER_GEN_HIZ,
+        VISBUFFER_DRAW_SECOND_PASS,
+        VISBUFFER_ANALYZE,
+    };
+
+    static constexpr inline std::array GROUP_AMBIENT_OCCLUSION_TIMES = std::array{
+        RAY_TRACED_AMBIENT_OCCLUSION,
+    };
+
+    static constexpr inline std::array GROUP_SHADE_OPAQUE_TIMES = std::array{
+        SHADE_OPAQUE,
+    };
+
+    static constexpr inline std::array GROUP_VSM_BOOKKEEPING_TIMES = std::array{
+        RAY_TRACED_AMBIENT_OCCLUSION,
+        VSM_FREE_WRAPPED_PAGES,
+        VSM_MARK_REQUIRED_PAGES,
+        VSM_FIND_FREE_PAGES,
+        VSM_ALLOCATE_PAGES,
+        VSM_CLEAR_PAGES,
+        VSM_GEN_DIRY_BIT_HIZ,
+    };
+
+    static constexpr inline std::array GROUP_VSM_CULL_AND_DRAW_TIMES = std::array{
+        VSM_CULL_AND_DRAW_PAGES,
+    };
+
+    static constexpr inline std::array<std::span<RenderTimesEnum const>, GROUP_COUNT> GROUP_RENDER_TIMES = {
+        GROUP_VISBUFFER_TIMES,
+        GROUP_AMBIENT_OCCLUSION_TIMES,
+        GROUP_SHADE_OPAQUE_TIMES,
+        GROUP_VSM_BOOKKEEPING_TIMES,
+        GROUP_VSM_CULL_AND_DRAW_TIMES,
+    };
+
+    struct State
+    {
+        bool enable_render_times = {};
+        u32 query_version_index = {};
+        u32 query_version_count = {};
+        daxa::TimelineQueryPool timeline_query_pool = {};
+        std::array<u64, RenderTimes::COUNT> current_times = {};
+        std::array<u64, RenderTimes::COUNT> smooth_current_times = {};
+
+        void init(daxa::Device& device, u32 frames_in_flight)
+        {
+            query_version_count = frames_in_flight + 1;
+            timeline_query_pool = device.create_timeline_query_pool({
+                .query_count = 2 * RenderTimes::COUNT * query_version_count,
+                .name = "render times query pool",
+            });
+        }
+
+        void readback_render_times(u32 frame_index)
+        {
+            query_version_index = frame_index % query_version_count;
+            const auto frames_in_flight_query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
+            std::vector<u64> results = timeline_query_pool.get_query_results(frames_in_flight_query_pool_offset, RenderTimes::COUNT * 2);
+
+            for (u32 i = 0; i < RenderTimes::COUNT; ++i)
+            {
+                // The query results layout:
+                // [0] start timestamp value
+                // [1] start timestamp readyness
+                // [2] end timestamp value
+                // [3] end timestamp readyness
+                u64 start = results[i * 4 + 0];
+                u64 start_ready = results[i * 4 + 1];
+                u64 end = results[i * 4 + 2];
+                u64 end_ready = results[i * 4 + 3];
+                if (start_ready && end_ready)
+                {
+                    current_times[i] = end - start;
+                }
+            }
+            for (u32 i = 0; i < RenderTimes::COUNT; ++i)
+            {
+                smooth_current_times[i] = (smooth_current_times[i] * 19 + current_times[i]) / 20;
+            }
+        }
+        
+        void write_timestamp(auto & recorder, u32 frame_timestamp)
+        {
+            if (enable_render_times)
+            {
+                const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
+                recorder.write_timestamp({
+                    .query_pool = timeline_query_pool, 
+                    .pipeline_stage = daxa::PipelineStageFlagBits::ALL_COMMANDS, 
+                    .query_index = frame_timestamp + query_pool_offset,
+                });
+            }
+        }
+        void start_gpu_timer(auto & recorder, u32 render_time_index)
+        {
+            write_timestamp(recorder, render_time_index * 2);
+            const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
+        }
+        void end_gpu_timer(auto & recorder, u32 render_time_index)
+        {
+            write_timestamp(recorder, render_time_index * 2 + 1);
+            const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
+        }
+        auto get(u32 render_time_index) -> u64
+        {
+            return current_times[render_time_index];
+        }
+        auto get_smooth(u32 render_time_index) -> u64
+        {
+            return smooth_current_times[render_time_index];
+        }
+        void reset_timestamps_for_current_frame(auto & recorder)
+        {
+            const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
+            recorder.reset_timestamps({
+                .query_pool = timeline_query_pool,
+                .start_index = query_pool_offset,
+                .count = RenderTimes::COUNT * 2,
+            });
+        }
+    };
+};
+
+
 // Used to store all information used only by the renderer.
 // Shared with task callbacks.
 // Global for a frame within the renderer.
@@ -177,6 +369,7 @@ struct RenderContext
             }),
         };
         render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
+        render_times.init(gpu_context->device, gpu_context->swapchain.info().max_allowed_frames_in_flight);
     }
     ~RenderContext()
     {
@@ -208,4 +401,7 @@ struct RenderContext
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum_pages = {};
     std::vector<u64> vsm_timestamp_results = {};
+
+    // Timing code:
+    RenderTimes::State render_times = {};
 };

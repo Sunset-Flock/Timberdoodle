@@ -439,7 +439,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
-        .reorder_tasks = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
@@ -527,6 +526,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         {
             allocate_fill_copy(ti, render_context->render_data, ti.get(render_context->tgpu_render_data));
             gpu_context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
+            render_context->render_times.reset_timestamps_for_current_frame(ti.recorder);
         },
         .name = "update global buffers",
     });
@@ -714,7 +714,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             AnalyzeVisbuffer2H::AT.visible_meshes | visible_mesh_instances,
             AnalyzeVisbuffer2H::AT.debug_image | debug_image,
         },
-        .gpu_context = gpu_context,
+        .render_context = render_context.get(),
     });
 
     if (render_context->render_data.settings.draw_from_observer)
@@ -809,7 +809,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 RTAODeoinserTask::AT.dst | ao_image,
             },
             .gpu_context = gpu_context,
-            .r_context = render_context.get(),
+            .render_context = render_context.get(),
         });
     }
     tg.add_task(DecodeVisbufferTestTask{
@@ -855,8 +855,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
         },
         .render_context = render_context.get(),
-        .timeline_pool = vsm_state.vsm_timeline_query_pool,
-        .per_frame_timestamp_count = vsm_state.PER_FRAME_TIMESTAMP_COUNT,
     });
 
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
@@ -1002,6 +1000,7 @@ void Renderer::render_frame(
         render_context->render_data.camera = camera_info;
         render_context->render_data.observer_camera = observer_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
+        render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
         render_context->render_data.delta_time = delta_time;
         render_context->render_data.test[0] = daxa_f32mat4x3{
             // rc = row column
@@ -1032,7 +1031,7 @@ void Renderer::render_frame(
     daxa::DeviceAddress render_data_device_address =
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
 
-    render_context->render_data.readback = 
+    render_context->render_data.readback =
         gpu_context->device.buffer_device_address(general_readback_buffer.get_state().buffers[0]).value() +
         sizeof(ReadbackValues) * (render_context->render_data.frame_index % 4);
     if (sky_settings_changed)
@@ -1104,6 +1103,8 @@ void Renderer::render_frame(
     meshlet_instances.swap_buffers(meshlet_instances_last_frame);
 
     if (static_cast<daxa_u32>(gpu_context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
+
+    render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 
     // Draw Frustum Camera.
     gpu_context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
