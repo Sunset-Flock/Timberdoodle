@@ -110,7 +110,7 @@ namespace RenderTimes
         VISBUFFER_DRAW_SECOND_PASS,
         VISBUFFER_ANALYZE,
         RAY_TRACED_AMBIENT_OCCLUSION,
-        SHADE_OPAQUE,
+        RAY_TRACED_AMBIENT_OCCLUSION_DENOISE,
         VSM_FREE_WRAPPED_PAGES,
         VSM_MARK_REQUIRED_PAGES,
         VSM_FIND_FREE_PAGES,
@@ -119,6 +119,7 @@ namespace RenderTimes
         VSM_GEN_DIRY_BIT_HIZ,
         VSM_CULL_AND_DRAW_PAGES,
         VSM_CLEAR_DIRY_BITS,
+        SHADE_OPAQUE,
         COUNT,
     };
 
@@ -128,6 +129,7 @@ namespace RenderTimes
         "VISBUFFER_DRAW_SECOND_PASS",
         "VISBUFFER_ANALYZE",
         "RAY_TRACED_AMBIENT_OCCLUSION",
+        "RAY_TRACED_AMBIENT_OCCLUSION_DENOISE",
         "VSM_FREE_WRAPPED_PAGES",
         "VSM_MARK_REQUIRED_PAGES",
         "VSM_FIND_FREE_PAGES",
@@ -150,7 +152,7 @@ namespace RenderTimes
         GROUP_AMBIENT_OCCLUSION,
         GROUP_SHADE_OPAQUE,
         GROUP_VSM_BOOKKEEPING,
-        GROUP_VSM_DRAW,
+        GROUP_VSM_CULL_AND_DRAW,
         GROUP_COUNT
     };
 
@@ -176,6 +178,7 @@ namespace RenderTimes
 
     static constexpr inline std::array GROUP_AMBIENT_OCCLUSION_TIMES = std::array{
         RAY_TRACED_AMBIENT_OCCLUSION,
+        RAY_TRACED_AMBIENT_OCCLUSION_DENOISE,
     };
 
     static constexpr inline std::array GROUP_SHADE_OPAQUE_TIMES = std::array{
@@ -183,7 +186,6 @@ namespace RenderTimes
     };
 
     static constexpr inline std::array GROUP_VSM_BOOKKEEPING_TIMES = std::array{
-        RAY_TRACED_AMBIENT_OCCLUSION,
         VSM_FREE_WRAPPED_PAGES,
         VSM_MARK_REQUIRED_PAGES,
         VSM_FIND_FREE_PAGES,

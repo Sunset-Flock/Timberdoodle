@@ -799,7 +799,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
             },
             .gpu_context = gpu_context,
-            .r_context = render_context.get(),
+            .render_context = render_context.get(),
         });
         tg.add_task(RTAODeoinserTask{
             .views = std::array{

@@ -533,13 +533,12 @@ void entry_main_cs(
     }
 
     
-    const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;
-    rand_seed(thread_seed);
-    let sun_direction = AT.globals->sky_settings.sun_direction;
-    VolumetricResult volumetric = volumetric_extinction_inscatter(camera_position, primary_ray, world_space_depth, daxa::acceleration_structures[AT.tlas.index()], sun_direction);
-    let endpoint = camera_position + primary_ray * world_space_depth;
-
-    output_value.rgb = output_value.rgb * volumetric.transmittance + volumetric.inscattering;
+    //const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;
+    //rand_seed(thread_seed);
+    //let sun_direction = AT.globals->sky_settings.sun_direction;
+    //VolumetricResult volumetric = volumetric_extinction_inscatter(camera_position, primary_ray, world_space_depth, daxa::acceleration_structures[AT.tlas.index()], sun_direction);
+    //let endpoint = camera_position + primary_ray * world_space_depth;
+    //output_value.rgb = output_value.rgb * volumetric.transmittance + volumetric.inscattering;
 
     //RWTexture2D<float4>::get(AT.debug_image)[index] = float4(frac(endpoint), 1.0f);
 

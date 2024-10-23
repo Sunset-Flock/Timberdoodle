@@ -132,16 +132,17 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
 {
     AttachmentViews views = {};
     GPUContext * gpu_context = {};
-    RenderContext * r_context = {};
+    RenderContext * render_context = {};
 
     void callback(daxa::TaskInterface ti)
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
         if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
         {
             RayTraceAmbientOcclusionPush push = { };
             push.attach = ti.attachment_shader_blob;
             auto const & ao_image = ti.device.image_info(ti.get(AT.ao_image).ids[0]).value();
-            if(r_context->render_data.settings.use_rt_pipeline_for_ao) 
+            if(render_context->render_data.settings.use_rt_pipeline_for_ao) 
             {
                 auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
                 ti.recorder.set_pipeline(*rt_pipeline.pipeline);
@@ -162,6 +163,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
                 ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
             }
         }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
     }
 };
 
@@ -182,6 +184,7 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION_DENOISE);
         auto info = ti.info(AT.src).value();
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
         ti.recorder.push_constant(RTAODenoiserPush{
@@ -190,12 +193,11 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
             .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
         });
         
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
         ti.recorder.dispatch({
             round_up_div(info.size.x, RTAO_DENOISER_X),
             round_up_div(info.size.y, RTAO_DENOISER_Y),
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION_DENOISE);
     }
 };
 
