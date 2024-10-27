@@ -73,6 +73,10 @@ struct ShaderDebugBufferHead
     daxa_u32 rectangle_draw_capacity;
     daxa_u32 aabb_draw_capacity;
     daxa_u32 box_draw_capacity;
+    daxa_u32 circle_draw_requests;
+    daxa_u32 rectangle_draw_requests;
+    daxa_u32 aabb_draw_requests;
+    daxa_u32 box_draw_requests;
     ShaderDebugInput cpu_input;
     ShaderDebugOutput gpu_output;
     daxa_RWBufferPtr(ShaderDebugCircleDraw) circle_draws;

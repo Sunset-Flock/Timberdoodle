@@ -24,6 +24,7 @@
 #include <daxa/utils/pipeline_manager.hpp>
 #include <thread>
 #include <variant>
+#include <iostream>
 
 inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_buf_name, auto buf_name)
 {

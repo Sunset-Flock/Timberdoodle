@@ -490,6 +490,8 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             ti.recorder.set_pipeline(pipeline);
 
             daxa::ImageViewInfo src_image_view_info = ti.device.image_view_info(src_id.default_view()).value();
+            src_image_view_info.slice.level_count = 1;
+            src_image_view_info.slice.layer_count = 1;
             src_image_view_info.slice.base_mip_level = state.mip;
             src_image_view_info.slice.base_array_layer = state.layer;
             daxa::ImageViewId src_view = ti.device.create_image_view(src_image_view_info);

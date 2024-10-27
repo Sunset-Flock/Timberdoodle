@@ -9,9 +9,10 @@
 void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
 {
     const uint capacity = deref(debug_info).circle_draw_capacity;
-    const uint index = atomicAdd(deref(debug_info).circle_draw_indirect_info.instance_count, 1);
+    const uint index = atomicAdd(deref(debug_info).circle_draw_requests, 1);
     if (index < capacity)
     {
+        atomicAdd(deref(debug_info).circle_draw_indirect_info.instance_count, 1);
         deref_i(deref(debug_info).circle_draws, index) = draw;
     }
     else
@@ -23,9 +24,10 @@ void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Shade
 void debug_draw_rectangle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugRectangleDraw draw)
 {
     const uint capacity = deref(debug_info).rectangle_draw_capacity;
-    const uint index = atomicAdd(deref(debug_info).rectangle_draw_indirect_info.instance_count, 1);
+    const uint index = atomicAdd(deref(debug_info).rectangle_draw_requests, 1);
     if (index < capacity)
     {
+        atomicAdd(deref(debug_info).rectangle_draw_indirect_info.instance_count, 1);
         deref_i(deref(debug_info).rectangle_draws, index) = draw;
     }
     else
@@ -37,9 +39,10 @@ void debug_draw_rectangle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Sh
 void debug_draw_aabb(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugAABBDraw draw)
 {
     const uint capacity = deref(debug_info).aabb_draw_capacity;
-    const uint index = atomicAdd(deref(debug_info).aabb_draw_indirect_info.instance_count, 1);
+    const uint index = atomicAdd(deref(debug_info).aabb_draw_requests, 1);
     if (index < capacity)
     {
+        atomicAdd(deref(debug_info).aabb_draw_indirect_info.instance_count, 1);
         deref_i(deref(debug_info).aabb_draws, index) = draw;
     }
     else
