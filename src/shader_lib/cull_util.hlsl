@@ -157,6 +157,11 @@ bool is_ndc_aabb_hiz_depth_occluded(
     daxa_ImageViewId hiz
 )
 {
+    if (meshlet_ndc_aabb.ndc_max.z > 1.0f)
+    {
+        return false;
+    }
+
     // HIZ res is a power of two and might differ from any mip level size of the scenes resolution.
     const daxa_f32vec2 f_hiz_resolution = data.hiz_size;
     // UV(NDC) -> (NDC + 1.0f) * 0.5f
