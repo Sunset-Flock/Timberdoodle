@@ -1180,13 +1180,13 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{
-                "None",
-                "Overdraw",
-                "Triangle Id",
-                "Meshlet Id",
-                "Entity Id",
-                "VSM Overdraw",
-                "VSM Clip Level",
+                "NONE",
+                "OVERDRAW",
+                "TRIANGLE_INSTANCE_ID",
+                "MESHLET_INSTANCE_ID",
+                "ENTITY_ID",
+                "VSM_OVERDRAW",
+                "VSM_CLIP_LEVEL",
                 "DEPTH",
                 "ALBEDO",
                 "NORMAL",

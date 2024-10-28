@@ -469,9 +469,12 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_CLIP_LEVEL: 
             {
-                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
-                let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
-                output_value.rgb = debug_albedo;
+                if (AT.globals->vsm_settings.enable != 0)
+                {
+                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
+                    let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
+                    output_value.rgb = debug_albedo;
+                }
                 break;
             }
             case DEBUG_DRAW_MODE_DEPTH:
