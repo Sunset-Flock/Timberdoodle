@@ -307,9 +307,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                     if (push.attach.hiz.value != 0 && !cull_primitive)
                     {
                         let cull_hiz_occluded = is_triangle_hiz_occluded(
+                            push.attach.globals.debug,
                             push.attach.globals.camera,
                             tri_vert_ndc_positions,
-                            push.attach.globals.settings.next_lower_po2_render_target_size,
+                            push.attach.globals.cull_data,
                             push.attach.hiz);
                         cull_primitive = cull_hiz_occluded;
                     }
@@ -530,7 +531,7 @@ func entry_task_meshlet_cull(
             instanced_meshlet,
             push.attach.entity_combined_transforms,
             push.attach.meshes,
-            push.attach.globals->settings.next_lower_po2_render_target_size,
+            push.attach.globals.cull_data,
             push.attach.hiz);
     }
     CullMeshletsDrawVisbufferPayload payload;

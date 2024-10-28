@@ -6,16 +6,19 @@
 #include "debug.inl"
 #include "readback.inl"
 #include "volumetric.inl"
+#include "cull_util.inl"
 
 struct RenderGlobalData
 {
-    daxa_f32mat4x3 test[2];
     CameraInfo camera;
     CameraInfo observer_camera;
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;
+    daxa_f32vec2 mainview_depth_hiz_physical_size;      
+    daxa_f32vec2 mainview_depth_hiz_size;
     Settings settings;
+    CullData cull_data;
     SkySettings sky_settings;
     VSMSettings vsm_settings;
     VolumetricSettings volumetric_settings;

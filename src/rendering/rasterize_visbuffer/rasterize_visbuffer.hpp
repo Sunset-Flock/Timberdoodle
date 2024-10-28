@@ -40,6 +40,7 @@ namespace raster_visbuf
             .name = "atomic visbuffer",
         });
     }
+
     inline auto create_depth(daxa::TaskGraph tg, RenderContext const & render_context) -> daxa::TaskImageView
     {
         daxa::Format format = render_context.render_data.settings.enable_atomic_visbuffer ? daxa::Format::R32_SFLOAT : daxa::Format::D32_SFLOAT;

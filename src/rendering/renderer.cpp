@@ -145,7 +145,6 @@ void Renderer::compile_pipelines()
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {sfpm_allocate_ent_bitfield_lists()},
-        {tido::upgrade_compute_pipeline_compile_info(gen_hiz_pipeline_compile_info())},
         {gen_hiz_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
@@ -1003,20 +1002,8 @@ void Renderer::render_frame(
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
         render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
         render_context->render_data.delta_time = delta_time;
-        render_context->render_data.test[0] = daxa_f32mat4x3{
-            // rc = row column
-            {11, 21, 31}, // col 1
-            {12, 22, 32}, // col 2
-            {13, 23, 33}, // col 3
-            {14, 24, 34}, // col 4
-        };
-        render_context->render_data.test[1] = daxa_f32mat4x3{
-            // rc = row column
-            {11, 21, 31}, // col 1
-            {12, 22, 32}, // col 2
-            {13, 23, 33}, // col 3
-            {14, 24, 34}, // col 4
-        };
+
+        render_context->render_data.cull_data = fill_cull_data(*render_context);
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;

@@ -9,9 +9,9 @@
 
 [[vk::push_constant]] GenHizPush2 push;
 
-func make_gather_uv(float2 inv_size, uint2 top_left_index) -> float2
+func make_gather_uv(float2 inv_src_size, uint2 top_left_index) -> float2
 {
-    return (float2(top_left_index) + 1.0f) * inv_size;
+    return (float2(top_left_index) + 1.0f) * inv_src_size;
 }
 
 groupshared float s_mins[2 * TILE_THREAD_WIDTH * TILE_THREAD_WIDTH];
@@ -31,7 +31,8 @@ func downsample_tile_mip_n0(int start_mip, uint2 tile, uint2 tile_thread) -> flo
         const bool base_case = src_mip == -1;
         if (base_case)
         {
-            const float2 src_inv_size = rcp(float2(push.data.dst_mip0_size) * 2.0f);
+            // We map pixels directly, 2x2 depth pixel become exactly one hiz mip 0 pixel, offset between gathers beeing exactly 2 pixels.
+            const float2 src_inv_size = rcp(float2(push.data.src_size));
             fetch = push.data.attach.src.get().GatherRed(push.data.attach.globals.samplers.linear_clamp.get(), make_gather_uv(src_inv_size, src_index), 0);
         }
         else

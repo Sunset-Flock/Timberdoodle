@@ -33,7 +33,7 @@ void main(uint thread_id : SV_DispatchThreadID)
             mesh_instance,
             push.attach.entity_combined_transforms,
             push.attach.meshes,
-            push.attach.globals.settings.next_lower_po2_render_target_size,
+            push.attach.globals.cull_data,
             push.attach.hiz))
         {
             return;
