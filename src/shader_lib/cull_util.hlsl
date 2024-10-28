@@ -10,6 +10,8 @@
 #include "../shader_lib/vsm_util.glsl"
 #include "../shader_shared/vsm_shared.inl"
 
+#define DEBUG_HIZ_CULL false
+
 // bool is_tri_out_of_frustum(CameraInfo camera, daxa_f32vec3 tri[3])
 // {
 //     const daxa_f32vec3 frustum_planes[5] = {
@@ -113,6 +115,8 @@ struct NdcAABB
     daxa_f32vec3 ndc_max;
 };
 
+static const float INVALID_NDC_AABB_Z = 2.0f;
+
 NdcAABB calculate_ndc_aabb(
     CameraInfo camera,
     daxa_f32mat4x4 model_matrix,
@@ -120,6 +124,7 @@ NdcAABB calculate_ndc_aabb(
 )
 {
     bool initialized_min_max = false;
+    bool max_behind_near_plane = false;
     NdcAABB ret;
     for (int z = -1; z <= 1; z += 2)
     {
@@ -137,6 +142,7 @@ NdcAABB calculate_ndc_aabb(
                 ret.ndc_max.x = !initialized_min_max ? ndc_corner_position.x : max(ndc_corner_position.x, ret.ndc_max.x);
                 ret.ndc_max.y = !initialized_min_max ? ndc_corner_position.y : max(ndc_corner_position.y, ret.ndc_max.y);
                 ret.ndc_max.z = !initialized_min_max ? ndc_corner_position.z : max(ndc_corner_position.z, ret.ndc_max.z);
+                max_behind_near_plane = max_behind_near_plane || (clipspace_corner_position.z > clipspace_corner_position.w);
                 initialized_min_max = true;
             }
         }
@@ -146,6 +152,10 @@ NdcAABB calculate_ndc_aabb(
     ret.ndc_min.y = max(ret.ndc_min.y, -1.0f);
     ret.ndc_max.x = min(ret.ndc_max.x,  1.0f);
     ret.ndc_max.y = min(ret.ndc_max.y,  1.0f);
+    if (max_behind_near_plane)
+    {
+        ret.ndc_min = ret.ndc_max = float3(0.0f,0.0f, INVALID_NDC_AABB_Z);
+    }
     return ret;
 }
 
@@ -153,11 +163,11 @@ bool is_ndc_aabb_hiz_depth_occluded(
     ShaderDebugBufferHead* debug,
     CullData data,
     CameraInfo camera,
-    NdcAABB meshlet_ndc_aabb,
+    NdcAABB ndc_aabb,
     daxa_ImageViewId hiz
 )
 {
-    if (meshlet_ndc_aabb.ndc_max.z > 1.0f)
+    if (ndc_aabb.ndc_max.z == INVALID_NDC_AABB_Z)
     {
         return false;
     }
@@ -165,8 +175,8 @@ bool is_ndc_aabb_hiz_depth_occluded(
     // HIZ res is a power of two and might differ from any mip level size of the scenes resolution.
     const daxa_f32vec2 f_hiz_resolution = data.hiz_size;
     // UV(NDC) -> (NDC + 1.0f) * 0.5f
-    const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
-    const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     // IDX(UV) -> floor(UV * IMG_SIZE)
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
@@ -191,25 +201,26 @@ bool is_ndc_aabb_hiz_depth_occluded(
 
     // WARNING: If this is changed to be a gather in the future, the uvs must be calculated on the hiz physical texture size size!
     const daxa_f32vec4 fetch = daxa_f32vec4(
-        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,0), daxa_i32vec2(0,0), physical_texel_bounds), imip).x,
-        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(0,1), daxa_i32vec2(0,0), physical_texel_bounds), imip).x,
-        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,0), daxa_i32vec2(0,0), physical_texel_bounds), imip).x,
-        __texelFetch(daxa_texture2D(hiz), clamp(quad_corner_texel + daxa_i32vec2(1,1), daxa_i32vec2(0,0), physical_texel_bounds), imip).x
+        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,0), int2(0,0), physical_texel_bounds), imip)).x,
+        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,1), int2(0,0), physical_texel_bounds), imip)).x,
+        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,0), int2(0,0), physical_texel_bounds), imip)).x,
+        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,1), int2(0,0), physical_texel_bounds), imip)).x
     );
     const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
-    const bool depth_cull = meshlet_ndc_aabb.ndc_max.z < conservative_depth;
+    const bool depth_cull = ndc_aabb.ndc_max.z < conservative_depth;
 
-    if ((daxa_u64(debug) != 0) && false && depth_cull)
+    if (DEBUG_HIZ_CULL && (daxa_u64(debug) != 0) && depth_cull)
     {
+        // NDC AABB (TURKOISE):
         {
-            ShaderDebugRectangleDraw rectangle;
-            const daxa_f32vec3 rec_size = (meshlet_ndc_aabb.ndc_max - meshlet_ndc_aabb.ndc_min);
-            rectangle.center = meshlet_ndc_aabb.ndc_min + (rec_size * 0.5);
-            rectangle.span = rec_size.xy;
-            rectangle.color = daxa_f32vec3(0, 1, 1);
-            rectangle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
-            debug_draw_rectangle(debug, rectangle);
+            ShaderDebugAABBDraw ndc_aabb_draw;
+            ndc_aabb_draw.position = 0.5f * (ndc_aabb.ndc_max + ndc_aabb.ndc_min);
+            ndc_aabb_draw.size = ndc_aabb.ndc_max - ndc_aabb.ndc_min;
+            ndc_aabb_draw.color = daxa_f32vec3(0.5,0.7,1.0);
+            ndc_aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            debug_draw_aabb(debug, ndc_aabb_draw);
         }
+        // HIZ TEXEL (WHITE):
         {
             ShaderDebugRectangleDraw used_hiz_tex_rect;
             const daxa_f32vec2 min_r = quad_corner_texel << imip;
@@ -218,13 +229,13 @@ bool is_ndc_aabb_hiz_depth_occluded(
             const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
             const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
             const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
-            const daxa_f32vec3 rec_size = (daxa_f32vec3(max_r_ndc, meshlet_ndc_aabb.ndc_max.z) - daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z));
-            used_hiz_tex_rect.center = daxa_f32vec3(min_r_ndc, meshlet_ndc_aabb.ndc_min.z) + (rec_size * 0.5);
+            const daxa_f32vec2 rec_size = max_r_ndc.xy - min_r_ndc;
+            used_hiz_tex_rect.center = daxa_f32vec3(0.5f * (max_r_ndc + min_r_ndc), ndc_aabb.ndc_max.z);
             used_hiz_tex_rect.span = rec_size.xy;
-            used_hiz_tex_rect.color = daxa_f32vec3(1, 0, 1);
+            used_hiz_tex_rect.color = daxa_f32vec3(1,1,1);
             used_hiz_tex_rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
             debug_draw_rectangle(debug, used_hiz_tex_rect);
-        }
+        } 
     }
 
     return depth_cull;
@@ -232,14 +243,14 @@ bool is_ndc_aabb_hiz_depth_occluded(
 
 bool is_ndc_aabb_hiz_opacity_occluded(
     CameraInfo camera,
-    NdcAABB meshlet_ndc_aabb,
+    NdcAABB ndc_aabb,
     daxa_ImageViewId hiz,
     daxa_u32 array_layer
 )
 {
     const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
-    const daxa_f32vec2 min_uv = (meshlet_ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
-    const daxa_f32vec2 max_uv = (meshlet_ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
+    const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = floor(clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     const float pixel_width = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
@@ -308,8 +319,9 @@ bool is_meshlet_occluded(
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(debug, cull_data, camera, meshlet_ndc_aabb, hiz);
 
-    if ((daxa_u64(debug) != 0) && false && !depth_cull)
+    if (DEBUG_HIZ_CULL && (daxa_u64(debug) != 0) && !depth_cull)
     {
+        // WORLD AABB (BLUE)
         {
             ShaderDebugAABBDraw ndc_aabb;
             ndc_aabb.position = mul(model_matrix, daxa_f32vec4(meshlet_aabb.center,1)).xyz;
@@ -349,9 +361,22 @@ bool is_mesh_occluded(
     //     return true;
     // }
 
-    AABB meshlet_aabb = mesh_data.aabb;
-    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
+    AABB aabb = mesh_data.aabb;
+    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, aabb);
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(debug, cull_data, camera, meshlet_ndc_aabb, hiz);
+        
+    if (DEBUG_HIZ_CULL && (daxa_u64(debug) != 0) && depth_cull)
+    {
+        // WORLD AABB (BLUE)
+        {
+            ShaderDebugAABBDraw ndc_aabb;
+            ndc_aabb.position = mul(model_matrix, daxa_f32vec4(aabb.center,1)).xyz;
+            ndc_aabb.size = mul(model_matrix, daxa_f32vec4(aabb.size,0)).xyz;
+            ndc_aabb.color = daxa_f32vec3(0.1, 0.5, 1);
+            ndc_aabb.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            debug_draw_aabb(debug, ndc_aabb);
+        }
+    }
 
     return depth_cull;
 }
@@ -408,6 +433,8 @@ func is_triangle_backfacing(float4 tri_vert_clip_positions[3]) -> bool
     return is_backface;
 }
 
+// Make sure that the ndc positions are valid.
+// Eg, make sure the ndc positions are constructed from positions that were IN FRONT of the camera ONLY.
 bool is_triangle_hiz_occluded(
     ShaderDebugBufferHead* debug,
     CameraInfo camera,
