@@ -46,6 +46,7 @@ func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, u
     while(dst_item_count != 0)
     {
         let bit_index = firstbithigh(dst_item_count);
+
         let bucket_index = bit_index;
         dst_item_count = dst_item_count & ~(1u << bit_index);
 
@@ -64,6 +65,11 @@ func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, u
             let total_workgroups_needed = ((total_threads_needed + dst_workgroup_size - 1) >> dst_workgroup_size_log2);
             uint dummy;
             InterlockedMax(self.bucket_dispatches[bucket_index].x, total_workgroups_needed, dummy);
+        }
+        else
+        {
+            // TODO: WRITE NUMBER OF FAILED ALLOCS TO READBACK BUFFER!
+            printf("ALLOC FAILED bucket_arg_index %i, bucket_capacity %i\n", bucket_arg_index, bucket_capacity);
         }
     }
 }

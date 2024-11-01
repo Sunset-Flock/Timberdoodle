@@ -15,13 +15,7 @@ inline
 #endif
 daxa::u32 capacity_of_bucket(daxa::u32 max_src_items, daxa::u32 max_dst_items, daxa::u32 bucket_index)
 {
-    return 
-    #if defined(__cplusplus)
-        std::min
-    #else
-        min
-    #endif
-        (max_src_items, max_dst_items >> bucket_index);
+    return max_src_items;
 }
 
 struct Po2WorkExpansionBufferHead

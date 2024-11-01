@@ -1222,6 +1222,10 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
             blas_instances.data(),
             blas_instances.size() * sizeof(daxa_BlasInstanceData));
     }
+    else
+    {
+        return recorder.complete_current_commands();
+    }
 
     auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
         .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.buffer_device_address(blas_instances_buffer).value(),
@@ -1267,6 +1271,18 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
     return recorder.complete_current_commands();
 }
 
+// opaque bucket 0: 
+// opaque bucket 1: items: 3920, dispatch: 245
+// opaque bucket 2: items: 3920, dispatch: 490
+// opaque bucket 3: items: 3920, dispatch: 980
+// opaque bucket 4: items: 3920, dispatch: 1960
+// opaque bucket 5: items: 3920, dispatch: 3920
+// opaque bucket 6: items: 0, dispatch: 0   7,840
+// opaque bucket 7: items: 0, dispatch: 0   15,680
+// opaque bucket 8: items: 0, dispatch: 0   31,360
+// opaque bucket 9: items: 0, dispatch: 0   62,720
+// opaque bucket 10: items: 3920, dispatch: 65536       125,440
+
 auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -> daxa::ExecutableCommandList
 {
     auto get_aligned = [&](u64 to_align, u64 alignment) -> u64
@@ -1275,6 +1291,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     };
 
     auto recorder = _device.create_command_recorder({});
+    return recorder.complete_current_commands();
     auto const scratch_device_address = _device.buffer_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
     if (!_newly_completed_mesh_groups.empty())
     {
@@ -1403,6 +1420,11 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
         .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_WRITE,
         .dst_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ,
     });
+
+    if (_scene_blas.is_empty())
+    {
+        return recorder.complete_current_commands();
+    }
 
     if (!create_tlas) { return recorder.complete_current_commands(); }
 
