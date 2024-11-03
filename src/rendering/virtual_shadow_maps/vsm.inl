@@ -972,8 +972,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const ndc_page_aligned_target_pos = glm::vec4(ndc_page_scaled_aligned_target_pos * ndc_page_size, ndc_target_pos.z, 1.0f);
         auto const world_page_aligned_target_pos = glm::vec3(glm::inverse(clip_projection_view) * ndc_page_aligned_target_pos);
 
-        auto const clip_position = world_page_aligned_target_pos + s_cast<float>(info.clip_0_height_offset) * -default_vsm_forward;
-
+        auto const clip_position = world_page_aligned_target_pos + s_cast<float>(info.clip_0_height_offset) * curr_near_far_clip_scale * -default_vsm_forward;
         auto const final_clip_view = glm::lookAt(clip_position, clip_position + glm::normalize(default_vsm_forward), default_vsm_up);
 
         auto clip_camera = CameraInfo{

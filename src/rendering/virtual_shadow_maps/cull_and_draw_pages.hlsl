@@ -355,7 +355,7 @@ void vsm_entry_fragment_opaque(
         {
             InterlockedMin(
                 push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(vert.position.z / vert.position.w)
+                asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
             );
         }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
@@ -429,7 +429,7 @@ void vsm_entry_fragment_masked(
         {
             InterlockedMin(
                 push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(vert.position.z / vert.position.w)
+                asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
             );
         }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
