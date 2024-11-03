@@ -152,7 +152,7 @@ NdcAABB calculate_ndc_aabb(
     ret.ndc_min.y = max(ret.ndc_min.y, -1.0f);
     ret.ndc_max.x = min(ret.ndc_max.x,  1.0f);
     ret.ndc_max.y = min(ret.ndc_max.y,  1.0f);
-    if (max_behind_near_plane)
+    if (max_behind_near_plane && !camera.is_orthogonal)
     {
         ret.ndc_min = ret.ndc_max = float3(0.0f,0.0f, INVALID_NDC_AABB_Z);
     }
