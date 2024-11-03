@@ -26,7 +26,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 8;
+static const uint PCF_NUM_SAMPLES = 1;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -181,17 +181,9 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     return color;
 }
 
-int get_height_depth_offset(int3 vsm_page_texel_coords)
-{
-    const int page_draw_camera_height = Texture2DArray<int>::get(AT.vsm_page_height_offsets).Load(int4(vsm_page_texel_coords, 0)).r;
-    const int current_camera_height = deref_i(AT.vsm_clip_projections, vsm_page_texel_coords.z).height_offset;
-    const int height_difference = current_camera_height - page_draw_camera_height;
-    // const int height_difference =  page_draw_camera_height - current_camera_height;
-    return height_difference;
-}
 [[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> Texture2Duint64view[];
 
-float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position, int height_offset, float sun_norm_dot)
+float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position, float3 page_camera_position, float sun_norm_dot, float2 screen_uv)
 {
     const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
     const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
@@ -208,18 +200,23 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     }
 
     const float4x4 vsm_shadow_view = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.view;
+
+    float4x4 vsm_shifted_shadow_view = vsm_shadow_view;
+    vsm_shifted_shadow_view[0][3] = page_camera_position[0]; 
+    vsm_shifted_shadow_view[1][3] = page_camera_position[1]; 
+    vsm_shifted_shadow_view[2][3] = page_camera_position[2]; 
+
     const float4x4 vsm_shadow_proj = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.proj;
 
-    const float3 view_projected_world_pos = (mul(vsm_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
+    const float3 view_projected_world_pos = (mul(vsm_shifted_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
     const float view_space_offset = 0.04;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
-    const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset + height_offset);
+    const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
     const float vsm_projected_depth = vsm_projected_world.z / vsm_projected_world.w;
 
-    const float page_offset_projected_depth = get_page_offset_depth(clip_info, vsm_projected_depth, AT.vsm_clip_projections);
-    const bool is_in_shadow = vsm_sample < page_offset_projected_depth;
+    const bool is_in_shadow = vsm_sample < vsm_projected_depth;
     return is_in_shadow ? 0.0 : 1.0;
 }
 
@@ -291,10 +288,11 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
             {
                 let vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(offset_info, AT.vsm_clip_projections);
                 let page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
-                let height_offset = get_height_depth_offset(vsm_page_texel_coords);
+                const float3 page_camera_pos = Texture2DArray<float3>::get(AT.vsm_page_view_pos_row).Load(int4(vsm_page_texel_coords, 0));
+
                 if(get_is_allocated(page_entry))
                 {
-                    sum += vsm_shadow_test(offset_info, page_entry, world_position, height_offset, sun_norm_dot);
+                    sum += vsm_shadow_test(offset_info, page_entry, world_position, page_camera_pos, sun_norm_dot, uv);
                     // break;
                 }
             }

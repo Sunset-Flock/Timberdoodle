@@ -29,7 +29,7 @@ void main()
     const ivec3 alloc_request_page_coords = deref_i(push.vsm_allocation_requests, id).coords;
     const bool allocated = deref_i(push.vsm_allocation_requests, id).already_allocated != 0;
 
-    const int current_camera_height_offset = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).height_offset;
+    const vec3 current_camera_position = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).camera.view[3].xyz;
     if(!allocated)
     {
         // Use up all free pages
@@ -41,7 +41,7 @@ void main()
             uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(free_memory_page_coords);
             new_vsm_page_entry |= allocated_mask();
             imageStore(daxa_uimage2DArray(push.vsm_page_table), alloc_request_page_coords, uvec4(new_vsm_page_entry));
-            imageStore(daxa_iimage2DArray(push.vsm_page_height_offsets), alloc_request_page_coords, ivec4(current_camera_height_offset));
+            imageStore(daxa_image2DArray(push.vsm_page_view_pos_row), alloc_request_page_coords, vec4(current_camera_position, 0.0f));
 
             uint new_meta_memory_page_entry = pack_vsm_coords_to_meta_entry(alloc_request_page_coords);
             new_meta_memory_page_entry |= meta_memory_allocated_mask();
@@ -61,7 +61,7 @@ void main()
             uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(not_visited_memory_page_coords);
             new_vsm_page_entry |= allocated_mask();
             imageStore(daxa_uimage2DArray(push.vsm_page_table), alloc_request_page_coords, uvec4(new_vsm_page_entry));
-            imageStore(daxa_iimage2DArray(push.vsm_page_height_offsets), alloc_request_page_coords, ivec4(current_camera_height_offset));
+            imageStore(daxa_image2DArray(push.vsm_page_view_pos_row), alloc_request_page_coords, vec4(current_camera_position, 0.0f));
 
             uint new_meta_memory_page_entry = pack_vsm_coords_to_meta_entry(alloc_request_page_coords);
             new_meta_memory_page_entry |= meta_memory_allocated_mask();
@@ -75,7 +75,7 @@ void main()
     } 
     else
     {
-        imageStore(daxa_iimage2DArray(push.vsm_page_height_offsets), alloc_request_page_coords, ivec4(current_camera_height_offset));
+        imageStore(daxa_image2DArray(push.vsm_page_view_pos_row), alloc_request_page_coords, vec4(current_camera_position, 0.0f));
     }
 }
     

@@ -161,6 +161,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             ImGui::MenuItem("VSM Debug Menu", NULL, &vsm_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::MenuItem("TaskGraphDebugUi", NULL, &tg_debug_ui);
+            ImGui::MenuItem("Imgui Demo", NULL, &demo_window);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
@@ -182,26 +183,15 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     ImGui::SameLine();
                 }
                 ImGui::SetWindowFontScale(1.0);
-                ImGui::Dummy({});
-                ImGui::Text("Draw cascade frustum pages");
-                ImGui::SetWindowFontScale(0.5);
-                for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-                {
-                    ImGui::BeginDisabled(!render_context.draw_clip_frustum.at(clip));
-                    ImGui::Checkbox(fmt::format("##pages{}", clip).c_str(), &render_context.draw_clip_frustum_pages.at(clip));
-                    ImGui::EndDisabled();
-                    ImGui::SameLine();
-                }
-                ImGui::SetWindowFontScale(1.0);
             }
             ImGui::EndChild();
 
             ImGui::Checkbox("Enable VSM", &enable);
             ImGui::Checkbox("Force clip level", &force_clip_level);
             ImGui::Checkbox("Enable caching", &enable_caching);
-            auto use_simplified_light_matrix = s_cast<bool>(render_context.render_data.vsm_settings.use_simplified_light_matrix);
-            ImGui::Checkbox("Use simplified light matrix", &use_simplified_light_matrix);
-            render_context.render_data.vsm_settings.use_simplified_light_matrix = use_simplified_light_matrix;
+            auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
+            ImGui::Checkbox("Use fixed near far", &use_fixed_near_far);
+            render_context.render_data.vsm_settings.fixed_near_far = use_fixed_near_far;
             ImGui::SliderFloat("Clip 0 scale", &render_context.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
             ImGui::SliderFloat("Clip selection bias", &render_context.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
             ImGui::SliderFloat("Slope bias", &render_context.render_data.vsm_settings.slope_bias, 0.0, 10.0);
@@ -514,7 +504,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             .post_settings = &render_context.render_data.postprocess_settings,
         });
     }
-    if (true)
+    if (demo_window)
     {
         ImGui::ShowDemoWindow();
     }

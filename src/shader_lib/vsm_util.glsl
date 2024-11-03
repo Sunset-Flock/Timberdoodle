@@ -97,23 +97,6 @@ struct ClipFromUVsInfo
     daxa_BufferPtr(RenderGlobalData) globals;
 };
 
-daxa_f32 get_page_offset_depth(ClipInfo info, daxa_f32 current_depth, daxa_BufferPtr(VSMClipProjection) clip_projections)
-{
-    const daxa_i32vec2 non_wrapped_page_coords = daxa_i32vec2(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION);
-    const daxa_f32 per_inv_page_depth_offset = deref_i(clip_projections, info.clip_level).depth_page_offset;
-    daxa_f32 depth_offset;
-    if(deref_i(clip_projections, info.clip_level).page_align_axis == PAGE_ALIGN_AXIS_X)
-    {
-        depth_offset = -non_wrapped_page_coords.y * per_inv_page_depth_offset;
-    }
-    else
-    {
-        const daxa_i32 inverted_page_coord = daxa_i32((VSM_PAGE_TABLE_RESOLUTION - 1) - non_wrapped_page_coords.y);
-        depth_offset = inverted_page_coord * per_inv_page_depth_offset;
-    }
-    return clamp(current_depth + depth_offset, 0.0, 1.0);
-}
-
 daxa_f32vec3 world_space_from_uv(daxa_f32vec2 screen_space_uv, daxa_f32 depth, daxa_f32mat4x4 inv_view_proj)
 {
     const daxa_f32vec2 remap_uv = (screen_space_uv * 2.0) - 1.0;

@@ -472,7 +472,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.memory_block64);
     tg.use_persistent_image(vsm_state.meta_memory_table);
     tg.use_persistent_image(vsm_state.page_table);
-    tg.use_persistent_image(vsm_state.page_height_offsets);
+    tg.use_persistent_image(vsm_state.page_view_pos_row);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
@@ -825,7 +825,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .gpu_context = gpu_context,
     });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-    auto const vsm_page_heigh_offsets_view = vsm_state.page_height_offsets.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     tg.add_task(ShadeOpaqueTask{
         .views = std::array{
             ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
@@ -837,7 +837,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.sky | sky,
             ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
             ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
-            ShadeOpaqueH::AT.vsm_page_height_offsets | vsm_page_heigh_offsets_view,
+            ShadeOpaqueH::AT.vsm_page_view_pos_row | vsm_page_heigh_offsets_view,
             ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
             ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
             ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
@@ -1054,10 +1054,10 @@ void Renderer::render_frame(
         .camera_info = &render_context->render_data.camera,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
-        .clip_0_near = 0.01f,
-        .clip_0_far = 10.0f,
+        .clip_0_near = render_context->render_data.vsm_settings.fixed_near_far ? -1'000.0f : 0.01f,
+        .clip_0_far = render_context->render_data.vsm_settings.fixed_near_far ? 1'000.0f : 10.0f,
         .clip_0_height_offset = 5.0f,
-        .use_simplified_light_matrix = s_cast<bool>(render_context->render_data.vsm_settings.use_simplified_light_matrix),
+        .use_fixed_near_far = s_cast<bool>(render_context->render_data.vsm_settings.fixed_near_far),
         .debug_context = &gpu_context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
@@ -1080,7 +1080,6 @@ void Renderer::render_frame(
         .proj_info = &vsm_projections_info,
         .clip_projections = &vsm_state.clip_projections_cpu,
         .draw_clip_frustum = &render_context->draw_clip_frustum,
-        .draw_clip_frustum_pages = &render_context->draw_clip_frustum_pages,
         .debug_context = &gpu_context->shader_debug_context,
         .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
     });

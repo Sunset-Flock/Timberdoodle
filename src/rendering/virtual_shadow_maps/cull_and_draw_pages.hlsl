@@ -355,11 +355,7 @@ void vsm_entry_fragment_opaque(
         {
             InterlockedMin(
                 push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(get_page_offset_depth(
-                    {prim.clip_level, virtual_uv}, 
-                    vert.position.z / vert.position.w,
-                    push.attachments.vsm_clip_projections
-                ))
+                asuint(vert.position.z / vert.position.w)
             );
         }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
@@ -433,11 +429,7 @@ void vsm_entry_fragment_masked(
         {
             InterlockedMin(
                 push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(get_page_offset_depth(
-                    {prim.clip_level, virtual_uv}, 
-                    vert.position.z / vert.position.w,
-                    push.attachments.vsm_clip_projections
-                ))
+                asuint(vert.position.z / vert.position.w)
             );
         }
         if (push.attachments.vsm_overdraw_debug.index() != 0)
