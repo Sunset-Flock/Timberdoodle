@@ -11,6 +11,7 @@
     #include "../rasterize_visbuffer/cull_meshes.inl"
 #endif
 
+#define INVALIDATE_PAGES_X_DISPATCH 256
 #define MARK_REQUIRED_PAGES_X_DISPATCH 16
 #define MARK_REQUIRED_PAGES_Y_DISPATCH 16
 #define FIND_FREE_PAGES_X_DISPATCH 32
@@ -26,6 +27,21 @@
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
+
+#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
+DAXA_DECL_TASK_HEAD_BEGIN(InvalidatePagesH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+// VSM Attachments:
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
+#endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -148,7 +164,7 @@ struct GenDirtyBitHizPush
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
     // Vsm Attachments:
-    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
@@ -192,6 +208,17 @@ DAXA_DECL_TASK_HEAD_END
 #include "vsm_state.hpp"
 #include <glm/gtx/vector_angle.hpp>
 #include "../scene_renderer_context.hpp"
+
+inline daxa::ComputePipelineCompileInfo vsm_invalidate_pages_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
+        .push_constant_size = static_cast<u32>(sizeof(InvalidatePagesH::AttachmentShaderBlob)),
+        .name = std::string{InvalidatePagesH::NAME},
+    };
+}
 
 inline daxa::ComputePipelineCompileInfo vsm_free_wrapped_pages_pipeline_compile_info()
 {
@@ -351,6 +378,21 @@ using CullAndDrawPages_WriteCommandTask = SimpleComputeTaskPushless<
     CullAndDrawPages_WriteCommandH::AttachmentShaderBlob,
     CULL_AND_DRAW_PAGES_SHADER_PATH,
     "vsm_entry_write_commands">;
+
+struct InvalidatePagesTask : InvalidatePagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_invalidate_pages_pipeline_compile_info().name));
+        InvalidatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_PAGES_X_DISPATCH);
+        ti.recorder.dispatch({x_dispatch, 1, VSM_CLIP_LEVELS});
+    }
+};
 
 struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
 {
@@ -700,6 +742,20 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
         },
         .name = "vsm setup task",
+    });
+
+    info.tg->add_task(InvalidatePagesTask{
+        .views = std::array{
+            daxa::attachment_view(InvalidatePagesH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(InvalidatePagesH::AT.mesh_instances, info.mesh_instances),
+            daxa::attachment_view(InvalidatePagesH::AT.meshes, info.meshes),
+            daxa::attachment_view(InvalidatePagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(InvalidatePagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
+            daxa::attachment_view(InvalidatePagesH::AT.free_wrapped_pages_info, info.vsm_state->free_wrapped_pages_info),
+            daxa::attachment_view(InvalidatePagesH::AT.vsm_page_table, vsm_page_table_view),
+            daxa::attachment_view(InvalidatePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        },
+        .render_context = info.render_context,
     });
 
     info.tg->add_task(FreeWrappedPagesTask{
@@ -1074,88 +1130,6 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
             box_draw.vertices[i] = {world_pos.x, world_pos.y, world_pos.z};
         }
         info.debug_context->cpu_debug_box_draws.push_back(box_draw);
-    }
-}
-
-inline void fill_vsm_invalidation_mask(std::vector<DynamicMesh> const & meshes, VSMState & state, ShaderDebugDrawContext & gpu_context)
-{
-    ShaderDebugAABBDraw aabb_draw = {};
-    aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-    static constexpr std::array<f32vec3, 8> base_positions =
-        {
-            f32vec3{-1, -1, -1},
-            f32vec3{1, -1, -1},
-            f32vec3{-1, 1, -1},
-            f32vec3{1, 1, -1},
-            f32vec3{-1, -1, 1},
-            f32vec3{1, -1, 1},
-            f32vec3{-1, 1, 1},
-            f32vec3{1, 1, 1},
-        };
-
-    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-    {
-        std::memset(&state.free_wrapped_pages_info_cpu.at(clip).mask, 0, sizeof(state.free_wrapped_pages_info_cpu.at(0).mask));
-    }
-    for (auto const & mesh : meshes)
-    {
-        for (auto const & aabb : mesh.meshlet_aabbs)
-        {
-            // for (i32 i = 0; i < 2; i++)
-            // {
-            //     auto const transform = i == 0 ? mesh.curr_transform : mesh.prev_transform;
-            //     auto const ws_center = transform * f32vec4(aabb.center.x, aabb.center.y, aabb.center.z, 1.0f);
-            //     auto const ws_size = transform * f32vec4(aabb.size.x, aabb.size.y, aabb.size.z, 0.0f);
-            //     aabb_draw.position = {ws_center.x, ws_center.y, ws_center.z};
-            //     aabb_draw.size = {ws_size.x, ws_size.y, ws_size.z};
-            //     aabb_draw.color = i == 0 ? daxa_f32vec3{0.0, 1.0, 0.0} : daxa_f32vec3{0.0, 0.0, 1.0};
-            //     gpu_context.cpu_debug_aabb_draws.push_back(aabb_draw);
-            // }
-
-            for (i32 clip_level = 0; clip_level < VSM_CLIP_LEVELS; clip_level++)
-            {
-                for (i32 i = 0; i < 2; i++)
-                {
-                    f32vec2 min_bounds = f32vec2(std::numeric_limits<f32>::infinity());
-                    f32vec2 max_bounds = f32vec2(-std::numeric_limits<f32>::infinity());
-                    auto & curr_page_mask = state.free_wrapped_pages_info_cpu.at(clip_level).mask;
-                    for (auto const & base_position : base_positions)
-                    {
-                        auto const model_matrix = i == 0 ? mesh.curr_transform : mesh.prev_transform;
-                        f32vec4 const model_position = f32vec4(base_position * std::bit_cast<f32vec3>(aabb.size) * 0.5f + std::bit_cast<f32vec3>(aabb.center), 1.0f);
-                        auto const world_position = model_matrix * model_position;
-                        auto const clip_pos = state.clip_projections_cpu.at(clip_level).camera.view_proj * world_position;
-                        auto const uv_pos = (f32vec2(clip_pos.x, clip_pos.y) + 1.0f) * 0.5f;
-                        min_bounds = glm::min(min_bounds, uv_pos);
-                        max_bounds = glm::max(max_bounds, uv_pos);
-                    }
-                    i32vec2 const min_page_bounds = i32vec2(floor(min_bounds * f32(VSM_PAGE_TABLE_RESOLUTION)));
-                    i32vec2 const max_page_bounds = i32vec2(ceil(max_bounds * f32(VSM_PAGE_TABLE_RESOLUTION)));
-
-                    bool const is_oustide_frustum =
-                        glm::any(glm::greaterThanEqual(min_page_bounds, i32vec2(VSM_PAGE_TABLE_RESOLUTION))) ||
-                        glm::any(glm::lessThanEqual(max_page_bounds, i32vec2(0)));
-
-                    if (is_oustide_frustum)
-                    {
-                        continue;
-                    }
-                    i32vec2 const clamped_min_bounds = glm::clamp(min_page_bounds, 0, VSM_PAGE_TABLE_RESOLUTION - 1);
-                    i32vec2 const clamped_max_bounds = glm::clamp(max_page_bounds, 0, VSM_PAGE_TABLE_RESOLUTION - 1);
-
-                    for (i32 x = clamped_min_bounds.x; x < clamped_max_bounds.x; x++)
-                    {
-                        for (i32 y = clamped_min_bounds.y; y < clamped_max_bounds.y; y++)
-                        {
-                            auto const linear_index = x * VSM_PAGE_TABLE_RESOLUTION + y;
-                            auto const index_offset = linear_index / 32;
-                            auto const in_uint_offset = linear_index % 32;
-                            curr_page_mask[index_offset] |= 1u << in_uint_offset;
-                        }
-                    }
-                }
-            }
-        }
     }
 }
 #endif //__cplusplus

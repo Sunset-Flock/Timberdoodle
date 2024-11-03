@@ -612,40 +612,6 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
     scene._new_texture_manifest_entries = 0;
 }
 
-// static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
-// {
-//     for (u32 entity_i = 0; entity_i < scene._render_entities.capacity(); ++entity_i)
-//     {
-//         RenderEntity const * r_ent = scene._render_entities.slot_by_index(entity_i);
-//         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
-//         {
-//             MeshGroupManifestEntry const & mesh_group = scene._mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-//             for (u32 in_mesh_group_mesh_i = 0; in_mesh_group_mesh_i < mesh_group.mesh_count; ++in_mesh_group_mesh_i)
-//             {
-//                 u32 const mesh_index = scene._mesh_manifest_indices_new.at(mesh_group.mesh_manifest_indices_array_offset + in_mesh_group_mesh_i);
-//                 MeshManifestEntry const & mesh = scene._mesh_manifest.at(mesh_index);
-//                 u32 opaque_draw_list_type = PREPASS_DRAW_LIST_OPAQUE;
-//                 // TODO: add dummy material!
-//                 if (mesh.material_index.has_value())
-//                 {
-//                     MaterialManifestEntry const & material = scene._material_manifest.at(mesh.material_index.value());
-//                     if (material.alpha_discard_enabled)
-//                     {
-//                         opaque_draw_list_type = PREPASS_DRAW_LIST_MASKED;
-//                     }
-//                 }
-//                 auto mesh_draw = MeshInstance{
-//                     .entity_index = entity_i,
-//                     .mesh_index = mesh_index,
-//                     .in_mesh_group_index = in_mesh_group_mesh_i,
-//                 };
-//                 scene.cpu_mesh_instance_counts.prepass_instance_counts[opaque_draw_list_type].push_back(mesh_draw);
-//             }
-//         }
-//     }
-//     scene._scene_draw.max_entity_index = static_cast<u32>(scene._render_entities.capacity());
-// }
-
 static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
@@ -928,17 +894,6 @@ static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUM
                     scene._newly_completed_mesh_groups.push_back(mesh.mesh_group_manifest_index);
                 }
             }
-            // TODO(msakmary) REMOVE ME GIANT HACK ========================================
-            //=============================================================================
-            if (scene._mesh_manifest.at(upload.manifest_index).asset_local_mesh_index == 1277)
-            {
-                auto data_ptr = scene._device.buffer_host_address(upload.staging_buffer).value();
-                u32 offset = {};
-                offset += upload.mesh.meshlet_count * sizeof(Meshlet);
-                offset += upload.mesh.meshlet_count * sizeof(BoundingSphere);
-                scene.REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = std::vector<AABB>(upload.mesh.meshlet_count);
-                std::memcpy(scene.REMOVE_ME_dynamic_object_aabbs_REMOVE_ME.data(), data_ptr + offset, sizeof(AABB) * upload.mesh.meshlet_count);
-            }
             std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
             recorder.copy_buffer_to_buffer({
                 .src_buffer = staging_buffer,
@@ -958,7 +913,12 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
         /// NOTE: We need to propagate each loaded texture image ID into the material manifest This will be done in two steps:
         //        1) We update the CPU manifest with the correct values and remember the materials that were updated
         //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
-        std::vector<u32> dirty_material_entry_indices = {};
+        for(auto const dirty_material_index : scene.dirty_material_entry_indices) 
+        {
+            scene._material_manifest.at(dirty_material_index).alpha_dirty = false;
+        }
+        scene.dirty_material_entry_indices.clear();
+
         // 1) Update CPU Manifest
         for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
         {
@@ -980,6 +940,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                     {
                         if (texture_upload.secondary_texture)
                         {
+                            material_entry.alpha_dirty = material_entry.alpha_discard_enabled;
                             material_entry.opacity_mask_info->tex_manifest_index = texture_upload.texture_manifest_index;
                         }
                         else
@@ -990,6 +951,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                     break;
                     case TextureMaterialType::DIFFUSE_OPACITY:
                     {
+                        material_entry.alpha_dirty = material_entry.alpha_discard_enabled;
                         material_entry.diffuse_info->tex_manifest_index = texture_upload.texture_manifest_index;
                     }
                     break;
@@ -1008,31 +970,31 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                 }
                 /// NOTE: Add material index only if it was not added previously
                 if (std::find(
-                        dirty_material_entry_indices.begin(),
-                        dirty_material_entry_indices.end(),
+                        scene.dirty_material_entry_indices.begin(),
+                        scene.dirty_material_entry_indices.end(),
                         material_using_texture_info.material_manifest_index) ==
-                    dirty_material_entry_indices.end())
+                    scene.dirty_material_entry_indices.end())
                 {
-                    dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
+                    scene.dirty_material_entry_indices.push_back(material_using_texture_info.material_manifest_index);
                 }
             }
         }
         // // 2) Update GPU manifest
         daxa::BufferId materials_update_staging_buffer = {};
         GPUMaterial * staging_origin_ptr = {};
-        if (dirty_material_entry_indices.size())
+        if (scene.dirty_material_entry_indices.size())
         {
             materials_update_staging_buffer = scene._device.create_buffer({
-                .size = sizeof(GPUMaterial) * dirty_material_entry_indices.size(),
+                .size = sizeof(GPUMaterial) * scene.dirty_material_entry_indices.size(),
                 .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = "gpu materials update staging",
             });
             recorder.destroy_buffer_deferred(materials_update_staging_buffer);
             staging_origin_ptr = scene._device.buffer_host_address_as<GPUMaterial>(materials_update_staging_buffer).value();
         }
-        for (u32 dirty_materials_index = 0; dirty_materials_index < dirty_material_entry_indices.size(); dirty_materials_index++)
+        for (u32 dirty_materials_index = 0; dirty_materials_index < scene.dirty_material_entry_indices.size(); dirty_materials_index++)
         {
-            MaterialManifestEntry const & material = scene._material_manifest.at(dirty_material_entry_indices.at(dirty_materials_index));
+            MaterialManifestEntry const & material = scene._material_manifest.at(scene.dirty_material_entry_indices.at(dirty_materials_index));
             daxa::ImageId diffuse_id = {};
             daxa::ImageId opacity_id = {};
             daxa::ImageId normal_id = {};
@@ -1073,7 +1035,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                 .src_buffer = materials_update_staging_buffer,
                 .dst_buffer = gpu_material_manifest,
                 .src_offset = sizeof(GPUMaterial) * dirty_materials_index,
-                .dst_offset = sizeof(GPUMaterial) * dirty_material_entry_indices.at(dirty_materials_index),
+                .dst_offset = sizeof(GPUMaterial) * scene.dirty_material_entry_indices.at(dirty_materials_index),
                 .size = sizeof(GPUMaterial),
             });
         }
@@ -1515,9 +1477,11 @@ auto Scene::process_entities() -> CPUMeshInstances
                     u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
                     auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
                     bool is_alpha_discard = false;
+                    bool is_alpha_dirty = false;
                     if (mesh.material_index.has_value())
                     {
                         is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                        is_alpha_dirty = _material_manifest.at(mesh.material_index.value()).alpha_dirty;
                     }
 
                     // Put this mesh into appropriate drawlist for prepass
@@ -1526,7 +1490,9 @@ auto Scene::process_entities() -> CPUMeshInstances
                     ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
 
                     // If the mesh loaded for the first time, it needs to invalidate VSM
-                    if (is_mesh_group_just_loaded) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
+                    // We also need to invalidate when the alpha texture just got streamed in
+                    //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
+                    if (is_mesh_group_just_loaded || is_alpha_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
 
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({

@@ -35,7 +35,6 @@ void main()
         // Use up all free pages
         if(id < header.free_buffer_counter)
         {
-            // debugPrintfEXT("allocating from id %d\n", id);
             const ivec2 free_memory_page_coords = deref_i(push.vsm_free_pages_buffer, id).coords;
         
             uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(free_memory_page_coords);

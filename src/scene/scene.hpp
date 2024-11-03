@@ -70,6 +70,8 @@ struct MaterialManifestEntry
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
+    // Did we just load alpha texture this frame
+    bool alpha_dirty = {};
     f32vec3 base_color = {};
     std::string name = {};
 };
@@ -171,6 +173,7 @@ struct Scene
     daxa::TaskBuffer _gpu_entity_mesh_groups = {};
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
+    std::vector<u32> dirty_material_entry_indices = {};
     struct ModifiedEntityInfo
     {
         RenderEntityId entity = {};
@@ -217,9 +220,6 @@ struct Scene
 
     daxa::Device _device = {};
     GPUContext * gpu_context = {};
-
-    // TODO(msakmary) REMOVE ME - this is a giant hack
-    std::vector<AABB> REMOVE_ME_dynamic_object_aabbs_REMOVE_ME = {};
 
     Scene(daxa::Device device, GPUContext * gpu_context);
     ~Scene();
