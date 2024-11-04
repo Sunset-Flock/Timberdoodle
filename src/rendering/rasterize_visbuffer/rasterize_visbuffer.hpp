@@ -146,7 +146,7 @@ namespace raster_visbuf
             task_draw_visbuffer({
                 .render_context = info.render_context.get(),
                 .tg = info.tg,
-                .pass = PASS0_DRAW_VISIBLE_LAST_FRAME,
+                .pass = PASS0_DRAW_FIRST_PASS,
                 .meshlet_instances = info.meshlet_instances,
                 .meshes = info.scene->_gpu_mesh_manifest,
                 .material_manifest = info.scene->_gpu_material_manifest,

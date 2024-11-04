@@ -60,5 +60,7 @@ void main(uint thread_id : SV_DispatchThreadID)
         (uint64_t)push.attach.opaque_po2expansion : 
         (uint64_t)push.attach.masked_opaque_po2expansion);
 
-    expand_work_items(po2expansion, mesh.meshlet_count, mesh_instance_index);
+    let dst_workgroup_size_log2 = push.attach.globals.settings.enable_separate_compute_meshlet_culling ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
+
+    expand_work_items(po2expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
 }

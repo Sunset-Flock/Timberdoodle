@@ -38,10 +38,9 @@ func get_expanded_work_item<SrcWrkItmT : IPo2SrcWorkItems>(Po2WorkExpansionBuffe
 }
 
 // Cant be member function because of slang bugs.
-func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, uint src_work_item_index)
+func expand_work_items(Po2WorkExpansionBufferHead * self, uint dst_item_count, uint src_work_item_index, uint dst_workgroup_size_log2)
 {
     let orig_dst_item_count = dst_item_count;
-    let dst_workgroup_size_log2 = self.dst_workgroup_size_log2;
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
     while(dst_item_count != 0)
     {

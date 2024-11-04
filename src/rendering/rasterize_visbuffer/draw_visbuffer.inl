@@ -96,6 +96,11 @@ struct CullMeshletsDrawVisbufferPush
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
+inline auto cull_meshlets_compute_pipeline_compile_info()
+{
+    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl"}, .entry_point = "entry_compute_meshlet_cull", .push_constant_size = sizeof(CullMeshletsDrawVisbufferPush), .name = "CullMeshletsCompute" };
+}
+
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
 
 using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
@@ -201,7 +206,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     u32 pass = {};
     void callback(daxa::TaskInterface ti)
     {
-        bool const clear_images = pass != PASS1_DRAW_POST_CULL;
+        bool const clear_images = pass != PASS1_DRAW_SECOND_PASS;
         auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
@@ -228,7 +233,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 }
             );
         }
-        if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
+        if (pass == PASS0_DRAW_FIRST_PASS)
         {
             render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
         }
@@ -257,7 +262,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
 
-        if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
+        if (pass == PASS0_DRAW_FIRST_PASS)
         {
             render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
         }
@@ -336,6 +341,43 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
     }
 };
 
+struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    bool first_pass = {};
+    bool clear_render_targets = {};
+    static inline constexpr std::string_view NAME = "CullMeshletsCompute";
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_meshlets_compute_pipeline_compile_info().name));
+
+        u32 render_time_index = first_pass ? RenderTimes::VISBUFFER_FIRST_PASS_CULL_MESHLETS_COMPUTE : RenderTimes::VISBUFFER_SECOND_PASS_CULL_MESHLETS_COMPUTE; 
+
+        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+        
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
+        {
+            auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
+            for (u32 i = 0; i < 32; ++i)
+            {
+                CullMeshletsDrawVisbufferPush push = {
+                    .attach = ti.attachment_shader_blob,
+                    .draw_list_type = opaque_draw_list_type,
+                    .bucket_index = i,
+                    .first_pass = first_pass,
+                };
+                ti.recorder.push_constant(push);
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = buffer,
+                    .offset = sizeof(DispatchIndirectStruct) * i,
+                });
+            }
+        }
+        render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
+    }
+};
+
 struct TaskCullAndDrawVisbufferInfo
 {
     RenderContext * render_context = {};
@@ -365,27 +407,93 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
     {
         info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
     }
-    info.tg.add_task(CullMeshletsDrawVisbufferTask{
-        .views = std::array{
-            CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
-            CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
-            CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
-            CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
-            CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
-            CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-            CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
-            CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
-            CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
-            CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
-            CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
-            CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-            CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
-            CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
-        },
-        .render_context = info.render_context,
-        .first_pass = info.first_pass,
-        .clear_render_targets = info.clear_render_targets,
-    });
+
+    u32 const pass = info.first_pass ? PASS0_DRAW_FIRST_PASS : PASS1_DRAW_SECOND_PASS;
+
+    if (info.render_context->render_data.settings.enable_separate_compute_meshlet_culling)
+    {
+        info.tg.add_task(CullMeshletsComputeTask{
+            .views = std::array{
+                CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
+                CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
+                CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
+                CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
+                CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
+                CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
+                CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
+                CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
+                CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
+                CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
+                CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
+                CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
+                CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
+                CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+            },
+            .render_context = info.render_context,
+            .first_pass = info.first_pass,
+            .clear_render_targets = info.clear_render_targets,
+        });
+
+        auto draw_commands_array = info.tg.create_transient_buffer({
+            .size = 2 * static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct))),
+            .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
+        });
+
+        DrawVisbuffer_WriteCommandTask2 write_task = {
+            .views = std::array{
+                DrawVisbuffer_WriteCommandH::AT.globals | info.render_context->tgpu_render_data,
+                DrawVisbuffer_WriteCommandH::AT.meshlet_instances | info.meshlet_instances,
+                DrawVisbuffer_WriteCommandH::AT.draw_commands | draw_commands_array,
+            },
+            .gpu_context = info.render_context->gpu_context,
+            .push = DrawVisbufferPush_WriteCommand{.pass = pass},
+            .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
+        };
+        info.tg.add_task(write_task);
+
+        DrawVisbufferTask draw_task = {
+            .views = std::array{
+                DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
+                DrawVisbufferH::AT.draw_commands | draw_commands_array,
+                DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
+                DrawVisbufferH::AT.meshes | info.meshes,
+                DrawVisbufferH::AT.material_manifest | info.material_manifest,
+                DrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
+                DrawVisbufferH::AT.vis_image | info.vis_image,
+                DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
+                DrawVisbufferH::AT.depth_image | info.depth_image,
+                DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+                DrawVisbufferH::AT.hiz | info.hiz,
+            },
+            .render_context = info.render_context,
+            .pass = pass,
+        };
+        info.tg.add_task(draw_task);
+    }
+    else
+    {
+        info.tg.add_task(CullMeshletsDrawVisbufferTask{
+            .views = std::array{
+                CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
+                CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
+                CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
+                CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
+                CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
+                CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
+                CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
+                CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
+                CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
+                CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
+                CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
+                CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
+                CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
+                CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+            },
+            .render_context = info.render_context,
+            .first_pass = info.first_pass,
+            .clear_render_targets = info.clear_render_targets,
+        });
+    }
 }
 
 struct TaskDrawVisbufferInfo

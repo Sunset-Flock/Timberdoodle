@@ -27,7 +27,6 @@ struct Po2WorkExpansionBufferHead
     daxa::u32 * buckets[PO2_WORK_EXPANSION_BUCKET_COUNT];
     daxa::u32 max_src_items;
     daxa::u32 max_dst_items;
-    daxa::u32 dst_workgroup_size_log2;
     daxa::u32 buffer_size;
 
     #if defined(__cplusplus)
@@ -35,7 +34,6 @@ struct Po2WorkExpansionBufferHead
             daxa::DeviceAddress device_address, 
             daxa::u32 max_src_items,
             daxa::u32 max_dst_items,
-            daxa::u32 dst_workgroup_size,
             DispatchIndirectStruct dispatch_clear,
             Po2WorkExpansionBufferHead* out)
         {
@@ -45,7 +43,6 @@ struct Po2WorkExpansionBufferHead
             DAXA_DBG_ASSERT_TRUE_M(max_dst_items_fractional_part < 0.0000001, "max_dst_items must be a power of two");
             out->max_src_items = max_src_items;
             out->max_dst_items = max_dst_items;
-            out->dst_workgroup_size_log2 = static_cast<daxa::u32>(std::log2(static_cast<daxa::f32>(dst_workgroup_size)));
             daxa::u32 size = sizeof(Po2WorkExpansionBufferHead);
             for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
             {
@@ -61,11 +58,10 @@ struct Po2WorkExpansionBufferHead
             daxa::DeviceAddress device_address, 
             daxa::u32 max_src_items,
             daxa::u32 max_dst_items,
-            daxa::u32 dst_workgroup_size,
             DispatchIndirectStruct dispatch_clear) -> Po2WorkExpansionBufferHead
         {
             Po2WorkExpansionBufferHead ret = {};
-            create_in_place(device_address, max_src_items, max_dst_items, dst_workgroup_size, dispatch_clear, &ret);
+            create_in_place(device_address, max_src_items, max_dst_items, dispatch_clear, &ret);
             return ret;
         }
 

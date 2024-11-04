@@ -13,9 +13,9 @@ uint get_meshlet_draw_count(
 {
     switch (pass)
     {
-        case PASS0_DRAW_VISIBLE_LAST_FRAME: 
+        case PASS0_DRAW_FIRST_PASS: 
             return deref(meshlet_instances).prepass_draw_lists[opaque_or_discard].first_count;
-        case PASS1_DRAW_POST_CULL: 
+        case PASS1_DRAW_SECOND_PASS: 
             return deref(meshlet_instances).prepass_draw_lists[opaque_or_discard].second_count;
         case PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME: 
             return deref(meshlet_instances).prepass_draw_lists[opaque_or_discard].first_count;
@@ -38,10 +38,10 @@ uint get_meshlet_instance_index(
     uint draw_list_offset = 0;
     switch (pass)
     {
-        case PASS0_DRAW_VISIBLE_LAST_FRAME: 
+        case PASS0_DRAW_FIRST_PASS: 
             draw_list_offset = 0;
             break;
-        case PASS1_DRAW_POST_CULL: 
+        case PASS1_DRAW_SECOND_PASS: 
             draw_list_offset = deref(meshlet_instances).prepass_draw_lists[draw_list_type].first_count;
             break;
         case PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME: 

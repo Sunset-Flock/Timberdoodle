@@ -417,8 +417,52 @@ void entry_main_cs(
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
-        const float vsm_shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
-        const float final_shadow = sun_norm_dot * vsm_shadow.x;
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
+
+        // Raytraced shadow
+        if (AT.globals.debug.cpu_input.debug_ivec4.x > 0) {
+            RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
+                RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
+                RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+
+            const float t_min = 0.01f;
+            const float t_max = 100000.0f;
+
+            RayDesc my_ray = {
+                tri_data.world_position,
+                t_min,
+                sun_direction,
+                t_max,
+            };
+
+            // Set up a trace.  No work is done yet.
+            q.TraceRayInline(
+                daxa::RayTracingAccelerationStructureTable[AT.tlas.index()],
+                0, // OR'd with flags above
+                0xFFFF,
+                my_ray);
+
+            // Proceed() below is where behind-the-scenes traversal happens,
+            // including the heaviest of any driver inlined code.
+            // In this simplest of scenarios, Proceed() only needs
+            // to be called once rather than a loop:
+            // Based on the template specialization above,
+            // traversal completion is guaranteed.
+            q.Proceed();
+
+
+            bool shadowed = false;
+            // Examine and act on the result of the traversal.
+            // Was a hit committed?
+            if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+            {
+                shadowed = true;
+            }
+
+            shadow = shadowed ? 0.0f : 1.0f;
+        }
+
+        const float final_shadow = sun_norm_dot * shadow.x;
 
         const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
 
@@ -526,7 +570,6 @@ void entry_main_cs(
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
-
     
     //const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;
     //rand_seed(thread_seed);

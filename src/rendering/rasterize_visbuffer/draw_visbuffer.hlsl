@@ -202,7 +202,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     }
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_inst.mesh_index).micro_indices;
-    const bool observer_pass = (push.pass > PASS1_DRAW_POST_CULL);
+    const bool observer_pass = (push.pass > PASS1_DRAW_SECOND_PASS);
     const bool non_visbuffer_two_pass_cull = !push.attach.globals.settings.enable_visbuffer_two_pass_culling;
     allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull);
     const daxa_f32mat4x4 view_proj = 
@@ -227,12 +227,15 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         const uint in_meshlet_vertex_index = svtid.x + vertex_offset;
         if (in_meshlet_vertex_index >= meshlet.vertex_count) continue;
 
+        // Very slow fetch, as its incoherent memory address across warps.
         const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + in_meshlet_vertex_index);
         if (in_mesh_vertex_index >= mesh.vertex_count)
         {
             /// TODO: ASSERT HERE. 
             continue;
         }
+        
+        // Very slow fetch, as its incoherent memory address across warps.
         const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
         const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
 
@@ -492,6 +495,139 @@ bool get_meshlet_instance_from_workitem(
     return valid_meshlet;
 }
 
+struct MeshletCullWriteoutResult
+{
+    bool draw_meshlet;
+    uint warp_meshlet_instances_offset;
+}
+func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWriteoutResult
+{
+    let push = cull_meshlets_draw_visbuffer_push;
+    bool draw_meshlet = true;
+    if (draw_meshlet)
+    {
+        if (push.first_pass)
+        {
+            mark_meshlet_as_drawn_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
+        }
+        else
+        {
+            draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
+        }
+    }
+    
+    if (draw_meshlet)
+    {
+        GPUMesh mesh_data = deref_i(push.attach.meshes, meshle_instance.mesh_index);
+        draw_meshlet = draw_meshlet && mesh_data.mesh_buffer.value != 0; // Check if mesh is loaded.
+        draw_meshlet = draw_meshlet && (meshle_instance.meshlet_index < mesh_data.meshlet_count);
+    }
+    
+    // We still continue to run the task shader even with invalid meshlets.
+    // We simple set the occluded value to true for these invalida meshlets.
+    // This is done so that the following WaveOps are well formed and have all threads active. 
+    if (draw_meshlet && push.attach.globals.settings.enable_meshlet_cull)
+    {
+        let cull_camera = push.first_pass ? deref(push.attach.globals).camera_prev_frame : deref(push.attach.globals).camera;
+
+        draw_meshlet = draw_meshlet && !is_meshlet_occluded(
+            push.attach.globals.debug,
+            cull_camera,
+            meshle_instance,
+            push.attach.entity_combined_transforms,
+            push.attach.meshes,
+            push.attach.globals.cull_data,
+            push.attach.hiz);
+    }
+    uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
+    // When not occluded, this value determines the new packed index for each thread in the wave:
+    let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
+    uint warp_meshlet_instances_offset = 0;
+    bool allocation_failed = false;
+    {
+        uint global_draws_offsets;
+        if (WaveIsFirstLane())
+        {
+            if (push.first_pass)
+            {
+                warp_meshlet_instances_offset =
+                    atomicAdd(push.attach.meshlet_instances->first_count, surviving_meshlet_count);
+                global_draws_offsets = 
+                    atomicAdd(push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].first_count, surviving_meshlet_count);
+            }
+            else
+            {
+                warp_meshlet_instances_offset = 
+                    push.attach.meshlet_instances->first_count + 
+                    atomicAdd(push.attach.meshlet_instances->second_count, surviving_meshlet_count);
+                global_draws_offsets = 
+                    push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].first_count + 
+                    atomicAdd(push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
+            }
+        }
+        warp_meshlet_instances_offset = WaveBroadcastLaneAt(warp_meshlet_instances_offset, 0);
+        global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
+        
+        if (draw_meshlet)
+        {
+            const uint meshlet_instance_idx = warp_meshlet_instances_offset + local_survivor_index;
+            // When we fail to push back into the meshlet instances we dont need to do anything extra.
+            // get_meshlet_instance_from_arg_buckets will make sure that no meshlet indices past the max number are attempted to be drawn.
+
+            if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
+            {
+                deref_i(deref(push.attach.meshlet_instances).meshlets, meshlet_instance_idx) = meshle_instance;
+            }
+            else
+            {
+                allocation_failed = true;
+                //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", instanced_meshlet.entity_index);
+            }
+
+            // Only needed for observer:
+            const uint draw_list_element_index = global_draws_offsets + local_survivor_index;
+            if (draw_list_element_index < MAX_MESHLET_INSTANCES)
+            {
+                deref_i(deref(push.attach.meshlet_instances).prepass_draw_lists[push.draw_list_type].instances, draw_list_element_index) = 
+                    (meshlet_instance_idx < MAX_MESHLET_INSTANCES) ? 
+                    meshlet_instance_idx : 
+                    (~0u);
+            }
+        }
+    }
+    // Remove all meshlets that couldnt be allocated.
+    draw_meshlet = draw_meshlet && !allocation_failed;
+
+    return MeshletCullWriteoutResult( draw_meshlet, warp_meshlet_instances_offset );
+}
+
+[shader("compute")]
+[numthreads(MESHLET_CULL_WORKGROUP_X, 1, 1)]
+func entry_compute_meshlet_cull(
+    uint3 svtid : SV_DispatchThreadID,
+    uint3 svgid : SV_GroupID
+)
+{
+    let push = cull_meshlets_draw_visbuffer_push;
+
+    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    MeshletInstance instanced_meshlet;
+    bool valid_meshlet = get_meshlet_instance_from_workitem(
+        po2expansion,
+        push.attach.mesh_instances,
+        push.attach.meshes,
+        push.bucket_index,
+        svtid.x,
+        instanced_meshlet
+    );
+    
+    MeshletCullWriteoutResult cull_result = (MeshletCullWriteoutResult)0;
+    if (valid_meshlet)
+    {
+        cull_result = cull_and_writeout_meshlet(instanced_meshlet);
+    }
+}
+
 [shader("amplification")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_task_meshlet_cull(
@@ -512,110 +648,21 @@ func entry_task_meshlet_cull(
         instanced_meshlet
     );
     
+    MeshletCullWriteoutResult cull_result = (MeshletCullWriteoutResult)0;
     if (valid_meshlet)
     {
-        GPUMesh mesh_data = deref_i(push.attach.meshes, instanced_meshlet.mesh_index);
-        valid_meshlet = valid_meshlet && mesh_data.mesh_buffer.value != 0; // Check if mesh is loaded.
-        valid_meshlet = valid_meshlet && (instanced_meshlet.meshlet_index < mesh_data.meshlet_count);
-    }
-    // Only check this if we actually ARE the second pass.
-    if (valid_meshlet)
-    {
-        valid_meshlet = valid_meshlet && !is_meshlet_drawn_in_first_pass( instanced_meshlet, push.attach.first_pass_meshlets_bitfield_arena );
+        cull_result = cull_and_writeout_meshlet(instanced_meshlet);
     }
 
-    bool draw_meshlet = valid_meshlet;
-    
-    if (push.first_pass && draw_meshlet)
-    {
-        mark_meshlet_as_drawn_first_pass( instanced_meshlet, push.attach.first_pass_meshlets_bitfield_arena );
-    }
-    // We still continue to run the task shader even with invalid meshlets.
-    // We simple set the occluded value to true for these invalida meshlets.
-    // This is done so that the following WaveOps are well formed and have all threads active. 
-    if (valid_meshlet && push.attach.globals.settings.enable_meshlet_cull)
-    {
-        let cull_camera = push.first_pass ? deref(push.attach.globals).camera_prev_frame : deref(push.attach.globals).camera;
+    let surviving_meshlet_count = WaveActiveSum(cull_result.draw_meshlet ? 1u : 0u);
 
-        draw_meshlet = draw_meshlet && !is_meshlet_occluded(
-            push.attach.globals.debug,
-            cull_camera,
-            instanced_meshlet,
-            push.attach.entity_combined_transforms,
-            push.attach.meshes,
-            push.attach.globals.cull_data,
-            push.attach.hiz);
-    }
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
-    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  
-    uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
-    // When not occluded, this value determines the new packed index for each thread in the wave:
-    let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
-
-    bool allocation_failed = false;
-    {
-        uint global_draws_offsets;
-        if (WaveIsFirstLane())
-        {
-            if (push.first_pass)
-            {
-                payload.task_shader_meshlet_instances_offset =
-                    atomicAdd(push.attach.meshlet_instances->first_count, surviving_meshlet_count);
-                global_draws_offsets = 
-                    atomicAdd(push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].first_count, surviving_meshlet_count);
-            }
-            else
-            {
-                payload.task_shader_meshlet_instances_offset = 
-                    push.attach.meshlet_instances->first_count + 
-                    atomicAdd(push.attach.meshlet_instances->second_count, surviving_meshlet_count);
-                global_draws_offsets = 
-                    push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].first_count + 
-                    atomicAdd(push.attach.meshlet_instances->prepass_draw_lists[push.draw_list_type].second_count, surviving_meshlet_count);
-            }
-        }
-        payload.task_shader_meshlet_instances_offset = WaveBroadcastLaneAt(payload.task_shader_meshlet_instances_offset, 0);
-        global_draws_offsets = WaveBroadcastLaneAt(global_draws_offsets, 0);
-        
-        if (draw_meshlet)
-        {
-            const uint meshlet_instance_idx = payload.task_shader_meshlet_instances_offset + local_survivor_index;
-            // When we fail to push back into the meshlet instances we dont need to do anything extra.
-            // get_meshlet_instance_from_arg_buckets will make sure that no meshlet indices past the max number are attempted to be drawn.
-
-            if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
-            {
-                deref_i(deref(push.attach.meshlet_instances).meshlets, meshlet_instance_idx) = instanced_meshlet;
-            }
-            else
-            {
-                allocation_failed = true;
-                //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", instanced_meshlet.entity_index);
-            }
-
-            // Only needed for observer:
-            const uint draw_list_element_index = global_draws_offsets + local_survivor_index;
-            if (draw_list_element_index < MAX_MESHLET_INSTANCES)
-            {
-                deref_i(deref(push.attach.meshlet_instances).prepass_draw_lists[push.draw_list_type].instances, draw_list_element_index) = 
-                    (meshlet_instance_idx < MAX_MESHLET_INSTANCES) ? 
-                    meshlet_instance_idx : 
-                    (~0u);
-            }
-        }
-    }
-
-    // Remove all meshlets that couldnt be allocated.
-    draw_meshlet = draw_meshlet && !allocation_failed;
-    if (WaveActiveAnyTrue(allocation_failed))
-    {
-        payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;  
-        surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
-    }
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(cull_result.draw_meshlet).x;  
+    payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
 
     bool enable_backface_culling = false;
-    if (valid_meshlet)
+    if (cull_result.draw_meshlet)
     {
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
@@ -685,7 +732,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     );
     DrawVisbufferPush fake_draw_p;
     fake_draw_p.attach.hiz = push.attach.hiz;
-    fake_draw_p.pass = PASS1_DRAW_POST_CULL; // Can only be the second pass.
+    fake_draw_p.pass = PASS1_DRAW_SECOND_PASS; // Can only be the second pass.
     fake_draw_p.attach.globals = push.attach.globals;
     fake_draw_p.attach.meshlet_instances = push.attach.meshlet_instances;
     fake_draw_p.attach.meshes = push.attach.meshes;

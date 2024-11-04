@@ -160,6 +160,7 @@ void Renderer::compile_pipelines()
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
+        {cull_meshlets_compute_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
@@ -302,7 +303,7 @@ void Renderer::recreate_framebuffer()
             gpu_context->device.destroy_image(timg.get_state().images[0]);
         }
         auto new_info = info;
-        new_info.size = {this->window->get_width(), this->window->get_height(), 1};
+        new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
     }
 }
@@ -354,7 +355,6 @@ void Renderer::window_resized()
         return;
     }
     this->gpu_context->swapchain.resize();
-    recreate_framebuffer();
 }
 
 auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
@@ -454,6 +454,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
+        .reorder_tasks = true,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
@@ -835,6 +836,7 @@ void Renderer::render_frame(
     // Sky is transient of main task graph
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed)
     {
+        recreate_framebuffer();
         main_task_graph = create_main_task_graph();
     }
     daxa::DeviceAddress render_data_device_address =

@@ -262,6 +262,7 @@ bool is_ndc_aabb_hiz_depth_occluded(
     //          The physical hiz texture size is rounded up to the next power of two of half the render resolution.
     const daxa_i32vec2 physical_texel_bounds = max(daxa_i32vec2(0,0), (data.physical_hiz_size >> imip) - 1);
 
+    // TODO: REPALCE WITH GATHER
     // WARNING: If this is changed to be a gather in the future, the uvs must be calculated on the hiz physical texture size size!
     const daxa_f32vec4 fetch = daxa_f32vec4(
         Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,0), int2(0,0), physical_texel_bounds), imip)).x,

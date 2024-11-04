@@ -11,6 +11,7 @@
 #define MAX_MATERIALS (1u << 16u)
 #define MAX_MESHES 10000
 #define MESH_SHADER_WORKGROUP_X 32
+#define MESHLET_CULL_WORKGROUP_X 128
 #define CULLING_DEBUG_DRAWS 1
 
 #if defined(__cplusplus)
@@ -185,6 +186,7 @@ struct Settings
     daxa_b32 enable_merged_scene_blas;
     daxa_b32 enable_rt_pipeline_for_ao;
     daxa_b32 enable_visbuffer_two_pass_culling;
+    daxa_b32 enable_separate_compute_meshlet_culling;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -213,7 +215,8 @@ struct Settings
           enable_atomic_visbuffer{0},
           enable_merged_scene_blas{0},
           enable_rt_pipeline_for_ao{0},
-          enable_visbuffer_two_pass_culling{1}
+          enable_visbuffer_two_pass_culling{1},
+          enable_separate_compute_meshlet_culling{0}
     {
     }
 #endif
@@ -348,8 +351,8 @@ struct DispatchIndirectStruct
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
 
-#define PASS0_DRAW_VISIBLE_LAST_FRAME 0
-#define PASS1_DRAW_POST_CULL 1
+#define PASS0_DRAW_FIRST_PASS 0
+#define PASS1_DRAW_SECOND_PASS 1
 #define PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME 2
 #define PASS3_OBSERVER_DRAW_POST_CULLED 3
 #define PASS4_OBSERVER_DRAW_ALL 4
