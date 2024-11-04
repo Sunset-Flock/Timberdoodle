@@ -34,9 +34,6 @@ DAXA_DECL_BUFFER_PTR(VSMGlobals)
 
 struct VSMClipProjection
 {
-    daxa_i32 page_align_axis;
-    daxa_i32 height_offset;
-    daxa_f32 depth_page_offset;
     daxa_i32vec2 page_offset;
     daxa_f32 near_to_far_range;
     daxa_f32 near_dist;

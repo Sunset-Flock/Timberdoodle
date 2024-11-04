@@ -20,15 +20,13 @@ void main()
         (clear_offset.y < 0 && vsm_page_coords.y >  VSM_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1));
     
     daxa_BufferPtr(FreeWrappedPagesInfo) info = push.free_wrapped_pages_info;
-    const uint decoded_bit = unwrap_vsm_page_from_mask(vsm_page_coords, info);
-    const bool should_clear_dynamic = decoded_bit != 0;
 
     const uint enable_caching = deref(push.globals).vsm_settings.enable_caching;
     const uint sun_moved = deref(push.globals).vsm_settings.sun_moved;
 
     const ivec3 vsm_wrapped_page_coords = vsm_page_coords_to_wrapped_coords(vsm_page_coords, push.vsm_clip_projections);
 
-    if(should_clear_wrapped || should_clear_dynamic || enable_caching == 0u || sun_moved != 0u)
+    if(should_clear_wrapped || enable_caching == 0u || sun_moved != 0u)
     {
         const uint vsm_page_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), vsm_wrapped_page_coords).r;
         if(get_is_allocated(vsm_page_entry))

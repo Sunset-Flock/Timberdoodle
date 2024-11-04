@@ -17,7 +17,7 @@ struct VSMState
     daxa::TaskImage memory_block64 = {};
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
-    daxa::TaskImage page_height_offsets = {};
+    daxa::TaskImage page_view_pos_row = {};
 
     // Transient state
     daxa::TaskBufferView allocation_count = {};
@@ -130,11 +130,11 @@ struct VSMState
             .name = "vsm page table",
         });
 
-        page_height_offsets = daxa::TaskImage({
+        page_view_pos_row = daxa::TaskImage({
             .initial_images = {
                 .images = std::array{
                     gpu_context->device.create_image({
-                        .format = daxa::Format::R32_SINT,
+                        .format = daxa::Format::R32G32B32A32_SFLOAT,
                         .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
                         .array_layer_count = VSM_CLIP_LEVELS,
                         .usage =
@@ -187,7 +187,7 @@ struct VSMState
         gpu_context->device.destroy_image(memory_block64.get_state().images[0]);
         gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_table.get_state().images[0]);
-        gpu_context->device.destroy_image(page_height_offsets.get_state().images[0]);
+        gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
