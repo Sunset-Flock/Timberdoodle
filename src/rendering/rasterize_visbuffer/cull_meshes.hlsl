@@ -27,9 +27,10 @@ void main(uint thread_id : SV_DispatchThreadID)
     // Currently only used by main visbuffer path:
     if (push.cull_meshes && push.attach.hiz.value != 0 && push.attach.globals.settings.enable_mesh_cull)
     {
+        let cull_camera = push.cull_against_last_frame ? push.attach.globals.camera_prev_frame : push.attach.globals.camera;
         if (is_mesh_occluded(
             push.attach.globals->debug,
-            push.attach.globals.camera,
+            cull_camera,
             mesh_instance,
             push.attach.entity_combined_transforms,
             push.attach.meshes,

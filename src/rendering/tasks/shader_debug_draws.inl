@@ -259,13 +259,8 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
 {
     if (pre_task)
     {
-        std::string task_name = std::string(ti.task_name);
-        usize name_duplication = tg_debug.this_frame_duplicate_task_name_counter[task_name]++;
-        if (name_duplication > 0)
-        {
-            task_name = task_name + " (" + std::to_string(name_duplication) + ")";
-        }
-        tg_debug.this_frame_task_attachments.push_back(TgDebugContext::TgDebugTask{.task_name = task_name});
+        std::string name = std::string(ti.task_name);
+        tg_debug.this_frame_task_attachments.push_back(TgDebugContext::TgDebugTask{.task_index = ti.task_index, .task_name = name });
     }
     usize this_frame_task_index = tg_debug.this_frame_task_attachments.size() - 1ull;
     for (u32 i = 0; i < ti.attachment_infos.size(); ++i)
@@ -275,7 +270,7 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
         daxa::TaskImageAttachmentIndex src = {i};
         auto& attach_info = ti.get(src);
 
-        std::string key = std::string(ti.task_name) + "::AT." + ti.attachment_infos[i].name();
+        std::string key = std::string(ti.task_name) + "::AT." + ti.attachment_infos[i].name() + " IDX: " + std::to_string(ti.task_index);
         if (pre_task)
         {
             tg_debug.this_frame_task_attachments[this_frame_task_index].attachments.push_back(ti.attachment_infos[i]);

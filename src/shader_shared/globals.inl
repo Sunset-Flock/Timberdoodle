@@ -12,6 +12,8 @@ struct RenderGlobalData
 {
     CameraInfo camera;
     CameraInfo observer_camera;
+    CameraInfo camera_prev_frame;
+    CameraInfo observer_camera_prev_frame;
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;

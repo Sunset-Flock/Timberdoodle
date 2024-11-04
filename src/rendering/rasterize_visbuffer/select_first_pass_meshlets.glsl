@@ -100,18 +100,41 @@ void main()
 layout(local_size_x = WORKGROUP_SIZE) in;
 void main()
 {
-    const uint count = deref(push.attach.visible_meshlets_prev).count;
-    const uint thread_index = gl_GlobalInvocationID.x;
-    if (thread_index >= count)
+    uint entity_index = 0;
+    uint mesh_index = 0;
+    uint in_mesh_group_index = 0;
+    if (deref(push.attach.globals).settings.enable_visbuffer_two_pass_culling)
     {
-        //debugPrintfEXT("thread_index >= count: %i >= %i\n", thread_index, count);
-        return;
+        const uint count = deref(push.attach.visible_meshlets_prev).count;
+        const uint thread_index = gl_GlobalInvocationID.x;
+        if (thread_index >= count)
+        {
+            //debugPrintfEXT("thread_index >= count: %i >= %i\n", thread_index, count);
+            return;
+        }
+        const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
+        const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
+
+        entity_index = prev_frame_vis_meshlet.entity_index;
+        in_mesh_group_index = prev_frame_vis_meshlet.in_mesh_group_index;
+        mesh_index = prev_frame_vis_meshlet.mesh_index;
+    }
+    else // For non visbuffer two pass culling, we have to allocate a bit for every possible meshlet
+    {
+        uint mesh_instance_index = gl_GlobalInvocationID.x;
+        uint mesh_instance_count = min(deref(push.attach.mesh_instances).count, MAX_MESH_INSTANCES);
+        if (mesh_instance_index >= mesh_instance_count)
+        {
+            return;
+        }
+        MeshInstance mesh_instance = deref_i(deref(push.attach.mesh_instances).instances, mesh_instance_index);
+
+        entity_index = mesh_instance.entity_index;
+        in_mesh_group_index = mesh_instance.in_mesh_group_index;
+        mesh_index = mesh_instance.mesh_index;
     }
 
-    const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];
-    const MeshletInstance prev_frame_vis_meshlet = deref(deref(push.attach.meshlet_instances_prev).meshlets[prev_frame_meshlet_idx]);
-
-    const uint entity_to_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[prev_frame_vis_meshlet.entity_index];
+    const uint entity_to_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[entity_index];
     if (entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID || 
         entity_to_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED)
     {
@@ -120,7 +143,7 @@ void main()
     }
 
     // Try to lock the mesh instance offset:
-    const uint mesh_instance_bitfield_offset_offset = entity_to_meshgroup_bitfield_offset + prev_frame_vis_meshlet.in_mesh_group_index;
+    const uint mesh_instance_bitfield_offset_offset = entity_to_meshgroup_bitfield_offset + in_mesh_group_index;
     const bool locked_mesh_instance_offset = FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID == atomicCompSwap(
         push.attach.bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset],
         FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID,
@@ -132,7 +155,7 @@ void main()
         return;
     }
 
-    GPUMesh mesh = deref(push.attach.meshes[prev_frame_vis_meshlet.mesh_index]);
+    GPUMesh mesh = deref(push.attach.meshes[mesh_index]);
     if (mesh.mesh_buffer.value == 0)
     {
         // Unloaded Mesh

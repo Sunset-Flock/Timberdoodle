@@ -439,12 +439,6 @@ void entry_main_cs(
 
         float3 dummy_color = float3(1,0,1);
         uint id_to_visualize = ~0u;
-        float atomic_depth = 0;
-        if (AT.atomic_visbuffer.value != 0)
-        {
-            daxa::u64 visdepth = tex_u64_table[AT.atomic_visbuffer.index()][index];
-            atomic_depth = asfloat(uint(visdepth >> 32));
-        }
         switch(AT.globals->settings.debug_draw_mode)
         {
             case DEBUG_DRAW_MODE_OVERDRAW:
@@ -479,7 +473,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DEPTH:
             {
-                float depth = AT.atomic_visbuffer.value != 0 ? atomic_depth : tri_data.depth;
+                float depth = tri_data.depth;
                 let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.camera.near_plane, depth));
                 output_value.rgb = color;
                 break;

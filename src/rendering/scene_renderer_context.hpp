@@ -75,10 +75,10 @@ struct TgDebugContext
 
     struct TgDebugTask
     {
+        usize task_index = {};
         std::string task_name = {};
         std::vector<daxa::TaskAttachmentInfo> attachments = {};
     };
-    std::unordered_map<std::string, usize> this_frame_duplicate_task_name_counter = {};
     std::vector<TgDebugTask> this_frame_task_attachments = {}; // cleared every frame.
     std::unordered_map<std::string, TgDebugImageInspectorState> inspector_states = {};
     std::set<std::string> active_inspectors = {};
@@ -103,11 +103,20 @@ struct TgDebugContext
 
 namespace RenderTimes
 {
+    static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
+
     enum RenderTimesEnum
     {
-        VISBUFFER_DRAW_FIRST_PASS,
-        VISBUFFER_GEN_HIZ,
-        VISBUFFER_DRAW_SECOND_PASS,
+        VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_0,
+        VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_1,
+        VISBUFFER_FIRST_PASS_SELECT_MESHLETS,
+        VISBUFFER_FIRST_PASS_DRAW,
+        VISBUFFER_FIRST_PASS_GEN_HIZ,
+        VISBUFFER_FIRST_PASS_CULL_MESHES,
+        VISBUFFER_FIRST_PASS_CULL_AND_DRAW,
+        VISBUFFER_SECOND_PASS_GEN_HIZ,
+        VISBUFFER_SECOND_PASS_CULL_MESHES,
+        VISBUFFER_SECOND_PASS_CULL_AND_DRAW,
         VISBUFFER_ANALYZE,
         RAY_TRACED_AMBIENT_OCCLUSION,
         RAY_TRACED_AMBIENT_OCCLUSION_DENOISE,
@@ -124,9 +133,16 @@ namespace RenderTimes
     };
 
     static constexpr inline std::array<char const *, RenderTimesEnum::COUNT> NAMES = {
-        "VISBUFFER_DRAW_FIRST_PASS",
-        "VISBUFFER_GEN_HIZ",
-        "VISBUFFER_DRAW_SECOND_PASS",
+        "VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_0",
+        "VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_1",
+        "VISBUFFER_FIRST_PASS_SELECT_MESHLETS",
+        "VISBUFFER_FIRST_PASS_DRAW",
+        "VISBUFFER_FIRST_PASS_GEN_HIZ",
+        "VISBUFFER_FIRST_PASS_CULL_MESHES",
+        "VISBUFFER_FIRST_PASS_CULL_AND_DRAW",
+        "VISBUFFER_SECOND_PASS_GEN_HIZ",
+        "VISBUFFER_SECOND_PASS_CULL_MESHES",
+        "VISBUFFER_SECOND_PASS_CULL_AND_DRAW",
         "VISBUFFER_ANALYZE",
         "RAY_TRACED_AMBIENT_OCCLUSION",
         "RAY_TRACED_AMBIENT_OCCLUSION_DENOISE",
@@ -170,9 +186,16 @@ namespace RenderTimes
     }
 
     static constexpr inline std::array GROUP_VISBUFFER_TIMES = std::array{
-        VISBUFFER_DRAW_FIRST_PASS,
-        VISBUFFER_GEN_HIZ,
-        VISBUFFER_DRAW_SECOND_PASS,
+        VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_0,
+        VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_1,
+        VISBUFFER_FIRST_PASS_SELECT_MESHLETS,
+        VISBUFFER_FIRST_PASS_DRAW,
+        VISBUFFER_FIRST_PASS_GEN_HIZ,
+        VISBUFFER_FIRST_PASS_CULL_MESHES,
+        VISBUFFER_FIRST_PASS_CULL_AND_DRAW,
+        VISBUFFER_SECOND_PASS_GEN_HIZ,
+        VISBUFFER_SECOND_PASS_CULL_MESHES,
+        VISBUFFER_SECOND_PASS_CULL_AND_DRAW,
         VISBUFFER_ANALYZE,
     };
 
@@ -212,6 +235,7 @@ namespace RenderTimes
         u32 query_version_index = {};
         u32 query_version_count = {};
         daxa::TimelineQueryPool timeline_query_pool = {};
+        std::array<bool, RenderTimes::COUNT> timer_set = {};
         std::array<u64, RenderTimes::COUNT> current_times = {};
         std::array<u64, RenderTimes::COUNT> smooth_current_times = {};
 
@@ -232,6 +256,10 @@ namespace RenderTimes
 
             for (u32 i = 0; i < RenderTimes::COUNT; ++i)
             {
+                if (!timer_set[i])
+                {
+                    current_times[i] = 0;
+                }
                 // The query results layout:
                 // [0] start timestamp value
                 // [1] start timestamp readyness
@@ -248,6 +276,10 @@ namespace RenderTimes
             }
             for (u32 i = 0; i < RenderTimes::COUNT; ++i)
             {
+                if (!timer_set[i])
+                {
+                    smooth_current_times[i] = 0;
+                }
                 smooth_current_times[i] = (smooth_current_times[i] * 19 + current_times[i]) / 20;
             }
         }
@@ -266,11 +298,20 @@ namespace RenderTimes
         }
         void start_gpu_timer(auto & recorder, u32 render_time_index)
         {
+            if (render_time_index == INVALID_RENDER_TIME_INDEX)
+            {
+                return;
+            }
             write_timestamp(recorder, render_time_index * 2);
+            timer_set[render_time_index] = true;
             const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
         }
         void end_gpu_timer(auto & recorder, u32 render_time_index)
         {
+            if (render_time_index == INVALID_RENDER_TIME_INDEX)
+            {
+                return;
+            }
             write_timestamp(recorder, render_time_index * 2 + 1);
             const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
         }
@@ -284,6 +325,10 @@ namespace RenderTimes
         }
         void reset_timestamps_for_current_frame(auto & recorder)
         {
+            for (u32 i = 0; i < COUNT; ++i)
+            {
+                timer_set[i] = false;
+            }
             const auto query_pool_offset = RenderTimes::COUNT * 2 * query_version_index;
             recorder.reset_timestamps({
                 .query_pool = timeline_query_pool,

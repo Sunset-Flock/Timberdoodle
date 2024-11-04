@@ -142,7 +142,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
             RayTraceAmbientOcclusionPush push = { };
             push.attach = ti.attachment_shader_blob;
             auto const & ao_image = ti.device.image_info(ti.get(AT.ao_image).ids[0]).value();
-            if(render_context->render_data.settings.use_rt_pipeline_for_ao) 
+            if(render_context->render_data.settings.enable_rt_pipeline_for_ao) 
             {
                 auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
                 ti.recorder.set_pipeline(*rt_pipeline.pipeline);

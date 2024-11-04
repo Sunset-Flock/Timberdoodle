@@ -49,9 +49,9 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderG
 DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
@@ -88,6 +88,7 @@ struct CullMeshletsDrawVisbufferPush
     CullMeshletsDrawVisbufferH::AttachmentShaderBlob attach;
     daxa_u32 draw_list_type;
     daxa_u32 bucket_index;
+    daxa_b32 first_pass;
 };
 #endif
 
@@ -229,7 +230,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         }
         if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
         {
-            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_FIRST_PASS);
+            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
         }
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
@@ -258,7 +259,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
 
         if (pass == PASS0_DRAW_VISIBLE_LAST_FRAME)
         {
-            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_FIRST_PASS);
+            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
         }
     }
 };
@@ -267,9 +268,11 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
+    bool first_pass = {};
+    bool clear_render_targets = {};
     void callback(daxa::TaskInterface ti)
     {
-        bool const clear_images = false;
+        bool const clear_images = clear_render_targets;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
         auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
@@ -296,7 +299,10 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 }
             );
         }
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_SECOND_PASS);
+
+        u32 render_time_index = first_pass ? RenderTimes::VISBUFFER_FIRST_PASS_CULL_AND_DRAW : RenderTimes::VISBUFFER_SECOND_PASS_CULL_AND_DRAW; 
+
+        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
@@ -314,6 +320,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                     .attach = ti.attachment_shader_blob,
                     .draw_list_type = opaque_draw_list_type,
                     .bucket_index = i,
+                    .first_pass = first_pass,
                 };
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({
@@ -325,7 +332,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
             }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_DRAW_SECOND_PASS);
+        render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
 };
 
@@ -333,6 +340,8 @@ struct TaskCullAndDrawVisbufferInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & tg;
+    bool first_pass = {};
+    bool clear_render_targets = {};
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
     daxa::TaskBufferView entity_meta_data = {};
     daxa::TaskBufferView entity_meshgroups = {};
@@ -352,6 +361,10 @@ struct TaskCullAndDrawVisbufferInfo
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
+    if (info.first_pass && info.render_context->render_data.settings.enable_atomic_visbuffer)
+    {
+        info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
+    }
     info.tg.add_task(CullMeshletsDrawVisbufferTask{
         .views = std::array{
             CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
@@ -368,9 +381,10 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
             CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
             CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
-
         },
         .render_context = info.render_context,
+        .first_pass = info.first_pass,
+        .clear_render_targets = info.clear_render_targets,
     });
 }
 

@@ -643,7 +643,7 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
                 {
                     if (ImGui::Button(attach.name()))
                     {
-                        std::string inspector_key = task.task_name + "::AT." + attach.name();
+                        std::string inspector_key = task.task_name + "::AT." + attach.name() + " IDX: " + std::to_string(task.task_index);
                         bool already_active = render_context.tg_debug.inspector_states[inspector_key].active;
                         if (already_active)
                         {
@@ -691,7 +691,6 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
     }
     render_context.tg_debug.request_mouse_picker_override = false;
     render_context.tg_debug.this_frame_task_attachments.clear();
-    render_context.tg_debug.this_frame_duplicate_task_name_counter.clear();
 }
 
 auto format_vec4_rows_float(daxa_f32vec4 vec) -> std::string
@@ -1200,7 +1199,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&settings.enable_triangle_cull));
             ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&settings.enable_atomic_visbuffer));
             ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool *>(&settings.enable_merged_scene_blas));
-            ImGui::Checkbox("use_rt_pipeline_for_ao", reinterpret_cast<bool *>(&settings.use_rt_pipeline_for_ao));
+            ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&settings.enable_rt_pipeline_for_ao));
+            ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&settings.enable_visbuffer_two_pass_culling));
         }
     }
     ImGui::End();

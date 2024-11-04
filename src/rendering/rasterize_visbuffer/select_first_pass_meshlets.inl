@@ -31,6 +31,7 @@ DAXA_DECL_TASK_HEAD_END
 DAXA_DECL_TASK_HEAD_BEGIN(AllocMeshletInstBitfieldsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(COMPUTE_SHADER_READ, command)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances_prev)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
@@ -111,7 +112,10 @@ struct AllocEntToMeshInstOffsetsOffsetsTask : AllocEntBitfieldListsH::Task
             .attach = ti.attachment_shader_blob,
         };
         ti.recorder.push_constant(push);
+
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_0);
         ti.recorder.dispatch({round_up_div(draw_list_total_count, SFPM_ALLOC_ENT_BITFIELD_LISTS_X), 1, 1});
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_0);
     }
 };
 
@@ -127,15 +131,28 @@ inline auto prepopulate_meshlet_instances_pipeline_compile_info() -> daxa::Compu
 struct AllocMeshletInstBitfieldsTask : AllocMeshletInstBitfieldsH::Task
 {
     AttachmentViews views = {};
-    GPUContext * gpu_context = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prepopulate_meshlet_instances_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(prepopulate_meshlet_instances_pipeline_compile_info().name));
         AllocMeshletInstBitfieldsPush push = {
             .attach = ti.attachment_shader_blob,
         };
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AllocMeshletInstBitfieldsH::AT.command).ids[0]});
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_1);
+
+        if (render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0)
+        {
+            ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AllocMeshletInstBitfieldsH::AT.command).ids[0]});
+        }
+        else
+        {
+            u32 const draw_list_total_count =
+                render_context->mesh_instance_counts.prepass_instance_counts[0] +
+                render_context->mesh_instance_counts.prepass_instance_counts[1];
+            ti.recorder.dispatch({round_up_div(draw_list_total_count, SFPM_ALLOC_ENT_BITFIELD_LISTS_X), 1, 1});
+        }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_ALLOC_BITFIELD_1);
     }
 };
 
@@ -152,19 +169,21 @@ inline auto set_entity_meshlets_visibility_bitmasks_pipeline_compile_info() -> d
 struct WriteFirstPassMeshletsAndBitfieldsTask : WriteFirstPassMeshletsAndBitfieldsH::Task
 {
     AttachmentViews views = {};
-    GPUContext * gpu_context = {};
+    RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info().name));
         WriteFirstPassMeshletsAndBitfieldsPush push = {
             .attach = ti.attachment_shader_blob,
         };
         ti.recorder.push_constant(push);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_SELECT_MESHLETS);
         ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(WriteFirstPassMeshletsAndBitfieldsH::AT.command).ids[0]});
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_SELECT_MESHLETS);
     }
 };
 
-struct PrepopInfo
+struct SelectFirstPassMeshletsInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & tg;
@@ -178,7 +197,7 @@ struct PrepopInfo
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView & first_pass_meshlets_bitfield_arena;
 };
-inline void task_prepopulate_meshlet_instances(PrepopInfo info)
+inline void task_select_first_pass_meshlets(SelectFirstPassMeshletsInfo info)
 {
     // Process of selecting meshlets for the first pass:
     // - Build indirect bitfield, each bit noting if a meshlet is to be drawn in the first pass
@@ -230,25 +249,29 @@ inline void task_prepopulate_meshlet_instances(PrepopInfo info)
         .views = std::array{
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.command, command_buffer),
+            daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.mesh_instances, info.mesh_instances),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.visible_meshlets_prev, info.visible_meshlets_prev),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.meshlet_instances_prev, info.meshlet_instances_last_frame),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.meshes, info.meshes),
             daxa::attachment_view(AllocMeshletInstBitfieldsH::AT.bitfield_arena, first_pass_meshlets_bitfield_arena),
         },
-        .gpu_context = info.render_context->gpu_context,
+        .render_context = info.render_context,
     });
 
-    info.tg.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
-        .views = std::array{
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.command, command_buffer),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.visible_meshlets_prev, info.visible_meshlets_prev),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.meshlet_instances_prev, info.meshlet_instances_last_frame),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.materials, info.materials),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.bitfield_arena, first_pass_meshlets_bitfield_arena),
-        },
-        .gpu_context = info.render_context->gpu_context,
-    });
+    if (info.render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0)
+    {
+        info.tg.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
+            .views = std::array{
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.globals, info.render_context->tgpu_render_data),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.command, command_buffer),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.visible_meshlets_prev, info.visible_meshlets_prev),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.meshlet_instances_prev, info.meshlet_instances_last_frame),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.materials, info.materials),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.meshlet_instances, info.meshlet_instances),
+                daxa::attachment_view(WriteFirstPassMeshletsAndBitfieldsH::AT.bitfield_arena, first_pass_meshlets_bitfield_arena),
+            },
+            .render_context = info.render_context,
+        });
+    }
 }
 #endif

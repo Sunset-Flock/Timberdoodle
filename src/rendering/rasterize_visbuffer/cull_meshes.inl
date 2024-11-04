@@ -34,6 +34,7 @@ struct ExpandMeshesToMeshletsPush
 {
     ExpandMeshesToMeshletsH::AttachmentShaderBlob attach;
     daxa::b32 cull_meshes;
+    daxa::b32 cull_against_last_frame;  /// WARNING: only supported for non vsm path!
     // Only used for vsms:
     daxa::u32 cascade;
 };
@@ -64,14 +65,17 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     bool cull_meshes = {};
+    bool cull_against_last_frame = {};
     // only used for vsm cull:
     u32 cascade = {};
+    u32 render_time_index = ~0u;
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
         ExpandMeshesToMeshletsPush push = {
             .attach = ti.attachment_shader_blob,
             .cull_meshes = cull_meshes,
+            .cull_against_last_frame = cull_against_last_frame,
             .cascade = cascade,
         };
         ti.recorder.push_constant(push);
@@ -79,7 +83,10 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
             render_context->mesh_instance_counts.prepass_instance_counts[0] +
             render_context->mesh_instance_counts.prepass_instance_counts[1];
         total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
+
+        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1});
+        render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
 };
 
@@ -88,6 +95,8 @@ struct TaskExpandMeshesToMeshletsInfo
     RenderContext * render_context = {};
     daxa::TaskGraph & tg;
     bool cull_meshes = {};
+    bool cull_against_last_frame = {};
+    u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
     // Used for VSM page culling:
     daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
     daxa::u32 vsm_cascade = {};
@@ -110,11 +119,11 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
 {
     auto opaque_po2expansion = info.tg.create_transient_buffer({
         .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
-        .name = info.buffer_name_prefix + "opaque_meshlet_cull_po2expansion",
+        .name = info.buffer_name_prefix + "opaque_meshlet_cull_po2expansion" + std::to_string(rand()),
     });
     auto masked_opaque_po2expansion = info.tg.create_transient_buffer({
         .size = Po2WorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES),
-        .name = info.buffer_name_prefix + "masked_opaque_meshlet_cull_po2expansion",
+        .name = info.buffer_name_prefix + "masked_opaque_meshlet_cull_po2expansion" + std::to_string(rand()),
     });
     info.tg.add_task({
         .attachments = {
@@ -130,7 +139,7 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
                 ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, 32, info.dispatch_clear),
                 ti.get(masked_opaque_po2expansion));
         },
-        .name = "init meshlet cull arg buckets buffer",
+        .name = std::string("init meshlet cull arg buckets buffer") + std::to_string(rand()),
     });
 
     info.tg.add_task(ExpandMeshesToMeshletsTask{
@@ -152,7 +161,9 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         },
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,
+        .cull_against_last_frame = info.cull_against_last_frame,
         .cascade = info.vsm_cascade,
+        .render_time_index = info.render_time_index,
     });
     info.opaque_meshlet_cull_po2expansions = std::array{opaque_po2expansion, masked_opaque_po2expansion};
 }

@@ -66,6 +66,7 @@ Renderer::Renderer(
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
+    depth_vistory = daxa::TaskImage{{.name = "depth history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
 
@@ -73,6 +74,19 @@ Renderer::Renderer(
         transmittance,
         multiscattering,
         sky_ibl_cube,
+        depth_vistory,
+    };
+
+    frame_buffer_images = {
+        {
+            daxa::ImageInfo
+            {
+                .format = daxa::Format::D32_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .name = "depth history",
+            },
+            depth_vistory,
+        },
     };
 
     recreate_framebuffer();
@@ -493,29 +507,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     tg.clear_image({debug_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
 
-    auto overdraw_image = daxa::NullTaskImage;
-    if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_OVERDRAW)
-    {
-        overdraw_image = tg.create_transient_image({
-            .format = daxa::Format::R32_UINT,
-            .size = {
-                render_context->render_data.settings.render_target_size.x,
-                render_context->render_data.settings.render_target_size.y,
-                1,
-            },
-            .name = "overdraw_image",
-        });
-        tg.clear_image({overdraw_image, std::array{0, 0, 0, 0}});
-    }
-
-    daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
-    daxa::TaskImageView visbuffer = raster_visbuf::create_visbuffer(tg, *render_context);
-    daxa::TaskImageView depth = raster_visbuf::create_depth(tg, *render_context);
-    if (render_context->render_data.settings.enable_atomic_visbuffer)
-    {
-        atomic_visbuffer = raster_visbuf::create_atomic_visbuffer(tg, *render_context);
-    }
-
     tg.add_task(ReadbackTask{
         .views = std::array{daxa::attachment_view(ReadbackH::AT.globals, render_context->tgpu_render_data)},
         .shader_debug_context = &gpu_context->shader_debug_context,
@@ -530,6 +521,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "update global buffers",
     });
+
+    auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_vistory});
+    daxa::TaskImageView depth = visbuffer_ret.depth;
+    daxa::TaskImageView visbuffer = visbuffer_ret.visbuffer;
+    daxa::TaskImageView overdraw_image = visbuffer_ret.overdraw_image;
 
     auto sky = tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
@@ -558,115 +554,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .gpu_context = gpu_context,
     });
 
-    // Clear out counters for current meshlet instance lists.
-    tg.add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, meshlet_instances),
-        },
-        .task = [=](daxa::TaskInterface ti)
-        {
-            auto mesh_instances_address = ti.device.buffer_device_address(ti.get(meshlet_instances).ids[0]).value();
-            MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
-            allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
-        },
-        .name = "clear meshlet instance buffer",
-    });
-
-    daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
-    task_prepopulate_meshlet_instances(PrepopInfo{
-        .render_context = render_context.get(),
-        .tg = tg,
-        .mesh_instances = scene->mesh_instances_buffer,
-        .meshes = scene->_gpu_mesh_manifest,
-        .materials = scene->_gpu_material_manifest,
-        .entity_mesh_groups = scene->_gpu_entity_mesh_groups,
-        .mesh_group_manifest = scene->_gpu_mesh_group_manifest,
-        .visible_meshlets_prev = visible_meshlet_instances,
-        .meshlet_instances_last_frame = meshlet_instances_last_frame,
-        .meshlet_instances = meshlet_instances,
-        .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
-    });
-
-#if 1
-
-    task_draw_visbuffer({
-        .render_context = render_context.get(),
-        .tg = tg,
-        .pass = PASS0_DRAW_VISIBLE_LAST_FRAME,
-        .meshlet_instances = meshlet_instances,
-        .meshes = scene->_gpu_mesh_manifest,
-        .material_manifest = scene->_gpu_material_manifest,
-        .combined_transforms = scene->_gpu_entity_combined_transforms,
-        .vis_image = visbuffer,
-        .atomic_visbuffer = atomic_visbuffer,
-        .debug_image = debug_image,
-        .depth_image = depth,
-        .overdraw_image = overdraw_image,
-    });
-
-    if (render_context->render_data.settings.enable_atomic_visbuffer != 0)
-    {
-        tg.add_task(SplitAtomicVisbufferTask{
-            .views = std::array{
-                SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                SplitAtomicVisbufferH::AT.visbuffer | visbuffer,
-                SplitAtomicVisbufferH::AT.depth | depth,
-            },
-            .gpu_context = render_context->gpu_context,
-            .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [=, this]()
-            {
-                return daxa::DispatchInfo{
-                    round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
-                    round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1,
-                };
-            },
-        });
-    }
-
-    daxa::TaskImageView hiz = {};
-    task_gen_hiz_single_pass({render_context.get(), tg, depth, render_context->tgpu_render_data, debug_image, &hiz});
-
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
-    tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
-        .render_context = render_context.get(),
-        .tg = tg,
-        .cull_meshes = true,
-        .hiz = hiz,
-        .globals = render_context->tgpu_render_data,
-        .mesh_instances = scene->mesh_instances_buffer,
-        .meshes = scene->_gpu_mesh_manifest,
-        .materials = scene->_gpu_material_manifest,
-        .entity_meta = scene->_gpu_entity_meta,
-        .entity_meshgroup_indices = scene->_gpu_entity_mesh_groups,
-        .meshgroups = scene->_gpu_mesh_group_manifest,
-        .entity_transforms = scene->_gpu_entity_transforms,
-        .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
-        .opaque_meshlet_cull_po2expansions = meshlet_cull_po2expansion,
-    });
-
-    task_cull_and_draw_visbuffer({
-        .render_context = render_context.get(),
-        .tg = tg,
-        .meshlet_cull_po2expansion = meshlet_cull_po2expansion,
-        .entity_meta_data = scene->_gpu_entity_meta,
-        .entity_meshgroups = scene->_gpu_entity_mesh_groups,
-        .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
-        .mesh_groups = scene->_gpu_mesh_group_manifest,
-        .meshes = scene->_gpu_mesh_manifest,
-        .material_manifest = scene->_gpu_material_manifest,
-        .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
-        .hiz = hiz,
-        .meshlet_instances = meshlet_instances,
-        .mesh_instances = scene->mesh_instances_buffer,
-        .vis_image = visbuffer,
-        .atomic_visbuffer = atomic_visbuffer,
-        .debug_image = debug_image,
-        .depth_image = depth,
-        .overdraw_image = overdraw_image,
-    });
-
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -675,7 +562,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
             .tg = &tg,
             .vsm_state = &vsm_state,
-            .meshlet_cull_po2expansions = meshlet_cull_po2expansion,
             .meshlet_instances = meshlet_instances,
             .mesh_instances = scene->mesh_instances_buffer,
             .meshes = scene->_gpu_mesh_manifest,
@@ -689,71 +575,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         vsm_state.zero_out_transient_state(tg, render_context->render_data);
     }
 
-    auto visible_meshlets_bitfield = tg.create_transient_buffer({
-        sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
-        "visible meshlets bitfield",
-    });
-    auto visible_meshes_bitfield = daxa::NullTaskBuffer;
-    // tg.create_transient_buffer({
-    //     sizeof(daxa_u32) * MAX_MESH_INSTANCES,
-    //     "visible meshes bitfield",
-    // });
-    // task_clear_buffer(tg, visible_meshes_bitfield, 0);
-    tg.clear_buffer({.buffer = visible_meshlets_bitfield, .clear_value = 0});
-    tg.clear_buffer({.buffer = visible_meshlet_instances, .size = 4, .clear_value = 0});
-    tg.clear_buffer({.buffer = visible_mesh_instances, .clear_value = 0});
-    tg.add_task(AnalyzeVisBufferTask2{
-        .views = std::array{
-            AnalyzeVisbuffer2H::AT.globals | render_context->tgpu_render_data,
-            AnalyzeVisbuffer2H::AT.visbuffer | (render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : visbuffer),
-            AnalyzeVisbuffer2H::AT.meshlet_instances | meshlet_instances,
-            AnalyzeVisbuffer2H::AT.mesh_instances | scene->mesh_instances_buffer,
-            AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
-            AnalyzeVisbuffer2H::AT.visible_meshlets | visible_meshlet_instances,
-            AnalyzeVisbuffer2H::AT.mesh_visibility_bitfield | visible_meshes_bitfield,
-            AnalyzeVisbuffer2H::AT.visible_meshes | visible_mesh_instances,
-            AnalyzeVisbuffer2H::AT.debug_image | debug_image,
-        },
-        .render_context = render_context.get(),
-    });
-
-    if (render_context->render_data.settings.draw_from_observer)
-    {
-        task_draw_visbuffer({
-            .render_context = render_context.get(),
-            .tg = tg,
-            .pass = PASS4_OBSERVER_DRAW_ALL,
-            .hiz = hiz,
-            .meshlet_instances = meshlet_instances,
-            .meshes = scene->_gpu_mesh_manifest,
-            .material_manifest = scene->_gpu_material_manifest,
-            .combined_transforms = scene->_gpu_entity_combined_transforms,
-            .vis_image = visbuffer,
-            .atomic_visbuffer = atomic_visbuffer,
-            .depth_image = depth,
-            .overdraw_image = overdraw_image,
-        });
-    }
-    if (render_context->render_data.settings.enable_atomic_visbuffer != 0)
-    {
-        tg.add_task(SplitAtomicVisbufferTask{
-            .views = std::array{
-                SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                SplitAtomicVisbufferH::AT.visbuffer | visbuffer,
-                SplitAtomicVisbufferH::AT.depth | depth,
-            },
-            .gpu_context = render_context->gpu_context,
-            .push = SplitAtomicVisbufferPush{.size = render_context->render_data.settings.render_target_size},
-            .dispatch_callback = [this]()
-            {
-                return daxa::DispatchInfo{
-                    round_up_div(render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
-                    round_up_div(render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                    1,
-                };
-            },
-        });
-    }
     tg.submit({});
 
     auto color_image = tg.create_transient_image({
@@ -851,7 +672,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
-            ShadeOpaqueH::AT.atomic_visbuffer | atomic_visbuffer,
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
         },
         .render_context = render_context.get(),
@@ -937,8 +757,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "general readback",
     });
 
-#endif
-
     tg.submit({});
     tg.present({});
     tg.complete({});
@@ -997,6 +815,8 @@ void Renderer::render_frame(
         }
 
         // Set Render Data.
+        render_context->render_data.camera_prev_frame = render_context->render_data.camera;
+        render_context->render_data.observer_camera_prev_frame = render_context->render_data.observer_camera;
         render_context->render_data.camera = camera_info;
         render_context->render_data.observer_camera = observer_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
