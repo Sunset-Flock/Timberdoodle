@@ -371,7 +371,14 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         GPUMaterial material = draw_p.attach.material_manifest[meshlet_inst.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
-    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces, true);
+
+    bool allow_z_cull = true;
+    if (draw_p.pass == PASS0_DRAW_FIRST_PASS || draw_p.pass >= PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME)
+    {
+        allow_z_cull = false;
+    }
+
+    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces, allow_z_cull);
 }
 
 // --- Mesh shader opaque ---
@@ -504,16 +511,9 @@ func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWr
 {
     let push = cull_meshlets_draw_visbuffer_push;
     bool draw_meshlet = true;
-    if (draw_meshlet)
+    if (draw_meshlet && !push.first_pass)
     {
-        if (push.first_pass)
-        {
-            mark_meshlet_as_drawn_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
-        }
-        else
-        {
-            draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
-        }
+        draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
     }
     
     if (draw_meshlet)
@@ -539,6 +539,13 @@ func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWr
             push.attach.globals.cull_data,
             push.attach.hiz);
     }
+
+    // Only mark as drawn if it passes the visibility test!
+    if (draw_meshlet && push.first_pass)
+    {
+        mark_meshlet_as_drawn_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
+    }
+
     uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
@@ -595,6 +602,7 @@ func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWr
             }
         }
     }
+
     // Remove all meshlets that couldnt be allocated.
     draw_meshlet = draw_meshlet && !allocation_failed;
 

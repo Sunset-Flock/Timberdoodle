@@ -313,13 +313,20 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     u64 total_smooth = {};
                     for (auto const& visbuffer_render_time : RenderTimes::GROUP_RENDER_TIMES[RenderTimes::GROUP_VISBUFFER])
                     {
+                        bool skip = render_context.render_times.get(visbuffer_render_time) == 0;
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
                         ImGui::Text("%s", RenderTimes::to_string(visbuffer_render_time));
                         ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
+                        if (skip)
+                            ImGui::Text("-");
+                        else
+                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
                         ImGui::TableSetColumnIndex(2);
-                        ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
+                        if (skip)
+                            ImGui::Text("-");
+                        else
+                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
                         total += render_context.render_times.get(visbuffer_render_time);
                         total_smooth += render_context.render_times.get_smooth(visbuffer_render_time);
                     }
@@ -631,9 +638,10 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
             {
                 for (auto attach : task.attachments)
                 {
+                    std::string inspector_key = task.task_name + "::AT." + attach.name();
+                    ImGui::PushID(inspector_key.c_str());
                     if (ImGui::Button(attach.name()))
                     {
-                        std::string inspector_key = task.task_name + "::AT." + attach.name() + " IDX: " + std::to_string(task.task_index);
                         bool already_active = render_context.tg_debug.inspector_states[inspector_key].active;
                         if (already_active)
                         {
@@ -650,6 +658,7 @@ void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
                             render_context.tg_debug.inspector_states[inspector_key].active = true;
                         }
                     }
+                    ImGui::PopID();
                     ImGui::SameLine();
                     switch (attach.type)
                     {

@@ -233,10 +233,18 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 }
             );
         }
+
+        u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
         if (pass == PASS0_DRAW_FIRST_PASS)
         {
-            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
+            render_time_index = RenderTimes::VISBUFFER_FIRST_PASS_DRAW;
         }
+        if (pass == PASS1_DRAW_SECOND_PASS)
+        {
+            render_time_index = RenderTimes::VISBUFFER_SECOND_PASS_DRAW;
+        }
+
+        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
         render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
 
@@ -262,10 +270,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
 
-        if (pass == PASS0_DRAW_FIRST_PASS)
-        {
-            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_DRAW);
-        }
+        render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
 };
 
