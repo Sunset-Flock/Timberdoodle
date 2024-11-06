@@ -177,10 +177,12 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             push.attach.meshlet_instances,
             push.pass,
             draw_list_type);
+            
+        // printf("meshlets %i\n", draw_p.attach.meshlet_instances.first_count);
         meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
             DispatchIndirectStruct command;
-            command.x = 1;
-            command.y = meshlets_to_draw;
+            command.x = push.attach.globals.settings.enable_atomic_visbuffer ? meshlets_to_draw : 1;
+            command.y = push.attach.globals.settings.enable_atomic_visbuffer ? 1 : meshlets_to_draw;
             command.z = 1;
             ((DispatchIndirectStruct*)(push.attach.draw_commands))[draw_list_type] = command;
     }
@@ -476,15 +478,12 @@ func generic_mesh_compute_raster(
 
 
 // --- Mesh shader opaque ---
-[numthreads(COMPUTE_RASTERIZE_WORKGROUP_X,1,1)]
+[numthreads(1,COMPUTE_RASTERIZE_WORKGROUP_X,1)]
 [shader("compute")]
 func entry_mesh_opaque_compute_raster(
-    in uint3 svtid : SV_DispatchThreadID)
+    uint3 svtid_orig : SV_DispatchThreadID)
 {
-    if (svtid.y == 0 && draw_p.pass == PASS0_DRAW_FIRST_PASS)
-    {
-        printf("meshlets %i\n", draw_p.attach.meshlet_instances.first_count);
-    }
+    uint3 svtid = svtid_orig.yxz;
     const uint inst_meshlet_index = get_meshlet_instance_index(
         draw_p.attach.globals,
         draw_p.attach.meshlet_instances, 
@@ -529,7 +528,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     MeshletInstance meshlet_inst,
     bool cull_backfaces,
     bool allow_hiz_cull)
-{            
+{             
     const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_inst.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
@@ -724,7 +723,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_opaque(
-    in uint3 svtid : SV_DispatchThreadID,
+    uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
@@ -758,7 +757,7 @@ FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderO
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_masked(
-    in uint3 svtid : SV_DispatchThreadID,
+    uint3 svtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
