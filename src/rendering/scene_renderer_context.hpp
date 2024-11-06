@@ -58,7 +58,7 @@ struct TgDebugImageInspectorState
     daxa::BufferId readback_buffer = {};
     daxa::ImageInfo runtime_image_info = {};
     daxa::ImageId display_image = {};
-    daxa::ImageId frozen_image = {};
+    daxa::ImageId raw_image_copy = {};
     daxa::ImageId stale_image = {};
     daxa::ImageId stale_image1 = {};
 };
@@ -89,8 +89,8 @@ struct TgDebugContext
         {
             if (!inspector.second.display_image.is_empty())
                 device.destroy_image((inspector.second.display_image));
-            if (!inspector.second.frozen_image.is_empty())
-                device.destroy_image((inspector.second.frozen_image));
+            if (!inspector.second.raw_image_copy.is_empty())
+                device.destroy_image((inspector.second.raw_image_copy));
             if (!inspector.second.stale_image.is_empty())
                 device.destroy_image((inspector.second.stale_image));
             if (!inspector.second.stale_image1.is_empty())

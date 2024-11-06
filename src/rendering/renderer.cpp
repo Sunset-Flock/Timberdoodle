@@ -66,7 +66,8 @@ Renderer::Renderer(
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
-    depth_vistory = daxa::TaskImage{{.name = "depth history"}};
+    depth_vistory = daxa::TaskImage{{.name = "depth_history"}};
+    f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
 
@@ -75,6 +76,7 @@ Renderer::Renderer(
         multiscattering,
         sky_ibl_cube,
         depth_vistory,
+        f32_depth_vistory,
     };
 
     frame_buffer_images = {
@@ -82,10 +84,19 @@ Renderer::Renderer(
             daxa::ImageInfo
             {
                 .format = daxa::Format::D32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC,
-                .name = "depth history",
+                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .name = "depth_history",
             },
             depth_vistory,
+        },
+        {
+            daxa::ImageInfo
+            {
+                .format = daxa::Format::D32_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .name = "f32_depth_vistory",
+            },
+            f32_depth_vistory,
         },
     };
 
@@ -161,6 +172,7 @@ void Renderer::compile_pipelines()
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
+        {draw_meshlets_compute_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
@@ -314,7 +326,7 @@ void Renderer::clear_select_buffers()
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
@@ -361,7 +373,7 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
 {
     daxa::TaskGraph tg{{
         .device = gpu_context->device,
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
@@ -457,7 +469,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .reorder_tasks = true,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
@@ -524,7 +536,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "update global buffers",
     });
 
-    auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_vistory});
+    auto depth_hist = render_context->render_data.settings.enable_atomic_visbuffer ? f32_depth_vistory : depth_vistory;
+    auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_hist});
     daxa::TaskImageView depth = visbuffer_ret.depth;
     daxa::TaskImageView visbuffer = visbuffer_ret.visbuffer;
     daxa::TaskImageView overdraw_image = visbuffer_ret.overdraw_image;

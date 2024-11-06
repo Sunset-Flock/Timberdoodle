@@ -13,6 +13,8 @@
 #define SPLIT_ATOMIC_VISBUFFER_X 16
 #define SPLIT_ATOMIC_VISBUFFER_Y 16
 
+#define COMPUTE_RASTERIZE_WORKGROUP_X 64
+
 DAXA_DECL_TASK_HEAD_BEGIN(SplitAtomicVisbufferH)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, atomic_visbuffer)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, visbuffer)
@@ -27,37 +29,37 @@ DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
 DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER(DRAW_INDIRECT_INFO_READ, draw_commands)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER(READ, draw_commands)
 // Used by observer to cull:
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer)
+DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
+DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
+DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
-DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image) // Optional
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
+DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image) // Optional
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image) // Optional
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image) // Optional
 DAXA_DECL_TASK_HEAD_END
@@ -99,6 +101,11 @@ struct CullMeshletsDrawVisbufferPush
 inline auto cull_meshlets_compute_pipeline_compile_info()
 {
     return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl"}, .entry_point = "entry_compute_meshlet_cull", .push_constant_size = sizeof(CullMeshletsDrawVisbufferPush), .name = "CullMeshletsCompute" };
+}
+
+inline auto draw_meshlets_compute_pipeline_compile_info()
+{
+    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl"}, .entry_point = "entry_mesh_opaque_compute_raster", .push_constant_size = sizeof(DrawVisbufferPush), .name = "DrawMeshletsComputeRaster" };
 }
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
@@ -206,34 +213,6 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
     u32 pass = {};
     void callback(daxa::TaskInterface ti)
     {
-        bool const clear_images = pass != PASS1_DRAW_SECOND_PASS;
-        auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
-        auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
-        daxa::RenderPassBeginInfo render_pass_begin_info = {
-            .render_area = daxa::Rect2D{.width = x, .height = y},
-        };
-        if (!atomic_visbuffer)
-        {
-            render_pass_begin_info.depth_attachment =
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.depth_image).ids[0].default_view(),
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = load_op,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = daxa::DepthValue{0.0f, 0},
-                };
-            render_pass_begin_info.color_attachments.push_back(
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.vis_image).ids[0].default_view(),
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = load_op,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
-                }
-            );
-        }
-
         u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
         if (pass == PASS0_DRAW_FIRST_PASS)
         {
@@ -245,30 +224,79 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         }
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
-        auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
 
-        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+        bool const compute_raster = render_context->render_data.settings.enable_atomic_visbuffer;
+        if (compute_raster)
         {
-            auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
-                .atomic_visbuffer = atomic_visbuffer,
-                .task_shader_cull = false, 
-                .alpha_masked_geo = opaque_draw_list_type != 0,
-            }.to_index()];
-            render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
-            DrawVisbufferPush push{ 
-                .attach = ti.attachment_shader_blob,
-                .pass = pass,
-            };
-            render_cmd.push_constant(push);
-            render_cmd.draw_mesh_tasks_indirect({
-                .indirect_buffer = ti.get(AT.draw_commands).ids[0],
-                .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
-                .draw_count = 1,
-                .stride = sizeof(DispatchIndirectStruct),
-            });
+            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+            {
+                ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(draw_meshlets_compute_pipeline_compile_info().name));
+                DrawVisbufferPush push{ 
+                    .attach = ti.attachment_shader_blob,
+                    .pass = pass,
+                };
+                ti.recorder.push_constant(push);
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = ti.get(AT.draw_commands).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
+                });
+            }
         }
-        ti.recorder = std::move(render_cmd).end_renderpass();
+        else
+        {
+            bool const clear_images = pass != PASS1_DRAW_SECOND_PASS;
+            auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
+            auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
+            bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
+            daxa::RenderPassBeginInfo render_pass_begin_info = {
+                .render_area = daxa::Rect2D{.width = x, .height = y},
+            };
+            if (!atomic_visbuffer)
+            {
+                render_pass_begin_info.depth_attachment =
+                    daxa::RenderAttachmentInfo{
+                        .image_view = ti.get(AT.depth_image).ids[0].default_view(),
+                        .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                        .load_op = load_op,
+                        .store_op = daxa::AttachmentStoreOp::STORE,
+                        .clear_value = daxa::DepthValue{0.0f, 0},
+                    };
+                render_pass_begin_info.color_attachments.push_back(
+                    daxa::RenderAttachmentInfo{
+                        .image_view = ti.get(AT.vis_image).ids[0].default_view(),
+                        .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                        .load_op = load_op,
+                        .store_op = daxa::AttachmentStoreOp::STORE,
+                        .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
+                    }
+                );
+            }
+
+            auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
+            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
+
+            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+            {
+                auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
+                    .atomic_visbuffer = atomic_visbuffer,
+                    .task_shader_cull = false, 
+                    .alpha_masked_geo = opaque_draw_list_type != 0,
+                }.to_index()];
+                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
+                DrawVisbufferPush push{ 
+                    .attach = ti.attachment_shader_blob,
+                    .pass = pass,
+                };
+                render_cmd.push_constant(push);
+                render_cmd.draw_mesh_tasks_indirect({
+                    .indirect_buffer = ti.get(AT.draw_commands).ids[0],
+                    .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
+                    .draw_count = 1,
+                    .stride = sizeof(DispatchIndirectStruct),
+                });
+            }
+            ti.recorder = std::move(render_cmd).end_renderpass();
+        }
 
         render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
@@ -285,7 +313,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         bool const clear_images = clear_render_targets;
         auto load_op = clear_images ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
         bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
-        auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
+        auto [x, y, z] = ti.device.image_info(ti.get(AT.vis_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
             .render_area = daxa::Rect2D{.width = x, .height = y},
         };
@@ -525,7 +553,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
     });
 
-    if (info.render_context->render_data.settings.enable_atomic_visbuffer)
+    if (info.render_context->render_data.settings.enable_atomic_visbuffer && (info.pass != PASS1_DRAW_SECOND_PASS))
     {
         info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
     }

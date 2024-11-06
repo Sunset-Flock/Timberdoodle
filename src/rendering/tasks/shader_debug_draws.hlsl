@@ -227,7 +227,7 @@ func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
     {
         case 0: 
         {
-            var sample = Texture2D<float4>::get(p.src).Load(uint3(thread_index, 0));
+            var sample = RWTexture2D<float4>::get(p.src)[thread_index];
             if (readback_pixel)
             {
                 ((float4*)p.readback_ptr)[p.readback_index * 2] = sample;
@@ -237,7 +237,7 @@ func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
         break;
         case 1: 
         {
-            var sample = Texture2D<int4>::get(p.src).Load(uint3(thread_index, 0));
+            var sample = RWTexture2D<int4>::get(p.src)[thread_index];
             if (readback_pixel)
             {
                 ((int4*)p.readback_ptr)[p.readback_index * 2] = sample;
@@ -250,7 +250,7 @@ func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
         break;
         case 2: 
         {
-            var sample = Texture2D<uint4>::get(p.src).Load(uint3(thread_index, 0));     
+            var sample = RWTexture2D<uint4>::get(p.src)[thread_index];
             if (readback_pixel)
             {
                 ((uint4*)p.readback_ptr)[p.readback_index * 2] = sample;

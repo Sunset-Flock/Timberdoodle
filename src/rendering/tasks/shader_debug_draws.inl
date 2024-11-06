@@ -306,148 +306,172 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             });
         }
 
-        daxa::ImageId src_id = ti.get(src).ids[0];          // either src image id or frozen image id
-        daxa::ImageInfo src_info = ti.info(src).value();    // either src image info ir frozen image info
-        tido::ScalarKind scalar_kind = tido::scalar_kind_of_format(src_info.format);
-        if (state.freeze_image)
-        {
-            bool const freeze_image_this_frame = state.frozen_image.is_empty() && state.freeze_image;
-            if (freeze_image_this_frame)
-            {
-                daxa::ImageInfo image_frozen_info = src_info;
-                image_frozen_info.usage |= daxa::ImageUsageFlagBits::TRANSFER_DST;
-                image_frozen_info.name = std::string(src_info.name.data()) + " frozen copy";
-                state.frozen_image = ti.device.create_image(image_frozen_info);
-
-                daxa::ClearValue frozen_copy_clear = {};
-                if (tido::is_format_depth_stencil(src_info.format))
-                {
-                    frozen_copy_clear = daxa::DepthValue{ .depth = 0.0f, .stencil = 0u };
-                }
-                else
-                {
-                    switch(scalar_kind)
-                    {
-                        case tido::ScalarKind::FLOAT: frozen_copy_clear = std::array{1.0f,0.0f,1.0f,1.0f}; break;
-                        case tido::ScalarKind::INT: frozen_copy_clear = std::array{1,0,0,1}; break;
-                        case tido::ScalarKind::UINT: frozen_copy_clear = std::array{1u, 0u, 0u, 1u}; break;
-                    }
-                }
-
-                daxa::ImageMipArraySlice slice = {
-                    .level_count = src_info.mip_level_count,
-                    .layer_count = src_info.array_layer_count,
-                };
-
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                    .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    .image_slice = slice,
-                    .image_id = state.frozen_image,
-                });
-
-                ti.recorder.clear_image({
-                    .clear_value = std::array{1.0f,0.0f,1.0f,1.0f}, 
-                    .dst_image = state.frozen_image,
-                    .dst_slice = slice,
-                });
-
-                ti.recorder.pipeline_barrier(daxa::MemoryBarrierInfo{
-                    .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                    .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                });
-
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .src_access = ti.get(src).access,
-                    .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                    .src_layout = ti.get(src).layout,
-                    .dst_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    .image_slice = ti.get(src).view.slice,
-                    .image_id = src_id,
-                });
-
-                // Copy src image data to frozen image.
-                for (u32 mip = slice.base_mip_level; mip < (slice.base_mip_level + slice.level_count); ++mip)
-                {
-                    ti.recorder.copy_image_to_image({
-                        .src_image = src_id,
-                        .dst_image = state.frozen_image,
-                        .src_slice = daxa::ImageArraySlice::slice(slice, mip),
-                        .dst_slice = daxa::ImageArraySlice::slice(slice, mip),
-                        .extent = {
-                            std::max(1u, src_info.size.x >> mip),
-                            std::max(1u, src_info.size.y >> mip),
-                            std::max(1u, src_info.size.z >> mip)
-                        },
-                    });
-                }
-
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                    .dst_access = ti.get(src).access,
-                    .src_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                    .dst_layout = ti.get(src).layout,
-                    .image_slice = ti.get(src).view.slice,
-                    .image_id = src_id,
-                });
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-                    .dst_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
-                    .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                    .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                    .image_slice = slice,
-                    .image_id = state.frozen_image,
-                });
-            }
-            // Frozen image overwrites.
-            src_id = state.frozen_image;
-            src_info = ti.device.image_info(state.frozen_image).value();
-        }
-        else 
-        {
-            // If not frozen, copy over new data for ui.
-            state.attachment_info = ti.get(src);
-            state.runtime_image_info = src_info;
-            // Mark frozen copy for deletion in next frame.
-            state.stale_image1 = state.frozen_image;
-            state.frozen_image = {};
-        }
-
-        if (src_id.is_empty())
+        if (ti.get(src).ids[0].is_empty())
         {
             return;
         }
+
+        // First frame this is always unfroozen, so we always initialize the image.
+        if (!state.freeze_image)
+        {
+            daxa::ImageId src_id = ti.get(src).ids[0];          // either src image id or frozen image id
+            daxa::ImageInfo src_info = ti.info(src).value();    // either src image info ir frozen image info
+            tido::ScalarKind scalar_kind = tido::scalar_kind_of_format(src_info.format);
+
+            // If not frozen, copy over new data for ui.
+            state.attachment_info = ti.get(src);
+            state.runtime_image_info = src_info;
+            
+            daxa::ImageInfo raw_copy_image_info = src_info;
+            raw_copy_image_info.usage |= daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
+            raw_copy_image_info.name = std::string(src_info.name.data()) + " raw image copy";
+            state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
+            
+            if (!state.raw_image_copy.is_empty())
+            {
+                auto const current_info = ti.device.image_info(state.raw_image_copy).value();
+                auto const changed = 
+                    raw_copy_image_info.size.x != current_info.size.x || 
+                    raw_copy_image_info.size.y != current_info.size.y ||
+                    raw_copy_image_info.mip_level_count != current_info.mip_level_count ||
+                    raw_copy_image_info.array_layer_count != current_info.array_layer_count || 
+                    raw_copy_image_info.format != current_info.format;
+                if (changed)
+                {
+                    state.stale_image = state.raw_image_copy;
+                    state.raw_image_copy =ti.device.create_image(raw_copy_image_info);
+                }
+            }
+            else
+            {
+                state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
+            }
+            
+            daxa::ImageInfo display_image_info = {};
+            display_image_info.dimensions = 2u;
+            display_image_info.size.x = std::max(1u, raw_copy_image_info.size.x >> state.mip);
+            display_image_info.size.y = std::max(1u, raw_copy_image_info.size.y >> state.mip);
+            display_image_info.size.z = 1u;
+            display_image_info.mip_level_count = 1u;
+            display_image_info.array_layer_count = 1u;
+            display_image_info.sample_count = 1u;
+            display_image_info.format = daxa::Format::R16G16B16A16_SFLOAT;
+            display_image_info.name = "tg image debug clone";
+            display_image_info.usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_DST;
+
+            if (!state.display_image.is_empty())
+            {
+                auto const current_size = ti.device.image_info(state.display_image).value().size;
+                auto const size_changed = (display_image_info.size.x != current_size.x || display_image_info.size.y != current_size.y);
+                if (size_changed)
+                {
+                    state.stale_image1 = state.display_image;
+                    state.display_image = ti.device.create_image(display_image_info);
+                }
+            }
+            else
+            {
+                state.display_image = ti.device.create_image(display_image_info);
+            }
+
+            if (state.raw_image_copy.is_empty())
+            {
+                daxa::ImageInfo raw_copy_image_info = src_info;
+                raw_copy_image_info.usage |= daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
+                raw_copy_image_info.name = std::string(src_info.name.data()) + " raw image copy";
+                state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
+            }
+
+            // CLear before copy. Magenta marks mips/array layers that are not within the image slice of this attachment!
+            daxa::ClearValue frozen_copy_clear = {};
+            if (tido::is_format_depth_stencil(src_info.format))
+            {
+                frozen_copy_clear = daxa::DepthValue{ .depth = 0.0f, .stencil = 0u };
+            }
+            else
+            {
+                switch(scalar_kind)
+                {
+                    case tido::ScalarKind::FLOAT: frozen_copy_clear = std::array{1.0f,0.0f,1.0f,1.0f}; break;
+                    case tido::ScalarKind::INT: frozen_copy_clear = std::array{1,0,0,1}; break;
+                    case tido::ScalarKind::UINT: frozen_copy_clear = std::array{1u, 0u, 0u, 1u}; break;
+                }
+            }
+
+            daxa::ImageMipArraySlice slice = {
+                .level_count = src_info.mip_level_count,
+                .layer_count = src_info.array_layer_count,
+            };
+
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .image_slice = slice,
+                .image_id = state.raw_image_copy,
+            });
+
+            ti.recorder.clear_image({
+                .clear_value = std::array{1.0f,0.0f,1.0f,1.0f}, 
+                .dst_image = state.raw_image_copy,
+                .dst_slice = slice,
+            });
+
+            ti.recorder.pipeline_barrier(daxa::MemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+            });
+
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = ti.get(src).access,
+                .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .src_layout = ti.get(src).layout,
+                .dst_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                .image_slice = ti.get(src).view.slice,
+                .image_id = src_id,
+            });
+
+            // Copy src image data to frozen image.
+            for (u32 mip = slice.base_mip_level; mip < (slice.base_mip_level + slice.level_count); ++mip)
+            {
+                ti.recorder.copy_image_to_image({
+                    .src_image = src_id,
+                    .dst_image = state.raw_image_copy,
+                    .src_slice = daxa::ImageArraySlice::slice(slice, mip),
+                    .dst_slice = daxa::ImageArraySlice::slice(slice, mip),
+                    .extent = {
+                        std::max(1u, src_info.size.x >> mip),
+                        std::max(1u, src_info.size.y >> mip),
+                        std::max(1u, src_info.size.z >> mip)
+                    },
+                });
+            }
+
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = ti.get(src).access,
+                .src_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                .dst_layout = ti.get(src).layout,
+                .image_slice = ti.get(src).view.slice,
+                .image_id = src_id,
+            });
+            ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
+                .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+                .dst_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
+                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,               // STORAGE always uses general in daxa
+                .image_slice = slice,
+                .image_id = state.raw_image_copy,
+            });
+        }
+        auto const raw_image_copy_info = ti.device.info(state.raw_image_copy).value();
+        auto const raw_image_copy = state.raw_image_copy;
+        auto const display_image_info = ti.device.info(state.display_image).value();
+        auto const scalar_kind = tido::scalar_kind_of_format(raw_image_copy_info.format);
 
         state.slice_valid = state.attachment_info.view.slice.contains(daxa::ImageMipArraySlice{
             .base_mip_level = state.mip,
             .base_array_layer = state.layer,
         });
-
-        daxa::ImageInfo display_image_info = {};
-        display_image_info.dimensions = 2u;
-        display_image_info.size.x = std::max(1u, src_info.size.x >> state.mip);
-        display_image_info.size.y = std::max(1u, src_info.size.y >> state.mip);
-        display_image_info.size.z = 1u;
-        display_image_info.mip_level_count = 1u;
-        display_image_info.array_layer_count = 1u;
-        display_image_info.sample_count = 1u;
-        display_image_info.format = daxa::Format::R16G16B16A16_SFLOAT;
-        display_image_info.name = "tg image debug clone";
-        display_image_info.usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_DST;
-        
-        if (!state.display_image.is_empty())
-        {
-            auto current_clone_size = ti.device.image_info(state.display_image).value().size;
-            if (display_image_info.size.x != current_clone_size.x || display_image_info.size.y != current_clone_size.y)
-            {
-                state.stale_image = state.display_image;
-                state.display_image = ti.device.create_image(display_image_info);
-            }
-        }
-        else
-        {
-            state.display_image = ti.device.create_image(display_image_info);
-        }
 
         ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
@@ -470,21 +494,10 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
                 .image_slice = ti.device.image_view_info(state.display_image.default_view()).value().slice,
                 .image_id = state.display_image,
             });
-            if (!state.freeze_image)
-            {
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .src_access = ti.get(src).access,
-                    .dst_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
-                    .src_layout = ti.get(src).layout,
-                    .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                    .image_slice = ti.get(src).view.slice,
-                    .image_id = src_id,
-                });
-            }
 
             ti.recorder.set_pipeline(pipeline);
 
-            daxa::ImageViewInfo src_image_view_info = ti.device.image_view_info(src_id.default_view()).value();
+            daxa::ImageViewInfo src_image_view_info = ti.device.image_view_info(raw_image_copy.default_view()).value();
             src_image_view_info.slice.level_count = 1;
             src_image_view_info.slice.layer_count = 1;
             src_image_view_info.slice.base_mip_level = state.mip;
@@ -517,17 +530,6 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
                 round_up_div(display_image_info.size.y, DEBUG_DRAW_CLONE_Y),
                 1,
             });
-            if (!state.freeze_image)
-            {
-                ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
-                    .src_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
-                    .dst_access = ti.get(src).access,
-                    .src_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-                    .dst_layout = ti.get(src).layout,
-                    .image_slice = ti.get(src).view.slice,
-                    .image_id = src_id,
-                });
-            }
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
                 .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,

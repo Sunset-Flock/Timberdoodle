@@ -56,14 +56,15 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
     let tex = Texture2D<uint>::get(push.attach.visbuffer);
     let smplr = SamplerState::get(push.attach.globals.samplers.linear_clamp);
     uint4 vis_ids;
-    if (push.attach.globals.settings.enable_atomic_visbuffer)
-    {
-        vis_ids[0] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(0,0)]);
-        vis_ids[1] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(0,1)]);
-        vis_ids[2] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(1,0)]);
-        vis_ids[3] = uint(tex_rw_u64_table[push.attach.visbuffer.index()][sampleIndex + uint2(1,1)]);
-    }
-    else
+    // Visbuffer is split into a separate image
+    // if (push.attach.globals.settings.enable_atomic_visbuffer)
+    // {
+    //     vis_ids[0] = uint(RWTexture2D<daxa::u64>::get(push.attach.visbuffer)[sampleIndex + uint2(0,0)]);
+    //     vis_ids[1] = uint(RWTexture2D<daxa::u64>::get(push.attach.visbuffer)[sampleIndex + uint2(0,1)]);
+    //     vis_ids[2] = uint(RWTexture2D<daxa::u64>::get(push.attach.visbuffer)[sampleIndex + uint2(1,0)]);
+    //     vis_ids[3] = uint(RWTexture2D<daxa::u64>::get(push.attach.visbuffer)[sampleIndex + uint2(1,1)]);
+    // }
+    // else
     {
         vis_ids = tex.GatherRed(smplr, gather_uv);
     }

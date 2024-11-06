@@ -78,6 +78,7 @@ namespace raster_visbuf
 
         bool visbuffer_culled_first_pass = (info.render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0);
         bool hiz_culled_first_pass = !visbuffer_culled_first_pass;
+        bool const atomic_vis_depth = info.render_context->render_data.settings.enable_atomic_visbuffer;
 
         // === Create Render Targets ===
 
@@ -95,11 +96,6 @@ namespace raster_visbuf
             });
             info.tg.clear_image({ret.overdraw_image, std::array{0, 0, 0, 0}});
         }
-        daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
-        if (info.render_context->render_data.settings.enable_atomic_visbuffer)
-        {
-            atomic_visbuffer = raster_visbuf::create_atomic_visbuffer(info.tg, *info.render_context);
-        }
         ret.visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context);
         if (visbuffer_culled_first_pass)
         {
@@ -108,6 +104,16 @@ namespace raster_visbuf
         else
         {
             ret.depth = info.depth_history;
+        }
+        daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
+        daxa::TaskImageView renderable_depth = daxa::NullTaskImage;
+        if (info.render_context->render_data.settings.enable_atomic_visbuffer)
+        {
+            atomic_visbuffer = raster_visbuf::create_atomic_visbuffer(info.tg, *info.render_context);
+        }
+        else
+        {
+            renderable_depth = ret.depth;
         }
 
         // === Render Visbuffer ===
@@ -154,7 +160,7 @@ namespace raster_visbuf
                 .vis_image = ret.visbuffer,
                 .atomic_visbuffer = atomic_visbuffer,
                 .debug_image = info.debug_image,
-                .depth_image = ret.depth,
+                .depth_image = renderable_depth,
                 .overdraw_image = ret.overdraw_image,
             });
         }
@@ -202,7 +208,7 @@ namespace raster_visbuf
                 .vis_image = ret.visbuffer,
                 .atomic_visbuffer = atomic_visbuffer,
                 .debug_image = info.debug_image,
-                .depth_image = ret.depth,
+                .depth_image = renderable_depth,
                 .overdraw_image = ret.overdraw_image,
             });
         }
@@ -269,7 +275,7 @@ namespace raster_visbuf
             .vis_image = ret.visbuffer,
             .atomic_visbuffer = atomic_visbuffer,
             .debug_image = info.debug_image,
-            .depth_image = ret.depth,
+            .depth_image = renderable_depth,
             .overdraw_image = ret.overdraw_image,
         });
 
@@ -312,7 +318,7 @@ namespace raster_visbuf
                 .combined_transforms = info.scene->_gpu_entity_combined_transforms,
                 .vis_image = ret.visbuffer,
                 .atomic_visbuffer = atomic_visbuffer,
-                .depth_image = ret.depth,
+                .depth_image = renderable_depth,
                 .overdraw_image = ret.overdraw_image,
             });
         }
