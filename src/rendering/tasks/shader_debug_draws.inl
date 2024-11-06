@@ -323,7 +323,15 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             state.runtime_image_info = src_info;
             
             daxa::ImageInfo raw_copy_image_info = src_info;
-            raw_copy_image_info.usage |= daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
+            if (raw_copy_image_info.format == daxa::Format::D32_SFLOAT)
+            {
+                raw_copy_image_info.format = daxa::Format::R32_SFLOAT;
+            }
+            if (raw_copy_image_info.format == daxa::Format::D16_UNORM)
+            {
+                raw_copy_image_info.format = daxa::Format::R16_UNORM;
+            }
+            raw_copy_image_info.usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
             raw_copy_image_info.name = std::string(src_info.name.data()) + " raw image copy";
             state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
             

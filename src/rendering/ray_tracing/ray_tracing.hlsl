@@ -54,7 +54,7 @@ void entry_rt_ao(
     uint triangle_id;
     if(all(lessThan(index, push.attach.globals->settings.render_target_size)))
     {
-        triangle_id = push.attach.vis_image.get().Load(int3(index, 0), int2(0)).x;
+        triangle_id = push.attach.vis_image.get()[index].x;
     } else {
         triangle_id = INVALID_TRIANGLE_ID;
     }
@@ -168,7 +168,7 @@ void ray_gen()
     uint triangle_id;
     if(all(lessThan(index, push.attach.globals->settings.render_target_size)))
     {
-        triangle_id = push.attach.vis_image.get().Load(int3(index, 0), int2(0)).x;
+        triangle_id = push.attach.vis_image.get()[index].x;
     } else {
         triangle_id = INVALID_TRIANGLE_ID;
     }

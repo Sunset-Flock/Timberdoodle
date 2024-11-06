@@ -481,6 +481,10 @@ func generic_mesh_compute_raster(
 func entry_mesh_opaque_compute_raster(
     in uint3 svtid : SV_DispatchThreadID)
 {
+    if (svtid.y == 0 && draw_p.pass == PASS0_DRAW_FIRST_PASS)
+    {
+        printf("meshlets %i\n", draw_p.attach.meshlet_instances.first_count);
+    }
     const uint inst_meshlet_index = get_meshlet_instance_index(
         draw_p.attach.globals,
         draw_p.attach.meshlet_instances, 

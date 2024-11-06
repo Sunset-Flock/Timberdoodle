@@ -322,7 +322,7 @@ void entry_main_cs(
     uint triangle_id;
     if(all(lessThan(index, AT.globals->settings.render_target_size)))
     {
-        triangle_id = Texture2D<uint>::get(AT.vis_image).Load(int3(index, 0), int2(0)).x;
+        triangle_id = AT.vis_image.get()[index].x;
     } else {
         triangle_id = INVALID_TRIANGLE_ID;
     }
