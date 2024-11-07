@@ -84,9 +84,16 @@ func prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemC
     // Finding what dst work item group a thread belongs to is easy.
     // Each thread belongs to the first DistWorkItemGroup that has a larger prefix sum value than the threads index.
     // To make the search faster we use a binary search instead of a linear search.
-    
-    daxa::u32 count = min(daxa::u32(self->merged_src_item_dst_item_count), self->dwig_capacity);
-    daxa::u32 window_end = count; // Exclusive end is one past the last element.
+    daxa::u64 merged_counters = self->merged_src_item_dst_item_count;
+    daxa::u32 total_work_item_count = daxa::u32(merged_counters);
+    if (thread_index >= total_work_item_count)
+    {
+        ret = (ExpandedWorkItem)0;
+        return false;
+    }
+
+    daxa::u32 dwig_count = min(daxa::u32(merged_counters >> 32), self->dwig_capacity);
+    daxa::u32 window_end = dwig_count; // Exclusive end is one past the last element.
     daxa::u32 window_begin = 0;
 
     // Search until there is only one possible element
@@ -109,17 +116,18 @@ func prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemC
         window_begin = select(less_equal, cursor + 1, window_begin);
     }
 
-    if (window_begin >= count || window_begin <= window_end)
+    if (window_begin >= dwig_count || window_begin >= window_end)
     {
-        printf("ERROR BINARY SEARCH FAILED\n");
+        printf("ERROR: binary search failed in work expansion\n");
         return false;
     }
 
     const uint dwig_index = window_begin;
     const uint dwig_prefix_sum_value = self->dwig_inclusive_dst_work_item_count_prefix_sum[dwig_index];
-    const bool found_index = dwig_prefix_sum_value > thread_index;
-    if (!found_index)
+    const bool found_dwig = dwig_index < dwig_count;
+    if (!found_dwig)
     {
+        printf("ERROR: did not find dwig for thread: %i, dwig_index: %i, dwig count: %i\n", thread_index, dwig_index, dwig_count);
         ret = (ExpandedWorkItem)0;
         return false;
     }
@@ -132,6 +140,7 @@ func prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemC
     const bool dst_work_item_valid = dst_work_item_index < dwig_dst_item_count;
     if (!dst_work_item_valid)
     {
+        printf("ERROR: dst item invalid: %i, dst item count: %i, thread: %i, dwig index %i, dwig count: %i\n", dst_work_item_index, dwig_dst_item_count, thread_index, dwig_index, dwig_count);
         ret = (ExpandedWorkItem)0;
         return false;
     }
@@ -146,8 +155,8 @@ func prefix_sum_expansion_add_workitems(PrefixSumExpansionBufferHead* self, uint
 {
     // Single merged atomic 64 bit atomic performing two 32 bit atomic adds for prefix sum and dwig append.
     daxa::u64 prev_merged_count = AtomicAddU64(self->merged_src_item_dst_item_count, daxa::u64(1) << 32 | daxa::u64(dst_item_count));
-    daxa::u32 out_dst_work_item_group = uint(prev_merged_count >> 32) - 1;
-    daxa::u32 inclusive_dst_item_count_prefix_sum = uint(prev_merged_count);
+    daxa::u32 out_dst_work_item_group = uint(prev_merged_count >> 32);
+    daxa::u32 inclusive_dst_item_count_prefix_sum = uint(prev_merged_count) + dst_item_count;
     if (out_dst_work_item_group < self->dwig_capacity)
     {
         self->dwig_inclusive_dst_work_item_count_prefix_sum[out_dst_work_item_group] = inclusive_dst_item_count_prefix_sum;
@@ -156,5 +165,6 @@ func prefix_sum_expansion_add_workitems(PrefixSumExpansionBufferHead* self, uint
         // The get_dst_workitem function is robust against that.
         daxa::u32 needed_workgroups = round_up_div_btsft(inclusive_dst_item_count_prefix_sum, dst_workgroup_size_log2);
         InterlockedMax(self->dispatch.x, needed_workgroups);
+        // printf("increase work to %i, dwig count %i\n", needed_workgroups, out_dst_work_item_group + 1);
     }
 }

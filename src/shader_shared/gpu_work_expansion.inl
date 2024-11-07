@@ -94,7 +94,7 @@ struct PrefixSumExpansionBufferHead
     daxa::u32* dwig_src_work_items;
 
     #if defined(__cplusplus)
-        static daxa::u32 size(daxa::u32 max_dst_work_item_groups)
+        static daxa::u32 calc_buffer_size(daxa::u32 max_dst_work_item_groups)
         {
             return sizeof(PrefixSumExpansionBufferHead) + sizeof(daxa::u32) * max_dst_work_item_groups * 2;
         }
@@ -105,7 +105,7 @@ struct PrefixSumExpansionBufferHead
             DispatchIndirectStruct dispatch_clear) -> PrefixSumExpansionBufferHead
         {
             PrefixSumExpansionBufferHead ret = {};
-            ret.dispatch = { 0, 1, 1 };
+            ret.dispatch = dispatch_clear;
             ret.dwig_capacity = max_dst_work_item_groups;
             ret.merged_src_item_dst_item_count = 0;
             ret.dwig_inclusive_dst_work_item_count_prefix_sum = 

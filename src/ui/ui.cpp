@@ -1201,6 +1201,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&settings.enable_rt_pipeline_for_ao));
             ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&settings.enable_visbuffer_two_pass_culling));
             ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&settings.enable_separate_compute_meshlet_culling));
+            ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&settings.enable_prefix_sum_work_expansion));
         }
     }
     ImGui::End();

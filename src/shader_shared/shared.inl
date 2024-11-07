@@ -187,6 +187,7 @@ struct Settings
     daxa_b32 enable_rt_pipeline_for_ao;
     daxa_b32 enable_visbuffer_two_pass_culling;
     daxa_b32 enable_separate_compute_meshlet_culling;
+    daxa_b32 enable_prefix_sum_work_expansion;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -216,7 +217,8 @@ struct Settings
           enable_merged_scene_blas{0},
           enable_rt_pipeline_for_ao{0},
           enable_visbuffer_two_pass_culling{1},
-          enable_separate_compute_meshlet_culling{0}
+          enable_separate_compute_meshlet_culling{0},
+          enable_prefix_sum_work_expansion{0}
     {
     }
 #endif

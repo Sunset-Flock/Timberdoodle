@@ -871,7 +871,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .meshgroups = info.scene->_gpu_mesh_group_manifest,
             .entity_transforms = info.scene->_gpu_entity_transforms,
             .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-            .opaque_meshlet_cull_po2expansions = cascade_meshlet_expansions[cascade],
+            .opaque_meshlet_expansions = cascade_meshlet_expansions[cascade],
             .dispatch_clear = {0,1,1},
             .buffer_name_prefix = std::string("vsm cascade ") + std::to_string(cascade) + ' ',
         });

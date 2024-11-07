@@ -47,10 +47,11 @@ func vsm_entry_task(
     let push = vsm_push;
     let clip_level = push.cascade;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)get_expansion_buffer();
+    uint64_t expansion = get_expansion_buffer();
     MeshletInstance instanced_meshlet;
     let valid_meshlet = get_meshlet_instance_from_workitem(
-        po2expansion,
+        false, // VSM always use po2 expansion for now
+        expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
         push.bucket_index,
@@ -280,10 +281,11 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
     let task_shader_local_bit = (1u << task_shader_local_index);
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)get_expansion_buffer();
+    uint64_t expansion = get_expansion_buffer();
     MeshletInstance meshlet_inst;
     let valid_meshlet = get_meshlet_instance_from_workitem(
-        po2expansion,
+        false, // VSM always use po2 expansion for now
+        expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
         push.bucket_index,

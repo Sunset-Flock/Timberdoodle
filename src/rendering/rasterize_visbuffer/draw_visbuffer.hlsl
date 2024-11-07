@@ -82,7 +82,7 @@ void rasterize_triangle(RWTexture2D<uint64_t> atomic_visbuffer, in float3[3] tri
     float hec_y_2 = hec_2 * (1.0 / float(SUBPIXEL_SAMPLES));
     float z_y = z_0;
 
-    if (WaveActiveAnyTrue(max_pixel.x - min_pixel.x > 4) && false) {
+    if (WaveActiveAnyTrue(max_pixel.x - min_pixel.x > 4)) {
         const float3 edge_012 = float3(edge_01.y, edge_12.y, edge_20.y);
         const bool3 is_open_edge = lessThan(edge_012, float3(0.0));
         const float3 inv_edge_012 = float3(
@@ -812,7 +812,8 @@ struct MeshInstanceWorkItems : WorkExpansionGetDstWorkItemCountI
 }
 
 bool get_meshlet_instance_from_workitem(
-    Po2WorkExpansionBufferHead * po2expansion,
+    bool prefix_sum_expansion,
+    uint64_t expansion_buffer_ptr,
     MeshInstancesBufferHead * mesh_instances,
     GPUMesh * meshes,
     uint bucket_index,
@@ -820,7 +821,17 @@ bool get_meshlet_instance_from_workitem(
     out MeshletInstance meshlet_instance)
 {
     ExpandedWorkItem workitem;
-    let valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
+    bool valid_meshlet = false;
+    if (prefix_sum_expansion)
+    {
+        PrefixSumExpansionBufferHead * prefix_expansion = (PrefixSumExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = prefix_sum_expansion_get_workitem(prefix_expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
+    }
+    else
+    {
+        Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
+    }
     if (valid_meshlet)
     {
         MeshInstance mesh_instance = mesh_instances.instances[workitem.src_work_item_index];
@@ -955,10 +966,11 @@ func entry_compute_meshlet_cull(
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
-        po2expansion,
+        push.attach.globals.settings.enable_prefix_sum_work_expansion,
+        expansion,
         push.attach.mesh_instances,
         push.attach.meshes,
         push.bucket_index,
@@ -982,10 +994,11 @@ func entry_task_meshlet_cull(
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
-        po2expansion,
+        push.attach.globals.settings.enable_prefix_sum_work_expansion,
+        expansion,
         push.attach.mesh_instances,
         push.attach.meshes,
         push.bucket_index,
@@ -1065,10 +1078,11 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let meshlet_cull_arg_index = payload.task_shader_wg_meshlet_args_offset + task_shader_local_index;
     // The meshlet should always be valid here, 
     // as otherwise the task shader would not have dispatched this mesh shader.
-    Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
     MeshletInstance meshlet_inst;
     let valid_meshlet = get_meshlet_instance_from_workitem(
-        po2expansion,
+        push.attach.globals.settings.enable_prefix_sum_work_expansion,
+        expansion,
         push.attach.mesh_instances,
         push.attach.meshes,
         push.bucket_index,

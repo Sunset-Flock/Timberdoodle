@@ -169,7 +169,7 @@ namespace raster_visbuf
             daxa::TaskImageView first_pass_hiz = {};
             task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.depth, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::VISBUFFER_FIRST_PASS_GEN_HIZ});
 
-            std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
+            std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
             tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
                 .render_context = info.render_context.get(),
                 .tg = info.tg,
@@ -186,7 +186,7 @@ namespace raster_visbuf
                 .meshgroups = info.scene->_gpu_mesh_group_manifest,
                 .entity_transforms = info.scene->_gpu_entity_transforms,
                 .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                .opaque_meshlet_cull_po2expansions = meshlet_cull_po2expansion,
+                .opaque_meshlet_expansions = opaque_meshlet_expansions,
             });        
 
             task_cull_and_draw_visbuffer({
@@ -194,7 +194,7 @@ namespace raster_visbuf
                 .tg = info.tg,
                 .first_pass = true,
                 .clear_render_targets = true,
-                .meshlet_cull_po2expansion = meshlet_cull_po2expansion,
+                .meshlet_cull_po2expansion = opaque_meshlet_expansions,
                 .entity_meta_data = info.scene->_gpu_entity_meta,
                 .entity_meshgroups = info.scene->_gpu_entity_mesh_groups,
                 .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
@@ -238,7 +238,7 @@ namespace raster_visbuf
         daxa::TaskImageView hiz = {};
         task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::VISBUFFER_SECOND_PASS_GEN_HIZ});
 
-        std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
+        std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
             .render_context = info.render_context.get(),
             .tg = info.tg,
@@ -255,13 +255,13 @@ namespace raster_visbuf
             .meshgroups = info.scene->_gpu_mesh_group_manifest,
             .entity_transforms = info.scene->_gpu_entity_transforms,
             .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-            .opaque_meshlet_cull_po2expansions = meshlet_cull_po2expansion,
+            .opaque_meshlet_expansions = opaque_meshlet_expansions,
         });
 
         task_cull_and_draw_visbuffer({
             .render_context = info.render_context.get(),
             .tg = info.tg,
-            .meshlet_cull_po2expansion = meshlet_cull_po2expansion,
+            .meshlet_cull_po2expansion = opaque_meshlet_expansions,
             .entity_meta_data = info.scene->_gpu_entity_meta,
             .entity_meshgroups = info.scene->_gpu_entity_mesh_groups,
             .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,

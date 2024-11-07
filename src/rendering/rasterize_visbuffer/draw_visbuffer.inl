@@ -352,7 +352,11 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 .alpha_masked_geo = opaque_draw_list_type != 0,
             }.to_index()];
             render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
-            for (u32 i = 0; i < 32; ++i)
+
+            const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
+
+            u32 const dispatch_count = prefix_sum_expansion ? 1 : 32;
+            for (u32 i = 0; i < dispatch_count; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {
                     .attach = ti.attachment_shader_blob,
@@ -392,7 +396,10 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
             auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
-            for (u32 i = 0; i < 32; ++i)
+            const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
+
+            u32 const dispatch_count = prefix_sum_expansion ? 1 : 32;
+            for (u32 i = 0; i < dispatch_count; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {
                     .attach = ti.attachment_shader_blob,
