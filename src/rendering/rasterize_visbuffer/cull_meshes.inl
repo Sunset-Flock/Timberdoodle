@@ -8,7 +8,7 @@
 #include "../../shader_shared/geometry.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
-#include "../../shader_shared/po2_expansion.inl"
+#include "../../shader_shared/gpu_work_expansion.inl"
 
 #define CULL_MESHES_WORKGROUP_X 128
 

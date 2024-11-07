@@ -324,6 +324,11 @@ SHARED_FUNCTION daxa_u32 round_up_div(daxa_u32 value, daxa_u32 div)
     return (value + div - 1) / div;
 }
 
+SHARED_FUNCTION daxa_u32 round_up_div_btsft(daxa_u32 value, daxa_u32 log2_div)
+{
+    return (value + (1 << log2_div) - 1) >> log2_div;
+}
+
 struct DrawIndexedIndirectStruct
 {
     daxa_u32 index_count;

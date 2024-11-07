@@ -15,7 +15,7 @@
 #include "shader_lib/depth_util.glsl"
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"
-#include "shader_lib/po2_expansion.hlsl"
+#include "shader_lib/gpu_work_expansion.hlsl"
 #include "shader_lib/misc.hlsl"
 
 #define SUBPIXEL_BITS 12
@@ -799,7 +799,7 @@ struct CullMeshletsDrawVisbufferPayload
     uint enable_backface_culling;
 };
 
-struct MeshInstanceWorkItems : IPo2SrcWorkItems
+struct MeshInstanceWorkItems : WorkExpansionGetDstWorkItemCountI
 {
     MeshInstance * mesh_instances;
     GPUMesh * meshes;
@@ -819,8 +819,8 @@ bool get_meshlet_instance_from_workitem(
     uint thread_index, 
     out MeshletInstance meshlet_instance)
 {
-    Po2ExpandedWorkItem workitem;
-    let valid_meshlet = get_expanded_work_item(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
+    ExpandedWorkItem workitem;
+    let valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
     if (valid_meshlet)
     {
         MeshInstance mesh_instance = mesh_instances.instances[workitem.src_work_item_index];

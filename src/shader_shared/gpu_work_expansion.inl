@@ -82,3 +82,37 @@ struct Po2WorkExpansionBufferHead
         }
     #endif
 };    
+
+struct PrefixSumExpansionBufferHead
+{
+    DispatchIndirectStruct dispatch;
+    // Upper 32bit store src item count, lower 32bit store dst item count
+    daxa::u32 dwig_capacity;
+    daxa::u64 merged_src_item_dst_item_count;
+    // DWIG = DstWorkItemGroup
+    daxa::u32* dwig_inclusive_dst_work_item_count_prefix_sum;
+    daxa::u32* dwig_src_work_items;
+
+    #if defined(__cplusplus)
+        static daxa::u32 size(daxa::u32 max_dst_work_item_groups)
+        {
+            return sizeof(PrefixSumExpansionBufferHead) + sizeof(daxa::u32) * max_dst_work_item_groups * 2;
+        }
+
+        static auto create(
+            daxa::DeviceAddress device_address, 
+            daxa::u32 max_dst_work_item_groups,
+            DispatchIndirectStruct dispatch_clear) -> PrefixSumExpansionBufferHead
+        {
+            PrefixSumExpansionBufferHead ret = {};
+            ret.dispatch = { 0, 1, 1 };
+            ret.dwig_capacity = max_dst_work_item_groups;
+            ret.merged_src_item_dst_item_count = 0;
+            ret.dwig_inclusive_dst_work_item_count_prefix_sum = 
+                reinterpret_cast<daxa::u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumExpansionBufferHead)) + sizeof(daxa::u32) * max_dst_work_item_groups * 0);
+            ret.dwig_src_work_items = 
+                reinterpret_cast<daxa::u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumExpansionBufferHead)) + sizeof(daxa::u32) * max_dst_work_item_groups * 1);
+            return ret;
+        }
+    #endif
+};

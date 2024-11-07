@@ -7,7 +7,7 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
-    #include "../../shader_shared/po2_expansion.inl"
+    #include "../../shader_shared/gpu_work_expansion.inl"
     #include "../rasterize_visbuffer/cull_meshes.inl"
 #endif
 

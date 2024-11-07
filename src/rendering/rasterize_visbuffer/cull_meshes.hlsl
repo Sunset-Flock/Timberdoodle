@@ -3,7 +3,7 @@
 #include "cull_meshes.inl"
 
 #include "shader_lib/cull_util.hlsl"
-#include "shader_lib/po2_expansion.hlsl"
+#include "shader_lib/gpu_work_expansion.hlsl"
 
 [[vk::push_constant]] ExpandMeshesToMeshletsPush push;
 
@@ -62,5 +62,5 @@ void main(uint thread_id : SV_DispatchThreadID)
 
     let dst_workgroup_size_log2 = push.attach.globals.settings.enable_separate_compute_meshlet_culling ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
 
-    expand_work_items(po2expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
+    po2_expansion_add_workitems(po2expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
 }

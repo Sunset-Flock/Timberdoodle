@@ -5,7 +5,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/vsm_shared.inl"
-#include "../../shader_shared/po2_expansion.inl"
+#include "../../shader_shared/gpu_work_expansion.inl"
 #include "../tasks/misc.hpp"
 
 struct VSMState

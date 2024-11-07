@@ -8,7 +8,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
-#include "../../shader_shared/po2_expansion.inl"
+#include "../../shader_shared/gpu_work_expansion.inl"
 
 #define SPLIT_ATOMIC_VISBUFFER_X 16
 #define SPLIT_ATOMIC_VISBUFFER_Y 16

@@ -87,3 +87,16 @@ func AtomicMaxU64(__ref uint64_t dest, uint64_t value) -> uint64_t
     };
     return original_value;
 }
+
+[ForceInline]
+func AtomicAddU64(__ref uint64_t dest, uint64_t value) -> uint64_t
+{
+    uint64_t original_value;
+    spirv_asm
+    {
+        OpCapability Int64Atomics;
+        %origin:$$uint64_t = OpAtomicIAdd &dest Device None $value;
+        OpStore &original_value %origin
+    };
+    return original_value;
+}
