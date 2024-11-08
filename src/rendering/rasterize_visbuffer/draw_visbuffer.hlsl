@@ -899,6 +899,7 @@ func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWr
     let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
     uint warp_meshlet_instances_offset = 0;
     bool allocation_failed = false;
+    if (surviving_meshlet_count > 0) 
     {
         uint global_draws_offsets;
         if (WaveIsFirstLane())
