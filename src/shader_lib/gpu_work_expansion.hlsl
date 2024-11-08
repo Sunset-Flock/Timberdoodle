@@ -22,12 +22,13 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     // load bucket index and perform prefix sums.
     // Later we read the buckets prefix sums with WaveShuffles.
     let lanes_bucket_index = WaveGetLaneIndex();
-    let lanes_bucket_size = self->bucket_sizes[lanes_bucket_index] << lanes_bucket_index;           // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
-    let lanes_bucket_size_rounded_to_wave_multiple = lanes_bucket_size | WARP_SIZE_MULTIPLE_MASK;   // All threads within a warp must work on the same bucket.
-    let lanes_bucket_first_thread = WavePrefixSum(lanes_bucket_size_rounded_to_wave_multiple);        
-    let lanes_bucket_last_thread = lanes_bucket_first_thread + lanes_bucket_size_rounded_to_wave_multiple - 1;
+    let lanes_bucket_size = self->bucket_sizes[lanes_bucket_index];
+    let lanes_bucket_threads = lanes_bucket_size << lanes_bucket_index;                                     // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
+    let lanes_bucket_threads_rounded_to_wave_multiple = round_up_to_multiple(lanes_bucket_threads,WARP_SIZE);     // All threads within a warp must work on the same bucket.
+    let lanes_bucket_first_thread = WavePrefixSum(lanes_bucket_threads_rounded_to_wave_multiple);        
+    let lanes_bucket_last_thread = lanes_bucket_first_thread + lanes_bucket_threads_rounded_to_wave_multiple - 1;
 
-    let warp_first_thread = WaveReadLaneFirst(thread_index);
+    let warp_first_thread = thread_index & (~WARP_SIZE_MULTIPLE_MASK);
     let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread <= lanes_bucket_last_thread;
 
     if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
@@ -43,7 +44,7 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     const uint bucket_relative_thread_index = thread_index - first_thread_of_bucket;
 
     let argument_index = bucket_relative_thread_index >> bucket_index;
-    let argument_count = self.bucket_sizes[bucket_index];
+    let argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
     if (argument_index >= argument_count)
     {
         return false;
