@@ -217,7 +217,7 @@ struct Settings
           enable_atomic_visbuffer{0},
           enable_merged_scene_blas{0},
           enable_rt_pipeline_for_ao{0},
-          enable_visbuffer_two_pass_culling{1},
+          enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0}
     {
