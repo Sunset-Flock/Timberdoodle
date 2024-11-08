@@ -20,16 +20,16 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
 {
     // Every lane represents a bucket here.
     // load bucket index and perform prefix sums.
-    // Later we read the buckets prefix sums with WaveShuffles.
+    // Later we read the buckets prefix sums with WaveShuffles.    
     let lanes_bucket_index = WaveGetLaneIndex();
     let lanes_bucket_size = self->bucket_sizes[lanes_bucket_index];
-    let lanes_bucket_threads = lanes_bucket_size << lanes_bucket_index;                                     // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
-    let lanes_bucket_threads_rounded_to_wave_multiple = round_up_to_multiple(lanes_bucket_threads,WARP_SIZE);     // All threads within a warp must work on the same bucket.
+    let lanes_bucket_threads = self->bucket_sizes[lanes_bucket_index] << lanes_bucket_index;                        // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
+    let lanes_bucket_threads_rounded_to_wave_multiple = round_up_to_multiple(lanes_bucket_threads, WARP_SIZE);      // All threads within a warp must work on the same bucket.
     let lanes_bucket_first_thread = WavePrefixSum(lanes_bucket_threads_rounded_to_wave_multiple);        
-    let lanes_bucket_last_thread = lanes_bucket_first_thread + lanes_bucket_threads_rounded_to_wave_multiple - 1;
+    let lanes_bucket_one_past_last_thread = lanes_bucket_first_thread + lanes_bucket_threads_rounded_to_wave_multiple;
 
     let warp_first_thread = thread_index & (~WARP_SIZE_MULTIPLE_MASK);
-    let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread <= lanes_bucket_last_thread;
+    let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread < lanes_bucket_one_past_last_thread;
 
     if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
     {
@@ -39,16 +39,17 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     }
 
     let bucket_index = WaveShuffle(lanes_bucket_index, firstbitlow(WaveActiveBallot(warp_belongs_to_lanes_bucket).x));
-    let first_thread_of_bucket = WaveShuffle(lanes_bucket_first_thread, bucket_index);
-
-    const uint bucket_relative_thread_index = thread_index - first_thread_of_bucket;
-
+    let bucket_first_thread_index = WaveShuffle(lanes_bucket_first_thread, bucket_index);
+    let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
+    let bucket_argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
     let argument_index = bucket_relative_thread_index >> bucket_index;
-    let argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
-    if (argument_index >= argument_count)
-    {
+
+    if (argument_index >= bucket_argument_count)
+    {    
+        ret = (ExpandedWorkItem)0;
         return false;
     }
+
     let in_argument_work_offset = bucket_relative_thread_index - (argument_index << bucket_index);
     let src_work_item_index = (self.buckets[bucket_index])[argument_index];
     let work_item_count = src_work_items.get_itemcount(src_work_item_index);
@@ -58,6 +59,14 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let smaller_buckets_mask = ~((~0u) << bucket_index);
     let arg_dst_work_offset = work_item_count & smaller_buckets_mask;
     let dst_work_item_index = in_argument_work_offset + arg_dst_work_offset;
+
+    if (dst_work_item_index >= work_item_count)
+    {
+        //printf("overhang dst work item %i >= %i\n", argument_index, bucket_argument_count);
+        ret = (ExpandedWorkItem)0;
+        return false;
+    }
+
     ret.src_work_item_index = src_work_item_index;
     ret.dst_work_item_index = dst_work_item_index;
     return true;
