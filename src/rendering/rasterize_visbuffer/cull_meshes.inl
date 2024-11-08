@@ -117,7 +117,7 @@ struct TaskExpandMeshesToMeshletsInfo
 };
 void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
-    bool const prefix_sum_expansion = (info.hiz != daxa::NullTaskImage) && info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
+    bool const prefix_sum_expansion = info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
 
     auto opaque_prefix_sum_expansion = daxa::NullTaskBuffer;
     auto masked_opaque_prefix_sum_expansion = daxa::NullTaskBuffer;
@@ -170,10 +170,10 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
             .task = [=](daxa::TaskInterface ti)
             {
                 allocate_fill_copy(
-                    ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, info.dispatch_clear),
+                    ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
                     ti.get(opaque_po2expansion));
                 allocate_fill_copy(
-                    ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, MAX_MESHLET_INSTANCES, info.dispatch_clear),
+                    ti, Po2WorkExpansionBufferHead::create(ti.device.buffer_device_address(ti.get(masked_opaque_po2expansion).ids[0]).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
                     ti.get(masked_opaque_po2expansion));
             },
             .name = std::string("init meshlet cull arg buckets buffer") + std::to_string(rand()),

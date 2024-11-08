@@ -55,7 +55,7 @@ void main(uint thread_id : SV_DispatchThreadID)
         }
     }
 
-    if (push.attach.globals.settings.enable_prefix_sum_work_expansion && !push.attach.hiz.is_empty())
+    if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
     {
         PrefixSumExpansionBufferHead * prefixsum_expansion = (PrefixSumExpansionBufferHead *)(draw_list_type == 
             PREPASS_DRAW_LIST_OPAQUE ? 

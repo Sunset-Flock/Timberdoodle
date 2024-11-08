@@ -7,6 +7,7 @@
 
 #define MAX_MESH_INSTANCES 128000u
 #define WARP_SIZE 32
+#define WARP_SIZE_MULTIPLE_MASK (WARP_SIZE - 1u)
 #define MAX_ENTITIES (1u << 20u)
 #define MAX_MATERIALS (1u << 16u)
 #define MAX_MESHES 10000

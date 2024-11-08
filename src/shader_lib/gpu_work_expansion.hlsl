@@ -16,15 +16,39 @@ interface WorkExpansionGetDstWorkItemCountI
 };
 
 /// WARNING: Cant be member function due to a slang compiler bug!
-func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(Po2WorkExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, uint bucket_index, out ExpandedWorkItem ret) -> bool
+func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(Po2WorkExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, out ExpandedWorkItem ret) -> bool
 {
-    let argument_index = thread_index >> bucket_index;
+    // Every lane represents a bucket here.
+    // load bucket index and perform prefix sums.
+    // Later we read the buckets prefix sums with WaveShuffles.
+    let lanes_bucket_index = WaveGetLaneIndex();
+    let lanes_bucket_size = self->bucket_sizes[lanes_bucket_index] << lanes_bucket_index;           // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
+    let lanes_bucket_size_rounded_to_wave_multiple = lanes_bucket_size | WARP_SIZE_MULTIPLE_MASK;   // All threads within a warp must work on the same bucket.
+    let lanes_bucket_first_thread = WavePrefixSum(lanes_bucket_size_rounded_to_wave_multiple);        
+    let lanes_bucket_last_thread = lanes_bucket_first_thread + lanes_bucket_size_rounded_to_wave_multiple - 1;
+
+    let warp_first_thread = WaveReadLaneFirst(thread_index);
+    let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread <= lanes_bucket_last_thread;
+
+    if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
+    {
+        // Overhang warp.
+        ret = (ExpandedWorkItem)0;
+        return false;
+    }
+
+    let bucket_index = WaveShuffle(lanes_bucket_index, firstbitlow(WaveActiveBallot(warp_belongs_to_lanes_bucket).x));
+    let first_thread_of_bucket = WaveShuffle(lanes_bucket_first_thread, bucket_index);
+
+    const uint bucket_relative_thread_index = thread_index - first_thread_of_bucket;
+
+    let argument_index = bucket_relative_thread_index >> bucket_index;
     let argument_count = self.bucket_sizes[bucket_index];
     if (argument_index >= argument_count)
     {
         return false;
     }
-    let in_argument_work_offset = thread_index - (argument_index << bucket_index);
+    let in_argument_work_offset = bucket_relative_thread_index - (argument_index << bucket_index);
     let src_work_item_index = (self.buckets[bucket_index])[argument_index];
     let work_item_count = src_work_items.get_itemcount(src_work_item_index);
     // Now we need to find the offset of our work.
@@ -43,6 +67,24 @@ func po2_expansion_add_workitems(Po2WorkExpansionBufferHead * self, uint dst_ite
 {
     let orig_dst_item_count = dst_item_count;
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
+
+    uint prev_src_item_count = 0;
+    InterlockedAdd(self->src_work_item_count, 1, prev_src_item_count);
+    const uint cur_src_item_count = prev_src_item_count + 1;
+
+    if (cur_src_item_count >= self->buckets_capacity)
+    {
+        // TODO: WRITE NUMBER OF FAILED ALLOCS TO READBACK BUFFER!
+        printf("ERROR: work expansion failed, ran out of memory, src item nr. %i, capacity: %i\n", cur_src_item_count, self->buckets_capacity);
+    }
+
+    uint prev_dst_item_count = 0;
+    InterlockedAdd(self->dst_work_item_count, dst_item_count, prev_dst_item_count);
+    const uint cur_dst_item_count = prev_dst_item_count + dst_item_count;
+
+    daxa::u32 needed_workgroups = round_up_div_btsft(cur_dst_item_count, dst_workgroup_size_log2);
+    InterlockedMax(self->dispatch.x, needed_workgroups);
+    
     while(dst_item_count != 0)
     {
         let bit_index = firstbithigh(dst_item_count);
@@ -53,23 +95,14 @@ func po2_expansion_add_workitems(Po2WorkExpansionBufferHead * self, uint dst_ite
         uint bucket_count_prev_value = 0;
         InterlockedAdd(self.bucket_sizes[bucket_index], 1, bucket_count_prev_value);
         let bucket_arg_index = bucket_count_prev_value;
-        let bucket_capacity = capacity_of_bucket(self.max_src_items, self.max_dst_items, bucket_index);
-        let arg_allocation_success = bucket_arg_index < bucket_capacity;
+        let arg_allocation_success = bucket_arg_index < self->buckets_capacity;
         if (arg_allocation_success)
         {
             (self.buckets[bucket_index])[bucket_arg_index] = src_work_item_index;
-
-            // Now we also need to update the indirect argument
-            let total_work_args = bucket_arg_index + 1;
-            let total_threads_needed = total_work_args << bucket_index;
-            let total_workgroups_needed = ((total_threads_needed + dst_workgroup_size - 1) >> dst_workgroup_size_log2);
-            uint dummy;
-            InterlockedMax(self.bucket_dispatches[bucket_index].x, total_workgroups_needed, dummy);
         }
         else
         {
-            // TODO: WRITE NUMBER OF FAILED ALLOCS TO READBACK BUFFER!
-            printf("ALLOC FAILED bucket_arg_index %i, bucket_capacity %i\n", bucket_arg_index, bucket_capacity);
+            printf("ERROR: CRITICAL LOGIC ERROR, ran out of memory when inserting into bucket, bucket idx: %i, bucket arg idx: %i, capacity: %i\n", bucket_index, bucket_arg_index, self->buckets_capacity);
         }
     }
 }

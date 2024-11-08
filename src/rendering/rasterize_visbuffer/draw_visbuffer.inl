@@ -354,8 +354,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
             render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
 
             const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
-
-            u32 const dispatch_count = prefix_sum_expansion ? 1 : 32;
+            u32 const dispatch_count = 1;//prefix_sum_expansion ? 1 : 32;
             for (u32 i = 0; i < dispatch_count; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {
@@ -398,7 +397,7 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
             auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
             const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
 
-            u32 const dispatch_count = prefix_sum_expansion ? 1 : 32;
+            u32 const dispatch_count = 1;//prefix_sum_expansion ? 1 : 32;
             for (u32 i = 0; i < dispatch_count; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {

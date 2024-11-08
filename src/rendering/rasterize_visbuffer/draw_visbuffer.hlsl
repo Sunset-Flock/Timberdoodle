@@ -830,7 +830,7 @@ bool get_meshlet_instance_from_workitem(
     else
     {
         Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, bucket_index, workitem);
+        valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
     }
     if (valid_meshlet)
     {

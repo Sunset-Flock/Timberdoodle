@@ -598,7 +598,9 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             {
                 auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
                 render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
-                for (u32 i = 0; i < 32; ++i)
+                const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
+                u32 const dispatch_count = 1;//prefix_sum_expansion ? 1 : 32;
+                for (u32 i = 0; i < dispatch_count; ++i)
                 {
                     CullAndDrawPagesPush push = {
                         .attachments = attachment_alloc.device_address,

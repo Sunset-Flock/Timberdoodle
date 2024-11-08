@@ -19,7 +19,7 @@ struct CullMeshletsDrawPagesPayload
 };
 // 32 is the number of buckets - if this number is changed this also needs to be changed to match it
 // THIS IS UNUSED::
-[numthreads(32, 1, 1)]
+[numthreads(1, 1, 1)]
 [shader("compute")]
 void vsm_entry_write_commands(
     uint3 svgtid : SV_GroupThreadID,
@@ -27,8 +27,8 @@ void vsm_entry_write_commands(
 )
 {
     let push = write_command_push;
-    push.meshlet_cull_po2expansion.bucket_dispatches[svgtid.x].y = VSM_CLIP_LEVELS;
-    push.masked_meshlet_cull_po2expansion.bucket_dispatches[svgtid.x].y = VSM_CLIP_LEVELS;
+    push.meshlet_cull_po2expansion.dispatch.y = VSM_CLIP_LEVELS;
+    push.masked_meshlet_cull_po2expansion.dispatch.y = VSM_CLIP_LEVELS;
 }
 
 uint64_t get_expansion_buffer()
@@ -50,7 +50,7 @@ func vsm_entry_task(
     uint64_t expansion = get_expansion_buffer();
     MeshletInstance instanced_meshlet;
     let valid_meshlet = get_meshlet_instance_from_workitem(
-        false, // VSM always use po2 expansion for now
+        push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
@@ -284,7 +284,7 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     uint64_t expansion = get_expansion_buffer();
     MeshletInstance meshlet_inst;
     let valid_meshlet = get_meshlet_instance_from_workitem(
-        false, // VSM always use po2 expansion for now
+        push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
