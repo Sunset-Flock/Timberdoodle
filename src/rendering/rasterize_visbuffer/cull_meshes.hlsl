@@ -11,6 +11,7 @@
 void main(uint thread_id : SV_DispatchThreadID)
 {
     uint mesh_instance_index = thread_id;
+
     uint mesh_instance_count = min(MAX_MESH_INSTANCES, deref(push.attach.mesh_instances).count);
     if (mesh_instance_index >= mesh_instance_count)
     {
@@ -55,13 +56,16 @@ void main(uint thread_id : SV_DispatchThreadID)
         }
     }
 
+    let vsm = !push.attach.hip.is_empty();
+    let separate_compute_meshlet_cull = (push.attach.globals.settings.enable_separate_compute_meshlet_culling) && !vsm;
+
     if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
     {
         PrefixSumExpansionBufferHead * prefixsum_expansion = (PrefixSumExpansionBufferHead *)(draw_list_type == 
             PREPASS_DRAW_LIST_OPAQUE ? 
             (uint64_t)push.attach.opaque_expansion : 
             (uint64_t)push.attach.masked_expansion);
-        let dst_workgroup_size_log2 = push.attach.globals.settings.enable_separate_compute_meshlet_culling ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
+        let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
         prefix_sum_expansion_add_workitems(prefixsum_expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
     }
     else
@@ -71,7 +75,7 @@ void main(uint thread_id : SV_DispatchThreadID)
             (uint64_t)push.attach.opaque_expansion : 
             (uint64_t)push.attach.masked_expansion);
 
-        let dst_workgroup_size_log2 = push.attach.globals.settings.enable_separate_compute_meshlet_culling ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
+        let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
 
         po2_expansion_add_workitems(po2expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
     }

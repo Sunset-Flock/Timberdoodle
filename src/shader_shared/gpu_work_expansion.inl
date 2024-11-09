@@ -49,7 +49,7 @@ struct Po2WorkExpansionBufferHead
             // This means if bucket 3 has 17 items, it will still get 32 threads assigned to it.
             // This is VERY IMPORTANT in order to make the bucket search fast by distributing it across the warp with wave intrinsics.
             // We simply add a warp size for each bucket beforehand when we clear to make sure there are enough threads for each bucket.
-            out->dispatch.x = WARP_SIZE * 32;
+            out->dispatch.x = PO2_WORK_EXPANSION_BUCKET_COUNT;
         }
 
         static auto create(
@@ -84,12 +84,13 @@ struct PrefixSumExpansionBufferHead
     daxa::u64 merged_src_item_dst_item_count;
     // DWIG = DstWorkItemGroup
     daxa::u32* dwig_inclusive_dst_work_item_count_prefix_sum;
+    daxa::u32* dwig_exclusive_dst_work_item_count_prefix_sum;
     daxa::u32* dwig_src_work_items;
 
     #if defined(__cplusplus)
         static daxa::u32 calc_buffer_size(daxa::u32 max_dst_work_item_groups)
         {
-            return sizeof(PrefixSumExpansionBufferHead) + sizeof(daxa::u32) * max_dst_work_item_groups * 2;
+            return sizeof(PrefixSumExpansionBufferHead) + sizeof(daxa::u32) * max_dst_work_item_groups * 3;
         }
 
         static auto create(
@@ -103,8 +104,10 @@ struct PrefixSumExpansionBufferHead
             ret.merged_src_item_dst_item_count = 0;
             ret.dwig_inclusive_dst_work_item_count_prefix_sum = 
                 reinterpret_cast<daxa::u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumExpansionBufferHead)) + sizeof(daxa::u32) * max_dst_work_item_groups * 0);
-            ret.dwig_src_work_items = 
+            ret.dwig_exclusive_dst_work_item_count_prefix_sum = 
                 reinterpret_cast<daxa::u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumExpansionBufferHead)) + sizeof(daxa::u32) * max_dst_work_item_groups * 1);
+            ret.dwig_src_work_items = 
+                reinterpret_cast<daxa::u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumExpansionBufferHead)) + sizeof(daxa::u32) * max_dst_work_item_groups * 2);
             return ret;
         }
     #endif

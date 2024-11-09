@@ -825,7 +825,7 @@ bool get_meshlet_instance_from_workitem(
     if (prefix_sum_expansion)
     {
         PrefixSumExpansionBufferHead * prefix_expansion = (PrefixSumExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = prefix_sum_expansion_get_workitem(prefix_expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
+        valid_meshlet = cooperative_prefix_sum_expansion_get_workitem(prefix_expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
     }
     else
     {
