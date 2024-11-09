@@ -33,19 +33,24 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
 
     if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
     {
+        if (WaveIsFirstLane())
+        {
+            //printf("wave %i A wave count %i\n", thread_index / WARP_SIZE, self->dispatch.x);
+        }
         // Overhang warp.
         ret = (ExpandedWorkItem)0;
         return false;
     }
 
-    let bucket_index = WaveShuffle(lanes_bucket_index, firstbitlow(WaveActiveBallot(warp_belongs_to_lanes_bucket).x));
+    let bucket_index = firstbitlow(WaveActiveBallot(warp_belongs_to_lanes_bucket).x);
     let bucket_first_thread_index = WaveShuffle(lanes_bucket_first_thread, bucket_index);
-    let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
     let bucket_argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
+    let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
     let argument_index = bucket_relative_thread_index >> bucket_index;
 
     if (argument_index >= bucket_argument_count)
     {    
+        //printf("B\n");
         ret = (ExpandedWorkItem)0;
         return false;
     }
@@ -60,8 +65,9 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let arg_dst_work_offset = work_item_count & smaller_buckets_mask;
     let dst_work_item_index = in_argument_work_offset + arg_dst_work_offset;
 
-    if (dst_work_item_index >= work_item_count)
+    if (dst_work_item_index >= (work_item_count - 1))
     {
+        //printf("C\n");
         //printf("overhang dst work item %i >= %i\n", argument_index, bucket_argument_count);
         ret = (ExpandedWorkItem)0;
         return false;

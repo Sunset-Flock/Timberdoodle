@@ -852,13 +852,12 @@ bool get_meshlet_instance_from_workitem(
 
 struct MeshletCullWriteoutResult
 {
-    bool draw_meshlet;
-    uint warp_meshlet_instances_offset;
+    uint warp_meshlet_instances_offset; // WARP UNIFORM
 }
-func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWriteoutResult
+/// NOTE: ALL WARP THREADS MUST BE ACTIVE ENTERING THIS FUNCTION
+func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_instance) -> MeshletCullWriteoutResult
 {
     let push = cull_meshlets_draw_visbuffer_push;
-    bool draw_meshlet = true;
     if (draw_meshlet && !push.first_pass)
     {
         draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
@@ -955,7 +954,7 @@ func cull_and_writeout_meshlet(MeshletInstance meshle_instance) -> MeshletCullWr
     // Remove all meshlets that couldnt be allocated.
     draw_meshlet = draw_meshlet && !allocation_failed;
 
-    return MeshletCullWriteoutResult( draw_meshlet, warp_meshlet_instances_offset );
+    return MeshletCullWriteoutResult( warp_meshlet_instances_offset );
 }
 
 [shader("compute")]
@@ -979,11 +978,7 @@ func entry_compute_meshlet_cull(
         instanced_meshlet
     );
     
-    MeshletCullWriteoutResult cull_result = (MeshletCullWriteoutResult)0;
-    if (valid_meshlet)
-    {
-        cull_result = cull_and_writeout_meshlet(instanced_meshlet);
-    }
+    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, instanced_meshlet);
 }
 
 [shader("amplification")]
@@ -1007,21 +1002,17 @@ func entry_task_meshlet_cull(
         instanced_meshlet
     );
     
-    MeshletCullWriteoutResult cull_result = (MeshletCullWriteoutResult)0;
-    if (valid_meshlet)
-    {
-        cull_result = cull_and_writeout_meshlet(instanced_meshlet);
-    }
+    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, instanced_meshlet);
 
-    let surviving_meshlet_count = WaveActiveSum(cull_result.draw_meshlet ? 1u : 0u);
+    let surviving_meshlet_count = WaveActiveSum(valid_meshlet ? 1u : 0u);
 
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
-    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(cull_result.draw_meshlet).x;  
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
 
     bool enable_backface_culling = false;
-    if (cull_result.draw_meshlet)
+    if (valid_meshlet)
     {
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
@@ -1029,7 +1020,7 @@ func entry_task_meshlet_cull(
             enable_backface_culling = !material.alpha_discard_enabled;
         }
     }
-    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
+    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x != 0u;
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
