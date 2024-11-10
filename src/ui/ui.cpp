@@ -291,6 +291,11 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     ImGui::TableHeadersRow();
                     for (auto const& stat : visbuffer_pipeline_stats)
                     {
+                        f32 const percentage = static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f;
+                        if (percentage > 100.0f)
+                        {
+                            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
+                        }
                         ImGui::TableNextRow();
                         ImGui::TableSetColumnIndex(0);
                         ImGui::Text(stat.name);
@@ -299,7 +304,11 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                         ImGui::TableSetColumnIndex(2);
                         ImGui::Text("%i%s", stat.max_value, stat.unit);
                         ImGui::TableSetColumnIndex(3);
-                        ImGui::Text("%f%%", static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f);
+                        ImGui::Text("%f%%", percentage);
+                        if (percentage > 100.0f)
+                        {
+                            ImGui::PopStyleColor();
+                        }
                     }
                     ImGui::EndTable();
                 }
