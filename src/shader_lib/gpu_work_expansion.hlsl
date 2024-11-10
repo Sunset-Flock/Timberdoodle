@@ -15,22 +15,14 @@ interface WorkExpansionGetDstWorkItemCountI
     func get_itemcount(uint src_work_item_index) -> uint;
 };
 
-static uint g_argument_index;
-static uint g_argument_count;
-static uint g_argument_bucket;
-static uint g_in_arg_index;
-static uint g_arg_work_count;
-static uint g_dst_index;
-static uint g_src_index;
-static bool g_first_pass;
-static bool g_opaque;
-
+/// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
 /// WARNING: Cant be member function due to a slang compiler bug!
 func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(Po2WorkExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, out ExpandedWorkItem ret) -> bool
 {
-    // Every lane represents a bucket here.
-    // load bucket index and perform prefix sums.
-    // Later we read the buckets prefix sums with WaveShuffles.    
+    // This code ensures that each wave only has a single bucket to work on. It is never the case that some threads within the warp work on different buckets.
+    // This is very important, as it allows warps to cooperatively search for the bucket they should work on.
+    // Each thread checks, if the wave should work on one of the 32 buckets.
+    // The thread that finds the waves first thread index in one of the buckets ranges gets elected and broadcasts the bucket the wave will work on.
     let lanes_bucket_index = WaveGetLaneIndex();
     let lanes_bucket_size = self->bucket_sizes[lanes_bucket_index];
     let lanes_bucket_threads = lanes_bucket_size << lanes_bucket_index;                        // bucket size counds how many args are in the bucket. Nr. of threads is arg_count<<bucket_index.
@@ -41,10 +33,6 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let warp_first_thread = thread_index & (~WARP_SIZE_MULTIPLE_MASK);
     let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread < lanes_bucket_one_past_last_thread;
 
-    if (g_first_pass && g_opaque && thread_index >= 65728)
-    {
-        printf("thread %i,\n", thread_index);
-    }
     if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
     {
         // Overhang elimination
@@ -56,40 +44,27 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let bucket_first_thread_index = WaveShuffle(lanes_bucket_first_thread, bucket_index);
     let bucket_argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
     let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
-    let argument_index = bucket_relative_thread_index >> bucket_index;
-    let in_argument_work_offset = bucket_relative_thread_index - (argument_index << bucket_index);
+    let bucket_argument_index = bucket_relative_thread_index >> bucket_index;
+    let bucket_in_argument_index = bucket_relative_thread_index - (bucket_argument_index << bucket_index);
 
-    if (thread_index < 32 && g_first_pass && g_opaque)
-    {
-        printf("disp.x %i, bucket %i size %i, threads %i, round threads %i, first thread %i end thread %i\n", self->dispatch.x * 32, lanes_bucket_index, lanes_bucket_size, lanes_bucket_threads, lanes_bucket_threads_rounded_to_wave_multiple, lanes_bucket_first_thread, lanes_bucket_one_past_last_thread);
-    }
-
-    g_argument_index = argument_index;
-    g_argument_count = bucket_argument_count;
-    g_argument_bucket = bucket_index;
-
-    if (argument_index >= bucket_argument_count)
+    if (bucket_argument_index >= bucket_argument_count)
     {    
         // Overhang elimination
         ret = (ExpandedWorkItem)0;
         return false;
     }
 
-    let src_work_item_index = (self.buckets[bucket_index])[argument_index];
-    let work_item_count = src_work_items.get_itemcount(src_work_item_index);
+    let src_work_item_index = (self.buckets[bucket_index])[bucket_argument_index];
+    let src_work_item_expansion_factor = src_work_items.get_itemcount(src_work_item_index);
     // Now we need to find the offset of our work.
     // The offset for each argument is simply the sum of all the dst work items from all the smaller arg buckets for this src work item.
     // To get the that sum we simply take the work item count and mask off all bits from the buckets bit upwards.
-    let smaller_buckets_mask = ~((~0u) << bucket_index);
-    let arg_dst_work_offset = work_item_count & smaller_buckets_mask;
-    let dst_work_item_index = in_argument_work_offset + arg_dst_work_offset;
+    let src_work_item_smaller_buckets_mask = ~((~0u) << bucket_index);
+    let src_work_item_offset = src_work_item_expansion_factor & src_work_item_smaller_buckets_mask;
 
-    g_in_arg_index = in_argument_work_offset;
-    g_arg_work_count = work_item_count;
-    g_dst_index = dst_work_item_index;
-    g_src_index = src_work_item_index;
+    let dst_work_item_index = bucket_in_argument_index + src_work_item_offset;
 
-    if (dst_work_item_index >= work_item_count)
+    if (dst_work_item_index >= src_work_item_expansion_factor)
     {
         // Overhang elimination
         ret = (ExpandedWorkItem)0;
@@ -133,7 +108,6 @@ func po2_expansion_add_workitems(Po2WorkExpansionBufferHead * self, uint dst_ite
         daxa::u32 needed_workgroups = round_up_div_btsft(cur_dst_item_count, dst_workgroup_size_log2) + extra_workgroups;
         InterlockedMax(self->dispatch.x, needed_workgroups);
     }
-
     
     while(dst_item_count != 0)
     {
@@ -237,6 +211,7 @@ func prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemC
 
 #define WARP_BINARY_SEARCH_SPEEDUP 1
 
+/// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
 /// WARNING: Cant be member function due to a slang compiler bug!
 func cooperative_prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(PrefixSumExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, out ExpandedWorkItem ret) -> bool
 {

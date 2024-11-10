@@ -12,11 +12,6 @@ void main(uint thread_id : SV_DispatchThreadID)
 {
     uint mesh_instance_index = thread_id;
 
-    if (thread_id == 0 && push.cull_against_last_frame)
-    {
-        printf("frame\n");
-    }
-
     uint mesh_instance_count = min(MAX_MESH_INSTANCES, deref(push.attach.mesh_instances).count);
     if (mesh_instance_index >= mesh_instance_count)
     {

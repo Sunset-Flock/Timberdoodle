@@ -178,7 +178,6 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             push.pass,
             draw_list_type);
             
-        // printf("meshlets %i\n", draw_p.attach.meshlet_instances.first_count);
         meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
             DispatchIndirectStruct command;
             command.x = push.attach.globals.settings.enable_atomic_visbuffer ? meshlets_to_draw : 1;
@@ -358,7 +357,7 @@ func generic_mesh_compute_raster(
 
     if (meshlet_inst_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("fuck\n");
+        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_inst_index, MAX_MESHLET_INSTANCES);
     }
 
     const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_inst.entity_index);
@@ -547,7 +546,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
     if (meshlet_inst_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("fuck\n");
+        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_inst_index, MAX_MESHLET_INSTANCES);
     }
 
     float4 local_clip_vertices[2];
@@ -854,27 +853,15 @@ struct MeshletCullWriteoutResult
 {
     uint warp_meshlet_instances_offset; // WARP UNIFORM
 }
-static uint thread_idd;
 
-/// NOTE: ALL WARP THREADS MUST BE ACTIVE ENTERING THIS FUNCTION
+/// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
 func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_instance) -> MeshletCullWriteoutResult
 {
     let push = cull_meshlets_draw_visbuffer_push;    
-    bool all_draw = WaveActiveAllEqual(draw_meshlet);    
-    if (WaveActiveSum(1) != 32 )
-    {
-        printf("partial\n");
-    }
 
     if (draw_meshlet && !push.first_pass)
     {
         draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
-
-
-        if (draw_meshlet && g_src_index == 799 && g_in_arg_index == 1023)
-        {
-            printf("flickering meshlet: thread %i, mesh_instance_index %i meshlet %i, g_argument_index %i, g_argument_count %i, g_argument_bucket %i, g_in_arg_index %i, g_arg_work_count %i, g_dst_index: %i\n", thread_idd, meshle_instance.mesh_instance_index, meshle_instance.meshlet_index, g_argument_index, g_argument_count, g_argument_bucket, g_in_arg_index, g_arg_work_count, g_dst_index);
-        }
     }
     
     if (draw_meshlet)
@@ -908,12 +895,12 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
     }
 
     uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
-    // When not occluded, this value determines the new packed index for each thread in the wave:
-    let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
     uint warp_meshlet_instances_offset = 0;
     bool allocation_failed = false;
     if (surviving_meshlet_count > 0) 
     {
+        // When not occluded, this value determines the new packed index for each thread in the wave:
+        let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
         uint global_draws_offsets;
         if (WaveIsFirstLane())
         {
@@ -1002,13 +989,9 @@ func entry_task_meshlet_cull(
     uint3 svgid : SV_GroupID
 )
 {
-    thread_idd = svtid.x;
     let push = cull_meshlets_draw_visbuffer_push;
 
     uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
-
-    g_first_pass = push.first_pass;
-    g_opaque = push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE;
 
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
@@ -1020,17 +1003,6 @@ func entry_task_meshlet_cull(
         svtid.x,
         instanced_meshlet
     );
-
-    if (push.first_pass && (instanced_meshlet.mesh_instance_index == 803 ||instanced_meshlet.mesh_instance_index == 799) && g_argument_bucket == 10 && g_in_arg_index == 1023)
-    {
-        //printf("mesh inst %i, thread %i", instanced_meshlet.mesh_instance_index, thread_idd);
-    }
-
-    if (thread_idd == 63711 && push.first_pass)
-    {
-        //printf("flickering meshlet: thread %i, mesh_instance_index %i meshlet %i, g_argument_index %i, g_argument_count %i, g_argument_bucket %i, g_in_arg_index %i, g_arg_work_count %i, g_dst_index: %i\n", thread_idd, instanced_meshlet.mesh_instance_index, instanced_meshlet.meshlet_index, g_argument_index, g_argument_count, g_argument_bucket, g_in_arg_index, g_arg_work_count, g_dst_index);
-        //printf("hohoho\n");
-    }
     
     MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, instanced_meshlet);
 

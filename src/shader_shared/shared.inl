@@ -133,7 +133,7 @@ struct VSMSettings
     daxa_u32 sun_moved;
 #if defined(__cplusplus)
     VSMSettings()
-        : enable{ 0 },
+        : enable{ 1 },
           force_clip_level{ 0 },
           enable_caching{ 1 },
           forced_clip_level{ 0 },
@@ -211,12 +211,12 @@ struct Settings
           ao_mode{AO_MODE_RT},
           ao_samples{8},
           debug_overdraw_scale{0.1},
-          enable_mesh_cull{0},
-          enable_meshlet_cull{0},
-          enable_triangle_cull{0},
+          enable_mesh_cull{1},
+          enable_meshlet_cull{1},
+          enable_triangle_cull{1},
           enable_atomic_visbuffer{0},
           enable_merged_scene_blas{0},
-          enable_rt_pipeline_for_ao{0},
+          enable_rt_pipeline_for_ao{1},
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0}
