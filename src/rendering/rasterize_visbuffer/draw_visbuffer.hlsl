@@ -1022,7 +1022,7 @@ func entry_task_meshlet_cull(
             enable_backface_culling = !material.alpha_discard_enabled;
         }
     }
-    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x != 0u;
+    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
