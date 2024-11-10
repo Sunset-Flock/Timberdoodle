@@ -15,6 +15,16 @@ interface WorkExpansionGetDstWorkItemCountI
     func get_itemcount(uint src_work_item_index) -> uint;
 };
 
+static uint g_argument_index;
+static uint g_argument_count;
+static uint g_argument_bucket;
+static uint g_in_arg_index;
+static uint g_arg_work_count;
+static uint g_dst_index;
+static uint g_src_index;
+static bool g_first_pass;
+static bool g_opaque;
+
 /// WARNING: Cant be member function due to a slang compiler bug!
 func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(Po2WorkExpansionBufferHead * self, SrcWrkItmT src_work_items, uint thread_index, out ExpandedWorkItem ret) -> bool
 {
@@ -31,13 +41,13 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let warp_first_thread = thread_index & (~WARP_SIZE_MULTIPLE_MASK);
     let warp_belongs_to_lanes_bucket = warp_first_thread >= lanes_bucket_first_thread && warp_first_thread < lanes_bucket_one_past_last_thread;
 
+    if (g_first_pass && g_opaque && thread_index >= 65728)
+    {
+        printf("thread %i,\n", thread_index);
+    }
     if (!WaveActiveAnyTrue(warp_belongs_to_lanes_bucket))
     {
-        if (WaveIsFirstLane())
-        {
-            //printf("wave %i A wave count %i\n", thread_index / WARP_SIZE, self->dispatch.x);
-        }
-        // Overhang warp.
+        // Overhang elimination
         ret = (ExpandedWorkItem)0;
         return false;
     }
@@ -47,15 +57,24 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let bucket_argument_count = WaveShuffle(lanes_bucket_size, bucket_index);
     let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
     let argument_index = bucket_relative_thread_index >> bucket_index;
+    let in_argument_work_offset = bucket_relative_thread_index - (argument_index << bucket_index);
+
+    if (thread_index < 32 && g_first_pass && g_opaque)
+    {
+        printf("disp.x %i, bucket %i size %i, threads %i, round threads %i, first thread %i end thread %i\n", self->dispatch.x * 32, lanes_bucket_index, lanes_bucket_size, lanes_bucket_threads, lanes_bucket_threads_rounded_to_wave_multiple, lanes_bucket_first_thread, lanes_bucket_one_past_last_thread);
+    }
+
+    g_argument_index = argument_index;
+    g_argument_count = bucket_argument_count;
+    g_argument_bucket = bucket_index;
 
     if (argument_index >= bucket_argument_count)
     {    
-        //printf("B\n");
+        // Overhang elimination
         ret = (ExpandedWorkItem)0;
         return false;
     }
 
-    let in_argument_work_offset = bucket_relative_thread_index - (argument_index << bucket_index);
     let src_work_item_index = (self.buckets[bucket_index])[argument_index];
     let work_item_count = src_work_items.get_itemcount(src_work_item_index);
     // Now we need to find the offset of our work.
@@ -65,10 +84,14 @@ func po2_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemCountI>(
     let arg_dst_work_offset = work_item_count & smaller_buckets_mask;
     let dst_work_item_index = in_argument_work_offset + arg_dst_work_offset;
 
-    if (dst_work_item_index >= (work_item_count - 1))
+    g_in_arg_index = in_argument_work_offset;
+    g_arg_work_count = work_item_count;
+    g_dst_index = dst_work_item_index;
+    g_src_index = src_work_item_index;
+
+    if (dst_work_item_index >= work_item_count)
     {
-        //printf("C\n");
-        //printf("overhang dst work item %i >= %i\n", argument_index, bucket_argument_count);
+        // Overhang elimination
         ret = (ExpandedWorkItem)0;
         return false;
     }
@@ -94,12 +117,23 @@ func po2_expansion_add_workitems(Po2WorkExpansionBufferHead * self, uint dst_ite
         printf("ERROR: work expansion failed, ran out of memory, src item nr. %i, capacity: %i\n", cur_src_item_count, self->buckets_capacity);
     }
 
+    // Update total dst threads needed.
     uint prev_dst_item_count = 0;
     InterlockedAdd(self->dst_work_item_count, dst_item_count, prev_dst_item_count);
     const uint cur_dst_item_count = prev_dst_item_count + dst_item_count;
 
-    daxa::u32 needed_workgroups = round_up_div_btsft(cur_dst_item_count, dst_workgroup_size_log2);
-    InterlockedMax(self->dispatch.x, needed_workgroups);
+    // Update indirect dispatch:
+    {
+        // We MUST dispatch "too many" threads.
+        // This is because argument bucket sizes are rounded up in the dst threads to ensure each warp only has a single argument bucket.
+        // Because of this there are a few threads between buckets lost. 
+        // The lost threads must be made up by conservatively adding some overhang warps (32 is the save number here).
+        // As the workgroup sizes determine the dispatch we also calculate the needed extra workgroups to get 32 extra warps.
+        daxa::u32 extra_workgroups = div_btsft(32*WARP_SIZE, dst_workgroup_size_log2);
+        daxa::u32 needed_workgroups = round_up_div_btsft(cur_dst_item_count, dst_workgroup_size_log2) + extra_workgroups;
+        InterlockedMax(self->dispatch.x, needed_workgroups);
+    }
+
     
     while(dst_item_count != 0)
     {
@@ -112,6 +146,7 @@ func po2_expansion_add_workitems(Po2WorkExpansionBufferHead * self, uint dst_ite
         InterlockedAdd(self.bucket_sizes[bucket_index], 1, bucket_count_prev_value);
         let bucket_arg_index = bucket_count_prev_value;
         let arg_allocation_success = bucket_arg_index < self->buckets_capacity;
+
         if (arg_allocation_success)
         {
             (self.buckets[bucket_index])[bucket_arg_index] = src_work_item_index;
@@ -167,7 +202,8 @@ func prefix_sum_expansion_get_workitem<SrcWrkItmT : WorkExpansionGetDstWorkItemC
 
     if (window_begin >= dwig_count || window_begin >= window_end)
     {
-        printf("ERROR: binary search failed in work expansion\n");
+        // Overhang threads.
+        ret = (ExpandedWorkItem)0;
         return false;
     }
 
@@ -331,8 +367,7 @@ func prefix_sum_expansion_add_workitems(PrefixSumExpansionBufferHead* self, uint
         self->dwig_src_work_items[out_dst_work_item_group] = src_item_index;
         // Its ok if we launch a few too many threads.
         // The get_dst_workitem function is robust against that.
-        daxa::u32 needed_workgroups = round_up_div_btsft(inclusive_dst_item_count_prefix_sum, dst_workgroup_size_log2);
+        daxa::u32 needed_workgroups = round_up_div_btsft(inclusive_dst_item_count_prefix_sum, dst_workgroup_size_log2) + (1 << (dst_workgroup_size_log2));
         InterlockedMax(self->dispatch.x, needed_workgroups);
-        // printf("increase work to %i, dwig count %i\n", needed_workgroups, out_dst_work_item_group + 1);
     }
 }

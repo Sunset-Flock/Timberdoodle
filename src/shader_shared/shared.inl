@@ -133,7 +133,7 @@ struct VSMSettings
     daxa_u32 sun_moved;
 #if defined(__cplusplus)
     VSMSettings()
-        : enable{ 1 },
+        : enable{ 0 },
           force_clip_level{ 0 },
           enable_caching{ 1 },
           forced_clip_level{ 0 },
@@ -211,9 +211,9 @@ struct Settings
           ao_mode{AO_MODE_RT},
           ao_samples{8},
           debug_overdraw_scale{0.1},
-          enable_mesh_cull{1},
-          enable_meshlet_cull{1},
-          enable_triangle_cull{1},
+          enable_mesh_cull{0},
+          enable_meshlet_cull{0},
+          enable_triangle_cull{0},
           enable_atomic_visbuffer{0},
           enable_merged_scene_blas{0},
           enable_rt_pipeline_for_ao{0},
@@ -330,6 +330,11 @@ SHARED_FUNCTION daxa_u32 round_up_div(daxa_u32 value, daxa_u32 div)
 SHARED_FUNCTION daxa_u32 round_up_div_btsft(daxa_u32 value, daxa_u32 log2_div)
 {
     return (value + (1 << log2_div) - 1) >> log2_div;
+}
+
+SHARED_FUNCTION daxa_u32 div_btsft(daxa_u32 value, daxa_u32 log2_div)
+{
+    return value >> log2_div;
 }
 
 struct DrawIndexedIndirectStruct

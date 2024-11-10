@@ -49,7 +49,7 @@ struct Po2WorkExpansionBufferHead
             // This means if bucket 3 has 17 items, it will still get 32 threads assigned to it.
             // This is VERY IMPORTANT in order to make the bucket search fast by distributing it across the warp with wave intrinsics.
             // We simply add a warp size for each bucket beforehand when we clear to make sure there are enough threads for each bucket.
-            out->dispatch.x = PO2_WORK_EXPANSION_BUCKET_COUNT;
+            out->dispatch.x = 0;
         }
 
         static auto create(

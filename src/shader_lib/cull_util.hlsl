@@ -69,7 +69,7 @@ bool is_meshlet_drawn_in_first_pass(
     return false;
 }
 
-#define VALIDATE_MARK_MESHLET_AS_FIRST_PASS 0
+#define VALIDATE_MARK_MESHLET_AS_FIRST_PASS 1
 // Sets meshlet bitfield bit for first pass.
 // Returns if allocation was successful.
 void mark_meshlet_as_drawn_first_pass(
