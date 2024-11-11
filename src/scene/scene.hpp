@@ -126,6 +126,7 @@ struct RenderEntity
     std::optional<u32> mesh_group_manifest_index = {};
     EntityType type = EntityType::UNKNOWN;
     std::string name = {};
+    bool dirty = {};
 };
 
 struct GltfAssetManifestEntry
