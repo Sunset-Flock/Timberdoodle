@@ -188,16 +188,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
     const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
 
-    float vsm_sample = 0.0f;
-    if (push_opaque.attachments.attachments.globals.vsm_settings.use64bit != 0)
-    {
-        // TODO
-        // const float vsm_sample = asfloat(uint(Texture2Duint64view[AT.vsm_memory_block64.index()].Load(int3(physical_texel_coords, 0)).r));
-    }
-    else
-    {
-        vsm_sample = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
-    }
+    const float vsm_sample = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
 
     const float4x4 vsm_shadow_view = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.view;
 
@@ -250,7 +241,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const float filter_radius = 0.05;
+    const float filter_radius = 0.01;
     const int clip_levels[3] = {
         clip_info.clip_level,
         max(clip_info.clip_level - 1, 0),

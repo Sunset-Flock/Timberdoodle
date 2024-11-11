@@ -101,12 +101,10 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_a
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory64)
 DAXA_DECL_TASK_HEAD_END
 struct ClearPagesPush
 {
     DAXA_TH_BLOB(ClearPagesH, attachments)
-    daxa_u32 use64bit;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH)
@@ -168,7 +166,6 @@ struct GenDirtyBitHizPush
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block64)
     DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
     DAXA_DECL_TASK_HEAD_END
     struct CullAndDrawPagesPush
@@ -505,7 +502,6 @@ struct ClearPagesTask : ClearPagesH::Task
         u32 const timestamp_start_index = per_frame_timestamp_count * fif_index;
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
         ClearPagesPush push = {};
-        push.use64bit = render_context->render_data.vsm_settings.use64bit;
         push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
@@ -557,8 +553,8 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
 
         auto const memory_block_view = render_context->gpu_context->device.create_image_view({
             .type = daxa::ImageViewType::REGULAR_2D,
-            .format = render_context->render_data.vsm_settings.use64bit ? daxa::Format::R64_UINT : daxa::Format::R32_UINT,
-            .image = render_context->render_data.vsm_settings.use64bit ? ti.get(AT.vsm_memory_block64).ids[0] : ti.get(AT.vsm_memory_block).ids[0],
+            .format = daxa::Format::R32_UINT,
+            .image = ti.get(AT.vsm_memory_block).ids[0],
             .name = "vsm memory daxa integer view",
         });
 
@@ -838,7 +834,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
-            daxa::attachment_view(ClearPagesH::AT.vsm_memory64, info.vsm_state->memory_block64),
         },
         .render_context = info.render_context,
         .timeline_pool = info.vsm_state->vsm_timeline_query_pool,
@@ -926,7 +921,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block64, info.vsm_state->memory_block64),
             daxa::attachment_view(CullAndDrawPagesH::AT.vsm_overdraw_debug, info.vsm_state->overdraw_debug_image),
         },
         .render_context = info.render_context,

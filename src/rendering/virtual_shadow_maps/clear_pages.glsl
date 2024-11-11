@@ -22,13 +22,5 @@ void main()
     const ivec2 in_memory_corner_coords = memory_page_coords * VSM_PAGE_SIZE;
     const ivec2 in_memory_workgroup_offset = ivec2(gl_WorkGroupID.xy) * CLEAR_PAGES_X_DISPATCH;
     const ivec2 thread_memory_coords = in_memory_corner_coords + in_memory_workgroup_offset + ivec2(gl_LocalInvocationID.xy);
-    if (push.use64bit != 0)
-    {
-        // TODO
-        // imageStore(daxa_u64image2D(push.attachments.vsm_memory64), thread_memory_coords, u64vec4(floatBitsToUint(1.0)));
-    }
-    else
-    {
-        imageStore(daxa_image2D(push.attachments.vsm_memory), thread_memory_coords, vec4(1.0));
-    }
+    imageStore(daxa_image2D(push.attachments.vsm_memory), thread_memory_coords, vec4(1.0));
 }
