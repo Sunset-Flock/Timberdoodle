@@ -14,10 +14,10 @@ void main()
     if(vsm_page_coords.x > VSM_PAGE_TABLE_RESOLUTION) { return; }
 
     const bool should_clear_wrapped = 
-        (clear_offset.x > 0 && vsm_page_coords.x <  clear_offset.x) || 
-        (clear_offset.x < 0 && vsm_page_coords.x >  VSM_PAGE_TABLE_RESOLUTION + (clear_offset.x - 1)) || 
-        (clear_offset.y > 0 && vsm_page_coords.y <  clear_offset.y) || 
-        (clear_offset.y < 0 && vsm_page_coords.y >  VSM_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1));
+        (clear_offset.x > 0 && vsm_page_coords.x < clear_offset.x) || 
+        (clear_offset.x < 0 && vsm_page_coords.x > VSM_PAGE_TABLE_RESOLUTION + (clear_offset.x - 1)) || 
+        (clear_offset.y > 0 && vsm_page_coords.y < clear_offset.y) || 
+        (clear_offset.y < 0 && vsm_page_coords.y > VSM_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1));
     
     daxa_BufferPtr(FreeWrappedPagesInfo) info = push.free_wrapped_pages_info;
 
