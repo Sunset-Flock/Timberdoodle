@@ -123,6 +123,7 @@ namespace RenderTimes
         VISBUFFER_ANALYZE,
         RAY_TRACED_AMBIENT_OCCLUSION,
         RAY_TRACED_AMBIENT_OCCLUSION_DENOISE,
+        VSM_INVALIDATE_PAGES,
         VSM_FREE_WRAPPED_PAGES,
         VSM_MARK_REQUIRED_PAGES,
         VSM_FIND_FREE_PAGES,
@@ -152,6 +153,7 @@ namespace RenderTimes
         "VISBUFFER_ANALYZE",
         "RAY_TRACED_AMBIENT_OCCLUSION",
         "RAY_TRACED_AMBIENT_OCCLUSION_DENOISE",
+        "VSM_INVALIDATE_PAGES",
         "VSM_FREE_WRAPPED_PAGES",
         "VSM_MARK_REQUIRED_PAGES",
         "VSM_FIND_FREE_PAGES",
@@ -173,6 +175,7 @@ namespace RenderTimes
         GROUP_VISBUFFER,
         GROUP_AMBIENT_OCCLUSION,
         GROUP_SHADE_OPAQUE,
+        GROUP_VSM_INVALIDATE_STAGES,
         GROUP_VSM_BOOKKEEPING,
         GROUP_VSM_CULL_AND_DRAW,
         GROUP_COUNT
@@ -182,6 +185,7 @@ namespace RenderTimes
         "GROUP_VISBUFFER",
         "GROUP_AMBIENT_OCCLUSION",
         "GROUP_SHADE_OPAQUE",
+        "GROUP_VSM_INVALIDATE_PAGES",
         "GROUP_VSM_BOOKKEEPING",
         "GROUP_VSM_CULL_AND_DRAW",
     };
@@ -217,6 +221,10 @@ namespace RenderTimes
         SHADE_OPAQUE,
     };
 
+    static constexpr inline std::array GROUP_VSM_INVALIDATE_PAGES = std::array{
+        VSM_INVALIDATE_PAGES,
+    };
+
     static constexpr inline std::array GROUP_VSM_BOOKKEEPING_TIMES = std::array{
         VSM_FREE_WRAPPED_PAGES,
         VSM_MARK_REQUIRED_PAGES,
@@ -234,6 +242,7 @@ namespace RenderTimes
         GROUP_VISBUFFER_TIMES,
         GROUP_AMBIENT_OCCLUSION_TIMES,
         GROUP_SHADE_OPAQUE_TIMES,
+        GROUP_VSM_INVALIDATE_PAGES,
         GROUP_VSM_BOOKKEEPING_TIMES,
         GROUP_VSM_CULL_AND_DRAW_TIMES,
     };

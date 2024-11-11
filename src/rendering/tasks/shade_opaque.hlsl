@@ -26,7 +26,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 1;
+static const uint PCF_NUM_SAMPLES = 16;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -250,7 +250,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const float filter_radius = 0.01;
+    const float filter_radius = 0.05;
     const int clip_levels[3] = {
         clip_info.clip_level,
         max(clip_info.clip_level - 1, 0),

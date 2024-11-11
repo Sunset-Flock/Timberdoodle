@@ -390,7 +390,10 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
         InvalidatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_PAGES_X_DISPATCH);
-        ti.recorder.dispatch({x_dispatch, 1, VSM_CLIP_LEVELS});
+        u32 const y_dispatch = (VSM_PAGE_TABLE_RESOLUTION * VSM_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_INVALIDATE_PAGES);
+        ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_INVALIDATE_PAGES);
     }
 };
 
