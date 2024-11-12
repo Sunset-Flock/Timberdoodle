@@ -44,26 +44,36 @@ func po2packed_expansion_get_workitem(Po2PackedWorkExpansionBufferHead * self, u
     let bucket_arg_count = round_up_div_btsft(bucket_threads, bucket_index);
     let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
 
+    // We MUST check the current arg AND the next arc.
+    // This is because the args only mark the first thread within each arg.
+    // So we might have threads here that belong to the next arg, as those are only marked in the next arg.
+    let first_arg_idx = round_down_div_btsft(bucket_relative_thread_index, bucket_index);
+    let secnd_arg_idx = min(first_arg_idx + 1, bucket_arg_count - 1);
+    let first_expansion_idx = self->buckets[bucket_index][first_arg_idx];
+    let secnd_expansion_idx = self->buckets[bucket_index][secnd_arg_idx];
+    let secnd_expansion_src_item_index = self->expansions[secnd_expansion_idx].src_item_index;
+
+    // Distribute field loads across wave. Improves perf a tiny but on nvidia.
+    let fast_load_start_addr = (uint*)(self->expansions + first_expansion_idx);
+    uint lane_v = 0;
+    if (WaveGetLaneIndex() < 3)
+    {
+        lane_v = fast_load_start_addr[WaveGetLaneIndex()];
+    }
+    uint first_expansion_src_item_index = WaveBroadcastLaneAt(lane_v, 0);
+    uint first_expansion_factor = WaveBroadcastLaneAt(lane_v, 1);
+    uint first_expansion_first_thread_in_bucket = WaveBroadcastLaneAt(lane_v, 2);
+
     if (bucket_relative_thread_index >= bucket_threads)
     {
         // Overhang elimination
         ret = (DstItemInfo)0;
         return false;
     }
-
-    // We MUST check the current arg AND the next arc.
-    // This is because the args only mark the first thread within each arg.
-    // So we might have threads here that belong to the next arg, as those are only marked in the next arg.
-    let first_arg_idx = round_down_div_btsft(bucket_relative_thread_index, bucket_index);
-    let first_expansion_idx = self->buckets[bucket_index][first_arg_idx];
-    let first_expansion = self->expansions[first_expansion_idx];
-    let secnd_arg_idx = min(first_arg_idx + 1, bucket_arg_count - 1);
-    let secnd_expansion_idx = self->buckets[bucket_index][secnd_arg_idx];
-    let secnd_expansion = self->expansions[secnd_expansion_idx];
     
-    let in_first_expansion = bucket_relative_thread_index < (first_expansion.in_bucket_first_thread + first_expansion.expansion_count);
-    ret.src_item_index = select(in_first_expansion, first_expansion.src_item_index, secnd_expansion.src_item_index);
-    ret.in_expansion_index = bucket_relative_thread_index - select(in_first_expansion, first_expansion.in_bucket_first_thread, secnd_expansion.in_bucket_first_thread);
+    let in_first_expansion = bucket_relative_thread_index < (first_expansion_first_thread_in_bucket + first_expansion_factor);
+    ret.src_item_index = select(in_first_expansion, first_expansion_src_item_index, secnd_expansion_src_item_index);
+    ret.in_expansion_index = bucket_relative_thread_index - select(in_first_expansion, first_expansion_first_thread_in_bucket, first_expansion_first_thread_in_bucket + first_expansion_factor);
     return true;
 }
 
