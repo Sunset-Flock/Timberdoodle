@@ -67,42 +67,26 @@ Application::Application()
         DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), Scene::to_string(*err)));
     }
-    // TODO(msakmary) clean this up!
+    // TODO(msakmary) HACKY - fix this
+    // =========================================================================
     else
     {
         auto const r_id = std::get<RenderEntityId>(result);
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
 
-        auto child = r_ent.first_child;
-        RenderEntity * bistro_exterior = {};
-        while (child.has_value())
+        for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
         {
-            auto child_node = *_scene->_render_entities.slot(child.value());
-            if (child_node.name == "BistroExterior")
+            RenderEntity const * r_ent = _scene->_render_entities.slot_by_index(entity_i);
+            if(r_ent->name == "DYNAMIC_sphere")
             {
-                bistro_exterior = &child_node;
-                break;
-            }
-            child = child_node.next_sibling;
-        }
-        if (bistro_exterior)
-        {
-            child = bistro_exterior->first_child;
-            while (child.has_value())
-            {
-                auto child_node = *_scene->_render_entities.slot(child.value());
-                if (child_node.name == "DYNAMIC_sphere")
-                {
-                    app_state.dynamic_ball = child.value();
-                    break;
-                }
-                child = child_node.next_sibling;
+                app_state.dynamic_ball = _scene->_render_entities.id_from_index(entity_i);
             }
         }
 
         DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
             (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
     }
+    // =========================================================================
 
     app_state.last_time_point = std::chrono::steady_clock::now();
     _renderer->render_context->render_times.enable_render_times = true;
@@ -144,28 +128,57 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
-    if (dynamic_ball_ent)
+    // TODO(msakmary) HACKY - fix this
+    // =========================================================================
     {
-        auto prev_transform = glm::mat4(
-            glm::vec4(dynamic_ball_ent->transform[0], 0.0f),
-            glm::vec4(dynamic_ball_ent->transform[1], 0.0f),
-            glm::vec4(dynamic_ball_ent->transform[2], 0.0f),
-            glm::vec4(dynamic_ball_ent->transform[3], 1.0f));
-
+        auto mat_4x3_to_4x4 = [](glm::mat4x3 const & transform) -> glm::mat4x4
+        {
+            return glm::mat4x4{
+                glm::vec4(transform[0], 0.0f),
+                glm::vec4(transform[1], 0.0f),
+                glm::vec4(transform[2], 0.0f),
+                glm::vec4(transform[3], 1.0f)};
+        };
         static f32 total_time = 0.0f;
         total_time += app_state.delta_time;
-        auto new_position = f32vec4{
-            std::sin(total_time) * 100.0f,
-            std::cos(total_time) * 100.0f,
-            prev_transform[3].z,
-            1.0f};
-        auto curr_transform = prev_transform;
-        curr_transform[3] = new_position;
 
-        dynamic_ball_ent->transform = curr_transform;
-        _scene->_modified_render_entities.push_back({app_state.dynamic_ball, prev_transform, curr_transform});
+        auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
+        if (dynamic_ball_ent)
+        {
+            auto prev_transform = mat_4x3_to_4x4(dynamic_ball_ent->transform);
+
+            auto new_position = f32vec4{
+                std::sin(total_time) * 100.0f,
+                std::cos(total_time) * 100.0f,
+                prev_transform[3].z,
+                1.0f};
+            auto curr_transform = prev_transform;
+            curr_transform[3] = new_position;
+
+            dynamic_ball_ent->transform = curr_transform;
+            _scene->_dirty_render_entities.push_back(app_state.dynamic_ball);
+        }
+
+        if(app_state.decompose_bistro) 
+        {
+            for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
+            {
+                RenderEntity * r_ent = _scene->_render_entities.slot_by_index(entity_i);
+                if(r_ent->mesh_group_manifest_index.has_value())// && strstr(r_ent->name.c_str(), "StreetLight"))
+                {
+                    auto transform = mat_4x3_to_4x4(r_ent->transform);
+
+                    transform = transform * glm::inverse(mat_4x3_to_4x4(_scene->_render_entities.slot(r_ent->parent.value())->combined_transform));
+                    transform = glm::rotate(transform, glm::radians(sin(total_time * 0.00001f) * 50.0f), glm::normalize(glm::vec3(0.0, 1.0, 0.0)));
+                    transform = transform * mat_4x3_to_4x4(_scene->_render_entities.slot(r_ent->parent.value())->combined_transform);
+
+                    r_ent->transform = transform;
+                    _scene->_dirty_render_entities.push_back(_scene->_render_entities.id_from_index(entity_i));
+                }
+            }
+        }
     }
+    // =========================================================================
 
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
     auto manifest_update_commands = _scene->record_gpu_manifest_update({

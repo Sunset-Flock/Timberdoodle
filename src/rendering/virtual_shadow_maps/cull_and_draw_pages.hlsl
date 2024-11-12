@@ -341,25 +341,10 @@ void vsm_entry_fragment_opaque(
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
-        if (push.attachments.globals.vsm_settings.use64bit != 0)
-        {
-            // TODO
-            // InterlockedMin(
-            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
-            //     daxa::u64(asuint(get_page_offset_depth(
-            //         {prim.clip_level, virtual_uv}, 
-            //         vert.position.z / vert.position.w,
-            //         push.attachments.vsm_clip_projections
-            //     )))
-            // );
-        }
-        else
-        {
-            InterlockedMin(
-                push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
-            );
-        }
+        InterlockedMin(
+            push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
+            asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
+        );
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
             InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
@@ -405,35 +390,10 @@ void vsm_entry_fragment_masked(
 
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
-
-        if (push.attachments.globals.vsm_settings.use64bit != 0)
-        {
-            // TODO
-            // imageAtomicAdd(
-            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()], 
-            //     ivec2(physical_texel_coords), 
-            //     daxa::u64(
-            //         asuint(get_page_offset_depth(
-            //         {prim.clip_level, virtual_uv}, 
-            //         vert.position.z / vert.position.w,
-            //         push.attachments.vsm_clip_projections)))
-            // );
-            // InterlockedMin(
-            //     RWTexture2D_u64table[push.daxa_uint_vsm_memory_view.index()][physical_texel_coords],
-            //     daxa::u64(asuint(get_page_offset_depth(
-            //         {prim.clip_level, virtual_uv}, 
-            //         vert.position.z / vert.position.w,
-            //         push.attachments.vsm_clip_projections
-            //     )))
-            // );
-        }
-        else
-        {
-            InterlockedMin(
-                push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
-                asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
-            );
-        }
+        InterlockedMin(
+            push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
+            asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
+        );
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
             InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);

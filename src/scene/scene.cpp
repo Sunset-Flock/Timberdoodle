@@ -716,6 +716,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     {
         u32 entity_index = _dirty_render_entities[i].index;
         auto * entity = _render_entities.slot(_dirty_render_entities[i]);
+        entity->dirty = true;
         update_entity(i, entity, entity_index);
     }
 
@@ -734,6 +735,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .size = mesh_group_indices_mem_size,
             .name = "_gpu_mesh_group_indices_array_buffer",
         });
+
         daxa::BufferId mesh_groups_indices_staging = _device.create_buffer({
             .size = mesh_group_indices_mem_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -747,6 +749,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             .dst_buffer = _gpu_mesh_group_indices_array_buffer,
             .size = mesh_group_indices_mem_size,
         });
+
         auto mesh_group_indices_array_addr = _device.buffer_device_address(_gpu_mesh_group_indices_array_buffer).value();
 
         u32 const mesh_group_staging_buffer_size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries;
@@ -1453,7 +1456,10 @@ auto Scene::process_entities() -> CPUMeshInstances
     u32 active_entity_offset = 0;
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
     {
-        RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
+        RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
+        bool const is_entity_dirty = r_ent->dirty;
+        r_ent->dirty = false;
+
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
         {
             MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
@@ -1492,7 +1498,7 @@ auto Scene::process_entities() -> CPUMeshInstances
                     // If the mesh loaded for the first time, it needs to invalidate VSM
                     // We also need to invalidate when the alpha texture just got streamed in
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
-                    if (is_mesh_group_just_loaded || is_alpha_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
+                    if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
 
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({

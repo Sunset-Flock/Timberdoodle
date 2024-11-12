@@ -511,7 +511,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (renderer_settings)
     {
-        ui_renderer_settings(scene, render_context.render_data.settings);
+        ui_renderer_settings(scene, render_context.render_data.settings, app_state);
     }
     if (widget_property_viewer)
     {
@@ -1168,7 +1168,7 @@ void UIEngine::ui_scenegraph(Scene const & scene)
     scene_graph.end(began);
 }
 
-void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
+void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, ApplicationState & app_state)
 {
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
@@ -1212,6 +1212,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings)
             ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&settings.enable_separate_compute_meshlet_culling));
             ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&settings.enable_prefix_sum_work_expansion));
         }
+        ImGui::SeparatorText("Misc");
+        ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
     }
     ImGui::End();
 }

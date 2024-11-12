@@ -26,7 +26,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 1;
+static const uint PCF_NUM_SAMPLES = 16;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -188,16 +188,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
     const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
 
-    float vsm_sample = 0.0f;
-    if (push_opaque.attachments.attachments.globals.vsm_settings.use64bit != 0)
-    {
-        // TODO
-        // const float vsm_sample = asfloat(uint(Texture2Duint64view[AT.vsm_memory_block64.index()].Load(int3(physical_texel_coords, 0)).r));
-    }
-    else
-    {
-        vsm_sample = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
-    }
+    const float vsm_sample = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(physical_texel_coords, 0)).r;
 
     const float4x4 vsm_shadow_view = deref_i(AT.vsm_clip_projections, clip_info.clip_level).camera.view;
 

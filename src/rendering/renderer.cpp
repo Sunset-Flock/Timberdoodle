@@ -497,7 +497,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_buffer(render_context->tgpu_render_data);
     tg.use_persistent_buffer(vsm_state.globals);
     tg.use_persistent_image(vsm_state.memory_block);
-    tg.use_persistent_image(vsm_state.memory_block64);
     tg.use_persistent_image(vsm_state.meta_memory_table);
     tg.use_persistent_image(vsm_state.page_table);
     tg.use_persistent_image(vsm_state.page_view_pos_row);
@@ -680,7 +679,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
             ShadeOpaqueH::AT.luminance_average | luminance_average,
             ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
-            ShadeOpaqueH::AT.vsm_memory_block64 | vsm_state.memory_block64,
             ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
             ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
             ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
@@ -940,7 +938,5 @@ void Renderer::render_frame(
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size);
 
     u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-    u32 const timestamp_start_index = vsm_state.PER_FRAME_TIMESTAMP_COUNT * fif_index;
-    render_context->vsm_timestamp_results = vsm_state.vsm_timeline_query_pool.get_query_results(timestamp_start_index, vsm_state.PER_FRAME_TIMESTAMP_COUNT);
     main_task_graph.execute({});
 }

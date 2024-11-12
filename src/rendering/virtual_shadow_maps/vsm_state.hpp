@@ -14,7 +14,6 @@ struct VSMState
     daxa::TaskBuffer globals = {};
 
     daxa::TaskImage memory_block = {};
-    daxa::TaskImage memory_block64 = {};
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_view_pos_row = {};
@@ -35,23 +34,15 @@ struct VSMState
     daxa::TaskBufferView clear_indirect = {};
     daxa::TaskBufferView clear_dirty_bit_indirect = {};
 
-    daxa::TimelineQueryPool vsm_timeline_query_pool = {};
-
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections_cpu = {};
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
     std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
+
     VSMGlobals globals_cpu = {};
-    static constexpr u32 VSM_TASK_COUNT = 11;
-    static constexpr u32 PER_FRAME_TIMESTAMP_COUNT = VSM_TASK_COUNT * 2;
 
 
     void initialize_persitent_state(GPUContext * gpu_context)
     {
-        vsm_timeline_query_pool = gpu_context->device.create_timeline_query_pool({
-            .query_count = PER_FRAME_TIMESTAMP_COUNT * s_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight + 1),
-            .name = "vsm_timestamp_query_pool"
-        });
-
         globals = daxa::TaskBuffer({
             .initial_buffers = {
                 .buffers = std::array{
@@ -77,20 +68,6 @@ struct VSMState
                 },
             },
             .name = "vsm memory block",
-        });
-        memory_block64 = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    gpu_context->device.create_image({
-                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
-                        .format = daxa::Format::R64_UINT,
-                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
-                        .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                        .name = "vsm memory block physical image 64bit",
-                    }),
-                },
-            },
-            .name = "vsm memory block 64bit",
         });
 
         meta_memory_table = daxa::TaskImage({
@@ -183,7 +160,6 @@ struct VSMState
     {
         gpu_context->device.destroy_buffer(globals.get_state().buffers[0]);
         gpu_context->device.destroy_image(memory_block.get_state().images[0]);
-        gpu_context->device.destroy_image(memory_block64.get_state().images[0]);
         gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
