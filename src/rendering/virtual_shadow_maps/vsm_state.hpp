@@ -34,7 +34,6 @@ struct VSMState
     daxa::TaskBufferView allocate_indirect = {};
     daxa::TaskBufferView clear_indirect = {};
     daxa::TaskBufferView clear_dirty_bit_indirect = {};
-    std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansions = {};
 
     daxa::TimelineQueryPool vsm_timeline_query_pool = {};
 
@@ -242,18 +241,6 @@ struct VSMState
             .name = "vsm clear dirty bit indirect",
         });
 
-        meshlet_cull_po2expansions = std::array{
-            tg.create_transient_buffer({
-                .size = static_cast<u32>(sizeof(Po2WorkExpansionBufferHead)),
-                .name = "vsm meshlett po2expansion",
-            }),
-            tg.create_transient_buffer({
-                .size = static_cast<u32>(sizeof(Po2WorkExpansionBufferHead)),
-                .name = "vsm meshlett masked po2expansion",
-            }),
-        };
-
-
         auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};
 
         dirty_pages_hiz = tg.create_transient_image({
@@ -292,7 +279,6 @@ struct VSMState
         allocate_indirect = daxa::NullTaskBuffer;
         clear_indirect = daxa::NullTaskBuffer;
         clear_dirty_bit_indirect = daxa::NullTaskBuffer;
-        meshlet_cull_po2expansions = std::array{ daxa::NullTaskBuffer, daxa::NullTaskBuffer };
         dirty_pages_hiz = daxa::NullTaskImage;
         overdraw_debug_image = daxa::NullTaskImage;
     }

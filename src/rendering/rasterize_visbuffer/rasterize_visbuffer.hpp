@@ -186,7 +186,7 @@ namespace raster_visbuf
                 .meshgroups = info.scene->_gpu_mesh_group_manifest,
                 .entity_transforms = info.scene->_gpu_entity_transforms,
                 .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                .opaque_meshlet_expansions = opaque_meshlet_expansions,
+                .meshlet_expansions = opaque_meshlet_expansions,
             });        
 
             task_cull_and_draw_visbuffer({
@@ -255,7 +255,7 @@ namespace raster_visbuf
             .meshgroups = info.scene->_gpu_mesh_group_manifest,
             .entity_transforms = info.scene->_gpu_entity_transforms,
             .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-            .opaque_meshlet_expansions = opaque_meshlet_expansions,
+            .meshlet_expansions = opaque_meshlet_expansions,
         });
 
         task_cull_and_draw_visbuffer({

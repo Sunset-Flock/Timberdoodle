@@ -49,8 +49,8 @@ DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
 DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion)
 DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
@@ -395,10 +395,7 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
             auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
-            const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
-
-            u32 const dispatch_count = 1;//prefix_sum_expansion ? 1 : 32;
-            for (u32 i = 0; i < dispatch_count; ++i)
+            for (u32 i = 0; i < 1; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {
                     .attach = ti.attachment_shader_blob,

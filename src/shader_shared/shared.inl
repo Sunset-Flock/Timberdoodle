@@ -322,6 +322,16 @@ SHARED_FUNCTION daxa_u32 round_up_to_multiple(daxa_u32 value, daxa_u32 multiple_
     return ((value + multiple_of - 1) / multiple_of) * multiple_of;
 }
 
+SHARED_FUNCTION daxa_u32 round_up_to_multiple_po2(daxa_u32 value, daxa_u32 multiple_of)
+{
+    return (value + multiple_of - 1) & (~(multiple_of - 1));
+}
+
+SHARED_FUNCTION daxa_u32 round_down_to_multiple_po2(daxa_u32 value, daxa_u32 multiple_of)
+{
+    return (value) & (~(multiple_of - 1));
+}
+
 SHARED_FUNCTION daxa_u32 round_up_div(daxa_u32 value, daxa_u32 div)
 {
     return (value + div - 1) / div;
@@ -330,6 +340,11 @@ SHARED_FUNCTION daxa_u32 round_up_div(daxa_u32 value, daxa_u32 div)
 SHARED_FUNCTION daxa_u32 round_up_div_btsft(daxa_u32 value, daxa_u32 log2_div)
 {
     return (value + (1 << log2_div) - 1) >> log2_div;
+}
+
+SHARED_FUNCTION daxa_u32 round_down_div_btsft(daxa_u32 value, daxa_u32 log2_div)
+{
+    return value >> log2_div;
 }
 
 SHARED_FUNCTION daxa_u32 div_btsft(daxa_u32 value, daxa_u32 log2_div)

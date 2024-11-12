@@ -61,7 +61,7 @@ void main(uint thread_id : SV_DispatchThreadID)
 
     if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
     {
-        PrefixSumExpansionBufferHead * prefixsum_expansion = (PrefixSumExpansionBufferHead *)(draw_list_type == 
+        PrefixSumWorkExpansionBufferHead * prefixsum_expansion = (PrefixSumWorkExpansionBufferHead *)(draw_list_type == 
             PREPASS_DRAW_LIST_OPAQUE ? 
             (uint64_t)push.attach.opaque_expansion : 
             (uint64_t)push.attach.masked_expansion);
@@ -70,13 +70,11 @@ void main(uint thread_id : SV_DispatchThreadID)
     }
     else
     {
-        Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)(draw_list_type == 
+        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)(draw_list_type == 
             PREPASS_DRAW_LIST_OPAQUE ? 
             (uint64_t)push.attach.opaque_expansion : 
             (uint64_t)push.attach.masked_expansion);
-
         let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
-
-        po2_expansion_add_workitems(po2expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
+        po2packed_expansion_add_workitems(po2packed_expansion, mesh.meshlet_count, mesh_instance_index, dst_workgroup_size_log2);
     }
 }

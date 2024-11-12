@@ -65,8 +65,8 @@ DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
-    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(Po2WorkExpansionBufferHead), meshlet_cull_po2expansion)
-    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_meshlet_cull_po2expansion)
+    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, meshlet_cull_po2expansion)
+    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, masked_meshlet_cull_po2expansion)
     DAXA_DECL_TASK_HEAD_END
 #endif
 
@@ -125,38 +125,38 @@ struct GenDirtyBitHizPush
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), po2expansion15)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(Po2WorkExpansionBufferHead), masked_po2expansion15)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion0)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion0)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion1)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion1)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion2)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion2)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion3)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion3)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion4)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion4)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion5)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion5)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion6)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion6)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion7)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion7)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion8)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion8)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion9)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion9)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion10)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion10)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion11)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion11)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion12)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion12)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion13)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion13)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion14)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion14)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion15)
+    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion15)
     // Draw Attachments:
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
     DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
@@ -598,9 +598,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             {
                 auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
                 render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
-                const bool prefix_sum_expansion = render_context->render_data.settings.enable_prefix_sum_work_expansion;
-                u32 const dispatch_count = 1;//prefix_sum_expansion ? 1 : 32;
-                for (u32 i = 0; i < dispatch_count; ++i)
+                for (u32 i = 0; i < 1; ++i)
                 {
                     CullAndDrawPagesPush push = {
                         .attachments = attachment_alloc.device_address,
@@ -873,7 +871,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .meshgroups = info.scene->_gpu_mesh_group_manifest,
             .entity_transforms = info.scene->_gpu_entity_transforms,
             .entity_combined_transforms = info.scene->_gpu_entity_combined_transforms,
-            .opaque_meshlet_expansions = cascade_meshlet_expansions[cascade],
+            .meshlet_expansions = cascade_meshlet_expansions[cascade],
             .dispatch_clear = {0,1,1},
             .buffer_name_prefix = std::string("vsm cascade ") + std::to_string(cascade) + ' ',
         });

@@ -798,18 +798,6 @@ struct CullMeshletsDrawVisbufferPayload
     uint enable_backface_culling;
 };
 
-struct MeshInstanceWorkItems : WorkExpansionGetDstWorkItemCountI
-{
-    MeshInstance * mesh_instances;
-    GPUMesh * meshes;
-    func get_itemcount(uint src_item_index) -> uint
-    {
-        let mesh_instance = mesh_instances[src_item_index];
-        let mesh = meshes[mesh_instance.mesh_index];
-        return mesh.meshlet_count;
-    }
-}
-
 bool get_meshlet_instance_from_workitem(
     bool prefix_sum_expansion,
     uint64_t expansion_buffer_ptr,
@@ -819,21 +807,21 @@ bool get_meshlet_instance_from_workitem(
     uint thread_index, 
     out MeshletInstance meshlet_instance)
 {
-    ExpandedWorkItem workitem;
+    DstItemInfo workitem;
     bool valid_meshlet = false;
     if (prefix_sum_expansion)
     {
-        PrefixSumExpansionBufferHead * prefix_expansion = (PrefixSumExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = prefix_sum_expansion_get_workitem(prefix_expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
+        PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = prefix_sum_expansion_get_workitem(prefix_expansion, thread_index, workitem);
     }
     else
     {
-        Po2WorkExpansionBufferHead * po2expansion = (Po2WorkExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = po2_expansion_get_workitem(po2expansion, MeshInstanceWorkItems(mesh_instances.instances, meshes), thread_index, workitem);
+        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2packed_expansion_get_workitem(po2packed_expansion, thread_index, workitem);
     }
     if (valid_meshlet)
     {
-        MeshInstance mesh_instance = mesh_instances.instances[workitem.src_work_item_index];
+        MeshInstance mesh_instance = mesh_instances.instances[workitem.src_item_index];
         GPUMesh mesh = meshes[mesh_instance.mesh_index];    
         if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
         {
@@ -843,8 +831,8 @@ bool get_meshlet_instance_from_workitem(
         meshlet_instance.in_mesh_group_index = mesh_instance.in_mesh_group_index;
         meshlet_instance.material_index = mesh.material_index;
         meshlet_instance.mesh_index = mesh_instance.mesh_index;
-        meshlet_instance.meshlet_index = workitem.dst_work_item_index;
-        meshlet_instance.mesh_instance_index = workitem.src_work_item_index;
+        meshlet_instance.meshlet_index = workitem.in_expansion_index;
+        meshlet_instance.mesh_instance_index = workitem.src_item_index;
     }
     return valid_meshlet;
 }
@@ -967,7 +955,7 @@ func entry_compute_meshlet_cull(
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
-    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
@@ -991,7 +979,7 @@ func entry_task_meshlet_cull(
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
-    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
+    uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
 
     MeshletInstance instanced_meshlet;
     bool valid_meshlet = get_meshlet_instance_from_workitem(

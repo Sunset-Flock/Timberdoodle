@@ -27,13 +27,13 @@ void vsm_entry_write_commands(
 )
 {
     let push = write_command_push;
-    push.meshlet_cull_po2expansion.dispatch.y = VSM_CLIP_LEVELS;
-    push.masked_meshlet_cull_po2expansion.dispatch.y = VSM_CLIP_LEVELS;
+    ((DispatchIndirectStruct*)(push.meshlet_cull_po2expansion))->y = VSM_CLIP_LEVELS;
+    ((DispatchIndirectStruct*)(push.masked_meshlet_cull_po2expansion))->y = VSM_CLIP_LEVELS;
 }
 
 uint64_t get_expansion_buffer()
 {
-    uint64_t* expansion_array = (uint64_t*)&vsm_push.attachments.po2expansion0;
+    uint64_t* expansion_array = &vsm_push.attachments.po2expansion0;
     return expansion_array[vsm_push.draw_list_type + 2 * vsm_push.cascade];
 }
 

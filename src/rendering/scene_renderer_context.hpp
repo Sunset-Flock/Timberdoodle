@@ -289,7 +289,7 @@ namespace RenderTimes
                 {
                     smooth_current_times[i] = 0;
                 }
-                smooth_current_times[i] = (smooth_current_times[i] * 19 + current_times[i]) / 20;
+                smooth_current_times[i] = (smooth_current_times[i] * 199 + current_times[i]) / 200;
             }
         }
         
