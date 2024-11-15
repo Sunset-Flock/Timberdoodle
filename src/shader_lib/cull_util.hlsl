@@ -198,9 +198,9 @@ NdcAABB calculate_ndc_aabb(
     ret.ndc_min = ndc_corner_position.xyz;
     ret.ndc_max = ndc_corner_position.xyz;
     max_behind_near_plane = max_behind_near_plane || (clipspace_corner_position.z > clipspace_corner_position.w);
-    for (int i = 1; i < 6; ++i)
+    for (int i = 1; i < 8; ++i)
     {
-        float3 corner = float3(i & 1, (i >> 1) & 1, (i >> 2) & 1) - 0.5f;
+        float3 corner = float3(i & 0x1, i & 0x2, i & 0x4) * float3(1,0.5f,0.25f) - 0.5f;
         const daxa_f32vec3 model_corner_position = aabb.center + aabb.size * corner;
         const daxa_f32vec4 clipspace_corner_position = mul(mvp, float4(model_corner_position,1));
         const daxa_f32vec3 ndc_corner_position = clipspace_corner_position.xyz * rcp(clipspace_corner_position.w);
