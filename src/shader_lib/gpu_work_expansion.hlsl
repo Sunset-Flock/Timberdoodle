@@ -141,6 +141,15 @@ func po2packed_expansion_add_workitems(Po2PackedWorkExpansionBufferHead * self, 
     }
 }
 
+func subone_log32_floor(uint v) -> uint
+{
+    let v_sub_one = max(1,v)-1;
+    let v_log2_floor = firstbithigh(v_sub_one);
+    let log2_32 = 5;
+    let v_log32_ceil = v_log2_floor / log2_32;
+    return v_log32_ceil;
+}
+
 /// WARNING: Cant be member function due to a slang compiler bug!
 func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, uint thread_index, out DstItemInfo ret) -> bool
 {
@@ -153,18 +162,62 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
     // To make the search faster we use a binary search instead of a linear search.
     daxa::u64 merged_counters = self->merged_expansion_count_thread_count;
     daxa::u32 total_work_item_count = daxa::u32(merged_counters);
-    if (thread_index >= total_work_item_count)
-    {
-        ret = (DstItemInfo)0;
-        return false;
-    }
 
     daxa::u32 expansion_count = min(daxa::u32(merged_counters >> 32), self->expansions_max);
     daxa::u32 window_end = expansion_count; // Exclusive end is one past the last element.
     daxa::u32 window_begin = 0;
+    #if 0
+    let warp_first_thread = thread_index & (~WARP_SIZE_MULTIPLE_MASK);
+
+    let iterations = 3;//subone_log32_floor(expansion_count);
+    uint lane_section_size = 32 << (5 * (3)); // calculates pow(32, iterations)
+    for (uint i = 0; i < 3; ++i)
+    {
+        lane_section_size = lane_section_size / 32;
+        let window_size = window_end - window_begin;
+        let lane_cursor = min(window_end, window_begin + lane_section_size * (WaveGetLaneIndex() + 1)) - 1;
+        let lane_prefix_value = self->expansions_inclusive_prefix_sum[lane_cursor];
+        let greater = lane_prefix_value > warp_first_thread;
+        let greater_ballot = WaveActiveBallot(greater).x;
+        if (greater_ballot == 0)
+        {
+            window_begin = window_end = expansion_count;
+            break;
+        }
+        let first_lane_greater = firstbitlow(greater_ballot);
+        window_begin = window_begin + first_lane_greater * lane_section_size;
+        window_end = min(window_end, window_begin + lane_section_size);
+    }
+
+
+    let warp_window_begin = window_begin;
+    let lane_prefix_v = self->expansions_inclusive_prefix_sum[min(window_begin + WaveGetLaneIndex(), window_end-1)];
 
     // Search until there is only one possible element
-    while ((window_end - window_begin) > 1) {
+    for (uint i = 0; i < 5; ++i)
+    {
+        const daxa::u32 window_size = window_end - window_begin;
+        const daxa::u32 cursor = window_begin + ((window_size - 1) / 2); // We want the cursor to be smaller index biased.
+        //const daxa::u32 prefix_sum_val = self->expansions_inclusive_prefix_sum[cursor];
+        const daxa::u32 prefix_sum_val = WaveShuffle(lane_prefix_v, cursor - warp_window_begin);
+
+        // When the prefix sum value is greater than the thread index, 
+        // It could potentially be the correct array index we search for.
+        // So we include this value for the next search iteration window.
+        // But as we only care about THE FIRST one that is larger, we cut off every other element past it.
+        const bool greater = prefix_sum_val > thread_index;
+        window_end = select(greater, cursor + 1, window_end);
+
+        // When the prefix sum value is smaller or equal to the threads index, 
+        // it can not be the right dst work item group.
+        // This is because we need the fist dst work item group that has a LARGER prefix sum value .
+        const bool less_equal = !greater;
+        window_begin = select(less_equal, cursor + 1, window_begin);
+    }
+    #else
+    // Search until there is only one possible element
+    while ((window_end - window_begin) > 1)
+    {
         const daxa::u32 window_size = window_end - window_begin;
         const daxa::u32 cursor = window_begin + ((window_size - 1) / 2); // We want the cursor to be smaller index biased.
         const daxa::u32 prefix_sum_val = self->expansions_inclusive_prefix_sum[cursor];
@@ -181,6 +234,12 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
         // This is because we need the fist dst work item group that has a LARGER prefix sum value .
         const bool less_equal = !greater;
         window_begin = select(less_equal, cursor + 1, window_begin);
+    }
+    #endif
+    if (thread_index >= total_work_item_count)
+    {
+        ret = (DstItemInfo)0;
+        return false;
     }
 
     if (window_begin >= expansion_count || window_begin >= window_end)
