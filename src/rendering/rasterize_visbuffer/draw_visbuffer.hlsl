@@ -335,18 +335,18 @@ groupshared float4 gs_clip_vertex_positions[MAX_VERTICES_PER_MESHLET];
 func generic_mesh_compute_raster(
     DrawVisbufferPush push,
     in uint3 svtid,
-    uint meshlet_inst_index,
-    MeshletInstance meshlet_inst,
+    uint meshlet_instance_index,
+    MeshletInstance meshlet_instance,
     bool cull_backfaces,
     bool allow_hiz_cull)
 {
-    const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_inst.mesh_index);
+    const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_instance.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         return;
     }
-    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_inst.mesh_index).micro_indices;
+    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = (push.pass > PASS1_DRAW_SECOND_PASS);
     const bool non_visbuffer_two_pass_cull = !push.attach.globals.settings.enable_visbuffer_two_pass_culling;
     allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull);
@@ -355,12 +355,12 @@ func generic_mesh_compute_raster(
         deref(push.attach.globals).observer_camera.view_proj : 
         deref(push.attach.globals).camera.view_proj;
 
-    if (meshlet_inst_index >= MAX_MESHLET_INSTANCES)
+    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_inst_index, MAX_MESHLET_INSTANCES);
+        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_instance_index, MAX_MESHLET_INSTANCES);
     }
 
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_inst.entity_index);
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     {
         const uint in_meshlet_vertex_index = svtid.x;
@@ -454,7 +454,7 @@ func generic_mesh_compute_raster(
             
             if (!cull_primitive)
             {
-                uint visibility_id = TRIANGLE_ID_MAKE(meshlet_inst_index, in_meshlet_triangle_index);
+                uint visibility_id = TRIANGLE_ID_MAKE(meshlet_instance_index, in_meshlet_triangle_index);
 
                 const uint2 viewport_size = push.attach.globals.settings.render_target_size;
                 const float2 scale = float2(0.5, 0.5) * float2(viewport_size) * float(SUBPIXEL_SAMPLES);
@@ -483,25 +483,25 @@ func entry_mesh_opaque_compute_raster(
     uint3 svtid_orig : SV_DispatchThreadID)
 {
     uint3 svtid = svtid_orig.yxz;
-    const uint inst_meshlet_index = get_meshlet_instance_index(
+    const uint meshlet_instance_index = get_meshlet_instance_index(
         draw_p.attach.globals,
         draw_p.attach.meshlet_instances, 
         draw_p.pass, 
         PREPASS_DRAW_LIST_OPAQUE,
         svtid.y);
-    if (inst_meshlet_index >= MAX_MESHLET_INSTANCES)
+    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
         return;
     }
     const uint total_meshlet_count = 
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].first_count + 
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].second_count;
-    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, inst_meshlet_index);
+    const MeshletInstance meshlet_instance = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, meshlet_instance_index);
 
     bool cull_backfaces = false;
-    if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
+    if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
-        GPUMaterial material = draw_p.attach.material_manifest[meshlet_inst.material_index];
+        GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
 
@@ -514,50 +514,46 @@ func entry_mesh_opaque_compute_raster(
         allow_z_cull = false;
     }
 
-    generic_mesh_compute_raster(draw_p, svtid, inst_meshlet_index, meshlet_inst, cull_backfaces, allow_z_cull);
+    generic_mesh_compute_raster(draw_p, svtid, meshlet_instance_index, meshlet_instance, cull_backfaces, allow_z_cull);
 }
 
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    DrawVisbufferPush push,
-    in uint3 svtid,
+    in DrawVisbufferPush push,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
-    uint meshlet_inst_index,
-    MeshletInstance meshlet_inst,
-    bool cull_backfaces,
-    bool allow_hiz_cull)
-{             
-    const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_inst.mesh_index);
-    if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
-    {
-        return;
-    }
-    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_inst.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_inst.mesh_index).micro_indices;
+    in GPUMesh mesh,
+    in uint meshlet_thread_index,
+    in uint meshlet_instance_index,
+    in MeshletInstance meshlet_instance,
+    in bool cull_backfaces,
+    in bool allow_hiz_cull)
+{          
+    const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = (push.pass > PASS1_DRAW_SECOND_PASS);
     const bool non_visbuffer_two_pass_cull = !push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull);
+    allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull) && false;
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).observer_camera.view_proj : 
         deref(push.attach.globals).camera.view_proj;
 
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
-    if (meshlet_inst_index >= MAX_MESHLET_INSTANCES)
+    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
-        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_inst_index, MAX_MESHLET_INSTANCES);
+        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_instance_index, MAX_MESHLET_INSTANCES);
     }
 
     float4 local_clip_vertices[2];
     float3 local_ndc_vertices[2];
 
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_inst.entity_index);
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     for (uint l = 0; l < 2; ++l)
     {
         uint vertex_offset = MESH_SHADER_WORKGROUP_X * l;
-        const uint in_meshlet_vertex_index = svtid.x + vertex_offset;
+        const uint in_meshlet_vertex_index = meshlet_thread_index + vertex_offset;
         if (in_meshlet_vertex_index >= meshlet.vertex_count) continue;
 
         // Very slow fetch, as its incoherent memory address across warps.
@@ -591,7 +587,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
     for (uint triangle_offset = 0; triangle_offset < meshlet.triangle_count; triangle_offset += MESH_SHADER_WORKGROUP_X)
     {
-        const uint in_meshlet_triangle_index = svtid.x + triangle_offset;
+        const uint in_meshlet_triangle_index = meshlet_thread_index + triangle_offset;
         uint3 tri_in_meshlet_vertex_indices = uint3(0,0,0);
         if (in_meshlet_triangle_index < meshlet.triangle_count)
         {
@@ -661,12 +657,12 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             primitive.set_cull_primitive(cull_primitive);
             if (!cull_primitive)
             {
-                uint visibility_id = TRIANGLE_ID_MAKE(meshlet_inst_index, in_meshlet_triangle_index);
+                uint visibility_id = TRIANGLE_ID_MAKE(meshlet_instance_index, in_meshlet_triangle_index);
                 primitive.set_visibility_id(cull_primitive ? ~0u : visibility_id);
                 if (P is MeshShaderMaskPrimitive)
                 {
                     var mprim = reinterpret<MeshShaderMaskPrimitive>(primitive);
-                    mprim.material_index = meshlet_inst.material_index;
+                    mprim.material_index = meshlet_instance.material_index;
                     primitive = reinterpret<P>(mprim);
                 }
                 out_indices[in_meshlet_triangle_index] = tri_in_meshlet_vertex_indices;
@@ -682,13 +678,13 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    const uint inst_meshlet_index = get_meshlet_instance_index(
+    const uint meshlet_instance_index = get_meshlet_instance_index(
         draw_p.attach.globals,
         draw_p.attach.meshlet_instances, 
         draw_p.pass, 
         V::PREPASS_DRAW_LIST_TYPE,
         svtid.y);
-    if (inst_meshlet_index >= MAX_MESHLET_INSTANCES)
+    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
         SetMeshOutputCounts(0,0);
         return;
@@ -696,12 +692,12 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     const uint total_meshlet_count = 
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].first_count + 
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].second_count;
-    const MeshletInstance meshlet_inst = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, inst_meshlet_index);
+    const MeshletInstance meshlet_instance = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, meshlet_instance_index);
 
     bool cull_backfaces = false;
-    if (meshlet_inst.material_index != INVALID_MANIFEST_INDEX)
+    if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
-        GPUMaterial material = draw_p.attach.material_manifest[meshlet_inst.material_index];
+        GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
         cull_backfaces = !material.alpha_discard_enabled;
     }
 
@@ -713,8 +709,14 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     {
         allow_z_cull = false;
     }
-
-    generic_mesh(draw_p, svtid, out_indices, out_vertices, out_primitives, inst_meshlet_index, meshlet_inst, cull_backfaces, allow_z_cull);
+   
+    const GPUMesh mesh = draw_p.attach.meshes[meshlet_instance.mesh_index];
+    if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+    {
+        SetMeshOutputCounts(0,0);
+        return;
+    }
+    generic_mesh(draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, allow_z_cull);
 }
 
 // --- Mesh shader opaque ---
@@ -796,6 +798,7 @@ struct CullMeshletsDrawVisbufferPayload
     uint task_shader_meshlet_instances_offset;
     uint task_shader_surviving_meshlets_mask;
     uint enable_backface_culling;
+    uint enable_hiz_triangle_culling;
 };
 
 bool get_meshlet_instance_from_workitem(
@@ -998,8 +1001,8 @@ func entry_task_meshlet_cull(
 
     CullMeshletsDrawVisbufferPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
-    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
+    payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
 
     bool enable_backface_culling = false;
     if (valid_meshlet)
@@ -1061,7 +1064,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // The meshlet should always be valid here, 
     // as otherwise the task shader would not have dispatched this mesh shader.
     uint64_t expansion = (push.draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? (uint64_t)push.attach.po2expansion : (uint64_t)push.attach.masked_po2expansion);
-    MeshletInstance meshlet_inst;
+    MeshletInstance meshlet_instance;
     let valid_meshlet = get_meshlet_instance_from_workitem(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
@@ -1069,7 +1072,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         push.attach.meshes,
         push.bucket_index,
         meshlet_cull_arg_index,
-        meshlet_inst
+        meshlet_instance
     );
     DrawVisbufferPush fake_draw_p;
     fake_draw_p.attach.hiz = push.attach.hiz;
@@ -1081,8 +1084,14 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.attach.material_manifest = push.attach.material_manifest;
     fake_draw_p.attach.atomic_visbuffer = push.attach.atomic_visbuffer;
     
-    let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
-    generic_mesh(fake_draw_p, svtid, out_indices, out_vertices, out_primitives, meshlet_instance_index, meshlet_inst, cull_backfaces, !push.first_pass);
+    let cull_backfaces = true;//(payload.enable_backface_culling & task_shader_local_bit) != 0;
+    const GPUMesh mesh = push.attach.meshes[meshlet_instance.mesh_index];
+    if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+    {
+        SetMeshOutputCounts(0,0);
+        return;
+    }
+    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, !push.first_pass);
 }
 
 [outputtopology("triangle")]
@@ -1140,7 +1149,6 @@ FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in 
             prim.material_index,
             cull_meshlets_draw_visbuffer_push.attach.material_manifest,
             cull_meshlets_draw_visbuffer_push.attach.globals->samplers.linear_repeat,
-            // cull_meshlets_draw_visbuffer_push.attach.globals->samplers.nearest_repeat,
             vert.uv
         ),
         daxa::ImageViewId(0),
@@ -1185,7 +1193,6 @@ void entry_fragment_masked_atomicvis(in MeshShaderMaskVertex vert, in MeshShader
             prim.material_index,
             draw_p.attach.material_manifest,
             draw_p.attach.globals->samplers.linear_repeat,
-            // draw_p.attach.globals->samplers.nearest_repeat,
             vert.uv
         ),
         draw_p.attach.atomic_visbuffer,
@@ -1221,7 +1228,6 @@ void entry_fragment_meshlet_cull_masked_atomicvis(in MeshShaderMaskVertex vert, 
             prim.material_index,
             cull_meshlets_draw_visbuffer_push.attach.material_manifest,
             cull_meshlets_draw_visbuffer_push.attach.globals->samplers.linear_repeat,
-            // cull_meshlets_draw_visbuffer_push.attach.globals->samplers.nearest_repeat,
             vert.uv
         ),
         cull_meshlets_draw_visbuffer_push.attach.atomic_visbuffer,
