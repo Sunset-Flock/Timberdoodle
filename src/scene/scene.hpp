@@ -172,6 +172,7 @@ struct Scene
     // the compined transform calculation on the gpu!
     daxa::TaskBuffer _gpu_entity_parents = {};
     daxa::TaskBuffer _gpu_entity_mesh_groups = {};
+    daxa::TaskBuffer _gpu_point_lights = {};
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
     std::vector<u32> dirty_material_entry_indices = {};

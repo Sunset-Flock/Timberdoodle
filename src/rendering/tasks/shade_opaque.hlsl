@@ -181,8 +181,6 @@ float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
     return color;
 }
 
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> Texture2Duint64view[];
-
 float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position, float3 page_camera_position, float sun_norm_dot, float2 screen_uv)
 {
     const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
@@ -290,6 +288,27 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
         // }
     }
     return sum / PCF_NUM_SAMPLES;
+}
+
+float3 point_lights_contribution(float3 normal, float3 world_position, float3 view_direction, GPUPointLight * lights)
+{
+    float3 total_contribution = float3(0.0);
+    for(int light_index = 0; light_index < MAX_POINT_LIGHTS; light_index++)
+    {
+        GPUPointLight light = lights[light_index];
+        const float3 position_to_light = normalize(light.position - world_position);
+        const float diffuse = max(dot(normal, position_to_light), 0.0);
+
+        const float to_light_dist = length(light.position - world_position);
+        const float falloff_factor = 
+            light.constant_falloff + 
+            light.linear_falloff * to_light_dist + 
+            light.quadratic_falloff + (to_light_dist * to_light_dist);
+
+        const float attenuation = 1.0 / falloff_factor;
+        total_contribution += light.color * diffuse * attenuation * light.intensity;
+    }
+    return total_contribution;
 }
 
 [[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> tex_u64_table[];
@@ -409,55 +428,14 @@ void entry_main_cs(
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
-
-        // Raytraced shadow
-        if (AT.globals.debug.cpu_input.debug_ivec4.x > 0) {
-            RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
-                RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
-                RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-
-            const float t_min = 0.01f;
-            const float t_max = 100000.0f;
-
-            RayDesc my_ray = {
-                tri_data.world_position,
-                t_min,
-                sun_direction,
-                t_max,
-            };
-
-            // Set up a trace.  No work is done yet.
-            q.TraceRayInline(
-                daxa::RayTracingAccelerationStructureTable[AT.tlas.index()],
-                0, // OR'd with flags above
-                0xFFFF,
-                my_ray);
-
-            // Proceed() below is where behind-the-scenes traversal happens,
-            // including the heaviest of any driver inlined code.
-            // In this simplest of scenarios, Proceed() only needs
-            // to be called once rather than a loop:
-            // Based on the template specialization above,
-            // traversal completion is guaranteed.
-            q.Proceed();
-
-
-            bool shadowed = false;
-            // Examine and act on the result of the traversal.
-            // Was a hit committed?
-            if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-            {
-                shadowed = true;
-            }
-
-            shadow = shadowed ? 0.0f : 1.0f;
-        }
-
         const float final_shadow = sun_norm_dot * shadow.x;
 
         const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
 
-        const float3 direct_lighting = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
+        const float3 view_direction = get_view_direction(pixel_ndc.xy);
+        const float3 point_lights_direct = point_lights_contribution(normal, tri_data.world_position, view_direction, AT.point_lights);
+
+        const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
@@ -466,7 +444,7 @@ void entry_main_cs(
             ambient_occlusion = AT.ao_image.get().Load(index);
         }
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
-        const float3 lighting = direct_lighting + (indirect_lighting * ambient_occlusion);
+        const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
 
         let shaded_color = albedo.rgb * lighting;
 

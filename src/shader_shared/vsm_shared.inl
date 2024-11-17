@@ -74,3 +74,9 @@ struct FreeWrappedPagesInfo
     daxa_i32vec2 clear_offset;
 };
 DAXA_DECL_BUFFER_PTR(FreeWrappedPagesInfo)
+
+struct VSMPointLight
+{
+    daxa_ImageViewId page_table;
+};
+DAXA_DECL_BUFFER_PTR(VSMPointLight);
