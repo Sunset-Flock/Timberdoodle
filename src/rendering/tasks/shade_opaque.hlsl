@@ -300,6 +300,9 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
         const float diffuse = max(dot(normal, position_to_light), 0.0);
 
         const float to_light_dist = length(light.position - world_position);
+
+        if(to_light_dist > light.cutoff) { continue; }
+
         const float falloff_factor = 
             light.constant_falloff + 
             light.linear_falloff * to_light_dist + 

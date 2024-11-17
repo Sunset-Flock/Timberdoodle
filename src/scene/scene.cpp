@@ -110,7 +110,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
         root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
         update_lights_from_gltf(*this, info, load_ctx);
-        // update_mesh_instance_draw_lists(*this, info, load_ctx);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
             .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(load_ctx.asset)),
@@ -475,10 +474,11 @@ static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const
     gpu_point_lights_write_ptr[0] = GPUPointLight{
         .position = {-12.133f, 1.38f, 4.0f},
         .color = {1.0f, 0.55f, 0.15f}, 
-        .intensity = 1.2f,
-        .constant_falloff = 0.05f,
-        .linear_falloff = 0.02f,
-        .quadratic_falloff = 0.5f,
+        .intensity = 1.5f,
+        .constant_falloff = 0.0f,
+        .linear_falloff = 10.0f,
+        .quadratic_falloff = 5.0f,
+        .cutoff = 20.0f,
         .vsm = 0,
     };
 }
