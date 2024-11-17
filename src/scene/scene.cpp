@@ -1170,6 +1170,7 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                 .instance_custom_index = entity_i,
                 .mask = 0xFF,
                 .instance_shader_binding_table_record_offset = is_alpha_discard ? 1u : 0u,
+                .flags = 0,
                 .blas_device_address = _device.blas_device_address(m_entry.blas).value(),
             });
         }
@@ -1192,19 +1193,19 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         return recorder.complete_current_commands();
     }
 
-    auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
+    auto tlas_blas_instances_infos = std::array{daxa::TlasInstanceInfo{
         .data = blas_instances.empty() ? daxa::DeviceAddress{0ull} : _device.buffer_device_address(blas_instances_buffer).value(),
         .count = s_cast<u32>(blas_instances.size()),
         .is_data_array_of_pointers = false,
         .flags = daxa::GeometryFlagBits::NONE,
-    };
+    }};
 
     auto tlas_build_info = daxa::TlasBuildInfo{
         .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE,
-        .instances = std::array{tlas_blas_instances_info},
+        .instances = tlas_blas_instances_infos,
     };
 
-    daxa::AccelerationStructureBuildSizesInfo const tlas_build_sizes = _device.get_tlas_build_sizes(tlas_build_info);
+    daxa::AccelerationStructureBuildSizesInfo const tlas_build_sizes = _device.tlas_build_sizes(tlas_build_info);
 
     if (_scene_tlas.get_state().tlas.size() != 0)
     {
