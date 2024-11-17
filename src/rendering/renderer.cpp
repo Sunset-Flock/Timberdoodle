@@ -92,8 +92,8 @@ Renderer::Renderer(
         {
             daxa::ImageInfo
             {
-                .format = daxa::Format::D32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .format = daxa::Format::R32_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC,
                 .name = "f32_depth_vistory",
             },
             f32_depth_vistory,
