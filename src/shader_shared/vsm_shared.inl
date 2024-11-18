@@ -2,6 +2,7 @@
 
 #include "daxa/daxa.inl"
 #include "globals.inl"
+#include "scene.inl"
 
 #define PAGE_ALIGN_AXIS_X 0
 #define PAGE_ALIGN_AXIS_Z 2
@@ -30,6 +31,7 @@ struct VSMGlobals
 {
     daxa_f32 clip_0_texel_world_size;
     int force_clip_level;
+    glmsf32mat4 point_light_projection_matrix;
 };
 DAXA_DECL_BUFFER_PTR(VSMGlobals)
 
@@ -74,3 +76,11 @@ struct FreeWrappedPagesInfo
     daxa_i32vec2 clear_offset;
 };
 DAXA_DECL_BUFFER_PTR(FreeWrappedPagesInfo)
+
+struct VSMPointLight
+{
+    daxa_ImageViewId page_table;
+    glmsf32mat4 point_light_view_matrix[6];
+    daxa_BufferPtr(GPUPointLight) light;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(VSMPointLight, 8);

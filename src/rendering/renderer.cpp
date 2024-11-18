@@ -92,7 +92,7 @@ Renderer::Renderer(
         {
             daxa::ImageInfo
             {
-                .format = daxa::Format::D32_SFLOAT,
+                .format = daxa::Format::R32_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "f32_depth_vistory",
             },
@@ -494,6 +494,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_buffer(scene->_gpu_material_manifest);
     tg.use_persistent_buffer(scene->_scene_as_indirections);
     tg.use_persistent_buffer(scene->mesh_instances_buffer);
+    tg.use_persistent_buffer(scene->_gpu_point_lights);
     tg.use_persistent_buffer(render_context->tgpu_render_data);
     tg.use_persistent_buffer(vsm_state.globals);
     tg.use_persistent_image(vsm_state.memory_block);
@@ -686,6 +687,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
+            ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
         },
         .render_context = render_context.get(),
     });
@@ -895,20 +897,18 @@ void Renderer::render_frame(
         .debug_context = &gpu_context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
-    // fill_vsm_invalidation_mask(scene_draw.dynamic_meshes, vsm_state, gpu_context->shader_debug_context);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {
         auto const clear_offset = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset) - vsm_state.last_frame_offsets.at(clip);
         vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
-    }
-    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-    {
+
         vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
         vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_PAGE_TABLE_RESOLUTION;
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
+    vsm_state.update_vsm_lights(scene->_active_point_lights);
 
     debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
         .proj_info = &vsm_projections_info,

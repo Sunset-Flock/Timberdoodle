@@ -12,6 +12,7 @@
 #include "../daxa_helper.hpp"
 
 #include "../shader_shared/raytracing.inl"
+#include "../shader_shared/scene.inl"
 
 Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     : _device{std::move(device)}, gpu_context{gpu_context}
@@ -26,6 +27,7 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_MESHES, "_gpu_mesh_manifest");
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESHES, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
+    _gpu_point_lights = tido::make_task_buffer(_device, sizeof(GPUPointLight) * MAX_POINT_LIGHTS, "_gpu_point_lights", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
     mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
     _scene_tlas = daxa::TaskTlas{
@@ -89,9 +91,9 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
 static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info);
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
-// static void update_mesh_instance_draw_lists(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context) -> RenderEntityId;
+static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context);
 
 auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {
@@ -107,7 +109,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_material_manifest_from_gltf(*this, info, load_ctx);
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
         root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
-        // update_mesh_instance_draw_lists(*this, info, load_ctx);
+        update_lights_from_gltf(*this, info, load_ctx);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
             .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(load_ctx.asset)),
@@ -463,6 +465,33 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         }
     }
     return root_r_ent_id;
+}
+
+static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+{
+    // TODO(msakmary) Hook this into a scene, this sucks!
+    scene._active_point_lights.push_back({
+        .position = {-12.133f, 1.38f, 4.0f},
+        .color = {1.0f, 0.55f, 0.15f}, 
+        .intensity = 1.5f,
+        .constant_falloff = 0.0f,
+        .linear_falloff = 10.0f,
+        .quadratic_falloff = 5.0f,
+        .cutoff = 20.0f,
+        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
+    });
+
+    auto const & light = scene._active_point_lights.back();
+    auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
+    gpu_point_lights_write_ptr[0] = GPUPointLight{
+        .position = std::bit_cast<daxa_f32vec3>(light.position),
+        .color = std::bit_cast<daxa_f32vec3>(light.color),
+        .intensity = light.intensity,
+        .constant_falloff = light.constant_falloff, 
+        .linear_falloff = light.linear_falloff,
+        .quadratic_falloff = light.quadratic_falloff, 
+        .cutoff = light.cutoff,
+    };
 }
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)

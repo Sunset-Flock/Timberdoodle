@@ -116,7 +116,7 @@ struct SkyviewParams
 /// @param skyview_dimensions - skyViewLUT dimensions
 /// @param view_height - view_height in world coordinates -> distance from planet center
 /// @return - uv for the skyview LUT sampling
-daxa_f32vec2 skyview_lut_params_to_uv(bool daxa_i32ersects_ground, SkyviewParams params, daxa_f32 atmosphere_bottom, daxa_f32 atmosphere_top, daxa_f32vec2 skyview_dimensions, daxa_f32 view_height)
+daxa_f32vec2 skyview_lut_params_to_uv(bool intersects_ground, SkyviewParams params, daxa_f32 atmosphere_bottom, daxa_f32 atmosphere_top, daxa_f32vec2 skyview_dimensions, daxa_f32 view_height)
 {
     daxa_f32vec2 uv;
     if(view_height < atmosphere_top)
@@ -124,7 +124,7 @@ daxa_f32vec2 skyview_lut_params_to_uv(bool daxa_i32ersects_ground, SkyviewParams
         daxa_f32 beta = asin(atmosphere_bottom / view_height);
         daxa_f32 zenith_horizon_angle = PI - beta;
 
-        if (!daxa_i32ersects_ground)
+        if (!intersects_ground)
         {
             daxa_f32 coord = params.view_zenith_angle / zenith_horizon_angle;
             coord = (1.0 - safe_sqrt(1.0 - coord)) / 2.0;
