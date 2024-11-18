@@ -213,7 +213,7 @@ void main()
             (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
         {
             // Try to allocate new meshlet instance:
-            const uint meshlet_instance_index = atomicAdd(deref(push.attach.meshlet_instances).first_count, 1);
+            const uint meshlet_instance_index = atomicAdd(deref(push.attach.meshlet_instances).pass_counts[0], 1);
             if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
             {
                 // Overrun Meshlet instance buffer!
@@ -256,7 +256,7 @@ void main()
                     continue;
                 }
                 // NOTE: Can never overrun buffer here as this is always <= meshlet_instances.first_count!
-                const uint opaque_draw_list_index = atomicAdd(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].first_count, 1);
+                const uint opaque_draw_list_index = atomicAdd(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].pass_counts[0], 1);
                 deref(deref(push.attach.meshlet_instances).prepass_draw_lists[draw_list_type].instances[opaque_draw_list_index]) = meshlet_instance_index;
             } 
         }

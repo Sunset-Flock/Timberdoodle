@@ -534,12 +534,8 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_context.render_data.settings.draw_from_observer);
                 ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
                 app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
-                std::array<char const * const, 3> modes = {
-                    "redraw meshlets visible last frame",
-                    "redraw meshlet post cull",
-                    "redraw all drawn meshlets",
-                };
-                ImGui::Combo("observer draw pass mode", &render_context.render_data.settings.observer_show_pass, modes.data(), modes.size());
+                ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool*>(&render_context.render_data.settings.observer_draw_first_pass));
+                ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool*>(&render_context.render_data.settings.observer_draw_second_pass));
                 auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_context.render_data.settings).view);
                 ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
             }

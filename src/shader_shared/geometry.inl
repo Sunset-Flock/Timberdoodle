@@ -114,15 +114,13 @@ DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)
 
 struct MeshletDrawList2
 {
-    daxa_u32 first_count;
-    daxa_u32 second_count;
+    daxa_u32 pass_counts[2];
     daxa_RWBufferPtr(daxa_u32) instances;
 };
 
 struct MeshletInstancesBufferHead
 {
-    daxa_u32 first_count;
-    daxa_u32 second_count;
+    daxa_u32 pass_counts[2];
     daxa_RWBufferPtr(MeshletInstance) meshlets;
     MeshletDrawList2 prepass_draw_lists[2];
 };

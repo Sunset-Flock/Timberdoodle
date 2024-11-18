@@ -152,7 +152,8 @@ namespace raster_visbuf
             task_draw_visbuffer({
                 .render_context = info.render_context.get(),
                 .tg = info.tg,
-                .pass = PASS0_DRAW_FIRST_PASS,
+                .pass = VISBUF_FIRST_PASS,
+                .clear_render_targets = true,
                 .meshlet_instances = info.meshlet_instances,
                 .meshes = info.scene->_gpu_mesh_manifest,
                 .material_manifest = info.scene->_gpu_material_manifest,
@@ -303,24 +304,49 @@ namespace raster_visbuf
             });
         }
 
-        if (info.render_context->render_data.settings.draw_from_observer)
+        if (info.render_context->render_data.settings.draw_from_observer && (info.render_context->render_data.settings.enable_atomic_visbuffer == 0))
         {
-            ret.depth = raster_visbuf::create_depth(info.tg, *info.render_context, "observer depth");
+            auto const observer_depth = raster_visbuf::create_depth(info.tg, *info.render_context, "observer depth");
+            
+            info.tg.clear_image({observer_depth, daxa::DepthValue{0.0f,0u}});
+            info.tg.clear_image({ret.visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
 
-            task_draw_visbuffer({
-                .render_context = info.render_context.get(),
-                .tg = info.tg,
-                .pass = PASS4_OBSERVER_DRAW_ALL,
-                .hiz = hiz,
-                .meshlet_instances = info.meshlet_instances,
-                .meshes = info.scene->_gpu_mesh_manifest,
-                .material_manifest = info.scene->_gpu_material_manifest,
-                .combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                .vis_image = ret.visbuffer,
-                .atomic_visbuffer = atomic_visbuffer,
-                .depth_image = renderable_depth,
-                .overdraw_image = ret.overdraw_image,
-            });
+            if (info.render_context->render_data.settings.observer_draw_first_pass)
+            {
+                task_draw_visbuffer({
+                    .render_context = info.render_context.get(),
+                    .tg = info.tg,
+                    .pass = VISBUF_FIRST_PASS,
+                    .observer = true,
+                    .hiz = hiz,
+                    .meshlet_instances = info.meshlet_instances,
+                    .meshes = info.scene->_gpu_mesh_manifest,
+                    .material_manifest = info.scene->_gpu_material_manifest,
+                    .combined_transforms = info.scene->_gpu_entity_combined_transforms,
+                    .vis_image = ret.visbuffer,
+                    .atomic_visbuffer = daxa::NullTaskImage,
+                    .depth_image = observer_depth,
+                    .overdraw_image = ret.overdraw_image,
+                });
+            }
+            if (info.render_context->render_data.settings.observer_draw_first_pass)
+            {
+                task_draw_visbuffer({
+                    .render_context = info.render_context.get(),
+                    .tg = info.tg,
+                    .pass = VISBUF_SECOND_PASS,
+                    .observer = true,
+                    .hiz = hiz,
+                    .meshlet_instances = info.meshlet_instances,
+                    .meshes = info.scene->_gpu_mesh_manifest,
+                    .material_manifest = info.scene->_gpu_material_manifest,
+                    .combined_transforms = info.scene->_gpu_entity_combined_transforms,
+                    .vis_image = ret.visbuffer,
+                    .atomic_visbuffer = daxa::NullTaskImage,
+                    .depth_image = observer_depth,
+                    .overdraw_image = ret.overdraw_image,
+                });
+            }
         }
         if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {

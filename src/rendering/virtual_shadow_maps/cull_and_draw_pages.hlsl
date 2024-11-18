@@ -54,7 +54,6 @@ func vsm_entry_task(
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
-        push.bucket_index,
         svtid.x,
         instanced_meshlet
     );
@@ -288,7 +287,6 @@ func vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
-        push.bucket_index,
         meshlet_cull_arg_index,
         meshlet_inst
     );

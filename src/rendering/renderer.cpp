@@ -84,7 +84,7 @@ Renderer::Renderer(
             daxa::ImageInfo
             {
                 .format = daxa::Format::D32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "depth_history",
             },
             depth_vistory,
@@ -93,7 +93,7 @@ Renderer::Renderer(
             daxa::ImageInfo
             {
                 .format = daxa::Format::D32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "f32_depth_vistory",
             },
             f32_depth_vistory,
@@ -759,10 +759,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .dst_offset = offsetof(ReadbackValues, DST_FIELD) + sizeof(ReadbackValues) * index, \
         .size = sizeof(SRC_STRUCT::SRC_FIELD),                                              \
     })
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].first_count, first_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].second_count, second_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].first_count, first_pass_meshlet_count[1]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].second_count, second_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].pass_counts[0], first_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].pass_counts[1], second_pass_meshlet_count[0]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].pass_counts[0], first_pass_meshlet_count[1]);
+            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].pass_counts[1], second_pass_meshlet_count[1]);
             READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
 
             render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];

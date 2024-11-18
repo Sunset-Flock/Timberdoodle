@@ -172,7 +172,8 @@ struct Settings
     daxa_f32vec2 next_lower_po2_render_target_size_inv;
     daxa_u32vec2 window_size;
     daxa_u32 draw_from_observer;
-    daxa_i32 observer_show_pass;
+    daxa_b32 observer_draw_first_pass;
+    daxa_b32 observer_draw_second_pass;
     daxa_i32 anti_aliasing_mode;
     daxa_i32 debug_draw_mode;
     daxa_i32 ao_mode;
@@ -203,7 +204,8 @@ struct Settings
           next_lower_po2_render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
           window_size{16, 16},
           draw_from_observer{0},
-          observer_show_pass{0},
+          observer_draw_first_pass{0},
+          observer_draw_second_pass{0},
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
           ao_mode{AO_MODE_RT},
@@ -376,11 +378,5 @@ struct DispatchIndirectStruct
     daxa_u32 z;
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectStruct)
-
-#define PASS0_DRAW_FIRST_PASS 0
-#define PASS1_DRAW_SECOND_PASS 1
-#define PASS2_OBSERVER_DRAW_VISIBLE_LAST_FRAME 2
-#define PASS3_OBSERVER_DRAW_POST_CULLED 3
-#define PASS4_OBSERVER_DRAW_ALL 4
 
 #include "../shader_lib/glsl_to_slang.glsl"

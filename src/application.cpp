@@ -226,11 +226,6 @@ void Application::update()
         app_state.cinematic_camera.override_keyframe;
     if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
     if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
-    if (_window->key_just_pressed(GLFW_KEY_O)) {
-        DEBUG_MSG(fmt::format("switched observer_show_pass from {} to {}", _renderer->render_context->render_data.settings.observer_show_pass,
-            ((_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3)));
-        _renderer->render_context->render_data.settings.observer_show_pass = (_renderer->render_context->render_data.settings.observer_show_pass + 1) % 3;
-    }
     if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
     {
         _renderer->gpu_context->shader_debug_context.detector_window_position = {
