@@ -56,15 +56,13 @@ auto CameraController::make_camera_info(Settings const & settings) const -> Came
 
         glm::mat4x4 ret(0.0f);
         ret[0][0] = tanHalfFovy / aspect;
-        ret[1][1] = tanHalfFovy;
+        ret[1][1] = -tanHalfFovy;
         ret[2][2] = 0.0f;
         ret[2][3] = -1.0f;
         ret[3][2] = zNear;
         return ret;
     };
-    glm::mat4 prespective =
-        inf_depth_reverse_z_perspective(glm::radians(fov), f32(settings.render_target_size.x) / f32(settings.render_target_size.y), near);
-    prespective[1][1] *= -1.0f;
+    glm::mat4 prespective = inf_depth_reverse_z_perspective(glm::radians(fov), f32(settings.render_target_size.x) / f32(settings.render_target_size.y), near);
     CameraInfo ret = {};
     ret.proj = prespective;
     ret.inv_proj = glm::inverse(prespective);

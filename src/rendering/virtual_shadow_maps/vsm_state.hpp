@@ -48,19 +48,19 @@ struct VSMState
         // TODO(msakmary) Might be broken idk how cubemaps actually work
         constexpr std::array<f32vec3, 6> cubemap_dirs = {
             f32vec3{ 1.0f,  0.0f,  0.0f},
-            f32vec3{ 0.0f,  1.0f,  0.0f},
-            f32vec3{ 0.0f,  0.0f,  1.0f},
             f32vec3{-1.0f,  0.0f,  0.0f},
+            f32vec3{ 0.0f,  1.0f,  0.0f},
             f32vec3{ 0.0f, -1.0f,  0.0f},
+            f32vec3{ 0.0f,  0.0f,  1.0f},
             f32vec3{ 0.0f,  0.0f, -1.0f},
         };
         constexpr std::array<f32vec3, 6> cubemap_ups = {
             f32vec3{ 0.0f,  0.0f,  1.0f},
             f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 1.0f,  0.0f,  0.0f},
             f32vec3{ 0.0f,  0.0f,  1.0f},
             f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 1.0f,  0.0f,  0.0f},
+            f32vec3{ 0.0f,  1.0f,  0.0f},
+            f32vec3{ 0.0f,  1.0f,  0.0f},
         };
 
         DBG_ASSERT_TRUE_M(active_lights.size() == MAX_POINT_LIGHTS, "FIXME(msakmary)");
@@ -72,7 +72,7 @@ struct VSMState
             vsm_point_light.page_table = point_page_tables.get_state().images[point_light_idx].default_view();
 
             for(i32 i = 0; i < 6; ++i){
-                vsm_point_light.point_light_view_matrix[i] = glm::lookAt(active_light.position, cubemap_dirs.at(i), cubemap_ups.at(i));
+                vsm_point_light.point_light_view_matrix[i] = glm::lookAt(active_light.position, active_light.position + cubemap_dirs.at(i), cubemap_ups.at(i));
             }
         }
     }
@@ -87,7 +87,7 @@ struct VSMState
 
             glm::mat4x4 ret(0.0f);
             ret[0][0] = tanHalfFovy / aspect;
-            ret[1][1] = tanHalfFovy;
+            ret[1][1] = -tanHalfFovy;
             ret[2][2] = 0.0f;
             ret[2][3] = -1.0f;
             ret[3][2] = zNear;

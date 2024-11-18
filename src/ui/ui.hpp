@@ -87,7 +87,6 @@ struct UIEngine
         bool vsm_debug_menu = true;
         bool tg_debug_ui = false;
         u32 magnify_pixels = 7;
-        u32 perf_sample_count = 0;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;
         daxa::ImGuiRenderer imgui_renderer = {};

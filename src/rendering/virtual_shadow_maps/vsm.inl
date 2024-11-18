@@ -1053,4 +1053,49 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
         info.debug_context->cpu_debug_box_draws.push_back(box_draw);
     }
 }
+
+struct DebugDrawPointFrusiInfo
+{
+    VSMPointLight const * light;
+    VSMState const * state;
+    ShaderDebugDrawContext * debug_context;
+};
+
+inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
+{
+    static constexpr std::array offsets = {
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
+    static constexpr std::array colors {
+        daxa_f32vec3(1.0f, 0.0f, 0.0f),       
+        daxa_f32vec3(0.0f, 1.0f, 0.0f),       
+        daxa_f32vec3(0.0f, 0.0f, 1.0f),       
+        daxa_f32vec3(1.0f, 1.0f, 0.0f),       
+        daxa_f32vec3(1.0f, 0.0f, 1.0f),       
+        daxa_f32vec3(0.0f, 1.0f, 1.0f),       
+    };
+
+    for (i32 proj = 0; proj < 6; proj++)
+    {
+        auto const & projection = info.state->globals_cpu.point_light_projection_matrix;
+
+        for (i32 cube_face = 0; cube_face < 6; ++cube_face)
+        {
+            auto const inv_projection = glm::inverse(projection);
+            auto const inv_view = glm::inverse(info.light->point_light_view_matrix[cube_face]);
+            ShaderDebugBoxDraw box_draw = {};
+            box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            box_draw.color = colors.at(cube_face);
+            for (i32 vertex = 0; vertex < 8; vertex++)
+            {
+                auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);
+                auto const view_pos_unproj = inv_projection * ndc_pos;
+                auto const view_pos = glm::vec3(view_pos_unproj.x, view_pos_unproj.y, view_pos_unproj.z) / view_pos_unproj.w;
+                auto const world_pos = inv_view * glm::vec4(view_pos, 1.0f);
+                box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
+            }
+            info.debug_context->cpu_debug_box_draws.push_back(box_draw);
+        }
+    }
+}
 #endif //__cplusplus
