@@ -470,8 +470,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     // TODO(msakmary) Hook this into a scene, this sucks!
-    auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
-    gpu_point_lights_write_ptr[0] = GPUPointLight{
+    scene._active_point_lights.push_back({
         .position = {-12.133f, 1.38f, 4.0f},
         .color = {1.0f, 0.55f, 0.15f}, 
         .intensity = 1.5f,
@@ -479,7 +478,19 @@ static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const
         .linear_falloff = 10.0f,
         .quadratic_falloff = 5.0f,
         .cutoff = 20.0f,
-        .vsm = 0,
+        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
+    });
+
+    auto const & light = scene._active_point_lights.back();
+    auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
+    gpu_point_lights_write_ptr[0] = GPUPointLight{
+        .position = std::bit_cast<daxa_f32vec3>(light.position),
+        .color = std::bit_cast<daxa_f32vec3>(light.color),
+        .intensity = light.intensity,
+        .constant_falloff = light.constant_falloff, 
+        .linear_falloff = light.linear_falloff,
+        .quadratic_falloff = light.quadratic_falloff, 
+        .cutoff = light.cutoff,
     };
 }
 

@@ -7,6 +7,7 @@
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/gpu_work_expansion.inl"
 #include "../tasks/misc.hpp"
+#include "../../scene/scene.hpp"
 
 struct VSMState
 {
@@ -20,6 +21,7 @@ struct VSMState
     daxa::TaskImage point_page_tables = {};
 
     // Transient state
+    daxa::TaskBufferView vsm_point_lights = {};
     daxa::TaskBufferView allocation_count = {};
     daxa::TaskBufferView allocation_requests = {};
     daxa::TaskBufferView free_wrapped_pages_info = {};
@@ -38,12 +40,62 @@ struct VSMState
     std::array<VSMClipProjection, VSM_CLIP_LEVELS> clip_projections_cpu = {};
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
     std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
+    std::array<VSMPointLight, MAX_POINT_LIGHTS> point_lights_cpu = {};
 
     VSMGlobals globals_cpu = {};
+    void update_vsm_lights(const std::vector<ActivePointLight> & active_lights) 
+    {
+        // TODO(msakmary) Might be broken idk how cubemaps actually work
+        constexpr std::array<f32vec3, 6> cubemap_dirs = {
+            f32vec3{ 1.0f,  0.0f,  0.0f},
+            f32vec3{ 0.0f,  1.0f,  0.0f},
+            f32vec3{ 0.0f,  0.0f,  1.0f},
+            f32vec3{-1.0f,  0.0f,  0.0f},
+            f32vec3{ 0.0f, -1.0f,  0.0f},
+            f32vec3{ 0.0f,  0.0f, -1.0f},
+        };
+        constexpr std::array<f32vec3, 6> cubemap_ups = {
+            f32vec3{ 0.0f,  0.0f,  1.0f},
+            f32vec3{ 0.0f,  0.0f,  1.0f},
+            f32vec3{ 1.0f,  0.0f,  0.0f},
+            f32vec3{ 0.0f,  0.0f,  1.0f},
+            f32vec3{ 0.0f,  0.0f,  1.0f},
+            f32vec3{ 1.0f,  0.0f,  0.0f},
+        };
 
+        DBG_ASSERT_TRUE_M(active_lights.size() == MAX_POINT_LIGHTS, "FIXME(msakmary)");
+        for(int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
+        {
+            auto & vsm_point_light = point_lights_cpu.at(point_light_idx);
+            auto & active_light = active_lights.at(point_light_idx);
+            vsm_point_light.light = active_light.point_light_ptr;
+            vsm_point_light.page_table = point_page_tables.get_state().images[point_light_idx].default_view();
+
+            for(i32 i = 0; i < 6; ++i){
+                vsm_point_light.point_light_view_matrix[i] = glm::lookAt(active_light.position, cubemap_dirs.at(i), cubemap_ups.at(i));
+            }
+        }
+    }
 
     void initialize_persitent_state(GPUContext * gpu_context)
     {
+        auto inf_depth_reverse_z_perspective = [](auto fov_rads, auto aspect, auto zNear)
+        {
+            assert(abs(aspect - std::numeric_limits<f32>::epsilon()) > 0.0f);
+
+            f32 const tanHalfFovy = 1.0f / std::tan(fov_rads * 0.5f);
+
+            glm::mat4x4 ret(0.0f);
+            ret[0][0] = tanHalfFovy / aspect;
+            ret[1][1] = tanHalfFovy;
+            ret[2][2] = 0.0f;
+            ret[2][3] = -1.0f;
+            ret[3][2] = zNear;
+            return ret;
+        };
+
+        globals_cpu.point_light_projection_matrix = inf_depth_reverse_z_perspective(glm::radians(90.0f), 1.0f, 0.001f);
+
         globals = daxa::TaskBuffer({
             .initial_buffers = {
                 .buffers = std::array{
@@ -186,7 +238,7 @@ struct VSMState
                     .dst_image = ti.get(meta_memory_table).ids[0],
                 });
 
-                for(int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; point_light_vsm++)
+                for(int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; ++point_light_vsm)
                 {
                     ti.recorder.clear_image({
                         .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
@@ -213,6 +265,10 @@ struct VSMState
         gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
+        for(i32 i = 0; i < MAX_POINT_LIGHTS; ++i)
+        {
+            gpu_context->device.destroy_image(point_page_tables.get_state().images[i]);
+        }
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
@@ -265,6 +321,11 @@ struct VSMState
         clear_dirty_bit_indirect = tg.create_transient_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm clear dirty bit indirect",
+        });
+
+        vsm_point_lights = tg.create_transient_buffer({
+            .size = static_cast<daxa_u32>(sizeof(VSMPointLight) * MAX_POINT_LIGHTS),
+            .name = "vsm point light infos",
         });
 
         auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};

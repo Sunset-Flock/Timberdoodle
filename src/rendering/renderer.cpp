@@ -908,6 +908,7 @@ void Renderer::render_frame(
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
+    vsm_state.update_vsm_lights(scene->_active_point_lights);
 
     debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
         .proj_info = &vsm_projections_info,

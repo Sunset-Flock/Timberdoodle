@@ -57,6 +57,7 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
@@ -673,12 +674,14 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->free_wrapped_pages_info),
             daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->globals),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->vsm_point_lights),
         },
         .task = [info](daxa::TaskInterface ti)
         {
             allocate_fill_copy(ti, info.vsm_state->clip_projections_cpu, ti.get(info.vsm_state->clip_projections));
             allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
             allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
+            allocate_fill_copy(ti, info.vsm_state->point_lights_cpu, ti.get(info.vsm_state->vsm_point_lights));
         },
         .name = "vsm setup task",
     });
@@ -719,6 +722,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
         },
         .render_context = info.render_context,
     });

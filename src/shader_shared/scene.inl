@@ -1,7 +1,6 @@
 #pragma once
 
 #include "daxa/daxa.inl"
-#include "vsm_shared.inl"
 #include "shared.inl"
 
 #define INVALID_ENTITY_INDEX (~(0u))
@@ -33,6 +32,5 @@ struct GPUPointLight
     daxa_f32 linear_falloff;
     daxa_f32 quadratic_falloff;
     daxa_f32 cutoff;
-    daxa_BufferPtr(VSMPointLight) vsm;
 };
-DAXA_DECL_BUFFER_PTR_ALIGN(GPUPointLight, 8);
+DAXA_DECL_BUFFER_PTR(GPUPointLight);

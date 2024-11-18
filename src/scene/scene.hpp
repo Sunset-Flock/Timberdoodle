@@ -100,6 +100,18 @@ struct MeshGroupManifestEntry
     std::string name = {};
 };
 
+struct ActivePointLight
+{
+    f32vec3 position;
+    f32vec3 color;
+    f32 intensity;
+    f32 constant_falloff;
+    f32 linear_falloff;
+    f32 quadratic_falloff;
+    f32 cutoff;
+    daxa_BufferPtr(GPUPointLight) point_light_ptr;
+};
+
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
@@ -209,6 +221,7 @@ struct Scene
     std::vector<MeshManifestEntry> _mesh_manifest = {};
     std::vector<u32> _mesh_manifest_indices_new = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
+    std::vector<ActivePointLight> _active_point_lights = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
     u32 _new_mesh_manifest_entries = {};
