@@ -51,18 +51,20 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
+#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_DECL_TASK_HEAD_END
+#endif
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
@@ -232,7 +234,8 @@ inline daxa::ComputePipelineCompileInfo vsm_mark_required_pages_pipeline_compile
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.glsl"}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
         .push_constant_size = static_cast<u32>(sizeof(MarkRequiredPagesH::AttachmentShaderBlob)),
         .name = std::string{MarkRequiredPagesH::NAME},
     };
