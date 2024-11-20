@@ -72,7 +72,8 @@ struct VSMState
             vsm_point_light.page_table = point_page_tables.get_state().images[point_light_idx].default_view();
 
             for(i32 i = 0; i < 6; ++i){
-                vsm_point_light.point_light_view_matrix[i] = glm::lookAt(active_light.position, active_light.position + cubemap_dirs.at(i), cubemap_ups.at(i));
+                vsm_point_light.view_matrices[i] = glm::lookAt(active_light.position, active_light.position + cubemap_dirs.at(i), cubemap_ups.at(i));
+                vsm_point_light.inverse_view_matrices[i] = glm::inverse(vsm_point_light.view_matrices[i]);
             }
         }
     }
@@ -95,6 +96,7 @@ struct VSMState
         };
 
         globals_cpu.point_light_projection_matrix = inf_depth_reverse_z_perspective(glm::radians(90.0f), 1.0f, 0.001f);
+        globals_cpu.inverse_point_light_projection_matrix = glm::inverse(globals_cpu.point_light_projection_matrix);
 
         globals = daxa::TaskBuffer({
             .initial_buffers = {

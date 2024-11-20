@@ -1177,6 +1177,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
                 "ENTITY_ID",
                 "VSM_OVERDRAW",
                 "VSM_CLIP_LEVEL",
+                "VSM_POINT_MIP_LEVEL",
                 "DEPTH",
                 "ALBEDO",
                 "NORMAL",

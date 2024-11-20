@@ -28,6 +28,7 @@ void main()
 
     const ivec3 alloc_request_page_coords = deref_i(push.vsm_allocation_requests, id).coords;
     const bool allocated = deref_i(push.vsm_allocation_requests, id).already_allocated != 0;
+    if(deref_i(push.vsm_allocation_requests, id).point_light_index != -1) { return; }
 
     const vec3 current_camera_position = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).camera.view[3].xyz;
     if(!allocated)

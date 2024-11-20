@@ -77,6 +77,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         const int3 vsm_page_wrapped_coords = vsm_clip_info_to_wrapped_coords(clip_info, mark_pages_push.vsm_clip_projections);
         if(vsm_page_wrapped_coords.x < 0 || vsm_page_wrapped_coords.y < 0) { return; }
 
+
         uint prev_page_state;
         bool thread_active = true;
         bool first_to_see = false;
@@ -113,7 +114,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 InterlockedAdd(mark_pages_push.vsm_allocation_count->count, 1u, allocation_index);
                 if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
                 {
-                    mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u);
+                    mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u, -1, -1);
                 }
             }
             else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
@@ -125,6 +126,59 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                     meta_memory_visited_mask()
                 );
             }
+        }
+
+        {
+            // const int4 vsm_point_page_coords = project_into_point_light(depth, 0, screen_space_uv, mark_pages_push.globals, mark_pages_push.vsm_point_lights, mark_pages_push.vsm_globals);
+            // if(vsm_point_page_coords.w > 5) { return; }
+
+            // uint prev_page_state;
+            // bool thread_active = true;
+            // bool first_to_see = false;
+
+            // float sg_min_depth;
+            // float sg_max_depth;
+            // while(thread_active)
+            // {
+            //     const int4 sg_uniform_point_page_coords = WaveReadLaneFirst(vsm_point_page_coords);
+
+            //     if(all(equal(sg_uniform_point_page_coords, vsm_point_page_coords)))
+            //     {
+            //         if(WaveIsFirstLane())
+            //         {
+            //             first_to_see = true;
+            //         }
+            //         thread_active = false;
+            //     }
+            // }
+
+            // if(first_to_see)
+            // {
+            //     InterlockedOr(
+            //         mark_pages_push.vsm_point_page_table[vsm_point_page_coords.w].get()[vsm_point_page_coords.xyz],
+            //         uint(requests_allocation_mask() | visited_marked_mask()),
+            //         prev_page_state
+            //     );
+
+                // if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
+                // {
+                //     uint allocation_index;
+                    // InterlockedAdd(mark_pages_push.vsm_allocation_count->count, 1u, allocation_index);
+                    // if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
+                    // {
+                    //     mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, 0, vsm_point_page_coords.w);
+                    // }
+                // }
+                // TODO(Finish)
+                // else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
+                // {
+
+                    // InterlockedOr(
+                    //     mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
+                    //     meta_memory_visited_mask()
+                    // );
+                // }
+            // }
         }
     }
 }

@@ -501,6 +501,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.meta_memory_table);
     tg.use_persistent_image(vsm_state.page_table);
     tg.use_persistent_image(vsm_state.page_view_pos_row);
+    tg.use_persistent_image(vsm_state.point_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
@@ -688,6 +689,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
+            ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
         },
         .render_context = render_context.get(),
     });
@@ -833,10 +835,10 @@ void Renderer::render_frame(
         CameraInfo tmp = camera_info;
         if(render_context->debug_frustum >= 0) {
             tmp.position = scene->_active_point_lights.at(0).position;
-            tmp.view = vsm_state.point_lights_cpu.at(0).point_light_view_matrix[render_context->debug_frustum];
-            tmp.inv_view = glm::inverse(vsm_state.point_lights_cpu.at(0).point_light_view_matrix[render_context->debug_frustum]);
+            tmp.view = vsm_state.point_lights_cpu.at(0).view_matrices[render_context->debug_frustum];
+            tmp.inv_view = vsm_state.point_lights_cpu.at(0).inverse_view_matrices[render_context->debug_frustum];
             tmp.proj = vsm_state.globals_cpu.point_light_projection_matrix;
-            tmp.inv_proj = glm::inverse(vsm_state.globals_cpu.point_light_projection_matrix);
+            tmp.inv_proj = vsm_state.globals_cpu.inverse_point_light_projection_matrix;
             tmp.view_proj = tmp.proj * tmp.view;
             tmp.inv_view_proj = glm::inverse(tmp.view_proj);
         }
