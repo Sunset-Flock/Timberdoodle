@@ -1074,38 +1074,36 @@ struct DebugDrawPointFrusiInfo
 
 inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
 {
+    auto hsv2rgb = [](f32vec3 c) -> f32vec3
+    {
+        f32vec4 k = f32vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        f32vec3 p = f32vec3(
+            std::abs(glm::fract(c.x + k.x) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.y) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.z) * 6.0 - k.w));
+        return c.z * glm::mix(f32vec3(k.x), glm::clamp(p - f32vec3(k.x), f32vec3(0.0), f32vec3(1.0)), f32vec3(c.y));
+    };
     static constexpr std::array offsets = {
         glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
         glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
-    static constexpr std::array colors {
-        daxa_f32vec3(1.0f, 0.0f, 0.0f),       
-        daxa_f32vec3(0.0f, 1.0f, 0.0f),       
-        daxa_f32vec3(0.0f, 0.0f, 1.0f),       
-        daxa_f32vec3(1.0f, 1.0f, 0.0f),       
-        daxa_f32vec3(1.0f, 0.0f, 1.0f),       
-        daxa_f32vec3(0.0f, 1.0f, 1.0f),       
-    };
 
-    for (i32 proj = 0; proj < 6; proj++)
+    auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
+
+    for (i32 cube_face = 0; cube_face < 6; ++cube_face)
     {
-        auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
-
-        for (i32 cube_face = 0; cube_face < 6; ++cube_face)
+        auto const inverse_view = info.light->inverse_view_matrices[cube_face];
+        ShaderDebugBoxDraw box_draw = {};
+        box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face/ 6.0f, 1.0f, 1.0f)));
+        for (i32 vertex = 0; vertex < 8; vertex++)
         {
-            auto const inverse_view = info.light->inverse_view_matrices[cube_face];
-            ShaderDebugBoxDraw box_draw = {};
-            box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-            box_draw.color = colors.at(cube_face);
-            for (i32 vertex = 0; vertex < 8; vertex++)
-            {
-                auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);
-                auto const view_pos_unproj = inverse_projection * ndc_pos;
-                auto const view_pos = glm::vec3(view_pos_unproj.x, view_pos_unproj.y, view_pos_unproj.z) / view_pos_unproj.w;
-                auto const world_pos = inverse_view * glm::vec4(view_pos, 1.0f);
-                box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
-            }
-            info.debug_context->cpu_debug_box_draws.push_back(box_draw);
+            auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);
+            auto const view_pos_unproj = inverse_projection * ndc_pos;
+            auto const view_pos = glm::vec3(view_pos_unproj.x, view_pos_unproj.y, view_pos_unproj.z) / view_pos_unproj.w;
+            auto const world_pos = inverse_view * glm::vec4(view_pos, 1.0f);
+            box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
         }
+        info.debug_context->cpu_debug_box_draws.push_back(box_draw);
     }
 }
 #endif //__cplusplus
