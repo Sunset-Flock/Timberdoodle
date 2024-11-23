@@ -338,7 +338,7 @@ func generic_mesh_compute_raster(
     uint meshlet_instance_index,
     MeshletInstance meshlet_instance,
     bool cull_backfaces,
-    bool allow_hiz_cull)
+    bool cull_hiz_occluded)
 {
     const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_instance.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
@@ -348,8 +348,8 @@ func generic_mesh_compute_raster(
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = push.draw_data.observer;
-    const bool non_visbuffer_two_pass_cull = !push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull) && false;
+    const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull) && false;
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).observer_camera.view_proj : 
@@ -439,15 +439,15 @@ func generic_mesh_compute_raster(
                     let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.attach.globals.settings.render_target_size));
                     cull_primitive = cull_micro_poly_invisible;
 
-                    if (push.attach.hiz.value != 0 && !cull_primitive && allow_hiz_cull)
+                    if (push.attach.hiz.value != 0 && !cull_primitive && cull_hiz_occluded && false)
                     {
-                        let cull_hiz_occluded = is_triangle_hiz_occluded(
+                        let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,
                             push.attach.globals.camera,
                             tri_vert_ndc_positions,
                             push.attach.globals.cull_data,
                             push.attach.hiz);
-                        cull_primitive = cull_hiz_occluded;
+                        cull_primitive = is_hiz_occluded;
                     }
                 }
             }
@@ -498,7 +498,7 @@ func entry_mesh_opaque_compute_raster(
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].pass_counts[1];
     const MeshletInstance meshlet_instance = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, meshlet_instance_index);
 
-    bool cull_backfaces = false;
+    bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
         GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
@@ -508,9 +508,9 @@ func entry_mesh_opaque_compute_raster(
     // Culling in first pass would require calculating tri vertex positions in old camera space.
     // That would require a shitload of extra processing power, 2x vertex work.
     // Because of this we simply dont hiz cull tris in first pass ever.
-    let allow_hiz_cull = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
+    let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
 
-    generic_mesh_compute_raster(draw_p, svtid, meshlet_instance_index, meshlet_instance, cull_backfaces, allow_hiz_cull);
+    generic_mesh_compute_raster(draw_p, svtid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
@@ -523,13 +523,12 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     in uint meshlet_instance_index,
     in MeshletInstance meshlet_instance,
     in bool cull_backfaces,
-    in bool allow_hiz_cull)
+    in bool cull_hiz_occluded)
 {          
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = push.draw_data.observer;
-    const bool non_visbuffer_two_pass_cull = !push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    allow_hiz_cull = allow_hiz_cull && !(observer_pass && non_visbuffer_two_pass_cull) && false;
+    const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull) && false;
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).observer_camera.view_proj : 
@@ -588,9 +587,9 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         if (in_meshlet_triangle_index < meshlet.triangle_count)
         {
             tri_in_meshlet_vertex_indices = uint3(
-                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
-                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
-                get_micro_index(micro_index_buffer, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2)
+                get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 0),
+                get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 1),
+                get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + in_meshlet_triangle_index * 3 + 2)
             );
         }
         float4[3] tri_vert_clip_positions = float4[3](
@@ -601,7 +600,6 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
         if (in_meshlet_triangle_index < meshlet.triangle_count)
         {
-            // From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
             bool cull_primitive = false;
 
             // Observer culls triangles from the perspective of the main camera.
@@ -636,15 +634,15 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                     let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.attach.globals.settings.render_target_size));
                     cull_primitive = cull_micro_poly_invisible;
 
-                    if (push.attach.hiz.value != 0 && !cull_primitive && allow_hiz_cull)
+                    if (push.attach.hiz.value != 0 && !cull_primitive && cull_hiz_occluded && false)
                     {
-                        let cull_hiz_occluded = is_triangle_hiz_occluded(
+                        let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,
                             push.attach.globals.camera,
                             tri_vert_ndc_positions,
                             push.attach.globals.cull_data,
                             push.attach.hiz);
-                        cull_primitive = cull_hiz_occluded;
+                        cull_primitive = is_hiz_occluded;
                     }
                 }
             }
@@ -690,7 +688,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(draw_p.attach.meshlet_instances).prepass_draw_lists[0].pass_counts[1];
     const MeshletInstance meshlet_instance = deref_i(deref(draw_p.attach.meshlet_instances).meshlets, meshlet_instance_index);
 
-    bool cull_backfaces = false;
+    bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
         GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
@@ -700,7 +698,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // Culling in first pass would require calculating tri vertex positions in old camera space.
     // That would require a shitload of extra processing power, 2x vertex work.
     // Because of this we simply dont hiz cull tris in first pass ever.
-    let allow_hiz_cull = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
+    let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
    
     const GPUMesh mesh = draw_p.attach.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
@@ -708,7 +706,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         SetMeshOutputCounts(0,0);
         return;
     }
-    generic_mesh(draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, allow_hiz_cull);
+    generic_mesh(draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 // --- Mesh shader opaque ---
@@ -789,7 +787,7 @@ struct CullMeshletsDrawVisbufferPayload
     uint task_shader_wg_meshlet_args_offset;
     uint task_shader_meshlet_instances_offset;
     uint task_shader_surviving_meshlets_mask;
-    uint enable_backface_culling;
+    uint cull_backfaces_mask;
     uint enable_hiz_triangle_culling;
 };
 
@@ -919,7 +917,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
             else
             {
                 allocation_failed = true;
-                //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", instanced_meshlet.entity_index);
+                //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", meshlet_instance.entity_index);
             }
 
             // Only needed for observer:
@@ -950,17 +948,17 @@ func entry_compute_meshlet_cull(
     let push = cull_meshlets_draw_visbuffer_push;
 
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
-    MeshletInstance instanced_meshlet;
+    MeshletInstance meshlet_instance;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attach.mesh_instances,
         push.attach.meshes,
         svtid.x,
-        instanced_meshlet
+        meshlet_instance
     );
     
-    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, instanced_meshlet);
+    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, meshlet_instance);
 }
 
 [shader("amplification")]
@@ -974,17 +972,17 @@ func entry_task_meshlet_cull(
 
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
 
-    MeshletInstance instanced_meshlet;
+    MeshletInstance meshlet_instance;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attach.mesh_instances,
         push.attach.meshes,
         svtid.x,
-        instanced_meshlet
+        meshlet_instance
     );
     
-    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, instanced_meshlet);
+    MeshletCullWriteoutResult cull_result = cull_and_writeout_meshlet(valid_meshlet, meshlet_instance);
 
     let surviving_meshlet_count = WaveActiveSum(valid_meshlet ? 1u : 0u);
 
@@ -993,16 +991,16 @@ func entry_task_meshlet_cull(
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
 
-    bool enable_backface_culling = false;
+    bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (valid_meshlet)
     {
-        if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
+        if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = push.attach.material_manifest[instanced_meshlet.material_index];
-            enable_backface_culling = !material.alpha_discard_enabled;
+            GPUMaterial material = push.attach.material_manifest[meshlet_instance.material_index];
+            cull_backfaces = !material.alpha_discard_enabled;
         }
     }
-    payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
+    payload.cull_backfaces_mask = WaveActiveBallot(cull_backfaces).x;
 
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
@@ -1072,15 +1070,15 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.attach.material_manifest = push.attach.material_manifest;
     fake_draw_p.attach.atomic_visbuffer = push.attach.atomic_visbuffer;
     
-    let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
+    let cull_backfaces = (payload.cull_backfaces_mask & task_shader_local_bit) != 0;
     const GPUMesh mesh = push.attach.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         SetMeshOutputCounts(0,0);
         return;
     }
-    let allow_hiz_cull = push.draw_data.pass_index != VISBUF_FIRST_PASS;
-    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, allow_hiz_cull);
+    let cull_hiz_occluded = push.draw_data.pass_index != VISBUF_FIRST_PASS;
+    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 [outputtopology("triangle")]

@@ -93,6 +93,18 @@ struct GPUMaterial
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 
+#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
+static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
+    daxa_ImageViewId(),
+    daxa_ImageViewId(),
+    daxa_ImageViewId(),
+    daxa_ImageViewId(),
+    false,
+    false,
+    daxa_f32vec3(1,1,1)
+);
+#endif
+
 #if DAXA_SHADER
 uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offset)
 {

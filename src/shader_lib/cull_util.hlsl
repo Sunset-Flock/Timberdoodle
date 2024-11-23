@@ -490,6 +490,7 @@ func is_triangle_invisible_micro_triangle(float2 ndc_min, float2 ndc_max, float2
     return !prim_visible && all(greaterThan(ndc_min, -float2(0.99999,0.99999))) && all(lessThan(ndc_max, float2(0.99999,0.99999)));
 }
 
+// From: https://zeux.io/2023/04/28/triangle-backface-culling/#fnref:3
 func is_triangle_backfacing(float4 tri_vert_clip_positions[3]) -> bool
 {
     let is_backface =

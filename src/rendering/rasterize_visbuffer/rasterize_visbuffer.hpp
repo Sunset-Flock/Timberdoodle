@@ -329,7 +329,7 @@ namespace raster_visbuf
                     .overdraw_image = ret.overdraw_image,
                 });
             }
-            if (info.render_context->render_data.settings.observer_draw_first_pass)
+            if (info.render_context->render_data.settings.observer_draw_second_pass)
             {
                 task_draw_visbuffer({
                     .render_context = info.render_context.get(),
