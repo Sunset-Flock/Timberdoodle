@@ -19,6 +19,7 @@
 #include "tasks/autoexposure.inl"
 #include "tasks/shader_debug_draws.inl"
 #include "tasks/decode_visbuffer_test.inl"
+#include "tasks/gen_gbuffer.hpp"
 
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
@@ -207,6 +208,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
+        {gen_gbuffer_pipeline_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -542,6 +544,25 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView depth = visbuffer_ret.depth;
     daxa::TaskImageView visbuffer = visbuffer_ret.visbuffer;
     daxa::TaskImageView overdraw_image = visbuffer_ret.overdraw_image;
+
+    daxa::TaskImageView geo_normal_image = tg.create_transient_image({
+        .format = GBUFFER_GEO_NORMAL_FORMAT,
+        .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1 },
+        .name = "geo_normal_image",
+    }); 
+    tg.add_task(GenGbufferTask{
+        .views = std::array{
+            GenGbufferTask::AT.globals | render_context->tgpu_render_data,
+            GenGbufferTask::AT.debug_image | debug_image,
+            GenGbufferTask::AT.vis_image | visbuffer,
+            GenGbufferTask::AT.geo_normal_image | geo_normal_image,
+            GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
+            GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
+            GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
+            GenGbufferTask::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+        },
+        .render_context = render_context.get(),
+    });
 
     auto sky = tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,

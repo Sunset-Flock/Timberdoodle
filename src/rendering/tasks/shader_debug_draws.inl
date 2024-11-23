@@ -333,7 +333,6 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             }
             raw_copy_image_info.usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
             raw_copy_image_info.name = std::string(src_info.name.data()) + " raw image copy";
-            state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
             
             if (!state.raw_image_copy.is_empty())
             {
@@ -380,14 +379,6 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             else
             {
                 state.display_image = ti.device.create_image(display_image_info);
-            }
-
-            if (state.raw_image_copy.is_empty())
-            {
-                daxa::ImageInfo raw_copy_image_info = src_info;
-                raw_copy_image_info.usage |= daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::SHADER_STORAGE; // STORAGE is better than SAMPLED as it supports 64bit images.
-                raw_copy_image_info.name = std::string(src_info.name.data()) + " raw image copy";
-                state.raw_image_copy = ti.device.create_image(raw_copy_image_info);
             }
 
             // CLear before copy. Magenta marks mips/array layers that are not within the image slice of this attachment!

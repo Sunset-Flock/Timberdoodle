@@ -27,16 +27,6 @@ func firstbithigh_uint4(uint4 v) -> uint
     return firstbithigh(v[first_scalar_with_bits]);
 }
 
-// Copyright 2019 Google LLC.
-// SPDX-License-Identifier: Apache-2.0
-
-// Polynomial approximation in GLSL for the Turbo colormap
-// Original LUT: https://gist.github.com/mikhailov-work/ee72ba4191942acecc03fe6da94fc73f
-
-// Authors:
-//   Colormap Design: Anton Mikhailov (mikhailov@google.com)
-//   GLSL Approximation: Ruofei Du (ruofei@google.com)
-
 float3 TurboColormap(float x)
 {
     const float4 kRedVec4 = float4(0.13572138, 4.61539260, -42.66032258, 132.13108234);
@@ -100,3 +90,60 @@ func AtomicAddU64(__ref uint64_t dest, uint64_t value) -> uint64_t
     };
     return original_value;
 }
+
+/// ===== From Shadertoy: https://www.shadertoy.com/view/llfcRl =====
+
+uint packSnorm2x12(float2 v) 
+{ 
+    uint2 d = uint2(round(2047.5 + v*2047.5));
+    return d.x|(d.y<<12u);
+}
+
+float2 unpackSnorm2x12(uint d) 
+{
+    return float2(uint2(d,d>>12)&4095u)/2047.5 - 1.0;
+}
+
+float2 msign( float2 v )
+{
+    return float2( (v.x>=0.0) ? 1.0 : -1.0, 
+                 (v.y>=0.0) ? 1.0 : -1.0 );
+}
+
+uint compress_normal_octahedral_24( in float3 nor )
+{
+    nor /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
+    nor.xy = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign(nor.xy);
+    return packSnorm2x12(nor.xy);
+}
+
+float3 uncompress_normal_octahedral_24( uint data )
+{
+    float2 v = unpackSnorm2x12(data);
+    float3 nor = float3(v, 1.0 - abs(v.x) - abs(v.y));
+    float t = max(-nor.z,0.0);
+    nor.x += (nor.x>0.0)?-t:t;
+    nor.y += (nor.y>0.0)?-t:t;
+    return normalize( nor );
+}
+
+uint compress_normal_octahedral_32( in float3 nor )
+{
+    nor.xy /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
+    nor.xy  = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign(nor.xy);
+    uint2 d = uint2(round(32767.5 + nor.xy*32767.5));  
+    return d.x|(d.y<<16u);
+}
+
+float3 uncompress_normal_octahedral_32( uint data )
+{
+    uint2 iv = uint2( data, data>>16u ) & 65535u; 
+    float2 v = float2(iv)/32767.5 - 1.0;
+    float3 nor = float3(v, 1.0 - abs(v.x) - abs(v.y));
+    float t = max(-nor.z,0.0);
+    nor.x += (nor.x>0.0)?-t:t;
+    nor.y += (nor.y>0.0)?-t:t;
+    return normalize( nor );
+}
+
+/// ===== =====

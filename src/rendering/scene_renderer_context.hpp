@@ -133,6 +133,7 @@ namespace RenderTimes
         VSM_CULL_AND_DRAW_PAGES,
         VSM_CLEAR_DIRY_BITS,
         SHADE_OPAQUE,
+        SHADE_GBUFFER,
         COUNT,
     };
 
@@ -163,6 +164,7 @@ namespace RenderTimes
         "VSM_CULL_AND_DRAW_PAGES",
         "VSM_CLEAR_DIRY_BITS",
         "SHADE_OPAQUE",
+        "SHADE_GBUFFER",
     };
 
     static constexpr inline auto to_string(RenderTimesEnum index) -> char const *
@@ -175,6 +177,7 @@ namespace RenderTimes
         GROUP_VISBUFFER,
         GROUP_AMBIENT_OCCLUSION,
         GROUP_SHADE_OPAQUE,
+        GROUP_SHADE_GBUFFER,
         GROUP_VSM_INVALIDATE_STAGES,
         GROUP_VSM_BOOKKEEPING,
         GROUP_VSM_CULL_AND_DRAW,
@@ -185,6 +188,7 @@ namespace RenderTimes
         "GROUP_VISBUFFER",
         "GROUP_AMBIENT_OCCLUSION",
         "GROUP_SHADE_OPAQUE",
+        "GROUP_SHADE_GBUFFER",
         "GROUP_VSM_INVALIDATE_PAGES",
         "GROUP_VSM_BOOKKEEPING",
         "GROUP_VSM_CULL_AND_DRAW",
@@ -221,6 +225,10 @@ namespace RenderTimes
         SHADE_OPAQUE,
     };
 
+    static constexpr inline std::array GROUP_SHADE_GBUFFER_TIMES = std::array{
+        SHADE_GBUFFER,
+    };
+
     static constexpr inline std::array GROUP_VSM_INVALIDATE_PAGES = std::array{
         VSM_INVALIDATE_PAGES,
     };
@@ -242,6 +250,7 @@ namespace RenderTimes
         GROUP_VISBUFFER_TIMES,
         GROUP_AMBIENT_OCCLUSION_TIMES,
         GROUP_SHADE_OPAQUE_TIMES,
+        GROUP_SHADE_GBUFFER_TIMES,
         GROUP_VSM_INVALIDATE_PAGES,
         GROUP_VSM_BOOKKEEPING_TIMES,
         GROUP_VSM_CULL_AND_DRAW_TIMES,
