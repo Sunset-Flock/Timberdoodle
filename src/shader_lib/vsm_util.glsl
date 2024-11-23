@@ -84,6 +84,16 @@ struct ClipInfo
     daxa_f32 clip_depth;
 };
 
+daxa_f32vec3 world_space_from_uv(daxa_f32vec2 screen_space_uv, daxa_f32 depth, daxa_f32mat4x4 inv_view_proj)
+{
+    const daxa_f32vec2 remap_uv = (screen_space_uv * 2.0) - 1.0;
+    const daxa_f32vec4 ndc_position = daxa_f32vec4(remap_uv, depth, 1.0);
+    const daxa_f32vec4 unprojected_ndc_position = mul(inv_view_proj, ndc_position);
+
+    const daxa_f32vec3 world_position = unprojected_ndc_position.xyz / unprojected_ndc_position.w;
+    return world_position;
+}
+
 struct ClipFromUVsInfo
 {
     // Should be UVs of the center of the texel
@@ -96,16 +106,6 @@ struct ClipFromUVsInfo
     daxa_BufferPtr(VSMGlobals) vsm_globals;
     daxa_BufferPtr(RenderGlobalData) globals;
 };
-
-daxa_f32vec3 world_space_from_uv(daxa_f32vec2 screen_space_uv, daxa_f32 depth, daxa_f32mat4x4 inv_view_proj)
-{
-    const daxa_f32vec2 remap_uv = (screen_space_uv * 2.0) - 1.0;
-    const daxa_f32vec4 ndc_position = daxa_f32vec4(remap_uv, depth, 1.0);
-    const daxa_f32vec4 unprojected_ndc_position = mul(inv_view_proj, ndc_position);
-
-    const daxa_f32vec3 world_position = unprojected_ndc_position.xyz / unprojected_ndc_position.w;
-    return world_position;
-}
 
 ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
 {
@@ -192,3 +192,70 @@ daxa_u32 unwrap_vsm_page_from_mask(daxa_i32vec3 vsm_page_coords, daxa_BufferPtr(
     const daxa_u32 decoded_bit = mask_entry & (1 << in_uint_offset);
     return decoded_bit;
 }
+
+#if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)
+// int cube_face_from_dir(float3 normalized_direction)
+// {
+//     const float3 abs_direction = abs(normalized_direction);
+//     const int coord_idx = abs_direction.x < abs_direction.y ? 
+//                 // y bigger than x -> compare against z
+//                 (abs_direction.y < abs_direction.z ? 2 : 1) :
+//                 // x bigger than y -> compare against z
+//                 (abs_direction.x < abs_direction.z ? 2 : 0);
+//     const int negative_face_offset = normalized_direction[coord_idx] < 0 ? 1 : 0;
+//     const int face_idx = coord_idx * 2 + negative_face_offset;
+//     return face_idx;
+// }
+
+// float4 project_into_point_light(
+//     float depth,
+//     int point_light_idx,
+//     float2 screen_space_uv,
+//     RenderGlobalData * globals,
+//     VSMPointLight * point_lights,
+//     VSMGlobals * vsm_globals)
+// {
+//     const float4x4 inverse_camera_view_proj = globals->camera.inv_view_proj;
+//     const float3 frag_ws = world_space_from_uv(screen_space_uv, depth, inverse_camera_view_proj);
+//     const float3 point_ws = point_lights[point_light_idx].light.position;
+
+//     const float3 point_to_frag_norm = normalize(frag_ws - point_ws);
+//     const int face_idx = cube_face_from_dir(point_to_frag_norm);
+
+//     // Reprojecting screen space into point light space
+//     const float x_uv_offset = 0.5f * globals->settings.render_target_size_inv.x;
+//     const float2 left_side_texel_uvs = screen_space_uv - float2(x_uv_offset, 0.0f);
+//     const float3 left_world_space = world_space_from_uv( left_side_texel_uvs, depth, inverse_camera_view_proj);
+
+//     const float2 right_side_texel_uvs = screen_space_uv + float2(x_uv_offset, 0.0f);
+//     const float3 right_world_space = world_space_from_uv( right_side_texel_uvs, depth, inverse_camera_view_proj);
+
+//     {
+//         const float angle = max(acos(dot(normalize(left_world_space - point_ws), normalize(right_world_space - point_ws))), 0.001f);
+//         const float texels_per_radiant = float(VSM_TEXTURE_RESOLUTION) / (0.5f * 3.1415f);
+//         const float texels_covering_angle = angle * texels_per_radiant;
+//         const float mip_level = max(0.0f, ceil(log2(texels_covering_angle)));
+//         // return float4(0.0f, angle, face_idx, mip_level);
+//         return float4(angle.xxx, mip_level);
+//     }
+//     {
+//         // const float4x4 point_view_projection = mul(vsm_globals->point_light_projection_matrix, point_lights[point_light_idx].view_matrices[face_idx]);
+
+//         // const float4 point_left_side_cs = mul(point_view_projection, float4(left_world_space, 1.0f));
+//         // const float4 point_right_side_cs = mul(point_view_projection, float4(right_world_space, 1.0f));
+
+//         // const float2 point_left_ndc = point_left_side_cs.xy / point_left_side_cs.w;
+//         // const float2 point_right_ndc = point_right_side_cs.xy / point_right_side_cs.w;
+
+//         // const float point_uv_dist = length(point_left_ndc - point_right_ndc) / 2.0f; // ndc is twice as large as uvs
+//         // const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+//         // const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
+
+//         // const float2 middle_ndc = point_left_ndc * 0.5f + point_right_ndc * 0.5f;
+//         // const float2 middle_uv = (middle_ndc + 1.0f) * 0.5f;
+//         // const int2 point_texel_xy = int2(((point_left_ndc + 1.0f) * 0.5f) * (VSM_PAGE_TABLE_RESOLUTION / (2 << mip_level)));
+//         // return float4(point_texel_dist.xxx, mip_level);
+//     }
+
+// }
+#endif

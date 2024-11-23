@@ -51,18 +51,21 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_t
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
+#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, depth)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_page_view_pos_row)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
+#endif
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
@@ -232,7 +235,8 @@ inline daxa::ComputePipelineCompileInfo vsm_mark_required_pages_pipeline_compile
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.glsl"}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
         .push_constant_size = static_cast<u32>(sizeof(MarkRequiredPagesH::AttachmentShaderBlob)),
         .name = std::string{MarkRequiredPagesH::NAME},
     };
@@ -711,6 +715,12 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
+    auto const vsm_point_page_table_view = info.vsm_state->point_page_tables.view().view({
+        .base_mip_level = 0,
+        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+        .base_array_layer = 0,
+        .layer_count = 6,
+    });
     info.tg->add_task(MarkRequiredPagesTask{
         .views = std::array{
             daxa::attachment_view(MarkRequiredPagesH::AT.globals, info.render_context->tgpu_render_data),
@@ -723,6 +733,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
+            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_point_page_table, vsm_point_page_table_view)
         },
         .render_context = info.render_context,
     });
@@ -1049,6 +1060,48 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
             auto const ndc_pos = glm::vec4(offsets[i], i < 4 ? 0.0f : 1.0f, 1.0f);
             auto const world_pos = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * ndc_pos;
             box_draw.vertices[i] = {world_pos.x, world_pos.y, world_pos.z};
+        }
+        info.debug_context->cpu_debug_box_draws.push_back(box_draw);
+    }
+}
+
+struct DebugDrawPointFrusiInfo
+{
+    VSMPointLight const * light;
+    VSMState const * state;
+    ShaderDebugDrawContext * debug_context;
+};
+
+inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
+{
+    auto hsv2rgb = [](f32vec3 c) -> f32vec3
+    {
+        f32vec4 k = f32vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+        f32vec3 p = f32vec3(
+            std::abs(glm::fract(c.x + k.x) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.y) * 6.0 - k.w),
+            std::abs(glm::fract(c.x + k.z) * 6.0 - k.w));
+        return c.z * glm::mix(f32vec3(k.x), glm::clamp(p - f32vec3(k.x), f32vec3(0.0), f32vec3(1.0)), f32vec3(c.y));
+    };
+    static constexpr std::array offsets = {
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
+
+    auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
+
+    for (i32 cube_face = 0; cube_face < 6; ++cube_face)
+    {
+        auto const inverse_view = info.light->inverse_view_matrices[cube_face];
+        ShaderDebugBoxDraw box_draw = {};
+        box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face/ 6.0f, 1.0f, 1.0f)));
+        for (i32 vertex = 0; vertex < 8; vertex++)
+        {
+            auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);
+            auto const view_pos_unproj = inverse_projection * ndc_pos;
+            auto const view_pos = glm::vec3(view_pos_unproj.x, view_pos_unproj.y, view_pos_unproj.z) / view_pos_unproj.w;
+            auto const world_pos = inverse_view * glm::vec4(view_pos, 1.0f);
+            box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
         }
         info.debug_context->cpu_debug_box_draws.push_back(box_draw);
     }

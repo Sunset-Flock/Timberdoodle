@@ -200,6 +200,11 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             i32 forced_clip_level = render_context.render_data.vsm_settings.forced_clip_level;
             ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
             ImGui::EndDisabled();
+
+            ImGui::InputInt("Debug cubemap face", &render_context.debug_frustum);
+            ImGui::Checkbox("Visualize point frustum", &render_context.visualize_frustum);
+            render_context.debug_frustum = glm::clamp(render_context.debug_frustum, -1, 5);
+
             render_context.render_data.vsm_settings.enable = enable;
             render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
             render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
@@ -235,24 +240,6 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (widget_renderer_statistics)
     {
-        perf_sample_count += 1;
-        auto get_exec_time_from_timestamp = [&render_context](u32 timestamp_start_index) -> u64
-        {
-            // Timestamps ready
-            if (render_context.vsm_timestamp_results.at(timestamp_start_index + 1) != 0u &&
-                render_context.vsm_timestamp_results.at(timestamp_start_index + 3) != 0u)
-            {
-                auto const end_timestamp = render_context.vsm_timestamp_results.at(timestamp_start_index + 2);
-                auto const start_timestamp = render_context.vsm_timestamp_results.at(timestamp_start_index);
-                return end_timestamp - start_timestamp;
-            }
-            else
-            {
-                DEBUG_MSG(fmt::format("[WARN] Unwritten timestamp {}", timestamp_start_index));
-                return 0ull;
-            }
-        };
-
         static float t = 0;
         t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
         bool auto_reset_timings = false;
@@ -1190,6 +1177,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
                 "ENTITY_ID",
                 "VSM_OVERDRAW",
                 "VSM_CLIP_LEVEL",
+                "VSM_POINT_MIP_LEVEL",
                 "DEPTH",
                 "ALBEDO",
                 "NORMAL",

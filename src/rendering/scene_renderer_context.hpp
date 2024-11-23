@@ -464,7 +464,8 @@ struct RenderContext
     VSMSettings prev_vsm_settings = {};
     RenderGlobalData render_data = {};
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
-    std::vector<u64> vsm_timestamp_results = {};
+    i32 debug_frustum = {-1};
+    bool visualize_frustum = {};
 
     // Timing code:
     RenderTimes::State render_times = {};

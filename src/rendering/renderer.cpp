@@ -501,6 +501,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.meta_memory_table);
     tg.use_persistent_image(vsm_state.page_table);
     tg.use_persistent_image(vsm_state.page_view_pos_row);
+    tg.use_persistent_image(vsm_state.point_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
@@ -688,6 +689,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
+            ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
         },
         .render_context = render_context.get(),
     });
@@ -829,10 +831,21 @@ void Renderer::render_frame(
             }
         }
 
+        vsm_state.update_vsm_lights(scene->_active_point_lights);
+        CameraInfo tmp = camera_info;
+        if(render_context->debug_frustum >= 0) {
+            tmp.position = scene->_active_point_lights.at(0).position;
+            tmp.view = vsm_state.point_lights_cpu.at(0).view_matrices[render_context->debug_frustum];
+            tmp.inv_view = vsm_state.point_lights_cpu.at(0).inverse_view_matrices[render_context->debug_frustum];
+            tmp.proj = vsm_state.globals_cpu.point_light_projection_matrix;
+            tmp.inv_proj = vsm_state.globals_cpu.inverse_point_light_projection_matrix;
+            tmp.view_proj = tmp.proj * tmp.view;
+            tmp.inv_view_proj = glm::inverse(tmp.view_proj);
+        }
         // Set Render Data.
         render_context->render_data.camera_prev_frame = render_context->render_data.camera;
         render_context->render_data.observer_camera_prev_frame = render_context->render_data.observer_camera;
-        render_context->render_data.camera = camera_info;
+        render_context->render_data.camera = tmp;
         render_context->render_data.observer_camera = observer_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
         render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
@@ -909,6 +922,13 @@ void Renderer::render_frame(
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
     vsm_state.update_vsm_lights(scene->_active_point_lights);
+    if(render_context->visualize_frustum){
+        debug_draw_point_frusti(DebugDrawPointFrusiInfo{
+            .light = &vsm_state.point_lights_cpu.at(0),
+            .state = &vsm_state,
+            .debug_context = &gpu_context->shader_debug_context,
+        });
+    }
 
     debug_draw_clip_fusti(DebugDrawClipFrustiInfo{
         .proj_info = &vsm_projections_info,

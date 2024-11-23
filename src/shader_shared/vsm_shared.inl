@@ -32,6 +32,7 @@ struct VSMGlobals
     daxa_f32 clip_0_texel_world_size;
     int force_clip_level;
     glmsf32mat4 point_light_projection_matrix;
+    glmsf32mat4 inverse_point_light_projection_matrix;
 };
 DAXA_DECL_BUFFER_PTR(VSMGlobals)
 
@@ -53,7 +54,11 @@ DAXA_DECL_BUFFER_PTR(AllocationCount)
 struct AllocationRequest
 {
     daxa_i32vec3 coords;
+    // Is this page only being invalidated and requests redraw?
     daxa_u32 already_allocated;
+    // TODO(msakmary) pack those ? move them into separate alloc request? idk...
+    daxa_i32 point_light_index;
+    daxa_i32 point_light_mip;
 };
 DAXA_DECL_BUFFER_PTR(AllocationRequest)
 
@@ -80,7 +85,8 @@ DAXA_DECL_BUFFER_PTR(FreeWrappedPagesInfo)
 struct VSMPointLight
 {
     daxa_ImageViewId page_table;
-    glmsf32mat4 point_light_view_matrix[6];
+    glmsf32mat4 view_matrices[6];
+    glmsf32mat4 inverse_view_matrices[6];
     daxa_BufferPtr(GPUPointLight) light;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(VSMPointLight, 8);
