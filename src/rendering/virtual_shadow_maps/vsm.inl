@@ -54,8 +54,7 @@ DAXA_DECL_TASK_HEAD_END
 #if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
@@ -82,15 +81,14 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct),
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(AllocatePagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_pages_header)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PageCoordBuffer), vsm_free_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PageCoordBuffer), vsm_not_visited_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_indirect)
@@ -101,7 +99,7 @@ DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearPagesH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
@@ -185,8 +183,7 @@ struct GenDirtyBitHizPush
 #endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationRequest), vsm_allocation_requests)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(AllocationCount), vsm_allocation_count)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_DECL_TASK_HEAD_END
@@ -725,7 +722,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .views = std::array{
             daxa::attachment_view(MarkRequiredPagesH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
             daxa::attachment_view(MarkRequiredPagesH::AT.depth, info.depth),
@@ -747,7 +743,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(FindFreePagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(FindFreePagesH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
             daxa::attachment_view(FindFreePagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
+            daxa::attachment_view(FindFreePagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(FindFreePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
         },
         .render_context = info.render_context,
@@ -757,7 +753,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .views = std::array{
             daxa::attachment_view(AllocatePagesH::AT.vsm_find_free_pages_header, info.vsm_state->find_free_pages_header),
             daxa::attachment_view(AllocatePagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
             daxa::attachment_view(AllocatePagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(AllocatePagesH::AT.vsm_free_pages_buffer, info.vsm_state->free_page_buffer),
             daxa::attachment_view(AllocatePagesH::AT.vsm_not_visited_pages_buffer, info.vsm_state->not_visited_page_buffer),
@@ -892,7 +887,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     info.tg->add_task(ClearDirtyBitTask{
         .views = std::array{
             daxa::attachment_view(ClearDirtyBitH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(ClearDirtyBitH::AT.vsm_allocation_count, info.vsm_state->allocation_count),
             daxa::attachment_view(ClearDirtyBitH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
             daxa::attachment_view(ClearDirtyBitH::AT.vsm_page_table, vsm_page_table_view),
         },

@@ -22,13 +22,13 @@ void main()
     FindFreePagesHeader header = deref(push.vsm_find_free_pages_header);
 
     const int id = int((gl_GlobalInvocationID.z * ALLOCATE_PAGES_X_DISPATCH) + gl_LocalInvocationID.x);
-    if(id >= deref(push.vsm_allocation_count).count) { return; }
+    if(id >= deref(push.vsm_allocation_requests).counter) { return; }
 
     const int free_shifted_id = id - int(header.free_buffer_counter);
 
-    const ivec3 alloc_request_page_coords = deref_i(push.vsm_allocation_requests, id).coords;
-    const bool allocated = deref_i(push.vsm_allocation_requests, id).already_allocated != 0;
-    if(deref_i(push.vsm_allocation_requests, id).point_light_index != -1) { return; }
+    const ivec3 alloc_request_page_coords = deref(push.vsm_allocation_requests).requests[id].coords;
+    const bool allocated = deref(push.vsm_allocation_requests).requests[id].already_allocated != 0;
+    if(deref(push.vsm_allocation_requests).requests[id].point_light_index != -1) { return; }
 
     const vec3 current_camera_position = deref_i(push.vsm_clip_projections, alloc_request_page_coords.z).camera.view[3].xyz;
     if(!allocated)

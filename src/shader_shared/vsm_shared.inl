@@ -45,12 +45,6 @@ struct VSMClipProjection
 };
 DAXA_DECL_BUFFER_PTR(VSMClipProjection)
 
-struct AllocationCount
-{
-    daxa_u32 count;
-};
-DAXA_DECL_BUFFER_PTR(AllocationCount)
-
 struct AllocationRequest
 {
     daxa_i32vec3 coords;
@@ -60,7 +54,12 @@ struct AllocationRequest
     daxa_i32 point_light_index;
     daxa_i32 point_light_mip;
 };
-DAXA_DECL_BUFFER_PTR(AllocationRequest)
+struct VSMAllocationRequestsHeader
+{
+    daxa_u32 counter;
+    AllocationRequest requests[MAX_VSM_ALLOC_REQUESTS];
+};
+DAXA_DECL_BUFFER_PTR(VSMAllocationRequestsHeader)
 
 struct PageCoordBuffer
 {

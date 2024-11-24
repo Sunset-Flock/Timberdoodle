@@ -10,7 +10,7 @@ void main()
     uint vsm_page_entry = 0;
     if(gl_SubgroupInvocationID == 0)
     {
-        const ivec3 alloc_request_page_coords = deref_i(push.attachments.vsm_allocation_requests, gl_GlobalInvocationID.z).coords;
+        const ivec3 alloc_request_page_coords = deref(push.attachments.vsm_allocation_requests).requests[gl_GlobalInvocationID.z].coords;
         vsm_page_entry = imageLoad(daxa_uimage2DArray(push.attachments.vsm_page_table), alloc_request_page_coords).r;
         const uint vsm_page_entry_marked_dirty = vsm_page_entry | dirty_mask();
         imageStore(daxa_uimage2DArray(push.attachments.vsm_page_table), alloc_request_page_coords, daxa_u32vec4(vsm_page_entry_marked_dirty));

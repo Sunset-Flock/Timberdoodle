@@ -111,10 +111,10 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
             {
                 uint allocation_index;
-                InterlockedAdd(mark_pages_push.vsm_allocation_count->count, 1u, allocation_index);
+                InterlockedAdd(mark_pages_push.vsm_allocation_requests->counter, 1u, allocation_index);
                 if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
                 {
-                    mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u, -1, -1);
+                    mark_pages_push.vsm_allocation_requests->requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u, -1, -1);
                 }
             }
             else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))

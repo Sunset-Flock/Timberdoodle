@@ -22,7 +22,6 @@ struct VSMState
 
     // Transient state
     daxa::TaskBufferView vsm_point_lights = {};
-    daxa::TaskBufferView allocation_count = {};
     daxa::TaskBufferView allocation_requests = {};
     daxa::TaskBufferView free_wrapped_pages_info = {};
     daxa::TaskBufferView free_page_buffer = {};
@@ -280,13 +279,8 @@ struct VSMState
             .name = "vsm free wrapped pages info",
         });
 
-        allocation_count = tg.create_transient_buffer({
-            .size = static_cast<daxa_u32>(sizeof(AllocationCount)),
-            .name = "vsm allocation count",
-        });
-
         allocation_requests = tg.create_transient_buffer({
-            .size = static_cast<daxa_u32>(sizeof(AllocationRequest) * MAX_VSM_ALLOC_REQUESTS),
+            .size = static_cast<daxa_u32>(sizeof(VSMAllocationRequestsHeader)),
             .name = "vsm allocation requests",
         });
 
@@ -352,14 +346,13 @@ struct VSMState
             }); 
         }
 
-        tg.clear_buffer({.buffer = allocation_count, .clear_value = 0});
+        tg.clear_buffer({.buffer = allocation_requests, .clear_value = 0});
         tg.clear_buffer({.buffer = find_free_pages_header, .clear_value = 0});
     }
 
     void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
     {
         free_wrapped_pages_info = daxa::NullTaskBuffer;
-        allocation_count = daxa::NullTaskBuffer;
         allocation_requests = daxa::NullTaskBuffer;
         free_page_buffer = daxa::NullTaskBuffer;
         not_visited_page_buffer = daxa::NullTaskBuffer;
