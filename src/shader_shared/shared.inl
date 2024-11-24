@@ -138,7 +138,7 @@ struct VSMSettings
           enable_caching{ 1 },
           forced_clip_level{ 0 },
           clip_0_frustum_scale{2.0f},
-          clip_selection_bias{0.3f},
+          clip_selection_bias{1.0f},
           slope_bias{2.0f},
           constant_bias{10.0f},
           fixed_near_far{1}
