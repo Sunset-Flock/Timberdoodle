@@ -814,9 +814,7 @@ bool get_meshlet_instance_from_workitem(
     if (valid_meshlet)
     {
         MeshInstance mesh_instance = mesh_instances.instances[workitem.src_item_index];
-        // TODO(pahrens): we always select lod 0 here
-        const uint lod = 0;
-        const uint mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + lod;
+        const uint mesh_index = mesh_instance.mesh_index;
         GPUMesh mesh = meshes[mesh_index];    
         if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
         {

@@ -19,7 +19,7 @@ void main(uint thread_id : SV_DispatchThreadID)
     }
     MeshInstance mesh_instance = deref_i(deref(push.attach.mesh_instances).instances, mesh_instance_index);
     const uint mesh_lod = 0;
-    const uint mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + mesh_lod;
+    const uint mesh_index = mesh_instance.mesh_index;
 
     uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
     GPUMesh mesh = deref_i(push.attach.meshes, mesh_index);

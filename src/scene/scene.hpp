@@ -292,6 +292,6 @@ struct Scene
     std::vector<RenderEntityId> blas_build_requests = {};
     daxa::TaskBuffer mesh_instances_buffer = {};
     bool entities_changed = {};
-    auto process_entities() -> CPUMeshInstances;
+    auto process_entities(Settings & settings) -> CPUMeshInstances;
     void write_gpu_mesh_instances_buffer(CPUMeshInstances && mesh_instances);
 };

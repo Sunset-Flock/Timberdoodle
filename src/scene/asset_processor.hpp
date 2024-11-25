@@ -116,7 +116,7 @@ struct AssetProcessor
     struct MeshLodGroupUploadInfo
     {
         // TODO: replace with buffer offset into staging memory.
-        daxa::BufferId staging_buffer = {};
+        std::array<daxa::BufferId, MAX_MESHES_PER_LOD_GROUP> staging_buffers = {};
 
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
         u32 lod_count = {};

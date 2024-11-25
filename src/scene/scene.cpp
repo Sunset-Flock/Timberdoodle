@@ -1524,7 +1524,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     return recorder.complete_current_commands();
 }
 
-auto Scene::process_entities() -> CPUMeshInstances
+auto Scene::process_entities(Settings & settings) -> CPUMeshInstances
 {
     // Go over all entities every frame.
     // Check if entity changed, if so, queue appropriate update events.
@@ -1578,10 +1578,18 @@ auto Scene::process_entities() -> CPUMeshInstances
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
                     if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
 
+                    // Select LOD
+                    u32 lod = 0;
+                    if (settings.lod_override >= 0)
+                    {
+                        lod = std::min(static_cast<u32>(settings.lod_override), mesh_lod_group.runtime->lod_count - 1u);
+                    }
+                    u32 mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP + lod;
+
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({
                         .entity_index = entity_i,
-                        .mesh_lod_group_index = mesh_lod_group_manifest_index,
+                        .mesh_index = mesh_index,
                         .in_mesh_group_index = in_mesh_group_index,
                         .flags = s_cast<daxa_u32>(is_alpha_discard ? MESH_INSTANCE_FLAG_MASKED : MESH_INSTANCE_FLAG_OPAQUE),
                     });

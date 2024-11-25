@@ -15,9 +15,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
     {
         const uint mesh_instance_idx = push.mesh_instances.vsm_invalidate_draw_list.instances[svdtid.x];
         let mesh_instance = push.mesh_instances.instances[mesh_instance_idx];
-        // TODO(pahrens): we always select lod 0 here.
-        const uint lod = 0;
-        const uint mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + lod;
+        const uint mesh_index = mesh_instance.mesh_index;
         let mesh = push.meshes[mesh_index];
 
         let cascade_camera = push.vsm_clip_projections[svdtid.z].camera;

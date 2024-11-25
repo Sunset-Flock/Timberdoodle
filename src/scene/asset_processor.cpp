@@ -129,7 +129,7 @@ struct ParsedImageData
     daxa::BufferId src_buffer = {};
     daxa::ImageId dst_image = {};
     u32 mips_to_copy = {};
-    std::array<u32,16> mip_copy_offsets = {};
+    std::array<u32, 16> mip_copy_offsets = {};
     bool compressed_bc5_rg = {};
 };
 
@@ -343,8 +343,9 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM;
     }
     u32 bits_per_pixel = FreeImage_GetBPP(image_bitmap);
-    if (bits_per_pixel != 32 && bits_per_pixel != 24) {
-        auto *temp = FreeImage_ConvertTo32Bits(image_bitmap);
+    if (bits_per_pixel != 32 && bits_per_pixel != 24)
+    {
+        auto * temp = FreeImage_ConvertTo32Bits(image_bitmap);
         FreeImage_Unload(image_bitmap);
         image_bitmap = temp;
         bits_per_pixel = 32;
@@ -432,17 +433,17 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     ktx_transcode_fmt_e transcode_format;
     switch (type)
     {
-        case TextureMaterialType::NORMAL: transcode_format = KTX_TTF_BC5_RG; break;
+        case TextureMaterialType::NORMAL:          transcode_format = KTX_TTF_BC5_RG; break;
         case TextureMaterialType::DIFFUSE_OPACITY: transcode_format = KTX_TTF_BC4_R; break;
-        default: transcode_format = KTX_TTF_BC7_RGBA; break;
+        default:                                   transcode_format = KTX_TTF_BC7_RGBA; break;
     }
 
-    ktxTexture2* texture;
+    ktxTexture2 * texture;
     KTX_error_code result;
     ktx_size_t offset;
-    
+
     result = ktxTexture2_CreateFromMemory(
-        r_cast<ktx_uint8_t*>(raw_data.raw_data.data()),
+        r_cast<ktx_uint8_t *>(raw_data.raw_data.data()),
         raw_data.raw_data.size(),
         KTX_TEXTURE_CREATE_LOAD_IMAGE_DATA_BIT,
         &texture);
@@ -450,7 +451,10 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
-    defer{ktxTexture_Destroy(ktxTexture(texture));};
+    defer
+    {
+        ktxTexture_Destroy(ktxTexture(texture));
+    };
 
     ktx_transcode_flags flags = KTX_TF_HIGH_QUALITY;
     flags |= type == TextureMaterialType::DIFFUSE_OPACITY ? KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS : 0u;
@@ -459,7 +463,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
-    
+
     u32 const numLevels = texture->numLevels;
     u32 const numLayers = texture->numLayers;
     u32 const baseWidth = texture->baseWidth;
@@ -471,11 +475,11 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     ParsedImageData ret = {};
     daxa::BufferId staging = device.create_buffer({
         .size = texture->dataSize,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,  // Host local memory.
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // Host local memory.
         .name = raw_data.image_path.string() + " staging",
     });
-    std::byte* staging_ptr = device.buffer_host_address(staging).value();
-    ktx_uint8_t* image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
+    std::byte * staging_ptr = device.buffer_host_address(staging).value();
+    ktx_uint8_t * image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
     daxa::Format const format = std::bit_cast<daxa::Format>(texture->vkFormat);
     daxa::ImageId image_id = device.create_image({
         .flags = {},
@@ -530,7 +534,7 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
-auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb)-> NonmanifestLoadRet
+auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb) -> NonmanifestLoadRet
 {
     RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
     if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
@@ -612,7 +616,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
         parsed_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, info.texture_material_type);
-        if(info.texture_material_type == TextureMaterialType::DIFFUSE)
+        if (info.texture_material_type == TextureMaterialType::DIFFUSE)
         {
             opaque_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, TextureMaterialType::DIFFUSE_OPACITY);
         }
@@ -638,7 +642,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
             .texture_manifest_index = info.texture_manifest_index,
             .compressed_bc5_rg = parsed_data.compressed_bc5_rg,
         });
-        if(opaque_data)
+        if (opaque_data)
         {
             _upload_texture_queue.push_back(LoadedTextureInfo{
                 .staging_buffer = opaque_data->src_buffer,
@@ -765,7 +769,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return *err;
     }
-    std::vector<u32> index_buffer = std::get<std::vector<u32>>(std::move(index_buffer_data));
+    std::vector<u32> lod0_index_buffer = std::get<std::vector<u32>>(std::move(index_buffer_data));
 #pragma endregion
 
 /// NOTE: Load vertex positions
@@ -811,7 +815,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
     std::vector<glm::vec2> vert_texcoord0;
-    if(has_uv)
+    if (has_uv)
     {
         auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
         if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&vertex_texcoord0_pos_result))
@@ -851,7 +855,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     DBG_ASSERT_TRUE_M(vert_normals.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
-
     /// NOTE: Generate meshlets:
     constexpr usize MAX_VERTICES = MAX_VERTICES_PER_MESHLET;
     constexpr usize MAX_TRIANGLES = MAX_TRIANGLES_PER_MESHLET;
@@ -859,186 +862,224 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     constexpr float CONE_WEIGHT = 1.0f;
     // TODO: Make this optimization optional!
     {
-        std::vector<u32> optimized_indices(index_buffer.size());
-        meshopt_optimizeVertexCache(optimized_indices.data(), index_buffer.data(), index_buffer.size(), vertex_count);
-        index_buffer = std::move(optimized_indices);
+        std::vector<u32> optimized_indices(lod0_index_buffer.size());
+        meshopt_optimizeVertexCache(optimized_indices.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), vertex_count);
+        lod0_index_buffer = std::move(optimized_indices);
     }
-    size_t max_meshlets = meshopt_buildMeshletsBound(index_buffer.size(), MAX_VERTICES, MAX_TRIANGLES);
-    std::vector<meshopt_Meshlet> meshlets(max_meshlets);
-    std::vector<u32> meshlet_indirect_vertices(max_meshlets * MAX_VERTICES);
-    std::vector<u8> meshlet_micro_indices(max_meshlets * MAX_TRIANGLES * 3);
-    size_t meshlet_count = meshopt_buildMeshlets(
-        meshlets.data(),
-        meshlet_indirect_vertices.data(),
-        meshlet_micro_indices.data(),
-        index_buffer.data(),
-        index_buffer.size(),
-        r_cast<float *>(vert_positions.data()),
-        s_cast<usize>(vertex_count),
-        sizeof(glm::vec3),
-        MAX_VERTICES,
-        MAX_TRIANGLES,
-        CONE_WEIGHT);
-    // TODO: Compute OBBs
-    std::vector<BoundingSphere> meshlet_bounds(meshlet_count);
-    std::vector<AABB> meshlet_aabbs(meshlet_count);
-    glm::vec3 mesh_min_pos;
-    glm::vec3 mesh_max_pos;
-    for (size_t meshlet_i = 0; meshlet_i < meshlet_count; ++meshlet_i)
+
+    std::array<daxa::BufferId, MAX_MESHES_PER_LOD_GROUP> staging_buffers = {};
+    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+    u32 lod_count = 0;
+
+    std::vector<daxa::u32> prev_lod_index_buffer = {};
+    for (u32 lod = 0; lod < MAX_MESHES_PER_LOD_GROUP; ++lod)
     {
-        meshopt_Bounds raw_bounds = meshopt_computeMeshletBounds(
-            &meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset],
-            &meshlet_micro_indices[meshlets[meshlet_i].triangle_offset],
-            meshlets[meshlet_i].triangle_count,
+        std::vector<u32> simplified_indices = {};
+        std::vector<u32> * index_buffer = {};
+        if (lod == 0)
+        {
+            index_buffer = &lod0_index_buffer;
+        }
+        else
+        {
+            const u32 lod_index_count = round_up_div(prev_lod_index_buffer.size(), 3 * 2) * 3u;
+            simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
+            index_buffer = &simplified_indices;
+            f32 target_error = 0.05f;
+            f32 max_acceptable_error = 0.10f;
+            // TODO: Only enable this for meshes that really need it!
+            // It completely prevents foliage optimization and we desperately need foliage optimization!
+            // It worsenes performance a lot
+            // It should only be on for things that need it like street tiles or planes.
+            u32 options = meshopt_SimplifyLockBorder;
+            f32 result_error = {};
+            i32 result_index_count = meshopt_simplify(index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
+            if (result_index_count > lod_index_count || result_index_count < 32 || result_error > max_acceptable_error)
+            {
+                break;
+            }
+            index_buffer->resize(result_index_count);
+        }
+        prev_lod_index_buffer = *index_buffer;
+
+        size_t max_meshlets = meshopt_buildMeshletsBound(index_buffer->size(), MAX_VERTICES, MAX_TRIANGLES);
+        std::vector<meshopt_Meshlet> meshlets(max_meshlets);
+        std::vector<u32> meshlet_indirect_vertices(max_meshlets * MAX_VERTICES);
+        std::vector<u8> meshlet_micro_indices(max_meshlets * MAX_TRIANGLES * 3);
+        size_t meshlet_count = meshopt_buildMeshlets(
+            meshlets.data(),
+            meshlet_indirect_vertices.data(),
+            meshlet_micro_indices.data(),
+            index_buffer->data(),
+            index_buffer->size(),
             r_cast<float *>(vert_positions.data()),
             s_cast<usize>(vertex_count),
-            sizeof(glm::vec3));
-        meshlet_bounds[meshlet_i].center.x = raw_bounds.center[0];
-        meshlet_bounds[meshlet_i].center.y = raw_bounds.center[1];
-        meshlet_bounds[meshlet_i].center.z = raw_bounds.center[2];
-        meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
-
-        glm::vec3 min_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
-        glm::vec3 max_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
-
-        if (meshlet_i == 0)
+            sizeof(glm::vec3),
+            MAX_VERTICES,
+            MAX_TRIANGLES,
+            CONE_WEIGHT);
+        // TODO: Compute OBBs
+        std::vector<BoundingSphere> meshlet_bounds(meshlet_count);
+        std::vector<AABB> meshlet_aabbs(meshlet_count);
+        glm::vec3 mesh_min_pos;
+        glm::vec3 mesh_max_pos;
+        for (size_t meshlet_i = 0; meshlet_i < meshlet_count; ++meshlet_i)
         {
-            mesh_min_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
-            mesh_max_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
-        }
+            meshopt_Bounds raw_bounds = meshopt_computeMeshletBounds(
+                &meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset],
+                &meshlet_micro_indices[meshlets[meshlet_i].triangle_offset],
+                meshlets[meshlet_i].triangle_count,
+                r_cast<float *>(vert_positions.data()),
+                s_cast<usize>(vertex_count),
+                sizeof(glm::vec3));
+            meshlet_bounds[meshlet_i].center.x = raw_bounds.center[0];
+            meshlet_bounds[meshlet_i].center.y = raw_bounds.center[1];
+            meshlet_bounds[meshlet_i].center.z = raw_bounds.center[2];
+            meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
 
-        for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
+            glm::vec3 min_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+            glm::vec3 max_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+
+            if (meshlet_i == 0)
+            {
+                mesh_min_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+                mesh_max_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+            }
+
+            for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
+            {
+                glm::vec3 pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
+                min_pos = glm::min(min_pos, pos);
+                max_pos = glm::max(max_pos, pos);
+            }
+            mesh_min_pos = glm::min(mesh_min_pos, min_pos);
+            mesh_max_pos = glm::max(mesh_max_pos, max_pos);
+
+            meshlet_aabbs[meshlet_i].center = std::bit_cast<daxa_f32vec3>((max_pos + min_pos) * 0.5f);
+            meshlet_aabbs[meshlet_i].size = std::bit_cast<daxa_f32vec3>(max_pos - min_pos);
+        }
+        AABB mesh_aabb;
+        mesh_aabb.center = std::bit_cast<daxa_f32vec3>((mesh_max_pos + mesh_min_pos) * 0.5f);
+        mesh_aabb.size = std::bit_cast<daxa_f32vec3>(mesh_max_pos - mesh_min_pos);
+        // Trimm array sizes.
+        meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
+        meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
+        meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
+        meshlets.resize(meshlet_count);
+
+        u32 const total_mesh_buffer_size =
+            sizeof(Meshlet) * meshlet_count +
+            sizeof(BoundingSphere) * meshlet_count +
+            sizeof(AABB) * meshlet_count +
+            sizeof(u8) * meshlet_micro_indices.size() +
+            sizeof(u32) * meshlet_indirect_vertices.size() +
+            sizeof(u32) * index_buffer->size() +
+            sizeof(daxa_f32vec3) * vert_positions.size() +
+            sizeof(daxa_f32vec2) * vert_texcoord0.size() +
+            sizeof(daxa_f32vec3) * vert_normals.size();
+
+        /// NOTE: Fill GPUMesh runtime data
+        GPUMesh mesh = {};
+
+        mesh.aabb = mesh_aabb;
+        daxa::DeviceAddress mesh_bda = {};
+        daxa::BufferId staging_buffer = {};
         {
-            glm::vec3 pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
-            min_pos = glm::min(min_pos, pos);
-            max_pos = glm::max(max_pos, pos);
+            mesh.mesh_buffer = _device.create_buffer({
+                .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+                .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
+            });
+            mesh_bda = _device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
+
+            staging_buffer = _device.create_buffer({
+                .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+                .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
+            });
         }
-        mesh_min_pos = glm::min(mesh_min_pos, min_pos);
-        mesh_max_pos = glm::max(mesh_max_pos, max_pos);
+        auto staging_ptr = _device.buffer_host_address(staging_buffer).value();
 
-        meshlet_aabbs[meshlet_i].center = std::bit_cast<daxa_f32vec3>( (max_pos + min_pos) * 0.5f );
-        meshlet_aabbs[meshlet_i].size = std::bit_cast<daxa_f32vec3>( max_pos - min_pos );
+        u32 accumulated_offset = 0;
+        // ---
+        mesh.meshlets = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            meshlets.data(),
+            meshlets.size() * sizeof(Meshlet));
+        accumulated_offset += sizeof(Meshlet) * meshlet_count;
+        // ---
+        mesh.meshlet_bounds = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            meshlet_bounds.data(),
+            meshlet_bounds.size() * sizeof(BoundingSphere));
+        accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
+        // ---
+        mesh.meshlet_aabbs = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            meshlet_aabbs.data(),
+            meshlet_aabbs.size() * sizeof(AABB));
+        accumulated_offset += sizeof(AABB) * meshlet_count;
+        // ---
+        DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Thats crazy");
+        mesh.micro_indices = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            meshlet_micro_indices.data(),
+            meshlet_micro_indices.size() * sizeof(u8));
+        accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
+        // ---
+        mesh.indirect_vertices = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            meshlet_indirect_vertices.data(),
+            meshlet_indirect_vertices.size() * sizeof(u32));
+        accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
+        // ---
+        mesh.primitive_indices = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            index_buffer->data(),
+            index_buffer->size() * sizeof(daxa_u32));
+        accumulated_offset += sizeof(daxa_u32) * index_buffer->size();
+        // ---
+        mesh.vertex_positions = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            vert_positions.data(),
+            vert_positions.size() * sizeof(daxa_f32vec3));
+        accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
+        // ---
+        mesh.vertex_uvs = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            vert_texcoord0.data(),
+            vert_texcoord0.size() * sizeof(daxa_f32vec2));
+        accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
+        // ---
+        mesh.vertex_normals = mesh_bda + accumulated_offset;
+        std::memcpy(
+            staging_ptr + accumulated_offset,
+            vert_normals.data(),
+            vert_normals.size() * sizeof(daxa_f32vec3));
+        accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
+        // ---
+        mesh.material_index = info.material_manifest_index;
+        mesh.meshlet_count = meshlet_count;
+        mesh.vertex_count = vertex_count;
+        mesh.primitive_count = index_buffer->size() / 3;
+
+        lods[lod] = mesh;
+        staging_buffers[lod] = staging_buffer;
+        lod_count += 1;
     }
-    AABB mesh_aabb;
-    mesh_aabb.center = std::bit_cast<daxa_f32vec3>( (mesh_max_pos + mesh_min_pos) * 0.5f );
-    mesh_aabb.size = std::bit_cast<daxa_f32vec3>( mesh_max_pos - mesh_min_pos );
-    // Trimm array sizes.
-    meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
-    meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
-    meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
-    meshlets.resize(meshlet_count);
-
-    u32 const total_mesh_buffer_size =
-        sizeof(Meshlet) * meshlet_count +
-        sizeof(BoundingSphere) * meshlet_count +
-        sizeof(AABB) * meshlet_count +
-        sizeof(u8) * meshlet_micro_indices.size() +
-        sizeof(u32) * meshlet_indirect_vertices.size() +
-        sizeof(u32) * index_buffer.size() +
-        sizeof(daxa_f32vec3) * vert_positions.size() +
-        sizeof(daxa_f32vec2) * vert_texcoord0.size() +
-        sizeof(daxa_f32vec3) * vert_normals.size();
-
-    /// NOTE: Fill GPUMesh runtime data
-    GPUMesh mesh = {};
-
-    mesh.aabb = mesh_aabb;
-    daxa::DeviceAddress mesh_bda = {};
-    daxa::BufferId staging_buffer = {};
-    {
-        mesh.mesh_buffer = _device.create_buffer({
-            .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-            .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
-        });
-        mesh_bda = _device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
-
-        staging_buffer = _device.create_buffer({
-            .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-            .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
-        });
-    }
-    auto staging_ptr = _device.buffer_host_address(staging_buffer).value();
-
-    u32 accumulated_offset = 0;
-    // ---
-    mesh.meshlets = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        meshlets.data(),
-        meshlets.size() * sizeof(Meshlet));
-    accumulated_offset += sizeof(Meshlet) * meshlet_count;
-    // ---
-    mesh.meshlet_bounds = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        meshlet_bounds.data(),
-        meshlet_bounds.size() * sizeof(BoundingSphere));
-    accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
-    // ---
-    mesh.meshlet_aabbs = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        meshlet_aabbs.data(),
-        meshlet_aabbs.size() * sizeof(AABB));
-    accumulated_offset += sizeof(AABB) * meshlet_count;
-    // ---
-    DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Thats crazy");
-    mesh.micro_indices = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        meshlet_micro_indices.data(),
-        meshlet_micro_indices.size() * sizeof(u8));
-    accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
-    // ---
-    mesh.indirect_vertices = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        meshlet_indirect_vertices.data(),
-        meshlet_indirect_vertices.size() * sizeof(u32));
-    accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
-    // ---
-    mesh.primitive_indices = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        index_buffer.data(),
-        index_buffer.size() * sizeof(daxa_u32));
-    accumulated_offset += sizeof(daxa_u32) * index_buffer.size();
-    // ---
-    mesh.vertex_positions = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        vert_positions.data(),
-        vert_positions.size() * sizeof(daxa_f32vec3));
-    accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
-    // ---
-    mesh.vertex_uvs = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        vert_texcoord0.data(),
-        vert_texcoord0.size() * sizeof(daxa_f32vec2));
-    accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
-    // ---
-    mesh.vertex_normals = mesh_bda + accumulated_offset;
-    std::memcpy(
-        staging_ptr + accumulated_offset,
-        vert_normals.data(),
-        vert_normals.size() * sizeof(daxa_f32vec3));
-    accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
-    // ---
-    mesh.material_index = info.material_manifest_index;
-    mesh.meshlet_count = meshlet_count;
-    mesh.vertex_count = vertex_count;
-    mesh.primitive_count = index_buffer.size() / 3;
-
-    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = { mesh };
-    u32 lod_count = 1;
 
     /// NOTE: Append the processed mesh to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
         _upload_mesh_queue.push_back(MeshLodGroupUploadInfo{
-            .staging_buffer = staging_buffer,
+            .staging_buffers = staging_buffers,
             .lods = lods,
             .lod_count = lod_count,
             .mesh_lod_manifest_index = info.mesh_lod_manifest_index});
@@ -1058,13 +1099,15 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
     for (MeshLodGroupUploadInfo & mesh_upload : ret.uploaded_meshes)
     {
-        /// NOTE: copy from staging buffer to buffer and delete staging memory.
-        recorder.copy_buffer_to_buffer({
-            .src_buffer = mesh_upload.staging_buffer,
-            .dst_buffer = std::bit_cast<daxa::BufferId>(mesh_upload.lods[0].mesh_buffer),
-            .size = _device.buffer_info(std::bit_cast<daxa::BufferId>(mesh_upload.lods[0].mesh_buffer)).value().size,
-        });
-        recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
+        for (u32 lod = 0; lod < mesh_upload.lod_count; ++lod)
+        {
+            recorder.copy_buffer_to_buffer({
+                .src_buffer = mesh_upload.staging_buffers[lod],
+                .dst_buffer = std::bit_cast<daxa::BufferId>(mesh_upload.lods[lod].mesh_buffer),
+                .size = _device.buffer_info(std::bit_cast<daxa::BufferId>(mesh_upload.lods[lod].mesh_buffer)).value().size,
+            });
+            recorder.destroy_buffer_deferred(mesh_upload.staging_buffers[lod]);
+        }
     }
     recorder.pipeline_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
@@ -1105,7 +1148,7 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
                     .mip_level = mip,
                 },
                 .image_offset = {0, 0, 0},
-                .image_extent = {width,height,depth},
+                .image_extent = {width, height, depth},
             });
         }
         recorder.destroy_buffer_deferred(texture_upload.staging_buffer);

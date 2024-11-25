@@ -109,7 +109,6 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_posit
         AT.vsm_point_lights,
         AT.vsm_globals
     );
-    return info.rgb;
 
     float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
 

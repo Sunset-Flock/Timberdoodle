@@ -131,8 +131,7 @@ void main()
 
         entity_index = mesh_instance.entity_index;
         in_mesh_group_index = mesh_instance.in_mesh_group_index;
-        // TODO(pahrens): This always selects the biggest lod, we should consider using the proper lod.
-        mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP;
+        mesh_index = mesh_instance.mesh_index;
     }
 
     const uint entity_to_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[entity_index];

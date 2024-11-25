@@ -1195,6 +1195,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
             ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&settings.enable_visbuffer_two_pass_culling));
             ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&settings.enable_separate_compute_meshlet_culling));
             ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&settings.enable_prefix_sum_work_expansion));
+            ImGui::InputInt("override_lod", &settings.lod_override);
         }
         ImGui::SeparatorText("Misc");
         ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));

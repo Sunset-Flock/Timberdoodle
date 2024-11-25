@@ -186,7 +186,7 @@ void Application::update()
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-    auto tmp_cpu_mesh_instances = _scene->process_entities();
+    auto tmp_cpu_mesh_instances = _scene->process_entities(_renderer->render_context->render_data.settings);
     _scene->write_gpu_mesh_instances_buffer(std::move(tmp_cpu_mesh_instances));
 
     bool const merged_blas = _renderer->render_context->render_data.settings.enable_merged_scene_blas;

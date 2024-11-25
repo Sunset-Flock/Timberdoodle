@@ -189,6 +189,7 @@ struct Settings
     daxa_b32 enable_visbuffer_two_pass_culling;
     daxa_b32 enable_separate_compute_meshlet_culling;
     daxa_b32 enable_prefix_sum_work_expansion;
+    daxa_i32 lod_override;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -220,7 +221,8 @@ struct Settings
           enable_rt_pipeline_for_ao{1},
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
-          enable_prefix_sum_work_expansion{0}
+          enable_prefix_sum_work_expansion{0},
+          lod_override{ -1 }
     {
     }
 #endif
