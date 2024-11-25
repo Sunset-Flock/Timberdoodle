@@ -53,7 +53,7 @@ void main()
     }
     
     GPUMeshGroup mesh_group = deref(push.attach.mesh_groups[mesh_group_index]);
-    if (mesh_group.count == 0)
+    if (mesh_group.mesh_lod_group_count == 0)
     {
         // Broken mesh group
         return;
@@ -83,9 +83,9 @@ void main()
 
     uint allocation_offset = atomicAdd(
         push.attach.bitfield_arena.dynamic_offset, 
-        mesh_group.count
+        mesh_group.mesh_lod_group_count
     );
-    const uint offsets_section_size = allocation_offset + mesh_group.count;
+    const uint offsets_section_size = allocation_offset + mesh_group.mesh_lod_group_count;
     if (offsets_section_size < (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE))
     {
         atomicExchange(
@@ -131,7 +131,8 @@ void main()
 
         entity_index = mesh_instance.entity_index;
         in_mesh_group_index = mesh_instance.in_mesh_group_index;
-        mesh_index = mesh_instance.mesh_index;
+        // TODO(pahrens): This always selects the biggest lod, we should consider using the proper lod.
+        mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP;
     }
 
     const uint entity_to_meshgroup_bitfield_offset = push.attach.bitfield_arena.entity_to_meshlist_offsets[entity_index];

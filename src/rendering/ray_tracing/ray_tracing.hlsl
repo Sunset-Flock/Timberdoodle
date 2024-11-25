@@ -250,7 +250,9 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     {
         const uint custom_instance_index = InstanceID();
         const GPUMeshGroup * mesh_group = &rt_ao_push.attach.mesh_groups[custom_instance_index];
-        const uint mesh_index = mesh_group->mesh_indices[geometry_index];
+        // TODO: We always select the most detailed lod here.
+        const uint lod = 0;
+        const uint mesh_index = mesh_group->mesh_lod_group_indices[geometry_index] * MAX_MESHES_PER_LOD_GROUP + lod;
         mesh = &rt_ao_push.attach.meshes[mesh_index];
     }
 

@@ -1,5 +1,3 @@
-#extension GL_EXT_debug_printf : enable
-
 #include <daxa/daxa.inl>
 
 #include "write_swapchain.inl"

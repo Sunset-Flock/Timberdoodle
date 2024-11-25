@@ -212,29 +212,30 @@ namespace tido
             MeshGroupManifestEntry const & meshgroup_manifest_entry = scene._mesh_group_manifest.at(entity.mesh_group_manifest_index.value());
 
             add_level();
-            for (u32 mesh_idx = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
-            {
-                std::string const mesh_name = std::string(entity.name).append("- mesh ").append(std::to_string(mesh_idx));
-                MeshManifestEntry const & mesh_manifest_entry =
-                    scene._mesh_manifest.at(scene._mesh_manifest_indices_new.at(meshgroup_manifest_entry.mesh_manifest_indices_array_offset + mesh_idx));
-                RetNodeState inner_node_state = add_inner_node(&mesh_manifest_entry, mesh_name, no_draw, ICONS::MESH);
-                ImGui::SameLine();
-                u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
-                char const plural_ending = meshlet_count > 1 ? 's' : ' ';
-                ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
-                if (inner_node_state == RetNodeState::OPEN)
-                {
-                    std::string material_uuid = "[NO MATERIAL]";
-                    if (mesh_manifest_entry.runtime.has_value() && (mesh_manifest_entry.runtime.value().material_index != INVALID_MANIFEST_INDEX))
-                    {
-                        MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
-                        material_uuid = material_manifest_entry.name;
-                    }
-                    add_level();
-                    add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
-                    remove_level();
-                }
-            }
+            /// TODO: SAKY
+            // for (u32 in_group_index = 0; mesh_idx < meshgroup_manifest_entry.mesh_count; mesh_idx++)
+            // {
+            //     std::string const mesh_name = std::string(entity.name).append("- mesh ").append(std::to_string(mesh_idx));
+            //     MeshLodGroupManifestEntry const & mesh_manifest_entry =
+            //         scene._mesh_lod_group_manifest.at(scene._mesh_lod_group_manifest_indices.at(meshgroup_manifest_entry.mesh_manifest_indices_array_offset + mesh_idx));
+            //     RetNodeState inner_node_state = add_inner_node(&mesh_manifest_entry, mesh_name, no_draw, ICONS::MESH);
+            //     ImGui::SameLine();
+            //     u32 const meshlet_count = mesh_manifest_entry.runtime->meshlet_count;
+            //     char const plural_ending = meshlet_count > 1 ? 's' : ' ';
+            //     ImGui::TextColored(ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled), "( %d meshlet%c )", meshlet_count, plural_ending);
+            //     if (inner_node_state == RetNodeState::OPEN)
+            //     {
+            //         std::string material_uuid = "[NO MATERIAL]";
+            //         if (mesh_manifest_entry.runtime.has_value() && (mesh_manifest_entry.runtime.value().material_index != INVALID_MANIFEST_INDEX))
+            //         {
+            //             MaterialManifestEntry const & material_manifest_entry = scene._material_manifest.at(mesh_manifest_entry.runtime.value().material_index);
+            //             material_uuid = material_manifest_entry.name;
+            //         }
+            //         add_level();
+            //         add_leaf_node(material_uuid, ICONS::MATERIAL, no_draw);
+            //         remove_level();
+            //     }
+            // }
             remove_level();
             return RetNodeState::CLOSED;
         }

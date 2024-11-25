@@ -72,9 +72,9 @@ func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
     }
     
     GPUMeshGroup mesh_group = push.attach.mesh_groups[mesh_group_index];
-    if (mesh_group.count == 0)
+    if (mesh_group.mesh_lod_group_count == 0)
     {
-        printf(GPU_ASSERT_STRING"entity index (%u) has mesh group (%u) with 0 meshes!\n", mesh_instance.entity_index, mesh_group.count);
+        printf(GPU_ASSERT_STRING"entity index (%u) has mesh group (%u) with 0 mesh_lod_group_count!\n", mesh_instance.entity_index, mesh_group.mesh_lod_group_count);
         return;
     }
     
@@ -92,9 +92,9 @@ func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
     }
 
     uint allocation_offset = 0;
-    InterlockedAdd(push.attach.bitfield_arena.dynamic_offset, mesh_group.count, allocation_offset);
+    InterlockedAdd(push.attach.bitfield_arena.dynamic_offset, mesh_group.mesh_lod_group_count, allocation_offset);
     // allocation_offset += FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START;
-    let offsets_section_size = allocation_offset + mesh_group.count;
+    let offsets_section_size = allocation_offset + mesh_group.mesh_lod_group_count;
     if (offsets_section_size < FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE)
     {
         InterlockedExchange(push.attach.bitfield_arena.entity_to_meshlist_offsets[mesh_instance.entity_index], allocation_offset);

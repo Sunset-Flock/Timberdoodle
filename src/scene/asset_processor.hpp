@@ -113,23 +113,24 @@ struct AssetProcessor
     };
     auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
 
-    struct MeshUploadInfo
+    struct MeshLodGroupUploadInfo
     {
         // TODO: replace with buffer offset into staging memory.
         daxa::BufferId staging_buffer = {};
-        daxa::BufferId mesh_buffer = {};
 
-        GPUMesh mesh = {};
-        u32 manifest_index = {};
+        std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+        u32 lod_count = {};
+
+        u32 mesh_lod_manifest_index = {};
     };
-    struct LoadMeshInfo
+    struct LoadMeshLodGroupInfo
     {
         std::filesystem::path asset_path = {};
         fastgltf::Asset * asset;
         u32 gltf_mesh_index = {};
         u32 gltf_primitive_index = {};
         u32 global_material_manifest_offset = {};
-        u32 manifest_index = {};
+        u32 mesh_lod_manifest_index = {};
         // MUST BE VALID MATERIAL INDEX
         // REPLACE WITH DEFAULT MATERIAL BEFORE PASSING INDEX HERE!
         u32 material_manifest_index = {};
@@ -138,7 +139,7 @@ struct AssetProcessor
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel.
      */
-    auto load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode;
+    auto load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadResultCode;
 
     /**
      * Loads all unloded meshes and material textures for the given scene.
@@ -165,7 +166,7 @@ struct AssetProcessor
     struct RecordCommandsRet
     {
         daxa::ExecutableCommandList upload_commands = {};
-        std::vector<MeshUploadInfo> uploaded_meshes = {};
+        std::vector<MeshLodGroupUploadInfo> uploaded_meshes = {};
         std::vector<LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_load_processing_commands() -> RecordCommandsRet;
@@ -178,7 +179,7 @@ struct AssetProcessor
 
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.
-    std::vector<MeshUploadInfo> _upload_mesh_queue = {};
+    std::vector<MeshLodGroupUploadInfo> _upload_mesh_queue = {};
     std::vector<LoadedTextureInfo> _upload_texture_queue = {};
     std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
     std::unique_ptr<std::mutex> _texture_upload_mutex = std::make_unique<std::mutex>();

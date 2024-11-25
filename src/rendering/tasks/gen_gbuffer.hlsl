@@ -80,11 +80,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
 
         //push.attachments.debug_image.get()[dtid].xyz = tri_data.world_normal * 0.5f + 0.5f;
 
-        // Only write gbuffer for pixels with proper triangle id.
-        if (all(lessThan(dtid, push.size)))
-        {
-            push.attachments.geo_normal_image.get()[dtid] = packed_geometric_normal;
-        }
+        push.attachments.geo_normal_image.get()[dtid] = packed_geometric_normal;
     }
 }
 

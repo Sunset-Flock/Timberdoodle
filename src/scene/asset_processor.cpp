@@ -738,7 +738,7 @@ auto load_accessor_data_from_file(
     return ret;
 }
 
-auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
+auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadResultCode
 {
     fastgltf::Asset & gltf_asset = *info.asset;
     fastgltf::Mesh & gltf_mesh = gltf_asset.meshes[info.gltf_mesh_index];
@@ -1031,14 +1031,17 @@ auto AssetProcessor::load_mesh(LoadMeshInfo const & info) -> AssetLoadResultCode
     mesh.vertex_count = vertex_count;
     mesh.primitive_count = index_buffer.size() / 3;
 
+    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = { mesh };
+    u32 lod_count = 1;
+
     /// NOTE: Append the processed mesh to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
-        _upload_mesh_queue.push_back(MeshUploadInfo{
+        _upload_mesh_queue.push_back(MeshLodGroupUploadInfo{
             .staging_buffer = staging_buffer,
-            .mesh_buffer = std::bit_cast<daxa::BufferId>(mesh.mesh_buffer),
-            .mesh = mesh,
-            .manifest_index = info.manifest_index});
+            .lods = lods,
+            .lod_count = lod_count,
+            .mesh_lod_manifest_index = info.mesh_lod_manifest_index});
     }
     return AssetProcessor::AssetLoadResultCode::SUCCESS;
 }
@@ -1053,13 +1056,13 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
     }
     auto recorder = _device.create_command_recorder({});
 #pragma region RECORD_MESH_UPLOAD_COMMANDS
-    for (MeshUploadInfo & mesh_upload : ret.uploaded_meshes)
+    for (MeshLodGroupUploadInfo & mesh_upload : ret.uploaded_meshes)
     {
         /// NOTE: copy from staging buffer to buffer and delete staging memory.
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_upload.staging_buffer,
-            .dst_buffer = mesh_upload.mesh_buffer,
-            .size = _device.info_buffer(mesh_upload.mesh_buffer).value().size,
+            .dst_buffer = std::bit_cast<daxa::BufferId>(mesh_upload.lods[0].mesh_buffer),
+            .size = _device.buffer_info(std::bit_cast<daxa::BufferId>(mesh_upload.lods[0].mesh_buffer)).value().size,
         });
         recorder.destroy_buffer_deferred(mesh_upload.staging_buffer);
     }

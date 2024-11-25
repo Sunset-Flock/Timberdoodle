@@ -27,11 +27,19 @@ struct MeshDrawList
 struct MeshInstance
 {
     daxa_u32 entity_index;
-    daxa_u32 mesh_index;
+    daxa_u32 mesh_lod_group_index;
     daxa_u32 in_mesh_group_index;
     daxa_u32 flags;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(MeshInstance, 4);
+
+struct GPUMeshGroup
+{
+    daxa_BufferPtr(daxa_u32) mesh_lod_group_indices;
+    daxa_u32 mesh_lod_group_count;
+    daxa_u32 padd;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)
 
 
 // The engine has one GPUMeshInstances buffer.

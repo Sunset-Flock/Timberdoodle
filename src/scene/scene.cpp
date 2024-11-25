@@ -25,7 +25,8 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_entity_combined_transforms = tido::make_task_buffer(_device, sizeof(daxa_f32mat4x3) * MAX_ENTITIES, "_gpu_entity_combined_transforms");
     _gpu_entity_mesh_groups = tido::make_task_buffer(_device, sizeof(u32) * MAX_ENTITIES, "_gpu_entity_mesh_groups");
     _gpu_mesh_manifest = tido::make_task_buffer(_device, sizeof(GPUMesh) * MAX_MESHES, "_gpu_mesh_manifest");
-    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESHES, "_gpu_mesh_group_manifest");
+    _gpu_mesh_lod_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshLodGroup) * MAX_MESH_LOD_GROUPS, "_gpu_mesh_lod_group_manifest");
+    _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESH_LOD_GROUPS, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _gpu_point_lights = tido::make_task_buffer(_device, sizeof(GPUPointLight) * MAX_POINT_LIGHTS, "_gpu_point_lights", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
@@ -54,11 +55,14 @@ Scene::~Scene()
         }
     }
 
-    for (auto & mesh : _mesh_manifest)
+    for (auto & mesh : _mesh_lod_group_manifest)
     {
         if (mesh.runtime.has_value())
         {
-            _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().mesh_buffer));
+            for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
+            {
+                _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
+            }
         }
     }
 
@@ -174,7 +178,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
     load_ctx.texture_manifest_offset = s_cast<u32>(scene._material_texture_manifest.size());
     load_ctx.material_manifest_offset = s_cast<u32>(scene._material_manifest.size());
     load_ctx.mesh_group_manifest_offset = s_cast<u32>(scene._mesh_group_manifest.size());
-    load_ctx.mesh_manifest_offset = s_cast<u32>(scene._mesh_manifest.size());
+    load_ctx.mesh_manifest_offset = s_cast<u32>(scene._mesh_lod_group_manifest.size());
     return load_ctx;
 }
 
@@ -320,33 +324,33 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
     {
         auto const & gltf_mesh = load_ctx.asset.meshes.at(mesh_group_index);
         // Linearly allocate chunk from indices array:
-        u32 const mesh_manifest_indices_array_offset = static_cast<u32>(scene._mesh_manifest_indices_new.size());
-        scene._mesh_manifest_indices_new.resize(scene._mesh_manifest_indices_new.size() + gltf_mesh.primitives.size());
+        u32 const mesh_lod_group_manifest_indices_array_offset = static_cast<u32>(scene._mesh_lod_group_manifest_indices.size());
+        scene._mesh_lod_group_manifest_indices.resize(scene._mesh_lod_group_manifest_indices.size() + gltf_mesh.primitives.size());
 
         u32 const mesh_group_manifest_index = s_cast<u32>(scene._mesh_group_manifest.size());
         /// NOTE: fastgltf::Primitive is Mesh
-        for (u32 mesh_index = 0; mesh_index < s_cast<u32>(gltf_mesh.primitives.size()); mesh_index++)
+        for (u32 in_group_index = 0; in_group_index < s_cast<u32>(gltf_mesh.primitives.size()); in_group_index++)
         {
-            u32 const mesh_manifest_entry = scene._mesh_manifest.size();
-            auto const & gltf_primitive = gltf_mesh.primitives.at(mesh_index);
-            scene._mesh_manifest_indices_new.at(mesh_manifest_indices_array_offset + mesh_index) = mesh_manifest_entry;
+            u32 const mesh_manifest_entry = scene._mesh_lod_group_manifest.size();
+            auto const & gltf_primitive = gltf_mesh.primitives.at(in_group_index);
+            scene._mesh_lod_group_manifest_indices.at(mesh_lod_group_manifest_indices_array_offset + in_group_index) = mesh_manifest_entry;
             std::optional<u32> material_manifest_index =
                 gltf_primitive.materialIndex.has_value() ? std::optional{s_cast<u32>(gltf_primitive.materialIndex.value()) + load_ctx.material_manifest_offset} : std::nullopt;
-            scene._mesh_manifest.push_back(MeshManifestEntry{
+            scene._mesh_lod_group_manifest.push_back(MeshLodGroupManifestEntry{
                 .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
                 // Gltf calls a meshgroup a mesh because these local indices are only used for loading we use the gltf naming
                 .asset_local_mesh_index = mesh_group_index,
                 // Same as above Gltf calls a mesh a primitive
-                .asset_local_primitive_index = mesh_index,
+                .asset_local_primitive_index = in_group_index,
                 .mesh_group_manifest_index = mesh_group_manifest_index,
                 .material_index = material_manifest_index,
             });
-            scene._new_mesh_manifest_entries += 1;
+            scene._new_mesh_lod_group_manifest_entries += 1;
         }
 
         scene._mesh_group_manifest.push_back(MeshGroupManifestEntry{
-            .mesh_manifest_indices_array_offset = mesh_manifest_indices_array_offset,
-            .mesh_count = s_cast<u32>(gltf_mesh.primitives.size()),
+            .mesh_lod_group_manifest_indices_array_offset = mesh_lod_group_manifest_indices_array_offset,
+            .mesh_lod_group_count = s_cast<u32>(gltf_mesh.primitives.size()),
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = mesh_group_index,
             .name = gltf_mesh.name.c_str(),
@@ -500,7 +504,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
     {
         struct TaskInfo
         {
-            AssetProcessor::LoadMeshInfo load_info = {};
+            AssetProcessor::LoadMeshLodGroupInfo load_info = {};
             AssetProcessor * asset_processor = {};
             u32 manifest_index = {};
         };
@@ -528,10 +532,10 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
         };
     };
 
-    for (u32 mesh_manifest_index = 0; mesh_manifest_index < scene._new_mesh_manifest_entries; mesh_manifest_index++)
+    for (u32 mesh_lod_group_manifest_index = 0; mesh_lod_group_manifest_index < scene._new_mesh_lod_group_manifest_entries; mesh_lod_group_manifest_index++)
     {
         auto const & curr_asset = scene._gltf_asset_manifest.back();
-        auto const & mesh_manifest_entry = scene._mesh_manifest.at(curr_asset.mesh_manifest_offset + mesh_manifest_index);
+        auto const & mesh_manifest_lod_group_entry = scene._mesh_lod_group_manifest.at(curr_asset.mesh_manifest_offset + mesh_lod_group_manifest_index);
         // Launch loading of this mesh
         // TODO: ADD DUMMY MATERIAL INDEX!
         info.thread_pool->async_dispatch(
@@ -539,11 +543,11 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
                 .load_info = {
                     .asset_path = curr_asset.path,
                     .asset = curr_asset.gltf_asset.get(),
-                    .gltf_mesh_index = mesh_manifest_entry.asset_local_mesh_index,
-                    .gltf_primitive_index = mesh_manifest_entry.asset_local_primitive_index,
+                    .gltf_mesh_index = mesh_manifest_lod_group_entry.asset_local_mesh_index,
+                    .gltf_primitive_index = mesh_manifest_lod_group_entry.asset_local_primitive_index,
                     .global_material_manifest_offset = curr_asset.material_manifest_offset,
-                    .manifest_index = mesh_manifest_index,
-                    .material_manifest_index = mesh_manifest_entry.material_index.value_or(INVALID_MANIFEST_INDEX),
+                    .mesh_lod_manifest_index = mesh_lod_group_manifest_index,
+                    .material_manifest_index = mesh_manifest_lod_group_entry.material_index.value_or(INVALID_MANIFEST_INDEX),
                 },
                 .asset_processor = info.asset_processor.get(),
             }),
@@ -641,7 +645,7 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
     scene._new_texture_manifest_entries = 0;
 }
 
-static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
+static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
 auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
 {
@@ -759,7 +763,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         {
             recorder.destroy_buffer_deferred(_gpu_mesh_group_indices_array_buffer);
         }
-        usize mesh_group_indices_mem_size = sizeof(daxa_u32) * _mesh_manifest_indices_new.size();
+        usize mesh_group_indices_mem_size = sizeof(daxa_u32) * _mesh_lod_group_manifest_indices.size();
         _gpu_mesh_group_indices_array_buffer = _device.create_buffer({
             .size = mesh_group_indices_mem_size,
             .name = "_gpu_mesh_group_indices_array_buffer",
@@ -772,7 +776,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         });
         recorder.destroy_buffer_deferred(mesh_groups_indices_staging);
         u32 * indices_staging_ptr = _device.buffer_host_address_as<u32>(mesh_groups_indices_staging).value();
-        std::memcpy(indices_staging_ptr, _mesh_manifest_indices_new.data(), _mesh_manifest_indices_new.size() * sizeof(_mesh_manifest_indices_new[0]));
+        std::memcpy(indices_staging_ptr, _mesh_lod_group_manifest_indices.data(), _mesh_lod_group_manifest_indices.size() * sizeof(_mesh_lod_group_manifest_indices[0]));
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_groups_indices_staging,
             .dst_buffer = _gpu_mesh_group_indices_array_buffer,
@@ -793,10 +797,10 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         for (u32 new_mesh_group_idx = 0; new_mesh_group_idx < _new_mesh_group_manifest_entries; new_mesh_group_idx++)
         {
             u32 const mesh_group_manifest_idx = mesh_group_manifest_offset + new_mesh_group_idx;
-            staging_ptr[new_mesh_group_idx].mesh_indices =
+            staging_ptr[new_mesh_group_idx].mesh_lod_group_indices =
                 mesh_group_indices_array_addr +
-                sizeof(daxa_u32) * _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_manifest_indices_array_offset;
-            staging_ptr[new_mesh_group_idx].count = _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_count;
+                sizeof(daxa_u32) * _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_lod_group_manifest_indices_array_offset;
+            staging_ptr[new_mesh_group_idx].mesh_lod_group_count = _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_lod_group_count;
         }
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_group_staging_buffer,
@@ -807,28 +811,51 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         });
     }
 
-    // Add new mesh manifest entries
-    if (_new_mesh_manifest_entries > 0)
+    // Add new mesh lod group manifest entries.
+    // Zero out new lod group manifest entries entries.
+    if (_new_mesh_lod_group_manifest_entries > 0)
     {
-        u32 const mesh_update_staging_buffer_size = sizeof(GPUMesh) * _new_mesh_manifest_entries;
-        u32 const mesh_manifest_offset = _mesh_manifest.size() - _new_mesh_manifest_entries;
+        u32 const mesh_lod_group_update_staging_buffer_size = sizeof(GPUMeshLodGroup) * _new_mesh_lod_group_manifest_entries;
+        u32 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
+        daxa::BufferId mesh_lod_group_staging_buffer = _device.create_buffer({
+            .size = mesh_lod_group_update_staging_buffer_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .name = "mesh lod group manifest update staging buffer",
+        });
+        recorder.destroy_buffer_deferred(mesh_lod_group_staging_buffer);
+        std::byte * staging_ptr = _device.buffer_host_address(mesh_lod_group_staging_buffer).value();
+        std::memset(staging_ptr, 0u, _new_mesh_lod_group_manifest_entries * sizeof(GPUMeshLodGroup));
+
+        recorder.copy_buffer_to_buffer({
+            .src_buffer = mesh_lod_group_staging_buffer,
+            .dst_buffer = _gpu_mesh_lod_group_manifest.get_state().buffers[0],
+            .src_offset = 0,
+            .dst_offset = sizeof(GPUMeshLodGroup) * mesh_manifest_offset,
+            .size = sizeof(GPUMeshLodGroup) * _new_mesh_lod_group_manifest_entries,
+        });
+    }
+
+    // Add new mesh manifest entries.
+    // Zero out new manifest entries entries.
+    if (_new_mesh_lod_group_manifest_entries > 0)
+    {
+        u32 const mesh_update_staging_buffer_size = sizeof(GPUMesh) * _new_mesh_lod_group_manifest_entries * MAX_MESHES_PER_LOD_GROUP;
+        u32 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
         daxa::BufferId mesh_staging_buffer = _device.create_buffer({
             .size = mesh_update_staging_buffer_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-            .name = "mesh update staging buffer",
+            .name = "mesh manifest update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_staging_buffer);
-        GPUMesh * staging_ptr = _device.buffer_host_address_as<GPUMesh>(mesh_staging_buffer).value();
-        std::vector<GPUMesh> tmp_meshes;
-        tmp_meshes.resize(_new_mesh_manifest_entries, GPUMesh{.mesh_buffer = {.value = {}}});
-        std::memcpy(staging_ptr, tmp_meshes.data(), _new_mesh_manifest_entries * sizeof(GPUMesh));
+        std::byte * staging_ptr = _device.buffer_host_address(mesh_staging_buffer).value();
+        std::memset(staging_ptr, 0u, _new_mesh_lod_group_manifest_entries * sizeof(GPUMesh));
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_staging_buffer,
             .dst_buffer = _gpu_mesh_manifest.get_state().buffers[0],
             .src_offset = 0,
-            .dst_offset = mesh_manifest_offset * sizeof(GPUMesh),
-            .size = sizeof(GPUMesh) * _new_mesh_manifest_entries,
+            .dst_offset = sizeof(GPUMesh) * mesh_manifest_offset * MAX_MESHES_PER_LOD_GROUP,
+            .size = sizeof(GPUMesh) * _new_mesh_lod_group_manifest_entries * MAX_MESHES_PER_LOD_GROUP,
         });
     }
 
@@ -870,7 +897,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     update_material_and_texture_manifest(*this, info, recorder);
 
     // updating mesh manifest
-    update_mesh_and_mesh_group_manifest(*this, info, recorder);
+    update_mesh_and_mesh_lod_group_manifest(*this, info, recorder);
 
     /// TODO: Taskgraph this shit.
     recorder.pipeline_barrier({
@@ -879,40 +906,45 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     });
 
     _new_material_manifest_entries = 0;
-    _new_mesh_manifest_entries = 0;
+    _new_mesh_lod_group_manifest_entries = 0;
     _new_mesh_group_manifest_entries = 0;
     return recorder.complete_current_commands();
 }
 
-static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder)
+/// NOTE: As the mesh group manifest entries never change after loading them into the scene, we do not need to upload them here.
+static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder)
 {
     if (info.uploaded_meshes.size() > 0)
     {
+        usize const meshes_staging_size = info.uploaded_meshes.size() * sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP;
+        usize const mesh_lod_group_staging_size = info.uploaded_meshes.size() * sizeof(GPUMeshLodGroup);
         daxa::BufferId staging_buffer = scene._device.create_buffer({
-            .size = info.uploaded_meshes.size() * sizeof(GPUMesh),
+            .size = meshes_staging_size + mesh_lod_group_staging_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-            .name = "mesh manifest upload staging buffer",
+            .name = "mesh manifest and mesh lod group manifest upload staging buffer",
         });
 
         recorder.destroy_buffer_deferred(staging_buffer);
-        GPUMesh * staging_ptr = scene._device.buffer_host_address_as<GPUMesh>(staging_buffer).value();
+        GPUMesh * mesh_staging_ptr = scene._device.buffer_host_address_as<GPUMesh>(staging_buffer).value();
+        GPUMeshLodGroup * mesh_lod_group_staging_ptr = reinterpret_cast<GPUMeshLodGroup*>(scene._device.buffer_host_address(staging_buffer).value() + meshes_staging_size);
         for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
         {
             auto const & upload = info.uploaded_meshes[upload_index];
-            scene._mesh_manifest.at(upload.manifest_index).runtime = upload.mesh;
+            scene._mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
+                .lods = upload.lods,
+                .lod_count = upload.lod_count,
+            };
+            // Check if all meshes in a meshgroup are loaded
+            auto & mesh_lod_group = scene._mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index);
             // Incrementing loaded mesh count in mesh group
             {
-                auto const & upload = info.uploaded_meshes[upload_index];
-
-                // Check if all meshes in a meshgroup are loaded
-                auto & mesh = scene._mesh_manifest.at(upload.manifest_index);
-                auto & mesh_group = scene._mesh_group_manifest.at(mesh.mesh_group_manifest_index);
-                mesh_group.loaded_meshes += 1;
+                auto & mesh_group = scene._mesh_group_manifest.at(mesh_lod_group.mesh_group_manifest_index);
+                mesh_group.loaded_mesh_lod_groups += 1;
                 bool is_completely_loaded = true;
-                u32 range[] = {mesh_group.mesh_manifest_indices_array_offset, mesh_group.mesh_manifest_indices_array_offset + mesh_group.mesh_count};
+                u32 range[] = {mesh_group.mesh_lod_group_manifest_indices_array_offset, mesh_group.mesh_lod_group_manifest_indices_array_offset + mesh_group.mesh_lod_group_count};
                 for (u32 mesh_idx_array_idx = range[0]; mesh_idx_array_idx < range[1]; mesh_idx_array_idx++)
                 {
-                    auto & checked_mesh = scene._mesh_manifest.at(scene._mesh_manifest_indices_new.at(mesh_idx_array_idx));
+                    auto & checked_mesh = scene._mesh_lod_group_manifest.at(scene._mesh_lod_group_manifest_indices.at(mesh_idx_array_idx));
                     // Early out when we encounter a single unloaded mesh -> enough for us to know the meshgroup is not loaded
                     if (!checked_mesh.runtime.has_value())
                     {
@@ -923,16 +955,26 @@ static void update_mesh_and_mesh_group_manifest(Scene & scene, Scene::RecordGPUM
                 // the meshgroup is not fully loaded -> do not add it to
                 if (is_completely_loaded)
                 {
-                    scene._newly_completed_mesh_groups.push_back(mesh.mesh_group_manifest_index);
+                    scene._newly_completed_mesh_groups.push_back(mesh_lod_group.mesh_group_manifest_index);
                 }
             }
-            std::memcpy(staging_ptr + upload_index, &upload.mesh, sizeof(GPUMesh));
+            std::memcpy(mesh_staging_ptr + upload_index * MAX_MESHES_PER_LOD_GROUP, &upload.lods, sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP);
             recorder.copy_buffer_to_buffer({
                 .src_buffer = staging_buffer,
                 .dst_buffer = scene._gpu_mesh_manifest.get_state().buffers[0],
-                .src_offset = upload_index * sizeof(GPUMesh),
-                .dst_offset = upload.manifest_index * sizeof(GPUMesh),
-                .size = sizeof(GPUMesh),
+                .src_offset = upload_index * sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
+                .dst_offset = upload.mesh_lod_manifest_index * sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
+                .size = sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
+            });
+            *(mesh_lod_group_staging_ptr + upload_index) = {
+                .lod_count = upload.lod_count,
+            };
+            recorder.copy_buffer_to_buffer({
+                .src_buffer = staging_buffer,
+                .dst_buffer = scene._gpu_mesh_lod_group_manifest.get_state().buffers[0],
+                .src_offset = upload_index * sizeof(GPUMeshLodGroup) + meshes_staging_size,
+                .dst_offset = upload.mesh_lod_manifest_index * sizeof(GPUMeshLodGroup),
+                .size = sizeof(GPUMeshLodGroup),
             });
         }
     }
@@ -1099,25 +1141,27 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         auto & mesh_group = _mesh_group_manifest.at(mesh_group_index);
 
         std::vector<daxa::BlasTriangleGeometryInfo> geometries = {};
-        geometries.reserve(mesh_group.mesh_count);
-        auto const mesh_indices_meshgroup_offset = mesh_group.mesh_manifest_indices_array_offset;
+        geometries.reserve(mesh_group.mesh_lod_group_count);
+        auto const mesh_lod_group_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
 
-        for (i32 mesh_index = 0; mesh_index < mesh_group.mesh_count; mesh_index++)
+        for (u32 in_group_index = 0; in_group_index < mesh_group.mesh_lod_group_count; in_group_index++)
         {
-            u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
-            auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+            u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_lod_group_indices_meshgroup_offset + in_group_index);
+            auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
 
             bool is_alpha_discard = false;
-            if (mesh.material_index.has_value())
+            if (mesh_lod_group.material_index.has_value())
             {
-                is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
             }
 
+            GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[0];
+
             geometries.push_back({
-                .vertex_data = mesh.runtime->vertex_positions,
-                .max_vertex = mesh.runtime->vertex_count - 1,
-                .index_data = mesh.runtime->primitive_indices,
-                .count = static_cast<daxa_u32>(mesh.runtime->primitive_count),
+                .vertex_data = mesh.vertex_positions,
+                .max_vertex = mesh.vertex_count - 1,
+                .index_data = mesh.primitive_indices,
+                .count = static_cast<daxa_u32>(mesh.primitive_count),
                 .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
             });
         }
@@ -1176,16 +1220,16 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
                 continue;
             }
 
-            auto const mesh_indices_meshgroup_offset = m_entry.mesh_manifest_indices_array_offset;
+            auto const mesh_lod_group_indices_meshgroup_offset = m_entry.mesh_lod_group_manifest_indices_array_offset;
             bool is_alpha_discard = false;
-            for (i32 mesh_index = 0; mesh_index < m_entry.mesh_count; mesh_index++)
+            for (i32 in_group_index = 0; in_group_index < m_entry.mesh_lod_group_count; in_group_index++)
             {
-                u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
-                auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_lod_group_indices_meshgroup_offset + in_group_index);
+                auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
                 
-                if (mesh.material_index.has_value())
+                if (mesh_lod_group.material_index.has_value())
                 {
-                    is_alpha_discard |= _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                    is_alpha_discard |= _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
                 }
             }
 
@@ -1296,7 +1340,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
             if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
             {
                 auto const & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-                if (mesh_group.loaded_meshes != mesh_group.mesh_count)
+                if (mesh_group.loaded_mesh_lod_groups != mesh_group.mesh_lod_group_count)
                 {
                     continue;
                 }
@@ -1334,39 +1378,43 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
                     continue;
                 }
                 auto const & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-                if (mesh_group.loaded_meshes != mesh_group.mesh_count)
+                if (mesh_group.loaded_mesh_lod_groups != mesh_group.mesh_lod_group_count)
                 {
                     continue;
                 }
 
                 geometry_transforms[active_entity_offset] = std::bit_cast<daxa_f32mat3x4>(glm::transpose(r_ent->combined_transform));
 
-                build_geometries.reserve(mesh_group.mesh_count);
-                auto const mesh_indices_meshgroup_offset = mesh_group.mesh_manifest_indices_array_offset;
-                for (u32 mesh_index = 0; mesh_index < mesh_group.mesh_count; mesh_index++)
+                build_geometries.reserve(mesh_group.mesh_lod_group_count);
+                auto const mesh_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
+                for (u32 in_mesh_group_index = 0; in_mesh_group_index < mesh_group.mesh_lod_group_count; in_mesh_group_index++)
                 {
-                    u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
-                    auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                    u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_indices_meshgroup_offset + in_mesh_group_index);
+                    auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
                     bool is_alpha_discard = false;
-                    if (mesh.material_index.has_value())
+                    if (mesh_lod_group.material_index.has_value())
                     {
-                        is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
+                        is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
                     }
 
+                    // TODO: build blas per lod of all the meshes in the mesh group.
+                    // TODO: this requires all meshes in a mesh group to lod together!
+                    GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[0];
+
                     build_geometries.push_back({
-                        .vertex_data = mesh.runtime->vertex_positions,
-                        .max_vertex = mesh.runtime->vertex_count - 1,
-                        .index_data = mesh.runtime->primitive_indices,
+                        .vertex_data = mesh.vertex_positions,
+                        .max_vertex = mesh.vertex_count - 1,
+                        .index_data = mesh.primitive_indices,
                         .transform_data = geometry_transforms_device_address + sizeof(daxa_f32mat3x4) * active_entity_offset,
-                        .count = static_cast<daxa_u32>(mesh.runtime->primitive_count),
+                        .count = static_cast<daxa_u32>(mesh.primitive_count),
                         .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
                     });
 
                     indirections[build_geometries.size() - 1] = MergedSceneBlasIndirection{
                         .entity_index = entity_i,
                         .mesh_group_index = r_ent->mesh_group_manifest_index.value(),
-                        .mesh_index = mesh_manifest_index,
-                        .in_mesh_group_index = mesh_index,
+                        .mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP,
+                        .in_mesh_group_index = in_mesh_group_index,
                     };
                 }
                 active_entity_offset += 1;
@@ -1493,7 +1541,7 @@ auto Scene::process_entities() -> CPUMeshInstances
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
         {
             MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-            bool const is_mesh_group_loaded = (mesh_group.loaded_meshes == mesh_group.mesh_count);
+            bool const is_mesh_group_loaded = (mesh_group.loaded_mesh_lod_groups == mesh_group.mesh_lod_group_count);
             bool const is_mesh_group_just_loaded = !mesh_group.fully_loaded_last_frame && is_mesh_group_loaded;
             mesh_group.fully_loaded_last_frame = is_mesh_group_loaded;
 
@@ -1507,17 +1555,17 @@ auto Scene::process_entities() -> CPUMeshInstances
                     blas_build_requests.push_back(_render_entities.id_from_index(entity_i));
                 }
 
-                auto const mesh_indices_meshgroup_offset = mesh_group.mesh_manifest_indices_array_offset;
-                for (u32 mesh_index = 0; mesh_index < mesh_group.mesh_count; mesh_index++)
+                auto const mesh_lod_group_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
+                for (u32 in_mesh_group_index = 0; in_mesh_group_index < mesh_group.mesh_lod_group_count; in_mesh_group_index++)
                 {
-                    u32 const mesh_manifest_index = _mesh_manifest_indices_new.at(mesh_indices_meshgroup_offset + mesh_index);
-                    auto const & mesh = _mesh_manifest.at(mesh_manifest_index);
+                    u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_lod_group_indices_meshgroup_offset + in_mesh_group_index);
+                    auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
                     bool is_alpha_discard = false;
                     bool is_alpha_dirty = false;
-                    if (mesh.material_index.has_value())
+                    if (mesh_lod_group.material_index.has_value())
                     {
-                        is_alpha_discard = _material_manifest.at(mesh.material_index.value()).alpha_discard_enabled;
-                        is_alpha_dirty = _material_manifest.at(mesh.material_index.value()).alpha_dirty;
+                        is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
+                        is_alpha_dirty = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_dirty;
                     }
 
                     // Put this mesh into appropriate drawlist for prepass
@@ -1533,8 +1581,8 @@ auto Scene::process_entities() -> CPUMeshInstances
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({
                         .entity_index = entity_i,
-                        .mesh_index = mesh_manifest_index,
-                        .in_mesh_group_index = mesh_index,
+                        .mesh_lod_group_index = mesh_lod_group_manifest_index,
+                        .in_mesh_group_index = in_mesh_group_index,
                         .flags = s_cast<daxa_u32>(is_alpha_discard ? MESH_INSTANCE_FLAG_MASKED : MESH_INSTANCE_FLAG_OPAQUE),
                     });
                 }

@@ -68,6 +68,8 @@ struct GPUMesh
     daxa_u32 meshlet_count;
     daxa_u32 vertex_count;
     daxa_u32 primitive_count;
+    daxa_f32 lod_error;
+    daxa_u32 padd;
     AABB aabb;
     daxa_BufferPtr(Meshlet) meshlets;
     daxa_BufferPtr(BoundingSphere) meshlet_bounds;
@@ -80,6 +82,12 @@ struct GPUMesh
     daxa_BufferPtr(daxa_f32vec3) vertex_normals;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMesh, 8)
+
+struct GPUMeshLodGroup
+{
+    daxa_u32 lod_count;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshLodGroup, 4)
 
 struct GPUMaterial
 {
@@ -115,14 +123,6 @@ uint get_micro_index(daxa_BufferPtr(daxa_u32) micro_indices, daxa_u32 index_offs
     return (index_pack >> in_pack_shift) & 0xFF;
 }
 #endif // #if defined(DAXA_SHADER)
-
-struct GPUMeshGroup
-{
-    daxa_BufferPtr(daxa_u32) mesh_indices;
-    daxa_u32 count;
-    daxa_u32 padd;
-};
-DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)
 
 struct MeshletDrawList2
 {

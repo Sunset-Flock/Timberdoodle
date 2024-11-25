@@ -76,25 +76,31 @@ struct MaterialManifestEntry
     std::string name = {};
 };
 
-struct MeshManifestEntry
+struct MeshLodGroupManifestEntry
 {
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_mesh_index = {};
     u32 asset_local_primitive_index = {};
     u32 mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
-    std::optional<GPUMesh> runtime = {};
+
+    struct Runtime
+    {
+        std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+        daxa_u32 lod_count = {};
+    };
+    std::optional<Runtime> runtime = {};
 
     auto loaded() const -> bool{ return runtime.has_value(); }
 };
 
 struct MeshGroupManifestEntry
 {
-    u32 mesh_manifest_indices_array_offset = {};
-    u32 mesh_count = {};
+    u32 mesh_lod_group_manifest_indices_array_offset = {};
+    u32 mesh_lod_group_count = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
-    u32 loaded_meshes = {}; 
+    u32 loaded_mesh_lod_groups = {}; 
     bool fully_loaded_last_frame = {};
     daxa::BlasId blas = {};
     std::string name = {};
@@ -209,6 +215,7 @@ struct Scene
      * - TODO: Make the task buffers real buffers grow with time, unfix their size!
      * */
     daxa::TaskBuffer _gpu_mesh_manifest = {};
+    daxa::TaskBuffer _gpu_mesh_lod_group_manifest = {};
     daxa::TaskBuffer _gpu_mesh_group_manifest = {};
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
     daxa::TaskBuffer _gpu_material_manifest = {};
@@ -218,13 +225,13 @@ struct Scene
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
-    std::vector<MeshManifestEntry> _mesh_manifest = {};
-    std::vector<u32> _mesh_manifest_indices_new = {};
+    std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
+    std::vector<u32> _mesh_lod_group_manifest_indices = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
     std::vector<ActivePointLight> _active_point_lights = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
-    u32 _new_mesh_manifest_entries = {};
+    u32 _new_mesh_lod_group_manifest_entries = {};
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
@@ -269,7 +276,7 @@ struct Scene
 
     struct RecordGPUManifestUpdateInfo
     {
-        std::span<const AssetProcessor::MeshUploadInfo> uploaded_meshes = {};
+        std::span<const AssetProcessor::MeshLodGroupUploadInfo> uploaded_meshes = {};
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;

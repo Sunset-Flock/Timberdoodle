@@ -36,6 +36,7 @@ float3 ray_plane_intersection(float3 ray_direction, float3 ray_origin, float3 pl
         float t = dot((plane_origin - ray_origin), plane_normal) / denom;
         return ray_origin + t * ray_direction;
     }
+    return 0.0f; // TODO
 }
 
 float4 project_into_point_light(
@@ -198,6 +199,7 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_posit
         AT.vsm_point_lights,
         AT.vsm_globals
     );
+    return info.rgb;
 
     float3 color = hsv2rgb(float3(float(info.z) / 6.0f, float(5 - int(info.w)) / 5.0f, 1.0));
 

@@ -814,7 +814,10 @@ bool get_meshlet_instance_from_workitem(
     if (valid_meshlet)
     {
         MeshInstance mesh_instance = mesh_instances.instances[workitem.src_item_index];
-        GPUMesh mesh = meshes[mesh_instance.mesh_index];    
+        // TODO(pahrens): we always select lod 0 here
+        const uint lod = 0;
+        const uint mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + lod;
+        GPUMesh mesh = meshes[mesh_index];    
         if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
         {
             return false;
@@ -822,7 +825,7 @@ bool get_meshlet_instance_from_workitem(
         meshlet_instance.entity_index = mesh_instance.entity_index;
         meshlet_instance.in_mesh_group_index = mesh_instance.in_mesh_group_index;
         meshlet_instance.material_index = mesh.material_index;
-        meshlet_instance.mesh_index = mesh_instance.mesh_index;
+        meshlet_instance.mesh_index = mesh_index;
         meshlet_instance.meshlet_index = workitem.in_expansion_index;
         meshlet_instance.mesh_instance_index = workitem.src_item_index;
     }

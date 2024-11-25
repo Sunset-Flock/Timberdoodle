@@ -405,20 +405,20 @@ bool is_meshlet_occluded(
 bool is_mesh_occluded(
     ShaderDebugBufferHead* debug,
     CameraInfo camera,
-    MeshInstance mesh_inst,
+    MeshInstance mesh_instance,
+    GPUMesh mesh,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     CullData cull_data,
     daxa_ImageViewId hiz
 )
 {
-    GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
-    if (mesh_data.mesh_buffer.value == 0)
+    if (mesh.mesh_buffer.value == 0)
     {
         return true;
     }
 
-    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
 
     // TODO: Add Mesh Bounding Sphere for frustum culling!
     // BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, mesh_inst.meshlet_index);
@@ -428,7 +428,7 @@ bool is_mesh_occluded(
     //     return true;
     // }
 
-    AABB aabb = mesh_data.aabb;
+    AABB aabb = mesh.aabb;
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, aabb);
     const bool depth_cull = is_ndc_aabb_hiz_depth_occluded(debug, cull_data, camera, meshlet_ndc_aabb, hiz);
         
@@ -450,19 +450,19 @@ bool is_mesh_occluded(
 
 bool is_mesh_occluded_vsm(
     CameraInfo camera,
-    MeshInstance mesh_inst,
+    MeshInstance mesh_instance,
+    GPUMesh mesh,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_ImageViewId hiz,
     daxa_u32 cascade
 )
 {
-    GPUMesh mesh_data = deref_i(meshes, mesh_inst.mesh_index);
-    if (mesh_data.mesh_buffer.value == 0)
+    if (mesh.mesh_buffer.value == 0)
     {
         return true;
     }
-    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_inst.entity_index));
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
     
     // TODO: Add Mesh Bounding Sphere.
     // BoundingSphere model_bounding_sphere = mesh_data.bounding_sphere;
@@ -471,7 +471,7 @@ bool is_mesh_occluded_vsm(
     //     return true;
     // }
 
-    AABB mesh_aabb = mesh_data.aabb;
+    AABB mesh_aabb = mesh.aabb;
     NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
     const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, mesh_ndc_aabb, hiz, cascade);
 

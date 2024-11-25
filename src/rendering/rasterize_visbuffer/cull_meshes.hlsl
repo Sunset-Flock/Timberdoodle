@@ -18,8 +18,11 @@ void main(uint thread_id : SV_DispatchThreadID)
         return;
     }
     MeshInstance mesh_instance = deref_i(deref(push.attach.mesh_instances).instances, mesh_instance_index);
+    const uint mesh_lod = 0;
+    const uint mesh_index = mesh_instance.mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + mesh_lod;
+
     uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
-    GPUMesh mesh = deref_i(push.attach.meshes, mesh_instance.mesh_index);
+    GPUMesh mesh = deref_i(push.attach.meshes, mesh_index);
     if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
     {
         return;
@@ -33,6 +36,7 @@ void main(uint thread_id : SV_DispatchThreadID)
             push.attach.globals->debug,
             cull_camera,
             mesh_instance,
+            mesh,
             push.attach.entity_combined_transforms,
             push.attach.meshes,
             push.attach.globals.cull_data,
@@ -47,6 +51,7 @@ void main(uint thread_id : SV_DispatchThreadID)
         if (is_mesh_occluded_vsm(
             push.attach.vsm_clip_projections[push.cascade].camera,
             mesh_instance,
+            mesh,
             push.attach.entity_combined_transforms,
             push.attach.meshes,
             push.attach.hip,
