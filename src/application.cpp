@@ -143,7 +143,8 @@ void Application::update()
         total_time += app_state.delta_time;
 
         auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
-        if (dynamic_ball_ent)
+        // if (dynamic_ball_ent)
+        if (false)
         {
             auto prev_transform = mat_4x3_to_4x4(dynamic_ball_ent->transform);
 

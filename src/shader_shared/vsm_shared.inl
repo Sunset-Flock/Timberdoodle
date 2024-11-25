@@ -10,8 +10,9 @@
 #define VSM_TEXTURE_RESOLUTION 4096
 // #define VSM_TEXTURE_RESOLUTION 8192
 #define VSM_MEMORY_RESOLUTION (8192)
-#define VSM_PAGE_SIZE 128
+#define VSM_PAGE_SIZE 64
 #define VSM_CLIP_LEVELS 16
+// #define VSM_PAGE_TABLE_RESOLUTION (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE) // NOLINT(bugprone-integer-division)
 #define VSM_PAGE_TABLE_RESOLUTION (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE) // NOLINT(bugprone-integer-division)
 #define VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION 8
 #define VSM_META_MEMORY_TABLE_RESOLUTION (VSM_MEMORY_RESOLUTION / VSM_PAGE_SIZE) // NOLINT(bugprone-integer-division)
@@ -24,7 +25,11 @@
 
 #define MAX_VSM_ALLOC_REQUESTS (512 * 512)
 #if defined(__cplusplus)
-// static_assert(VSM_PAGE_TABLE_RESOLUTION < 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
+static_assert(VSM_PAGE_TABLE_RESOLUTION <= 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
+static_assert(VSM_PAGE_TABLE_RESOLUTION <= (1u << 7), "VSM_PAGE_TABLE_RESOLUTION must be less than 2^8 because of coord packing into meta memory");
+
+// TODO: Pack point light shit further so that we can fit more here
+static_assert(MAX_POINT_LIGHTS <= 32, "MAX_POINT_LIGHTS must be less than 32 because of packing into meta entry");
 #endif //defined(__cplusplus)
 
 struct VSMGlobals
@@ -45,12 +50,6 @@ struct VSMClipProjection
 };
 DAXA_DECL_BUFFER_PTR(VSMClipProjection)
 
-struct AllocationCount
-{
-    daxa_u32 count;
-};
-DAXA_DECL_BUFFER_PTR(AllocationCount)
-
 struct AllocationRequest
 {
     daxa_i32vec3 coords;
@@ -60,7 +59,12 @@ struct AllocationRequest
     daxa_i32 point_light_index;
     daxa_i32 point_light_mip;
 };
-DAXA_DECL_BUFFER_PTR(AllocationRequest)
+struct VSMAllocationRequestsHeader
+{
+    daxa_u32 counter;
+    AllocationRequest requests[MAX_VSM_ALLOC_REQUESTS];
+};
+DAXA_DECL_BUFFER_PTR(VSMAllocationRequestsHeader)
 
 struct PageCoordBuffer
 {

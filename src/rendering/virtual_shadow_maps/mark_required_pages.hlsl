@@ -3,6 +3,7 @@
 #include "vsm.inl"
 #include "shader_shared/vsm_shared.inl"
 #include "shader_lib/vsm_util.glsl"
+#include "shader_lib/misc.hlsl"
 
 [[vk::push_constant]] MarkRequiredPagesH::AttachmentShaderBlob mark_pages_push;
 
@@ -54,16 +55,18 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 {
     if(all(lessThan(svdtid.xy, mark_pages_push.globals.settings.render_target_size)))
     {
-        const float depth = mark_pages_push.depth.get().Load(int3(svdtid.xy, 0)).r;
+        const float depth = mark_pages_push.g_buffer_depth.get().Load(int3(svdtid.xy, 0)).r;
+        const uint compressed_geo_normal = mark_pages_push.g_buffer_geo_normal.get().Load(int3(svdtid.xy, 0)).r;
+        const float3 geo_normal = uncompress_normal_octahedral_32(compressed_geo_normal);
 
         // Skip fragments into which no objects were rendered
         if(depth == 0.0f) { return; }
 
         const float4x4 inv_projection_view = mark_pages_push.globals.camera.inv_view_proj;
-        const float2 screen_space_uv = (float2(svdtid.xy) + float2(0.5f)) * mark_pages_push.globals.settings.render_target_size_inv;
+        const float2 screen_space_tex_center_uv = (float2(svdtid.xy) + float2(0.5f)) * mark_pages_push.globals.settings.render_target_size_inv;
 
         const ClipInfo clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-            screen_space_uv,
+            screen_space_tex_center_uv,
             mark_pages_push.globals.settings.render_target_size,
             depth,
             inv_projection_view,
@@ -111,10 +114,10 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
             {
                 uint allocation_index;
-                InterlockedAdd(mark_pages_push.vsm_allocation_count->count, 1u, allocation_index);
+                InterlockedAdd(mark_pages_push.vsm_allocation_requests->counter, 1u, allocation_index);
                 if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
                 {
-                    mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u, -1, -1);
+                    mark_pages_push.vsm_allocation_requests->requests[allocation_index] = AllocationRequest(vsm_page_wrapped_coords, 0u, -1, -1);
                 }
             }
             else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
@@ -129,56 +132,57 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
 
         {
-            // const int4 vsm_point_page_coords = project_into_point_light(depth, 0, screen_space_uv, mark_pages_push.globals, mark_pages_push.vsm_point_lights, mark_pages_push.vsm_globals);
-            // if(vsm_point_page_coords.w > 5) { return; }
+            const float2 screen_space_uv = float2(svdtid.xy) * mark_pages_push.globals.settings.render_target_size_inv;
+            const PointMipInfo vsm_light_mip_info = project_into_point_light(depth, geo_normal, 0, screen_space_uv, mark_pages_push.globals, mark_pages_push.vsm_point_lights, mark_pages_push.vsm_globals);
+            if(vsm_light_mip_info.mip_level > 5) { return; }
 
-            // uint prev_page_state;
-            // bool thread_active = true;
-            // bool first_to_see = false;
+            uint prev_page_state;
+            bool thread_active = true;
+            bool first_to_see = false;
 
-            // float sg_min_depth;
-            // float sg_max_depth;
-            // while(thread_active)
-            // {
-            //     const int4 sg_uniform_point_page_coords = WaveReadLaneFirst(vsm_point_page_coords);
+            float sg_min_depth;
+            float sg_max_depth;
 
-            //     if(all(equal(sg_uniform_point_page_coords, vsm_point_page_coords)))
-            //     {
-            //         if(WaveIsFirstLane())
-            //         {
-            //             first_to_see = true;
-            //         }
-            //         thread_active = false;
-            //     }
-            // }
+            const int4 vsm_point_page_coords = int4(vsm_light_mip_info.page_texel_coords, vsm_light_mip_info.cube_face, vsm_light_mip_info.mip_level);
+            while(thread_active)
+            {
+                const int4 sg_uniform_point_page_coords = WaveReadLaneFirst(vsm_point_page_coords);
 
-            // if(first_to_see)
-            // {
-            //     InterlockedOr(
-            //         mark_pages_push.vsm_point_page_table[vsm_point_page_coords.w].get()[vsm_point_page_coords.xyz],
-            //         uint(requests_allocation_mask() | visited_marked_mask()),
-            //         prev_page_state
-            //     );
+                if(all(equal(sg_uniform_point_page_coords, vsm_point_page_coords)))
+                {
+                    if(WaveIsFirstLane())
+                    {
+                        first_to_see = true;
+                    }
+                    thread_active = false;
+                }
+            }
 
-                // if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
-                // {
-                //     uint allocation_index;
-                    // InterlockedAdd(mark_pages_push.vsm_allocation_count->count, 1u, allocation_index);
-                    // if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
-                    // {
-                    //     mark_pages_push.vsm_allocation_requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, 0, vsm_point_page_coords.w);
-                    // }
-                // }
-                // TODO(Finish)
+            if(first_to_see)
+            {
+                InterlockedOr(
+                    mark_pages_push.vsm_point_page_table[vsm_point_page_coords.w].get()[vsm_point_page_coords.xyz],
+                    uint(requests_allocation_mask() | visited_marked_mask()),
+                    prev_page_state
+                );
+
+                if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
+                {
+                    uint allocation_index;
+                    InterlockedAdd(mark_pages_push.vsm_allocation_requests->counter, 1u, allocation_index);
+                    if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
+                    {
+                        mark_pages_push.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, 0, vsm_point_page_coords.w);
+                    }
+                }
                 // else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
                 // {
-
-                    // InterlockedOr(
-                    //     mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
-                    //     meta_memory_visited_mask()
-                    // );
+                //     InterlockedOr(
+                //         mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
+                //         meta_memory_visited_mask()
+                //     );
                 // }
-            // }
+            }
         }
     }
 }

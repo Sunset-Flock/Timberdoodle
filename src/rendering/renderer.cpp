@@ -604,7 +604,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .meshes = scene->_gpu_mesh_manifest,
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
-            .depth = depth,
+            .g_buffer_depth = depth,
+            .g_buffer_geo_normal = geo_normal_image,
         });
     }
     else

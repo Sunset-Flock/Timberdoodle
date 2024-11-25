@@ -54,8 +54,15 @@ void main()
 
         if (get_meta_memory_is_allocated(meta_entry)) 
         {
-            const ivec3 vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
-            color.rgb = hsv2rgb(vec3(pow(float(vsm_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
+            if(get_meta_memory_is_point_light(meta_entry)) 
+            {
+                color.rgb = vec3(1.0f);
+            }
+            else
+            {
+                const ivec3 vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
+                color.rgb = hsv2rgb(vec3(pow(float(vsm_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
+            }
         }
 
         if (get_meta_memory_is_visited(meta_entry))
@@ -66,6 +73,7 @@ void main()
             const ivec3 vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
             color.rgb = hsv2rgb(vec3(pow(float(vsm_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
             const uint vsm_entry = imageLoad(daxa_uimage2DArray(push.vsm_page_table), vsm_coords).r;
+
             const uint visited_reset_vsm_entry = vsm_entry & (~(visited_marked_mask() | dirty_mask() | requests_allocation_mask()));
             imageStore(daxa_uimage2DArray(push.vsm_page_table), vsm_coords, uvec4(visited_reset_vsm_entry));
         }
