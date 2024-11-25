@@ -45,15 +45,15 @@ daxa_u32 pack_meta_coords_to_vsm_entry(daxa_i32vec2 coords)
 
 // VSM MEMORY META MASKS AND FUNCTIONS
 // BIT 31 -> 0 - FREE/ 1 - ALLOCATED
-// BIT 30 -> 1 - NEEDS_CLEAR
-// BIT 29 -> 1 - VISITED
+// BIT 30 -> 1 - VISITED
+// BIT 29 -> 1 - IS POINT LIGHT
 daxa_u32 meta_memory_allocated_mask()   { return 1 << 31; }
-daxa_u32 meta_memory_needs_clear_mask() { return 1 << 30; }
-daxa_u32 meta_memory_visited_mask()     { return 1 << 29; }
+daxa_u32 meta_memory_visited_mask()     { return 1 << 30; }
+daxa_u32 meta_memory_point_light_mask() { return 1 << 29; }
 
 bool get_meta_memory_is_allocated(daxa_u32 meta_page_entry){ return (meta_page_entry & meta_memory_allocated_mask()) != 0; }
-bool get_meta_memory_needs_clear(daxa_u32 meta_page_entry) { return (meta_page_entry & meta_memory_needs_clear_mask()) != 0; }
 bool get_meta_memory_is_visited(daxa_u32 meta_page_entry)  { return (meta_page_entry & meta_memory_visited_mask()) != 0; }
+bool get_meta_memory_is_point_light(daxa_u32 meta_page_entry) {return (meta_page_entry & meta_memory_point_light_mask()) != 0; }
 
 // BIT 0 - 7   page entry x coord
 // BIT 8 - 15  page entry y coord
@@ -75,6 +75,41 @@ daxa_u32 pack_vsm_coords_to_meta_entry(daxa_i32vec3 coords)
     packed_coords |= ((coords.y & n_mask(8)) << 8);
     packed_coords |= ((coords.x & n_mask(8)) << 0);
     return packed_coords;
+}
+
+struct PointLightCoords
+{
+    daxa_i32vec2 texel_coords;
+    daxa_i32 mip_level;
+    daxa_i32 face_index;
+    daxa_i32 point_light_index;
+};
+
+// BIT 0 - 7 page entry x coord
+// BIT 8 - 15 page entry y coord
+// BIT 16 - 19 mip level
+// BIT 20 - 23 face index
+// BIT 24 - 28 point light index
+daxa_u32 pack_vsm_point_light_coords_to_meta_entry(const PointLightCoords info)
+{
+    daxa_u32 packed_coords = 0;
+    packed_coords |= ((info.point_light_index  & n_mask(4)) << 24);
+    packed_coords |= ((info.face_index  & n_mask(4)) << 20);
+    packed_coords |= ((info.mip_level   & n_mask(4)) << 16);
+    packed_coords |= ((info.texel_coords.y & n_mask(8)) << 8);
+    packed_coords |= ((info.texel_coords.x & n_mask(8)) << 0);
+    return packed_coords;
+}
+
+PointLightCoords get_vsm_point_light_coords_from_meta_entry(const daxa_u32 page_entry)
+{
+    PointLightCoords coords;
+    coords.texel_coords.x    = daxa_i32((page_entry >> 0)  & n_mask(8));
+    coords.texel_coords.y    = daxa_i32((page_entry >> 8)  & n_mask(8));
+    coords.mip_level         = daxa_i32((page_entry >> 16) & n_mask(4));
+    coords.face_index        = daxa_i32((page_entry >> 20) & n_mask(4));
+    coords.point_light_index = daxa_i32((page_entry >> 24) & n_mask(4));
+    return coords;
 }
 
 struct ClipInfo
@@ -215,9 +250,19 @@ float3 ray_plane_intersection(float3 ray_direction, float3 ray_origin, float3 pl
         float t = dot((plane_origin - ray_origin), plane_normal) / denom;
         return ray_origin + t * ray_direction;
     }
+    return 0.0f;//
 }
 
-float4 project_into_point_light(
+
+struct PointMipInfo
+{
+    int mip_level;
+    int cube_face;
+    int2 page_texel_coords;
+    float2 page_uvs;
+};
+
+PointMipInfo project_into_point_light(
     float depth,
     float3 normal,
     int point_light_idx,
@@ -276,11 +321,9 @@ float4 project_into_point_light(
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
-        const float2 middle_uv = (middle_ndc + 1.0f) * 0.5f;
-        // return float4(middle_uv.rg, 0, mip_level);
-        // return float4(length(left_side_ws - right_side_ws).xx, 0.0, mip_level);
-        return float4(middle_uv, face_idx, mip_level);
+        const float2 middle_uv = ((middle_ndc + 1.0f) * 0.5f);
+        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << mip_level)));
+        return PointMipInfo(int(mip_level), int(face_idx), texel_coord, middle_uv);
     }
-
 }
 #endif

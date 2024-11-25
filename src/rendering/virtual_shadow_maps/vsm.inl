@@ -58,10 +58,11 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(VSMAllocationReques
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, g_buffer_depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, g_buffer_geo_normal)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 #endif
@@ -85,18 +86,21 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHead
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
+#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(AllocatePagesH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_pages_header)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_pages_header)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PageCoordBuffer), vsm_free_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PageCoordBuffer), vsm_not_visited_pages_buffer)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_indirect)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
+#endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
@@ -253,7 +257,8 @@ inline daxa::ComputePipelineCompileInfo vsm_allocate_pages_pipeline_compile_info
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/allocate_pages.glsl"}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/allocate_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
         .push_constant_size = static_cast<u32>(sizeof(AllocatePagesH::AttachmentShaderBlob)),
         .name = std::string{AllocatePagesH::NAME},
     };
@@ -419,7 +424,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const depth_resolution = render_context->gpu_context->device.image_info(ti.get(AT.depth).ids[0]).value().size;
+        auto const depth_resolution = render_context->gpu_context->device.image_info(ti.get(AT.g_buffer_depth).ids[0]).value().size;
         auto const dispatch_size = u32vec2{
             (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
             (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
@@ -657,7 +662,8 @@ struct TaskDrawVSMsInfo
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView entity_combined_transforms = {};
     daxa::TaskBufferView material_manifest = {};
-    daxa::TaskImageView depth = {};
+    daxa::TaskImageView g_buffer_depth = {};
+    daxa::TaskImageView g_buffer_geo_normal = {};
 };
 
 inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
@@ -724,7 +730,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_globals, info.vsm_state->globals),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(MarkRequiredPagesH::AT.depth, info.depth),
+            daxa::attachment_view(MarkRequiredPagesH::AT.g_buffer_depth, info.g_buffer_depth),
+            daxa::attachment_view(MarkRequiredPagesH::AT.g_buffer_geo_normal, info.g_buffer_geo_normal),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
             daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
@@ -761,6 +768,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(AllocatePagesH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(AllocatePagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
             daxa::attachment_view(AllocatePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+            daxa::attachment_view(AllocatePagesH::AT.vsm_point_page_table, vsm_point_page_table_view),
         },
         .render_context = info.render_context,
     });

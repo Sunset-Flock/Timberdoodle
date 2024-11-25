@@ -100,7 +100,7 @@ float3 get_view_direction(float2 ndc_xy)
 
 float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_position, float3 normal)
 {
-    float4 info = project_into_point_light(
+    const PointMipInfo info = project_into_point_light(
         depth,
         normal,
         0,
@@ -110,20 +110,16 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_posit
         AT.vsm_globals
     );
 
-    float3 color = hsv2rgb(float3(float(info.z) / 6.0f, float(5 - int(info.w)) / 5.0f, 1.0));
+    float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
 
-    const int2 physical_texel_coords = info.xy * (VSM_TEXTURE_RESOLUTION / (1 << int(info.w)));
+    const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
     const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
     bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                              any(lessThan(in_page_texel_coords, int2(1)));
-    // color.rgb = 0.0f;
-    // color.rg = in_page_texel_coords;
-    // color.b = 0;
     if(texel_near_border)
     {
         color = float3(0.001, 0.001, 0.001);
     }
-    // color.rgb = info.rgb;
 
     return color;
 }
@@ -592,12 +588,6 @@ void entry_main_cs(
 
     const float exposure = compute_exposure(deref(AT.luminance_average));
     float3 exposed_color = output_value.rgb * exposure;
-    debug_write_lens(
-        AT.globals->debug,
-        AT.debug_lens_image,
-        index,
-        float4(output_value.rgb, 1.0f),
-    );
     
     AT.color_image.get()[index] = exposed_color;
 }

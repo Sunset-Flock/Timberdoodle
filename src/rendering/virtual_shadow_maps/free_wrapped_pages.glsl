@@ -32,7 +32,6 @@ void main()
         if(get_is_allocated(vsm_page_entry))
         {
             const ivec2 meta_memory_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
-            // debugPrintfEXT("freeing page %d %d %d\n", vsm_wrapped_page_coords.x, vsm_wrapped_page_coords.y, vsm_wrapped_page_coords.z);
             imageStore(daxa_uimage2D(push.vsm_meta_memory_table), meta_memory_coords, uvec4(0));
             imageStore(daxa_uimage2DArray(push.vsm_page_table), vsm_wrapped_page_coords, uvec4(0));
         } 

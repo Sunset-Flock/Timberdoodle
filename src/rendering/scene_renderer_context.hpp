@@ -189,7 +189,7 @@ namespace RenderTimes
         "GROUP_AMBIENT_OCCLUSION",
         "GROUP_SHADE_OPAQUE",
         "GROUP_SHADE_GBUFFER",
-        "GROUP_VSM_INVALIDATE_PAGES",
+        "GROUP_VSM_MARK_PAGES",
         "GROUP_VSM_BOOKKEEPING",
         "GROUP_VSM_CULL_AND_DRAW",
     };
@@ -229,12 +229,13 @@ namespace RenderTimes
         SHADE_GBUFFER,
     };
 
-    static constexpr inline std::array GROUP_VSM_INVALIDATE_PAGES = std::array{
-        VSM_INVALIDATE_PAGES,
+    static constexpr inline std::array GROUP_VSM_MARK_PAGES = std::array{
+        VSM_MARK_REQUIRED_PAGES,
     };
 
     static constexpr inline std::array GROUP_VSM_BOOKKEEPING_TIMES = std::array{
         VSM_FREE_WRAPPED_PAGES,
+        VSM_INVALIDATE_PAGES,
         VSM_MARK_REQUIRED_PAGES,
         VSM_FIND_FREE_PAGES,
         VSM_ALLOCATE_PAGES,
@@ -251,7 +252,7 @@ namespace RenderTimes
         GROUP_AMBIENT_OCCLUSION_TIMES,
         GROUP_SHADE_OPAQUE_TIMES,
         GROUP_SHADE_GBUFFER_TIMES,
-        GROUP_VSM_INVALIDATE_PAGES,
+        GROUP_VSM_MARK_PAGES,
         GROUP_VSM_BOOKKEEPING_TIMES,
         GROUP_VSM_CULL_AND_DRAW_TIMES,
     };
