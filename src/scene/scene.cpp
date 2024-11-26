@@ -435,6 +435,97 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         }
     }
 
+    bool const grid_copy_scene = false;
+    if (grid_copy_scene)
+    {
+        u32 const grid_size = 50;
+        f32 const grid_cell_offset_x = 20.0f;
+        f32 const grid_cell_offset_y = 5.0f;
+        f32 const grid_cell_offset_z = 5.0f;
+        for (u32 x = 0; x < grid_size; ++x)
+        {
+            for (u32 y = 0; y < grid_size; ++y)
+            {
+                for (u32 z = 0; z < grid_size; ++z)
+                {    
+                    std::vector<RenderEntityId> node_index_to_entity_id = {};
+                    for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
+                    {
+                        node_index_to_entity_id.push_back(scene._render_entities.create_slot());
+                        scene._dirty_render_entities.push_back(node_index_to_entity_id.back());
+                    }
+                    for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
+                    {
+                        // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
+                        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::Node::TransformMatrix> const & trans) -> glm::mat4x3
+                        {
+                            glm::mat4x3 ret_trans;
+                            if (auto const * trs = std::get_if<fastgltf::TRS>(&trans))
+                            {
+                                auto const scale = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
+                                auto const rotation = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));
+                                auto const translation = glm::translate(glm::identity<glm::mat4x4>(), glm::vec3(trs->translation[0], trs->translation[1], trs->translation[2]));
+                                auto const rotated_scaled = rotation * scale;
+                                auto const translated_rotated_scaled = translation * rotated_scaled;
+                                /// NOTE: As the last row is always (0,0,0,1) we dont store it.
+                                ret_trans = glm::mat4x3(translated_rotated_scaled);
+                            }
+                            else if (auto const * trs = std::get_if<fastgltf::Node::TransformMatrix>(&trans))
+                            {
+                                // Gltf and glm matrices are column major.
+                                ret_trans = glm::mat4x3(std::bit_cast<glm::mat4x4>(*trs));
+                            }
+                            return ret_trans;
+                        };
+
+                        fastgltf::Node const & node = load_ctx.asset.nodes[node_index];
+                        RenderEntityId const parent_r_ent_id = node_index_to_entity_id[node_index];
+                        RenderEntity & r_ent = *scene._render_entities.slot(parent_r_ent_id);
+                        r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()) + load_ctx.mesh_group_manifest_offset) : std::optional<u32>(std::nullopt);
+                        r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
+                        r_ent.transform[3].x += x * grid_cell_offset_x;
+                        r_ent.transform[3].y += y * grid_cell_offset_y;
+                        r_ent.transform[3].z += z * grid_cell_offset_z;
+                        r_ent.name = node.name.c_str();
+                        if (node.meshIndex.has_value())
+                        {
+                            r_ent.type = EntityType::MESHGROUP;
+                        }
+                        else if (node.cameraIndex.has_value())
+                        {
+                            r_ent.type = EntityType::CAMERA;
+                        }
+                        else if (node.lightIndex.has_value())
+                        {
+                            r_ent.type = EntityType::LIGHT;
+                        }
+                        else if (!node.children.empty())
+                        {
+                            r_ent.type = EntityType::TRANSFORM;
+                        }
+                        if (!node.children.empty())
+                        {
+                            r_ent.first_child = node_index_to_entity_id[node.children[0]];
+                        }
+                        for (u32 curr_child_vec_idx = 0; curr_child_vec_idx < node.children.size(); curr_child_vec_idx++)
+                        {
+                            u32 const curr_child_node_idx = node.children[curr_child_vec_idx];
+                            RenderEntityId const curr_child_r_ent_id = node_index_to_entity_id[curr_child_node_idx];
+                            RenderEntity & curr_child_r_ent = *scene._render_entities.slot(curr_child_r_ent_id);
+                            curr_child_r_ent.parent = parent_r_ent_id;
+                            bool const has_next_sibling = curr_child_vec_idx < (node.children.size() - 1ull);
+                            if (has_next_sibling)
+                            {
+                                RenderEntityId const next_r_ent_child_id = node_index_to_entity_id[node.children[curr_child_vec_idx + 1]];
+                                curr_child_r_ent.next_sibling = next_r_ent_child_id;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
     //        Child root entites under scene root node
     RenderEntityId root_r_ent_id = scene._render_entities.create_slot({
@@ -1524,7 +1615,7 @@ auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -
     return recorder.complete_current_commands();
 }
 
-auto Scene::process_entities(Settings & settings) -> CPUMeshInstances
+auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
 {
     // Go over all entities every frame.
     // Check if entity changed, if so, queue appropriate update events.
@@ -1578,13 +1669,77 @@ auto Scene::process_entities(Settings & settings) -> CPUMeshInstances
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
                     if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
 
-                    // Select LOD
-                    u32 lod = 0;
-                    if (settings.lod_override >= 0)
+                    /// ===== Select LOD ======
+                    // To select the lod we use calculate an acceptable error for each mesh transformed in world position.
+                    // We then calculate the error that each lod would have and select the highest lod that is lower than the acceptable error.
+                    // Error:
+                    //   Lod error is a value from 0-1.
+                    //   Its the mean squared error of mesh surface positions compared to lod0
+                    //   The unit of the error is model space difference divided by model world space size, so it is irrelevant how large the model is in worldspace.
+                    // Error Estimation for Lod Selection
+                    //   We can very coarsely calculate how many pixels would change from a lod change:
+                    //   - mesh lod aabb pixel size * mesh lod error
+                    //   We can then determine a pixel error that we do not want to overstep, lets say 2 or 4.
+                    //   We calculate the pixel error for each lod and pick the highest one with acceptable error.
+                    // Off screen handling
+                    //   We still want meshes loded properly if they are off screen
+                    //   Important for raytracing
+                    //   Important for shadowmaps
+                    //   Because of this we can not simply project the aabb into viewspace and calculate the real pixel coverage.
+                    //   Instead, a simplified method will be used to estimate a rough pixel size each mesh would be, 
+                    //   based on distance, fov and resolution only, no projection.
+                    // Mesh Pixel Size Approximation
+                    //   This should be VERY fast to be able to handle tens of thousands of meshes
+                    //   It can be very coarse, we can investigate finer lodding later
+                    /// ===== Select LOD ======
+
+                    // Iterate over lods, calculate estimated pixel error, select last lod with acceptable error.
+                    u32 selected_lod_lod = 0;
+
+                    if (render_data.settings.lod_override >= 0)
                     {
-                        lod = std::min(static_cast<u32>(settings.lod_override), mesh_lod_group.runtime->lod_count - 1u);
+                        selected_lod_lod = std::min(static_cast<u32>(render_data.settings.lod_override), mesh_lod_group.runtime->lod_count - 1u);
                     }
-                    u32 mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP + lod;
+                    else
+                    {
+                        for (u32 lod = 1; lod < mesh_lod_group.runtime->lod_count; ++lod)
+                        {
+                            GPUMesh const & mesh = mesh_lod_group.runtime->lods[lod]; 
+                            f32 const aabb_extent_x = length(r_ent->combined_transform[0]) * mesh.aabb.size.x;
+                            f32 const aabb_extent_y = length(r_ent->combined_transform[1]) * mesh.aabb.size.y;
+                            f32 const aabb_extent_z = length(r_ent->combined_transform[2]) * mesh.aabb.size.z;
+                            f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
+
+                            glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh.aabb.center), 1.0f);
+                            f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.camera.position)) - 0.5f * aabb_rough_extent);
+
+                            f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
+
+                            // Assumes a 90 fov camera for simplicity
+                            f32 const fov90_distance_to_screen_ratio = 2.0f;
+                            f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
+                            f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
+                            f32 const rough_aabb_pixel_size = aabb_size_at_1m / pixel_size_at_1m;
+
+                            f32 const rough_pixel_error = rough_aabb_pixel_size * mesh.lod_error;
+                            if (rough_pixel_error < render_data.settings.lod_acceptable_pixel_error)
+                            {
+                                selected_lod_lod = lod;
+                            }
+                            else
+                            {
+                                break;
+                            }
+
+                            // gpu_context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
+                            //     .position = std::bit_cast<daxa_f32vec3>(aabb_center),
+                            //     .size = daxa_f32vec3(aabb_extent_x, aabb_extent_y, aabb_extent_z),
+                            //     .color = daxa_f32vec3(1, 0, 0),
+                            //     .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+                            // });
+                        }
+                    }
+                    u32 mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP + selected_lod_lod;
 
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({

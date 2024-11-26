@@ -876,14 +876,15 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         std::vector<u32> simplified_indices = {};
         std::vector<u32> * index_buffer = {};
+        f32 lod_error = 0.0f;
         if (lod == 0)
         {
             index_buffer = &lod0_index_buffer;
         }
         else
         {
-            const u32 lod_index_count = round_up_div(prev_lod_index_buffer.size(), 3 * 2) * 3u;
-            simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
+            const u32 lod_index_count = round_up_div(lod0_index_buffer.size(), 3 * (1u << lod)) * 3u;
+            simplified_indices.resize(lod0_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
             f32 target_error = 0.05f;
             f32 max_acceptable_error = 0.10f;
@@ -893,7 +894,8 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // It should only be on for things that need it like street tiles or planes.
             u32 options = meshopt_SimplifyLockBorder;
             f32 result_error = {};
-            i32 result_index_count = meshopt_simplify(index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
+            i32 result_index_count = meshopt_simplify(index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
+            lod_error = result_error;
             if (result_index_count > lod_index_count || result_index_count < 32 || result_error > max_acceptable_error)
             {
                 break;
@@ -980,6 +982,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 
         /// NOTE: Fill GPUMesh runtime data
         GPUMesh mesh = {};
+        mesh.lod_error = lod_error;
 
         mesh.aabb = mesh_aabb;
         daxa::DeviceAddress mesh_bda = {};

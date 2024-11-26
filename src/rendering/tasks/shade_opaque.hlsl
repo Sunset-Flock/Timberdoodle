@@ -547,6 +547,12 @@ void entry_main_cs(
                 output_value.rgb = ambient_occlusion;
                 break;
             }
+            case DEBUG_DRAW_MODE_LOD:
+            {
+                uint lod = tri_data.meshlet_instance.mesh_index % MAX_MESHES_PER_LOD_GROUP;
+                output_value.rgb = TurboColormap(float(lod) / float(MAX_MESHES_PER_LOD_GROUP));
+                break;
+            }
             case DEBUG_DRAW_MODE_NONE:
             default:
             output_value.rgb = shaded_color;

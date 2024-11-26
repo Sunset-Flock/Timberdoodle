@@ -1183,6 +1183,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
                 "NORMAL",
                 "LIGHT",
                 "AO",
+                "LOD",
             };
             ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);
@@ -1196,6 +1197,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
             ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&settings.enable_separate_compute_meshlet_culling));
             ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&settings.enable_prefix_sum_work_expansion));
             ImGui::InputInt("override_lod", &settings.lod_override);
+            ImGui::InputFloat("lod_acceptable_pixel_error", &settings.lod_acceptable_pixel_error);
+            ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
         }
         ImGui::SeparatorText("Misc");
         ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));

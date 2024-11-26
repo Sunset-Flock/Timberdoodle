@@ -54,6 +54,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "repro\\minimal.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -186,7 +187,7 @@ void Application::update()
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-    auto tmp_cpu_mesh_instances = _scene->process_entities(_renderer->render_context->render_data.settings);
+    auto tmp_cpu_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
     _scene->write_gpu_mesh_instances_buffer(std::move(tmp_cpu_mesh_instances));
 
     bool const merged_blas = _renderer->render_context->render_data.settings.enable_merged_scene_blas;

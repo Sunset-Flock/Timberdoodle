@@ -160,6 +160,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_NORMAL 10
 #define DEBUG_DRAW_MODE_LIGHT 11
 #define DEBUG_DRAW_MODE_AO 12
+#define DEBUG_DRAW_MODE_LOD 13
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -190,6 +191,7 @@ struct Settings
     daxa_b32 enable_separate_compute_meshlet_culling;
     daxa_b32 enable_prefix_sum_work_expansion;
     daxa_i32 lod_override;
+    daxa_f32 lod_acceptable_pixel_error;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -222,7 +224,9 @@ struct Settings
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},
-          lod_override{ -1 }
+          lod_override{ -1 },
+          // Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions.
+          lod_acceptable_pixel_error{ 0.75f } 
     {
     }
 #endif
