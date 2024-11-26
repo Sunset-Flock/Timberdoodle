@@ -361,6 +361,7 @@ struct VSMState
         allocate_indirect = daxa::NullTaskBuffer;
         clear_indirect = daxa::NullTaskBuffer;
         clear_dirty_bit_indirect = daxa::NullTaskBuffer;
+        vsm_point_lights = daxa::NullTaskBuffer;
         dirty_pages_hiz = daxa::NullTaskImage;
         overdraw_debug_image = daxa::NullTaskImage;
     }

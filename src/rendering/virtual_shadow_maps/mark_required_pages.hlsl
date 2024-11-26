@@ -78,11 +78,10 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return; }
 
         const int3 vsm_page_wrapped_coords = vsm_clip_info_to_wrapped_coords(clip_info, mark_pages_push.vsm_clip_projections);
-        if(vsm_page_wrapped_coords.x < 0 || vsm_page_wrapped_coords.y < 0) { return; }
 
 
         uint prev_page_state;
-        bool thread_active = true;
+        bool thread_active = (vsm_page_wrapped_coords.x >= 0 && vsm_page_wrapped_coords.y >= 0);
         bool first_to_see = false;
 
         float sg_min_depth;
@@ -134,14 +133,10 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         {
             const float2 screen_space_uv = float2(svdtid.xy) * mark_pages_push.globals.settings.render_target_size_inv;
             const PointMipInfo vsm_light_mip_info = project_into_point_light(depth, geo_normal, 0, screen_space_uv, mark_pages_push.globals, mark_pages_push.vsm_point_lights, mark_pages_push.vsm_globals);
-            if(vsm_light_mip_info.mip_level > 5) { return; }
 
             uint prev_page_state;
-            bool thread_active = true;
+            bool thread_active = vsm_light_mip_info.mip_level < 6;
             bool first_to_see = false;
-
-            float sg_min_depth;
-            float sg_max_depth;
 
             const int4 vsm_point_page_coords = int4(vsm_light_mip_info.page_texel_coords, vsm_light_mip_info.cube_face, vsm_light_mip_info.mip_level);
             while(thread_active)
@@ -175,13 +170,13 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                         mark_pages_push.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, 0, vsm_point_page_coords.w);
                     }
                 }
-                // else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
-                // {
-                //     InterlockedOr(
-                //         mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
-                //         meta_memory_visited_mask()
-                //     );
-                // }
+                else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
+                {
+                    InterlockedOr(
+                        mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
+                        meta_memory_visited_mask()
+                    );
+                }
             }
         }
     }

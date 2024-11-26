@@ -98,7 +98,7 @@ float3 get_view_direction(float2 ndc_xy)
     return world_direction;
 }
 
-float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_position, float3 normal)
+float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 normal)
 {
     const PointMipInfo info = project_into_point_light(
         depth,
@@ -109,6 +109,10 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_posit
         AT.vsm_point_lights,
         AT.vsm_globals
     );
+    if(info.mip_level > 5)
+    {
+        return 1.0f;
+    }
 
     float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
 
@@ -116,7 +120,14 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 world_posit
     const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
     bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                              any(lessThan(in_page_texel_coords, int2(1)));
-    if(texel_near_border)
+
+    const uint page_resolution = VSM_PAGE_TABLE_RESOLUTION / (1u << info.mip_level);
+    if( info.page_uvs.x >= 1.0f || info.page_uvs.y >= 1.0f ||
+        info.page_uvs.x < 0.0f || info.page_uvs.y < 0.0f)
+    {
+        color = float3(0.0f, 0.0f, 0.0f);
+    }
+    else if(texel_near_border)
     {
         color = float3(0.001, 0.001, 0.001);
     }
@@ -513,10 +524,10 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
-                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position, tri_data.world_normal);
+                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, tri_data.depth, tri_data.world_normal);
                 let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
-                // output_value.rgb = debug_albedo;
-                output_value.rgb = vsm_debug_color;
+                output_value.rgb = debug_albedo;
+                // output_value.rgb = vsm_debug_color;
                 break;
             }
             case DEBUG_DRAW_MODE_DEPTH:

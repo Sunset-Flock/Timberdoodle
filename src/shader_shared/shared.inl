@@ -130,6 +130,7 @@ struct VSMSettings
     daxa_f32 constant_bias;
     daxa_i32 fixed_near_far;
     daxa_u32 sun_moved;
+    daxa_i32 force_point_light_idx;
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },
@@ -140,7 +141,8 @@ struct VSMSettings
           clip_selection_bias{1.0f},
           slope_bias{2.0f},
           constant_bias{10.0f},
-          fixed_near_far{1}
+          fixed_near_far{1},
+          force_point_light_idx{-1}
     {
     }
 #endif
