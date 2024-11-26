@@ -64,10 +64,10 @@ DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 
-    DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
-    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, meshlet_cull_po2expansion)
-    DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, masked_meshlet_cull_po2expansion)
-    DAXA_DECL_TASK_HEAD_END
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, meshlet_cull_po2expansion)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, masked_meshlet_cull_po2expansion)
+DAXA_DECL_TASK_HEAD_END
 #endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(FindFreePagesH)
