@@ -871,9 +871,10 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
     u32 lod_count = 0;
 
-    /// ===== Estimate Average Noramlized (model space) Triangle Size =====
-    // - When generating lods, we use the normals to weigh the reduction error
-    // - This guides the simplification such that it tries to prevent strong normal degradation for each lod
+    /// ===== Calculate Vertex Normal Weight =====
+    // - When generating lods, we use the normals to influence the reduction error
+    // - Normal error is critical to guide the simplification to keep good visual quality for each lod
+    // - We need a normal to position error weight in order to incorporate normal and position error
     // - For meshes with a lot of triangles, normals matter a lot less as their error is less noticable with smaller triangles.
     // - We want to weigh the normal importance in simplification with triangle size
     // - This will give us a good tradeoff between triangle position and normal error in lod generation for most meshes
@@ -899,7 +900,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     f32 const normalized_average_tri_size = average_tri_size / vertex_bounds_scale;
     f32 const VERTEX_NORMALS_LOD_IMPORTANCE = 10.0f;
     f32 const vertex_normal_weight = normalized_average_tri_size * VERTEX_NORMALS_LOD_IMPORTANCE;
-    /// ===== Estimate Average Noramlized (model space) Triangle Size =====
+    /// ===== Calculate Vertex Normal Weight =====
 
     std::vector<daxa::u32> prev_lod_index_buffer = {};
     for (u32 lod = 0; lod < MAX_MESHES_PER_LOD_GROUP; ++lod)
