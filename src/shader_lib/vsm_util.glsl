@@ -250,7 +250,7 @@ float3 ray_plane_intersection(float3 ray_direction, float3 ray_origin, float3 pl
         float t = dot((plane_origin - ray_origin), plane_normal) / denom;
         return ray_origin + t * ray_direction;
     }
-    return 0.0f;//
+    return 0.0f;
 }
 
 
@@ -278,6 +278,12 @@ PointMipInfo project_into_point_light(
     const float3 point_ws = point_lights[point_light_idx].light.position;
 
     const float3 point_to_frag_norm = normalize(frag_ws - point_ws);
+
+    if(length(frag_ws - point_ws) > point_lights[point_light_idx].light->cutoff)
+    {
+        return PointMipInfo(6, -1, int2(-1), float2(-2.0f));
+    }
+
     const int face_idx = cube_face_from_dir(point_to_frag_norm);
 
     // Reprojecting screen space into point light space
@@ -298,6 +304,14 @@ PointMipInfo project_into_point_light(
     const float3 bottom_left_real_ws = ray_plane_intersection(normalize(bottom_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
     const float3 top_right_real_ws = ray_plane_intersection(normalize(top_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
     const float3 top_left_real_ws = ray_plane_intersection(normalize(top_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
+
+    if( any(bottom_right_real_ws == float3(0.0f)) || 
+        any(bottom_left_real_ws == float3(0.0f))  || 
+        any(top_right_real_ws == float3(0.0f))    || 
+        any(top_left_real_ws == float3(0.0f)))
+    {
+        return PointMipInfo(6, -1, int2(-1), float2(-2.0f));
+    }
 
     {
         const float4x4 point_view_projection = mul(vsm_globals->point_light_projection_matrix, point_lights[point_light_idx].view_matrices[face_idx]);
@@ -321,7 +335,7 @@ PointMipInfo project_into_point_light(
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
-        const float2 middle_uv = ((middle_ndc + 1.0f) * 0.5f);
+        const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
         const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << mip_level)));
         return PointMipInfo(int(mip_level), int(face_idx), texel_coord, middle_uv);
     }

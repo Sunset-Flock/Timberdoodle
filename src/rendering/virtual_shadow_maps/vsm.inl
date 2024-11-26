@@ -41,17 +41,15 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(FreeWrappedPagesInf
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
-#endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(FreeWrappedPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
-#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(MarkRequiredPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
@@ -65,9 +63,7 @@ DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
-#endif
 
-#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
     DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
     DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, meshlet_cull_po2expansion)
     DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, masked_meshlet_cull_po2expansion)
@@ -192,18 +188,22 @@ DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), 
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_DECL_TASK_HEAD_END
 
+#if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_TASK_HEAD_BEGIN(DebugVirtualPageTableH)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_page_table)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_TASK_HEAD_BEGIN(DebugMetaMemoryTableH)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_meta_memory_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_debug_meta_memory_table)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
+#endif
 
 #if defined(__cplusplus)
 #include "../tasks/misc.hpp"
@@ -226,7 +226,8 @@ inline daxa::ComputePipelineCompileInfo vsm_free_wrapped_pages_pipeline_compile_
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/free_wrapped_pages.glsl"}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
         .push_constant_size = static_cast<u32>(sizeof(FreeWrappedPagesH::AttachmentShaderBlob)),
         .name = std::string{FreeWrappedPagesH::NAME},
     };
@@ -357,8 +358,11 @@ inline daxa::ComputePipelineCompileInfo vsm_debug_virtual_page_table_pipeline_co
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.glsl"},
-            .compile_options = {.defines = {{"DEBUG_PAGE_TABLE", "1"}}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl"},
+            .compile_options = {
+                .entry_point = "debug_virtual_main",
+                .language = daxa::ShaderLanguage::SLANG,
+            },
         },
         .push_constant_size = static_cast<u32>(sizeof(DebugVirtualPageTableH::AttachmentShaderBlob)),
         .name = std::string{DebugVirtualPageTableH::NAME},
@@ -369,8 +373,11 @@ inline daxa::ComputePipelineCompileInfo vsm_debug_meta_memory_table_pipeline_com
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.glsl"},
-            .compile_options = {.defines = {{"DEBUG_META_MEMORY_TABLE", "1"}}},
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl"},
+            .compile_options = {
+                .entry_point = "debug_meta_main",
+                .language = daxa::ShaderLanguage::SLANG,
+            },
         },
         .push_constant_size = static_cast<u32>(sizeof(DebugMetaMemoryTableH::AttachmentShaderBlob)),
         .name = std::string{DebugMetaMemoryTableH::NAME},
@@ -885,9 +892,11 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
     info.tg->add_task(DebugMetaMemoryTableTask{
         .views = std::array{
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, info.render_context->tgpu_render_data),
             daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
             daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
             daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
+            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
         },
         .render_context = info.render_context,
     });
