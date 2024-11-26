@@ -757,9 +757,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     fastgltf::Accessor & index_buffer_gltf_accessor = gltf_asset.accessors.at(gltf_prim.indicesAccessor.value());
     bool const index_buffer_accessor_valid =
         (index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedInt ||
-            index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
-        index_buffer_gltf_accessor.type == fastgltf::AccessorType::Scalar &&
-        index_buffer_gltf_accessor.bufferViewIndex.has_value();
+         index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
+         index_buffer_gltf_accessor.type == fastgltf::AccessorType::Scalar &&
+         index_buffer_gltf_accessor.bufferViewIndex.has_value();
     if (!index_buffer_accessor_valid)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR;
@@ -871,6 +871,36 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
     u32 lod_count = 0;
 
+    /// ===== Estimate Average Noramlized (model space) Triangle Size =====
+    // - When generating lods, we use the normals to weigh the reduction error
+    // - This guides the simplification such that it tries to prevent strong normal degradation for each lod
+    // - For meshes with a lot of triangles, normals matter a lot less as their error is less noticable with smaller triangles.
+    // - We want to weigh the normal importance in simplification with triangle size
+    // - This will give us a good tradeoff between triangle position and normal error in lod generation for most meshes
+    f32 average_tri_size = 0.0f;
+    glm::vec3 vertices_max = vert_positions[lod0_index_buffer[0]];
+    glm::vec3 vertices_min = vert_positions[lod0_index_buffer[0]];
+    for (u32 tri = 0; tri < lod0_index_buffer.size()/3; ++tri)
+    {
+        glm::vec3 c0 = vert_positions[lod0_index_buffer[tri*3 + 0]];
+        glm::vec3 c1 = vert_positions[lod0_index_buffer[tri*3 + 1]];
+        glm::vec3 c2 = vert_positions[lod0_index_buffer[tri*3 + 2]];
+        vertices_max = glm::max(glm::max(vertices_max, c0), glm::max(c1, c2));
+        vertices_min = glm::min(glm::min(vertices_min, c0), glm::min(c1, c2));
+        f32 const e0_dst = glm::length(c0 - c1);
+        f32 const e1_dst = glm::length(c1 - c2);
+        f32 const e2_dst = glm::length(c2 - c0);
+        f32 const max_edge = std::max(std::max(e0_dst, e1_dst), e2_dst);
+        average_tri_size += max_edge;
+    }
+    average_tri_size /= static_cast<f32>(lod0_index_buffer.size() / 3ull);
+    glm::vec3 const vertex_bounds_size = vertices_max - vertices_min;
+    f32 const vertex_bounds_scale = std::max(vertex_bounds_size.x, std::max(vertex_bounds_size.y, vertex_bounds_size.z));
+    f32 const normalized_average_tri_size = average_tri_size / vertex_bounds_scale;
+    f32 const VERTEX_NORMALS_LOD_IMPORTANCE = 10.0f;
+    f32 const vertex_normal_weight = normalized_average_tri_size * VERTEX_NORMALS_LOD_IMPORTANCE;
+    /// ===== Estimate Average Noramlized (model space) Triangle Size =====
+
     std::vector<daxa::u32> prev_lod_index_buffer = {};
     for (u32 lod = 0; lod < MAX_MESHES_PER_LOD_GROUP; ++lod)
     {
@@ -883,18 +913,25 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         else
         {
+
             const u32 lod_index_count = round_up_div(lod0_index_buffer.size(), 3 * (1u << lod)) * 3u;
             simplified_indices.resize(lod0_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
-            f32 target_error = 0.05f;
-            f32 max_acceptable_error = 0.10f;
+            f32 target_error = std::numeric_limits<f32>::max();
+            f32 max_acceptable_error = 0.75f;
             // TODO: Only enable this for meshes that really need it!
             // It completely prevents foliage optimization and we desperately need foliage optimization!
             // It worsenes performance a lot
             // It should only be on for things that need it like street tiles or planes.
             u32 options = meshopt_SimplifyLockBorder;
             f32 result_error = {};
-            i32 result_index_count = meshopt_simplify(index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
+            // i32 result_index_count = meshopt_simplify(index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
+            f32 normal_weights[] = { vertex_normal_weight, vertex_normal_weight, vertex_normal_weight };
+            i32 result_index_count = meshopt_simplifyWithAttributes(
+                index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), 
+                &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), 
+                &vert_normals.data()->x, sizeof(glm::vec3), normal_weights, 3, 
+                lod_index_count, target_error, options, &result_error);
             lod_error = result_error;
             if (result_index_count > lod_index_count || result_index_count < 32 || result_error > max_acceptable_error)
             {

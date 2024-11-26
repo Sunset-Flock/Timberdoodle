@@ -227,8 +227,7 @@ struct Settings
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
-          // Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions.
-          lod_acceptable_pixel_error{ 0.75f } 
+          lod_acceptable_pixel_error{ 1.0f } 
     {
     }
 #endif

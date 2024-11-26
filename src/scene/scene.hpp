@@ -220,7 +220,7 @@ struct Scene
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
     daxa::TaskBuffer _gpu_material_manifest = {};
     daxa::TaskBuffer _gpu_scratch_buffer = {};
-    static constexpr u32 _gpu_scratch_buffer_size = 1u << 24u;
+    static constexpr u32 _gpu_scratch_buffer_size = 1u << 28u;
     static constexpr u32 _indirections_count = (1 << 26);
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
