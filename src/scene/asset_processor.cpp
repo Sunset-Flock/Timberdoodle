@@ -871,14 +871,14 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
     u32 lod_count = 0;
 
-    /// ===== Calculate Vertex Normal Weight =====
-    // - When generating lods, we use the normals to influence the reduction error
-    // - Normal error is critical to guide the simplification to keep good visual quality for each lod
-    // - We need a normal to position error weight in order to incorporate normal and position error
-    // - For meshes with a lot of triangles, normals matter a lot less as their error is less noticable with smaller triangles.
-    // - We want to weigh the normal importance in simplification with triangle size
-    // - This will give us a good tradeoff between triangle position and normal error in lod generation for most meshes
-    f32 average_tri_size = 0.0f;
+    /// ===== Calculate Normalized Vertex Distance =====
+    // - When simplifying/ generating lods mesh optimizer takes into account position error AND attribute error (in our case normals)
+    // - We need to give the attributes a meaningful weight to mix position and normal errorion
+    // - The smaller the triangles, the less the normals matter.
+    // - A good estimation for visual impact of normals is their distortion multiplied with the average vertex distance
+    // - This is because the normals will not change the visuals past vertex distance, as each vertex normal can only effect the space between two vertices.
+    // - We calculate the average vertex distance for lod0 and then estimate the vertex distance for other lods with a heuristic to speed it up.
+    f32 modelspace_average_vertex_distance = 0.0f;
     glm::vec3 vertices_max = vert_positions[lod0_index_buffer[0]];
     glm::vec3 vertices_min = vert_positions[lod0_index_buffer[0]];
     for (u32 tri = 0; tri < lod0_index_buffer.size()/3; ++tri)
@@ -892,14 +892,14 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         f32 const e1_dst = glm::length(c1 - c2);
         f32 const e2_dst = glm::length(c2 - c0);
         f32 const max_edge = std::max(std::max(e0_dst, e1_dst), e2_dst);
-        average_tri_size += max_edge;
+        modelspace_average_vertex_distance += max_edge;
     }
-    average_tri_size /= static_cast<f32>(lod0_index_buffer.size() / 3ull);
+    modelspace_average_vertex_distance /= static_cast<f32>(lod0_index_buffer.size() / 3ull);
     glm::vec3 const vertex_bounds_size = vertices_max - vertices_min;
     f32 const vertex_bounds_scale = std::max(vertex_bounds_size.x, std::max(vertex_bounds_size.y, vertex_bounds_size.z));
-    f32 const normalized_average_tri_size = average_tri_size / vertex_bounds_scale;
-    f32 const vertex_normal_weight = normalized_average_tri_size;
-    /// ===== Calculate Vertex Normal Weight =====
+    f32 const normalized_average_vertex_distance = modelspace_average_vertex_distance / vertex_bounds_scale;
+    f32 const lod0_average_vertex_distance = normalized_average_vertex_distance;
+    /// ===== Calculate Normalized Vertex Distance =====
 
     std::vector<daxa::u32> prev_lod_index_buffer = {};
     for (u32 lod = 0; lod < MAX_MESHES_PER_LOD_GROUP; ++lod)
@@ -925,8 +925,27 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // It should only be on for things that need it like street tiles or planes.
             u32 options = meshopt_SimplifyLockBorder;
             f32 result_error = {};
-            // i32 result_index_count = meshopt_simplify(index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
-            f32 const lod_normal_weight = vertex_normal_weight * (1u << (lod));
+
+            /// ===== Estimate Average Vertex Distance For LOD ====
+            // We assume a simplification rate of halve triangles from lod to lod.
+            // In this case, the average vertex distance increases at a rate of sqrt(2) per lod.
+            // This gives us this vertex distance estimation function: lod_vertex_distance * sqrt(2)^lod
+            // This is intuitive when thinking of merging two equirectangular triangles into one,
+            //         x --                              x --  
+            //      x  x  x  len: sqrt(2)    ==>      x     x  len: sqrt(2)    
+            //   x     x    x --             ==>   x          x --  
+            // xxxxxxxxxxxxxxxxx                 xxxxxxxxxxxxxxxxx
+            // |    len: 1     |                 |    len: 1     | 
+            // The largest edge defines the triangle size. 
+            // In this case the two longest edges before simplification are len sqrt(2)
+            // The longest edge of the simplified triangle is len 2.
+            f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * std::pow(sqrt(2.0f), lod);
+            // - We bias the weight towards the normal a little here with a factor of 2
+            // - Typically normals are a little more important for visual error than position as they effect the shading more.
+            f32 const MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR = 2.0f;
+            f32 const lod_normal_weight = lod_average_normalized_vertex_distance * MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR;
+            /// ===== Estimate Average Vertex Distance For LOD ====
+
             f32 normal_weights[] = { lod_normal_weight, lod_normal_weight, lod_normal_weight };
             i32 result_index_count = meshopt_simplifyWithAttributes(
                 index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), 
