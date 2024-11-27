@@ -12,7 +12,7 @@
 DAXA_DECL_TASK_HEAD_BEGIN(DecodeVisbufferTestH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_image)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), combined_transforms)
@@ -33,10 +33,12 @@ struct DecodeVisbufferTestPush
 
 #include "../../gpu_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo decode_visbuffer_test_pipeline_info()
+inline daxa::ComputePipelineCompileInfo2 decode_visbuffer_test_pipeline_info2()
 {
-    return {
-        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/decode_visbuffer_test.glsl"}},
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/tasks/decode_visbuffer_test.hlsl"},
+        .entry_point = "entry_decode_visbuffer",
+        .language = daxa::ShaderLanguage::SLANG,
         .push_constant_size = s_cast<u32>(sizeof(DecodeVisbufferTestPush)),
         .name = std::string{DecodeVisbufferTestH::NAME},
     };
@@ -47,7 +49,7 @@ struct DecodeVisbufferTestTask : DecodeVisbufferTestH::Task
     GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(decode_visbuffer_test_pipeline_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(decode_visbuffer_test_pipeline_info2().name));
         auto const image_id = ti.get(AT.vis_image).ids[0];
         auto const image_info = ti.device.image_info(image_id).value();
         DecodeVisbufferTestPush push = {

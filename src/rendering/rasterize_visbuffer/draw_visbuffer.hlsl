@@ -11,7 +11,7 @@
 
 #include "shader_shared/cull_util.inl"
 
-#include "shader_lib/visbuffer.glsl"
+#include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/depth_util.glsl"
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/pass_logic.glsl"

@@ -179,7 +179,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(write_swapchain_pipeline_compile_info())},
+        {write_swapchain_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(expand_meshes_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(PrefixSumCommandWriteTask::pipeline_compile_info)},
@@ -202,7 +202,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(vsm_clear_dirty_bit_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_debug_virtual_page_table_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_debug_meta_memory_table_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(decode_visbuffer_test_pipeline_info())},
+        {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
@@ -671,18 +671,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
-    tg.add_task(DecodeVisbufferTestTask{
-        .views = std::array{
-            DecodeVisbufferTestH::AT.globals | render_context->tgpu_render_data,
-            DecodeVisbufferTestH::AT.debug_image | debug_image,
-            DecodeVisbufferTestH::AT.vis_image | visbuffer,
-            DecodeVisbufferTestH::AT.material_manifest | scene->_gpu_material_manifest,
-            DecodeVisbufferTestH::AT.instantiated_meshlets | meshlet_instances,
-            DecodeVisbufferTestH::AT.meshes | scene->_gpu_mesh_manifest,
-            DecodeVisbufferTestH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-        },
-        .gpu_context = gpu_context,
-    });
+    // tg.add_task(DecodeVisbufferTestTask{
+    //     .views = std::array{
+    //         DecodeVisbufferTestH::AT.globals | render_context->tgpu_render_data,
+    //         DecodeVisbufferTestH::AT.debug_image | debug_image,
+    //         DecodeVisbufferTestH::AT.vis_image | visbuffer,
+    //         DecodeVisbufferTestH::AT.material_manifest | scene->_gpu_material_manifest,
+    //         DecodeVisbufferTestH::AT.instantiated_meshlets | meshlet_instances,
+    //         DecodeVisbufferTestH::AT.meshes | scene->_gpu_mesh_manifest,
+    //         DecodeVisbufferTestH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+    //     },
+    //     .gpu_context = gpu_context,
+    // });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     tg.add_task(ShadeOpaqueTask{

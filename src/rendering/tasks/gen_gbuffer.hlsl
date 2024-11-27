@@ -31,7 +31,7 @@ struct GenGbufferPush
 #define GEN_GBUFFER_Y 8
 
 #if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
-#include "../../shader_lib/visbuffer.glsl"
+#include "../../shader_lib/visbuffer.hlsl"
 #include "../../shader_lib/misc.hlsl"
 
 [[vk::push_constant]] GenGbufferPush push;

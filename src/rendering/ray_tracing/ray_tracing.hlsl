@@ -6,7 +6,7 @@
 
 #include "ray_tracing.inl"
 
-#include "shader_lib/visbuffer.glsl"
+#include "shader_lib/visbuffer.hlsl"
 
 #define PI 3.1415926535897932384626433832795
 

@@ -6,6 +6,8 @@
 
 #define GPU_ASSERT_STRING "GPU ASSERT FAILED IN \"" __FILE__ "\": "
 
+#define GPU_ASSERTS 1
+
 void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
 {
     const uint capacity = deref(debug_info).circle_draw_capacity;

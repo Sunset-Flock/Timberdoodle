@@ -2,6 +2,7 @@
 
 #include "../shader_shared/visbuffer.inl"
 #include "../shader_shared/geometry.inl"
+#include "../shader_lib/debug.glsl"
 
 /**
  * DESCRIPTION:
@@ -147,9 +148,21 @@ VisbufferTriangleData visgeo_triangle_data(
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_BufferPtr(daxa_f32mat4x3) combined_transforms)
 {
+
     VisbufferTriangleData ret;
     ret.meshlet_instance_index = TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(triangle_id);
     ret.meshlet_triangle_index = TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(triangle_id);
+
+    #if GPU_ASSERTS
+        const uint meshlet_instance_count = meshlet_instances.pass_counts[0] + meshlet_instances.pass_counts[1];
+        if (!(ret.meshlet_instance_index < meshlet_instance_count))
+        {
+            printf(GPU_ASSERT_STRING" Invalid Triangle ID passed to visgeo_triangle_data");
+            ret.meshlet_instance_index = {};
+            ret.meshlet_triangle_index = {};
+            return ret;
+        }
+    #endif
 
     ret.meshlet_instance = deref_i(deref(meshlet_instances).meshlets, ret.meshlet_instance_index);
 

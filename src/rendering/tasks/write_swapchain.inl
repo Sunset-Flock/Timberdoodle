@@ -11,15 +11,15 @@
 
 DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchainH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, debug_image)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, color_image)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, swapchain)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, color_image)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, swapchain)
 DAXA_DECL_TASK_HEAD_END
 
 struct WriteSwapchainPush
 {
+    WriteSwapchainH::AttachmentShaderBlob attachments;
     daxa_u32vec2 size;
-    DAXA_TH_BLOB(WriteSwapchainH, attachments)
 };
 
 #define WRITE_SWAPCHAIN_WG_X 16
@@ -29,10 +29,12 @@ struct WriteSwapchainPush
 
 #include "../../gpu_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo write_swapchain_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 write_swapchain_pipeline_compile_info2()
 {
-    return {
-        .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.glsl"}},
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.hlsl"},
+        .entry_point = "entry_write_swapchain",
+        .language = daxa::ShaderLanguage::SLANG,
         .push_constant_size = s_cast<u32>(sizeof(WriteSwapchainPush)),
         .name = std::string{WriteSwapchainH::NAME},
     };
@@ -43,7 +45,7 @@ struct WriteSwapchainTask : WriteSwapchainH::Task
     GPUContext * gpu_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(write_swapchain_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(write_swapchain_pipeline_compile_info2().name));
         u32 const dispatch_x = round_up_div(ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
         u32 const dispatch_y = round_up_div(ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
         auto size = ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size;

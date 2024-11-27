@@ -2,7 +2,7 @@
 #include <daxa/daxa.inl>
 #include "shade_opaque.inl"
 
-#include "shader_lib/visbuffer.glsl"
+#include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/debug.glsl"
 #include "shader_lib/transform.glsl"
 #include "shader_lib/depth_util.glsl"

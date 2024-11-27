@@ -4,7 +4,7 @@
 #include "shader_shared/shared.inl"
 #include "shader_shared/globals.inl"
 
-#include "shader_lib/visbuffer.glsl"
+#include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/misc.hlsl"
 
 func visible_triangle_mask_bit_from_tri_id(uint meshlet_triangle_index) -> uint
