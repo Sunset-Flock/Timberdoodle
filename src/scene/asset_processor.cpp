@@ -898,8 +898,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     glm::vec3 const vertex_bounds_size = vertices_max - vertices_min;
     f32 const vertex_bounds_scale = std::max(vertex_bounds_size.x, std::max(vertex_bounds_size.y, vertex_bounds_size.z));
     f32 const normalized_average_tri_size = average_tri_size / vertex_bounds_scale;
-    f32 const VERTEX_NORMALS_LOD_IMPORTANCE = 10.0f;
-    f32 const vertex_normal_weight = normalized_average_tri_size * VERTEX_NORMALS_LOD_IMPORTANCE;
+    f32 const vertex_normal_weight = normalized_average_tri_size;
     /// ===== Calculate Vertex Normal Weight =====
 
     std::vector<daxa::u32> prev_lod_index_buffer = {};
@@ -919,7 +918,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
             f32 target_error = std::numeric_limits<f32>::max();
-            f32 max_acceptable_error = 0.75f;
+            f32 max_acceptable_error = 0.95f;
             // TODO: Only enable this for meshes that really need it!
             // It completely prevents foliage optimization and we desperately need foliage optimization!
             // It worsenes performance a lot
@@ -927,7 +926,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             u32 options = meshopt_SimplifyLockBorder;
             f32 result_error = {};
             // i32 result_index_count = meshopt_simplify(index_buffer->data(), lod0_index_buffer.data(), lod0_index_buffer.size(), &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), lod_index_count, target_error, options, &result_error);
-            f32 const lod_normal_weight = vertex_normal_weight * (1u << (lod-1));
+            f32 const lod_normal_weight = vertex_normal_weight * (1u << (lod));
             f32 normal_weights[] = { lod_normal_weight, lod_normal_weight, lod_normal_weight };
             i32 result_index_count = meshopt_simplifyWithAttributes(
                 index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), 
@@ -935,7 +934,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
                 &vert_normals.data()->x, sizeof(glm::vec3), normal_weights, 3, 
                 lod_index_count, target_error, options, &result_error);
             lod_error = lods[lod-1].lod_error + result_error;
-            if (result_index_count > lod_index_count || result_index_count < 32 || result_error > max_acceptable_error)
+            if (result_index_count > lod_index_count || result_index_count < 12 || result_error > max_acceptable_error)
             {
                 break;
             }
