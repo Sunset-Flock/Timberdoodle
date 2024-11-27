@@ -28,7 +28,7 @@ Application::Application()
         CompPipelinesTask(Renderer * renderer)
             : renderer{renderer} { chunk_count = 1; }
 
-        virtual void callback(u32 chunk_index, u32 thread_index) override
+    virtual void callback(u32 chunk_index, u32 thread_index) override
         {
             // TODO: hook up parameters.
             renderer->compile_pipelines();
@@ -54,7 +54,9 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "repro\\minimal.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,

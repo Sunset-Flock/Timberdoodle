@@ -497,7 +497,7 @@ func is_triangle_backfacing(float4 tri_vert_clip_positions[3]) -> bool
         determinant(float3x3(
             tri_vert_clip_positions[0].xyw,
             tri_vert_clip_positions[1].xyw,
-            tri_vert_clip_positions[2].xyw)) >= 0;
+            tri_vert_clip_positions[2].xyw)) >= 0.00001;
     return is_backface;
 }
 
