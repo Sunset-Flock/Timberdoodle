@@ -656,6 +656,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
                 RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
                 RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
+                RayTraceAmbientOcclusionH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),

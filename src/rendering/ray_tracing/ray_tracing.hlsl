@@ -237,6 +237,7 @@ void ray_gen()
 [shader("anyhit")]
 void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
+    
     const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
     const uint geometry_index = GeometryIndex();
     const uint primitive_index = PrimitiveIndex() * 3;
@@ -248,12 +249,13 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     }
     else
     {
-        const uint custom_instance_index = InstanceID();
-        const GPUMeshGroup * mesh_group = &rt_ao_push.attach.mesh_groups[custom_instance_index];
+        const uint entity_index = InstanceID();
+        const uint mesh_group_index = rt_ao_push.attach.entity_to_meshgroup[entity_index];
+        const GPUMeshGroup * mesh_group = &rt_ao_push.attach.mesh_groups[mesh_group_index];
         // TODO: We always select the most detailed lod here.
         const uint lod = 0;
         const uint mesh_index = mesh_group->mesh_lod_group_indices[geometry_index] * MAX_MESHES_PER_LOD_GROUP + lod;
-        mesh = &rt_ao_push.attach.meshes[mesh_index];
+        mesh = rt_ao_push.attach.meshes + mesh_index;
     }
 
     const int primitive_indices[3] = {
@@ -269,6 +271,12 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     };
     const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y* (uvs[2] - uvs[0]);
     const GPUMaterial *material = &rt_ao_push.attach.material_manifest[mesh.material_index];
+    
+    if (mesh.material_index == INVALID_MANIFEST_INDEX)
+    {
+        return;
+    }
+
     const bool has_opacity_texture = !material.opacity_texture_id.is_empty();
     const bool alpha_discard_enabled = material.alpha_discard_enabled;
     if(has_opacity_texture && alpha_discard_enabled)
