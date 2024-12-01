@@ -69,7 +69,7 @@ bool is_meshlet_drawn_in_first_pass(
     return false;
 }
 
-#define VALIDATE_MARK_MESHLET_AS_FIRST_PASS 1
+#define VALIDATE_MARK_MESHLET_AS_FIRST_PASS 0
 // Sets meshlet bitfield bit for first pass.
 // Returns if allocation was successful.
 void mark_meshlet_as_drawn_first_pass(
@@ -238,6 +238,9 @@ bool is_ndc_aabb_hiz_depth_occluded(
         return false;
     }
 
+    // Generally, sampling an area of up to 4x4 is so much finer that it significantly improves performance.
+    const daxa_i32 hiz_sample_width = 4;
+
     // HIZ res is a power of two and might differ from any mip level size of the scenes resolution.
     const daxa_f32vec2 f_hiz_resolution = data.hiz_size;
     // UV(NDC) -> (NDC + 1.0f) * 0.5f
@@ -248,17 +251,23 @@ bool is_ndc_aabb_hiz_depth_occluded(
     const daxa_f32vec2 max_texel_i = floor(clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f));
     // Example: MIN_X 3 MAX_X 4, MAX_X - MIN_X = 1 + 1 = 2.
     const float pixel_width = max(max_texel_i.x - min_texel_i.x + 1.0f, max_texel_i.y - min_texel_i.y + 1.0f);
-    const float mip = ceil(log2(max(2.0f, pixel_width))) - 1 /* we want one mip lower, as we sample a quad */;
+    const float mip = max(0.0f, ceil(log2(max(2.0f, pixel_width))) - log2(float(hiz_sample_width))) /* we want one mip lower, as we sample a quad */;
 
     // The calculation above gives us a mip level, in which the a 2x2 quad in that mip is just large enough to fit the ndc bounds.
     // When the ndc bounds are shofted from the alignment of that mip levels grid however, we need an even larger quad.
     // We check if the quad at its current position within that mip level fits that quad and if not we move up one mip.
     // This will give us the tightest fit.
     int imip = int(mip);
-    const daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
-    const daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
-    if (any(greaterThan(max_corner_texel - min_corner_texel, daxa_i32vec2(1)))) {
+    daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+    daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
+    daxa_i32vec2 at_mip_pixel_width = max_corner_texel - min_corner_texel + daxa_i32vec2(1);
+    daxa_i32vec2 at_mip_max_pixel_width = hiz_sample_width;
+    if (any(greaterThan(at_mip_pixel_width, at_mip_max_pixel_width))) {
         imip += 1;
+        min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+        max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
+        at_mip_pixel_width = max_corner_texel - min_corner_texel + daxa_i32vec2(1);
+        at_mip_max_pixel_width = hiz_sample_width;
     }
     const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
     // WARNING: The physical hiz texture is larger then the hiz itself!
@@ -267,16 +276,32 @@ bool is_ndc_aabb_hiz_depth_occluded(
 
     // Gather does not support mip selection.
     // Maybe send hiz descriptor array?
-    daxa_f32vec4 fetch = daxa_f32vec4(
-        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,0), int2(0,0), physical_texel_bounds), imip)).x,
-        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,1), int2(0,0), physical_texel_bounds), imip)).x,
-        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,0), int2(0,0), physical_texel_bounds), imip)).x,
-        Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,1), int2(0,0), physical_texel_bounds), imip)).x
-    );
-    const float conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
+    float conservative_depth = 1.0f;
+    if (hiz_sample_width == 2)
+    {
+        daxa_f32vec4 fetch = daxa_f32vec4(
+            Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,0), int2(0,0), physical_texel_bounds), imip)).x,
+            Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(0,1), int2(0,0), physical_texel_bounds), imip)).x,
+            Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,0), int2(0,0), physical_texel_bounds), imip)).x,
+            Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(1,1), int2(0,0), physical_texel_bounds), imip)).x
+        );
+        conservative_depth = min(min(fetch.x,fetch.y), min(fetch.z, fetch.w));
+    }
+    if (hiz_sample_width == 4)
+    {
+        for (int x = 0; x < 4; ++x)
+        {
+            for (int y = 0; y < 4; ++y)
+            {
+                if (x >= at_mip_pixel_width.x || y >= at_mip_pixel_width.y) continue;
+                float fetch = Texture2D<float>::get(hiz).Load(int3(clamp(quad_corner_texel + int2(x,y), int2(0,0), physical_texel_bounds), imip)).x;
+                conservative_depth = min(conservative_depth, fetch);
+            }
+        }
+    }
     const bool depth_cull = ndc_aabb.ndc_max.z < conservative_depth;
 
-    if (DEBUG_HIZ_CULL && (daxa_u64(debug) != 0) && depth_cull)
+    if (false && (daxa_u64(debug) != 0) && depth_cull)
     {
         // NDC AABB (TURKOISE):
         {
@@ -291,7 +316,7 @@ bool is_ndc_aabb_hiz_depth_occluded(
         {
             ShaderDebugRectangleDraw used_hiz_tex_rect;
             const daxa_f32vec2 min_r = quad_corner_texel << imip;
-            const daxa_f32vec2 max_r = (quad_corner_texel + 2) << imip;
+            const daxa_f32vec2 max_r = (quad_corner_texel + hiz_sample_width) << imip;
             const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
             const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
             const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
