@@ -8,6 +8,7 @@
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
 #include "virtual_shadow_maps/vsm.inl"
+#include "ddgi/ddgi_update.inl"
 
 #include "ray_tracing/ray_tracing.inl"
 
@@ -71,6 +72,7 @@ Renderer::Renderer(
     f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
+    ddgi_state.initialize(gpu_context->device);
 
     images = {
         transmittance,
@@ -124,6 +126,7 @@ Renderer::~Renderer()
             this->gpu_context->device.destroy_image(image);
         }
     }
+    ddgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
     this->gpu_context->device.wait_idle();
     this->gpu_context->device.collect_garbage();
@@ -154,6 +157,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
+        {ddgi_draw_debug_probes_compile_info()},
     };
     for (auto info : rasters)
     {
@@ -734,6 +738,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             GenLuminanceAverageH::AT.luminance_average | luminance_average,
         },
         .gpu_context = gpu_context,
+    });
+    task_ddgi_draw_debug_probes({
+        .tg = tg,
+        .render_context = render_context.get(),
+        .ddgi_state = &this->ddgi_state,
+        .color_image = color_image,
+        .depth_image = depth,
     });
     tg.add_task(WriteSwapchainTask{
         .views = std::array{

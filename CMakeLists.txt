@@ -34,6 +34,7 @@ add_executable(${PROJECT_NAME}
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"
     "src/rendering/renderer.cpp"
+    "src/rendering/ddgi/ddgi.cpp"
     "src/multithreading/thread_pool.cpp"
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"

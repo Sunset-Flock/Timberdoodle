@@ -528,7 +528,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
     const bool observer_pass = push.draw_data.observer;
     const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull) && false;
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).observer_camera.view_proj : 
@@ -615,7 +615,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                 }
             }
 
-            if (push.attach.globals.settings.enable_triangle_cull)
+            if (true)
             {
                 if (cull_backfaces)
                 {
@@ -634,7 +634,11 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                     let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.attach.globals.settings.render_target_size));
                     cull_primitive = cull_micro_poly_invisible;
 
-                    if (push.attach.hiz.value != 0 && !cull_primitive && cull_hiz_occluded && false)
+                    const float2 ndc_size = (ndc_max - ndc_min);
+                    const float2 ndc_pixel_size = 0.5f * ndc_size * push.attach.globals.settings.render_target_size;
+                    const float ndc_pixel_area_size = ndc_pixel_size.x * ndc_pixel_size.y;
+                    bool large_triangle = ndc_pixel_area_size > 128;
+                    if (large_triangle && push.attach.globals.settings.enable_triangle_cull && (push.attach.hiz.value != 0) && !cull_primitive && cull_hiz_occluded)
                     {
                         let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,

@@ -927,7 +927,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             f32 result_error = {};
 
             /// ===== Estimate Average Vertex Distance For LOD ====
-            // We assume a simplification rate of halve triangles from lod to lod.
+            // We assume a simplification rate that halves triangles from lod to lod.
             // In this case, the average vertex distance increases at a rate of sqrt(2) per lod.
             // This gives us this vertex distance estimation function: lod_vertex_distance * sqrt(2)^lod
             // This is intuitive when thinking of merging two equirectangular triangles into one,
@@ -936,7 +936,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             //   x     x    x --             ==>   x          x --  
             // xxxxxxxxxxxxxxxxx                 xxxxxxxxxxxxxxxxx
             // |    len: 1     |                 |    len: 1     | 
-            // The largest edge defines the triangle size. 
             // In this case the two longest edges before simplification are len sqrt(2)
             // The longest edge of the simplified triangle is len 2.
             f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * std::pow(sqrt(2.0f), lod);
