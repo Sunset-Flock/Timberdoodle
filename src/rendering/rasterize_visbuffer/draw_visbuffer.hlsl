@@ -951,8 +951,39 @@ func entry_compute_meshlet_cull(
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
-
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
+        
+    if (svtid.x == 0)
+    {
+        uint meshlets_pre_cull = 0;
+        uint meshes_post_cull = 0;
+        if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
+        {
+            PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion;
+            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[prefix_expansion.expansion_count-1];
+            meshes_post_cull = prefix_expansion.expansion_count;
+        }
+        else
+        {
+            Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion;
+            for (uint i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
+            {
+                meshlets_pre_cull += po2packed_expansion.bucket_thread_counts[i];
+            }
+            meshes_post_cull = po2packed_expansion.expansion_count;
+        }
+        if (push.draw_data.pass_index == 0)
+        {
+            push.attach.globals.readback.first_pass_meshlet_count_pre_cull[push.draw_data.draw_list_section_index] = meshlets_pre_cull;
+            push.attach.globals.readback.first_pass_mesh_count_post_cull[push.draw_data.draw_list_section_index] = meshes_post_cull;
+        }
+        else
+        {
+            push.attach.globals.readback.second_pass_meshlet_count_pre_cull[push.draw_data.draw_list_section_index] = meshlets_pre_cull;
+            push.attach.globals.readback.second_pass_mesh_count_post_cull[push.draw_data.draw_list_section_index] = meshes_post_cull;
+        }
+    }
+
     MeshletInstance meshlet_instance;
     bool valid_meshlet = get_meshlet_instance_from_workitem(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
@@ -976,6 +1007,37 @@ func entry_task_meshlet_cull(
     let push = cull_meshlets_draw_visbuffer_push;
 
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
+
+    if (svtid.x == 0)
+    {
+        uint meshlets_pre_cull = 0;
+        uint meshes_post_cull = 0;
+        if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
+        {
+            PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion;
+            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[prefix_expansion.expansion_count-1];
+            meshes_post_cull = prefix_expansion.expansion_count;
+        }
+        else
+        {
+            Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion;
+            for (uint i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
+            {
+                meshlets_pre_cull += po2packed_expansion.bucket_thread_counts[i];
+            }
+            meshes_post_cull = po2packed_expansion.expansion_count;
+        }
+        if (push.draw_data.pass_index == 0)
+        {
+            push.attach.globals.readback.first_pass_meshlet_count_pre_cull[push.draw_data.draw_list_section_index] = meshlets_pre_cull;
+            push.attach.globals.readback.first_pass_mesh_count_post_cull[push.draw_data.draw_list_section_index] = meshes_post_cull;
+        }
+        else
+        {
+            push.attach.globals.readback.second_pass_meshlet_count_pre_cull[push.draw_data.draw_list_section_index] = meshlets_pre_cull;
+            push.attach.globals.readback.second_pass_mesh_count_post_cull[push.draw_data.draw_list_section_index] = meshes_post_cull;
+        }
+    }
 
     MeshletInstance meshlet_instance;
     bool valid_meshlet = get_meshlet_instance_from_workitem(

@@ -21,9 +21,10 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     let push = draw_debug_probe_p;
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
+    position *= 0.25f;
 
     let grid_index = float3(instance_index & 0x7, (instance_index >> 3) & 0x7, (instance_index >> 6) & 0x7);
-    position += (grid_index - float3(4,4,4)) * 4;
+    position += (grid_index - float3(2,2,2)) * 2;
 
     float4x4* viewproj = {};
     if (push.attach.globals.settings.draw_from_observer != 0)

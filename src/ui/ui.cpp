@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
+#include "../shader_shared/gpu_work_expansion.inl"
 
 void setup_colors()
 {
@@ -248,9 +249,13 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
         {
             // Calculate Statistics:
             u32 mesh_instance_count = render_context.mesh_instance_counts.mesh_instance_count;
-            u32 first_pass_meshlets = render_context.general_readback.first_pass_meshlet_count[0] + render_context.general_readback.first_pass_meshlet_count[1];
-            u32 second_pass_meshlets = render_context.general_readback.second_pass_meshlet_count[0] + render_context.general_readback.second_pass_meshlet_count[1];
-            u32 total_meshlets_drawn = first_pass_meshlets + second_pass_meshlets;
+            u32 first_pass_meshes_post_cull = render_context.general_readback.first_pass_mesh_count_post_cull[0] + render_context.general_readback.first_pass_mesh_count_post_cull[1];
+            u32 first_pass_meshlets_pre_cull = render_context.general_readback.first_pass_meshlet_count_pre_cull[0] + render_context.general_readback.first_pass_meshlet_count_pre_cull[1];
+            u32 first_pass_meshlets_post_cull = render_context.general_readback.first_pass_meshlet_count_post_cull;
+            u32 second_pass_meshes_post_cull = render_context.general_readback.second_pass_mesh_count_post_cull[0] + render_context.general_readback.second_pass_mesh_count_post_cull[1];
+            u32 second_pass_meshlets_pre_cull = render_context.general_readback.second_pass_meshlet_count_pre_cull[0] + render_context.general_readback.second_pass_meshlet_count_pre_cull[1];
+            u32 second_pass_meshlets_post_cull = render_context.general_readback.second_pass_meshlet_count_post_cull;
+            u32 total_meshlets_drawn = first_pass_meshlets_post_cull + second_pass_meshlets_post_cull;
             
             u32 used_dynamic_section_sfpm_bitfield = (render_context.general_readback.sfpm_bitfield_arena_requested * 4) / 1000;
             u32 dynamic_section_sfpm_bitfield_size = (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES)) / 1000;
@@ -262,10 +267,14 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 u32 max_value = {};
             };
             std::array visbuffer_pipeline_stats = {
-                VisbufferPipelineStat{"Mesh Instances (Unculled)", "", mesh_instance_count, MAX_MESH_INSTANCES},
-                VisbufferPipelineStat{"First Pass Meshlets", "", first_pass_meshlets, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Second Pass Meshlets", "", second_pass_meshlets, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Total Meshlet Instances", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Mesh Instances Pre Cull", "", mesh_instance_count, MAX_MESH_INSTANCES},
+                VisbufferPipelineStat{"First Pass Meshes Post Cull", "", first_pass_meshes_post_cull, MAX_MESH_INSTANCES},
+                VisbufferPipelineStat{"Second Pass Meshes Post Cull", "", second_pass_meshes_post_cull, MAX_MESH_INSTANCES},
+                VisbufferPipelineStat{"First Pass Meshlets Pre Cull", "", first_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
+                VisbufferPipelineStat{"First Pass Meshlets Post Cull", "", first_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Second Pass Meshlets Pre Cull", "", second_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
+                VisbufferPipelineStat{"Second Pass Meshlets Post Cull", "", second_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
+                VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
                 VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
             };
             ImGui::SeparatorText("Visbuffer Pipeline Statistics");

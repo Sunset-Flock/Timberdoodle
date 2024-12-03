@@ -79,7 +79,7 @@ func po2packed_expansion_add_workitems(Po2PackedWorkExpansionBufferHead * self, 
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
 
     uint expansion_index = 0;
-    InterlockedAdd(self->expansions_count, 1, expansion_index);
+    InterlockedAdd(self->expansion_count, 1, expansion_index);
     const uint cur_expansion_count = expansion_index + 1;
 
     if (expansion_index >= self->expansions_max)

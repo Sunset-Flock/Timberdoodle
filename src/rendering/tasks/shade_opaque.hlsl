@@ -360,6 +360,13 @@ void entry_main_cs(
 )
 {
     let push = push_opaque;
+
+    if (svdtid.x == 0 && svdtid.y == 0)
+    {
+        push.attachments.attachments.globals.readback.first_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[0];
+        push.attachments.attachments.globals.readback.second_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[1];
+    }
+
     const int2 index = svdtid.xy;
     const float2 screen_uv = (float2(svdtid.xy) + 0.5f) * AT.globals->settings.render_target_size_inv;
 

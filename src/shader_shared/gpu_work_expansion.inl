@@ -38,7 +38,7 @@ struct Po2PackedWorkExpansionBufferHead
     DispatchIndirectStruct dispatch;
 
     daxa::u32 expansions_max;
-    daxa::u32 expansions_count;
+    daxa::u32 expansion_count;
     daxa::u32 expansions_thread_count;
     WorkExpansion* expansions; 
 
@@ -58,7 +58,7 @@ struct Po2PackedWorkExpansionBufferHead
             out->dispatch = dispatch_clear;
             daxa::u32 size = sizeof(Po2PackedWorkExpansionBufferHead);
             out->expansions_max = expansions_max;
-            out->expansions_count = 0;
+            out->expansion_count = 0;
             out->expansions_thread_count = 0;
             out->expansions = reinterpret_cast<WorkExpansion*>(reinterpret_cast<daxa::u8*>(device_address) + size);
             size += sizeof(WorkExpansion) * expansions_max;

@@ -71,6 +71,7 @@ struct GPUMesh
     daxa_f32 lod_error;
     daxa_u32 padd;
     AABB aabb;
+    BoundingSphere bounding_sphere;
     daxa_BufferPtr(Meshlet) meshlets;
     daxa_BufferPtr(BoundingSphere) meshlet_bounds;
     daxa_BufferPtr(AABB) meshlet_aabbs;

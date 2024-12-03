@@ -137,9 +137,10 @@ BoundingSphere calculate_meshlet_ws_bounding_sphere(
     BoundingSphere model_space_bounding_sphere
 )
 {
-    const float model_scaling_x_squared = dot(model_matrix[0],model_matrix[0]);
-    const float model_scaling_y_squared = dot(model_matrix[1],model_matrix[1]);
-    const float model_scaling_z_squared = dot(model_matrix[2],model_matrix[2]);
+    let transpose_model_mat = transpose(model_matrix);
+    const float model_scaling_x_squared = dot(transpose_model_mat[0],transpose_model_mat[0]);
+    const float model_scaling_y_squared = dot(transpose_model_mat[1],transpose_model_mat[1]);
+    const float model_scaling_z_squared = dot(transpose_model_mat[2],transpose_model_mat[2]);
     const float radius_scaling = sqrt(max(max(model_scaling_x_squared,model_scaling_y_squared), model_scaling_z_squared));
     BoundingSphere ret;
     ret.radius = radius_scaling * model_space_bounding_sphere.radius;
@@ -429,13 +430,12 @@ bool is_mesh_occluded(
 
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
 
-    // TODO: Add Mesh Bounding Sphere for frustum culling!
-    // BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, mesh_inst.meshlet_index);
-    // BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
-    // if (is_ws_sphere_out_of_frustum(camera, ws_bs))
-    // {
-    //     return true;
-    // }
+    BoundingSphere model_bounding_sphere = mesh.bounding_sphere;
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
+    if (is_ws_sphere_out_of_frustum(camera, ws_bs))
+    {
+        return true;
+    }
 
     AABB aabb = mesh.aabb;
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, aabb);
@@ -473,8 +473,8 @@ bool is_mesh_occluded_vsm(
     }
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
     
-    // TODO: Add Mesh Bounding Sphere.
-    // BoundingSphere model_bounding_sphere = mesh_data.bounding_sphere;
+    // TODO(SAKY): VERIFY IF THIS WORKS!
+    // BoundingSphere model_bounding_sphere = mesh.bounding_sphere;
     // if (is_sphere_out_of_frustum(camera, model_matrix, model_bounding_sphere))
     // {
     //     return true;

@@ -5,5 +5,4 @@
 
 struct DDGISettings
 {
-    
 };

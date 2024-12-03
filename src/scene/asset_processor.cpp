@@ -742,6 +742,79 @@ auto load_accessor_data_from_file(
     return ret;
 }
 
+// Credit: https://github.com/zeux/meshoptimizer/blob/20787cc054fa0e46584c2791139c1878aa899d78/src/clusterizer.cpp#L715
+auto compute_bounding_sphere(glm::vec3 const* points, size_t count) -> BoundingSphere
+{
+	assert(count > 0);
+
+	// find extremum points along all 3 axes; for each axis we get a pair of points with min/max coordinates
+	size_t pmin[3] = {0, 0, 0};
+	size_t pmax[3] = {0, 0, 0};
+
+	for (size_t i = 0; i < count; ++i)
+	{
+		const float* p = &points[i].x;
+
+		for (int axis = 0; axis < 3; ++axis)
+		{
+			pmin[axis] = (p[axis] < points[pmin[axis]][axis]) ? i : pmin[axis];
+			pmax[axis] = (p[axis] > points[pmax[axis]][axis]) ? i : pmax[axis];
+		}
+	}
+
+	// find the pair of points with largest distance
+	float paxisd2 = 0;
+	int paxis = 0;
+
+	for (int axis = 0; axis < 3; ++axis)
+	{
+		const float* p1 = &points[pmin[axis]].x;
+		const float* p2 = &points[pmax[axis]].x;
+
+		float d2 = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]) + (p2[2] - p1[2]) * (p2[2] - p1[2]);
+
+		if (d2 > paxisd2)
+		{
+			paxisd2 = d2;
+			paxis = axis;
+		}
+	}
+
+	// use the longest segment as the initial sphere diameter
+	const float* p1 = &points[pmin[paxis]].x;
+	const float* p2 = &points[pmax[paxis]].x;
+
+	float center[3] = {(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2};
+	float radius = sqrtf(paxisd2) / 2;
+
+	// iteratively adjust the sphere up until all points fit
+	for (size_t i = 0; i < count; ++i)
+	{
+		const float* p = &points[i].x;
+		float d2 = (p[0] - center[0]) * (p[0] - center[0]) + (p[1] - center[1]) * (p[1] - center[1]) + (p[2] - center[2]) * (p[2] - center[2]);
+
+		if (d2 > radius * radius)
+		{
+			float d = sqrtf(d2);
+			assert(d > 0);
+
+			float k = 0.5f + (radius / d) / 2;
+
+			center[0] = center[0] * k + p[0] * (1 - k);
+			center[1] = center[1] * k + p[1] * (1 - k);
+			center[2] = center[2] * k + p[2] * (1 - k);
+			radius = (radius + d) / 2;
+		}
+	}
+
+    BoundingSphere ret = {};
+    ret.center.x = center[0];
+    ret.center.y = center[1];
+    ret.center.z = center[2];
+    ret.radius = radius;
+	return ret;
+}
+
 auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadResultCode
 {
     fastgltf::Asset & gltf_asset = *info.asset;
@@ -960,6 +1033,36 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         prev_lod_index_buffer = *index_buffer;
 
+        std::vector<u32> vertex_remap = {};
+        std::vector<u32> remapped_index_buffer = {};
+        vertex_remap.resize(vert_positions.size());
+        remapped_index_buffer.resize(index_buffer->size());
+
+        usize unique_vertices = meshopt_optimizeVertexFetchRemap(vertex_remap.data(), index_buffer->data(), index_buffer->size(), vert_positions.size());
+
+        std::vector<glm::vec3> remapped_vert_positions = {};
+        std::vector<glm::vec3> remapped_vert_normals = {};
+        std::vector<glm::vec2> remapped_vert_texcoord0 = {};
+        remapped_vert_positions.resize(unique_vertices);
+        remapped_vert_normals.resize(unique_vertices);
+        remapped_vert_texcoord0.resize(unique_vertices);
+
+        meshopt_remapIndexBuffer(remapped_index_buffer.data(), index_buffer->data(), index_buffer->size(), vertex_remap.data());
+        index_buffer = &remapped_index_buffer;
+        meshopt_remapVertexBuffer(remapped_vert_positions.data(), &vert_positions[0].x, vert_positions.size(), sizeof(glm::vec3), vertex_remap.data());
+        meshopt_remapVertexBuffer(remapped_vert_normals.data(), &vert_normals[0].x, vert_normals.size(), sizeof(glm::vec3), vertex_remap.data());
+        meshopt_remapVertexBuffer(remapped_vert_texcoord0.data(), &vert_texcoord0[0].x, vert_texcoord0.size(), sizeof(glm::vec2), vertex_remap.data());
+
+        std::vector<u32> optimized_indices = {};
+        optimized_indices.resize(index_buffer->size());
+        meshopt_optimizeVertexCache(optimized_indices.data(), index_buffer->data(), index_buffer->size(), unique_vertices);
+        index_buffer = &optimized_indices;
+
+        std::vector<glm::vec3>& optimized_vert_positions = remapped_vert_positions;
+        std::vector<glm::vec3>& optimized_vert_normals = remapped_vert_normals;
+        std::vector<glm::vec2>& optimized_vert_texcoord0 = remapped_vert_texcoord0;
+        u32 const vertex_count = unique_vertices;
+
         size_t max_meshlets = meshopt_buildMeshletsBound(index_buffer->size(), MAX_VERTICES, MAX_TRIANGLES);
         std::vector<meshopt_Meshlet> meshlets(max_meshlets);
         std::vector<u32> meshlet_indirect_vertices(max_meshlets * MAX_VERTICES);
@@ -970,7 +1073,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             meshlet_micro_indices.data(),
             index_buffer->data(),
             index_buffer->size(),
-            r_cast<float *>(vert_positions.data()),
+            r_cast<float *>(optimized_vert_positions.data()),
             s_cast<usize>(vertex_count),
             sizeof(glm::vec3),
             MAX_VERTICES,
@@ -987,7 +1090,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
                 &meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset],
                 &meshlet_micro_indices[meshlets[meshlet_i].triangle_offset],
                 meshlets[meshlet_i].triangle_count,
-                r_cast<float *>(vert_positions.data()),
+                r_cast<float *>(optimized_vert_positions.data()),
                 s_cast<usize>(vertex_count),
                 sizeof(glm::vec3));
             meshlet_bounds[meshlet_i].center.x = raw_bounds.center[0];
@@ -995,18 +1098,18 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             meshlet_bounds[meshlet_i].center.z = raw_bounds.center[2];
             meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
 
-            glm::vec3 min_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
-            glm::vec3 max_pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+            glm::vec3 min_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+            glm::vec3 max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
 
             if (meshlet_i == 0)
             {
-                mesh_min_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
-                mesh_max_pos = vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+                mesh_min_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
+                mesh_max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
             }
 
             for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
             {
-                glm::vec3 pos = vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
+                glm::vec3 pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
                 min_pos = glm::min(min_pos, pos);
                 max_pos = glm::max(max_pos, pos);
             }
@@ -1019,6 +1122,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         AABB mesh_aabb;
         mesh_aabb.center = std::bit_cast<daxa_f32vec3>((mesh_max_pos + mesh_min_pos) * 0.5f);
         mesh_aabb.size = std::bit_cast<daxa_f32vec3>(mesh_max_pos - mesh_min_pos);
+
         // Trimm array sizes.
         meshopt_Meshlet const & last = meshlets[meshlet_count - 1];
         meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
@@ -1032,15 +1136,15 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             sizeof(u8) * meshlet_micro_indices.size() +
             sizeof(u32) * meshlet_indirect_vertices.size() +
             sizeof(u32) * index_buffer->size() +
-            sizeof(daxa_f32vec3) * vert_positions.size() +
-            sizeof(daxa_f32vec2) * vert_texcoord0.size() +
-            sizeof(daxa_f32vec3) * vert_normals.size();
+            sizeof(daxa_f32vec3) * optimized_vert_positions.size() +
+            sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size() +
+            sizeof(daxa_f32vec3) * optimized_vert_normals.size();
 
-        /// NOTE: Fill GPUMesh runtime data
         GPUMesh mesh = {};
         mesh.lod_error = lod_error;
-
         mesh.aabb = mesh_aabb;
+        mesh.bounding_sphere = compute_bounding_sphere(optimized_vert_positions.data(), optimized_vert_positions.size());
+
         daxa::DeviceAddress mesh_bda = {};
         daxa::BufferId staging_buffer = {};
         {
@@ -1106,23 +1210,23 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         mesh.vertex_positions = mesh_bda + accumulated_offset;
         std::memcpy(
             staging_ptr + accumulated_offset,
-            vert_positions.data(),
-            vert_positions.size() * sizeof(daxa_f32vec3));
-        accumulated_offset += sizeof(daxa_f32vec3) * vert_positions.size();
+            optimized_vert_positions.data(),
+            optimized_vert_positions.size() * sizeof(daxa_f32vec3));
+        accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_positions.size();
         // ---
         mesh.vertex_uvs = mesh_bda + accumulated_offset;
         std::memcpy(
             staging_ptr + accumulated_offset,
-            vert_texcoord0.data(),
-            vert_texcoord0.size() * sizeof(daxa_f32vec2));
-        accumulated_offset += sizeof(daxa_f32vec2) * vert_texcoord0.size();
+            optimized_vert_texcoord0.data(),
+            optimized_vert_texcoord0.size() * sizeof(daxa_f32vec2));
+        accumulated_offset += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
         // ---
         mesh.vertex_normals = mesh_bda + accumulated_offset;
         std::memcpy(
             staging_ptr + accumulated_offset,
-            vert_normals.data(),
-            vert_normals.size() * sizeof(daxa_f32vec3));
-        accumulated_offset += sizeof(daxa_f32vec3) * vert_normals.size();
+            optimized_vert_normals.data(),
+            optimized_vert_normals.size() * sizeof(daxa_f32vec3));
+        accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_normals.size();
         // ---
         mesh.material_index = info.material_manifest_index;
         mesh.meshlet_count = meshlet_count;

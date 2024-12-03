@@ -52,7 +52,11 @@ Renderer::Renderer(
     meshlet_instances_last_frame = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(gpu_context, sizeof(f32), "luminance average", "luminance_average");
-    general_readback_buffer = daxa::TaskBuffer{gpu_context->device, {sizeof(ReadbackValues) * 4, daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE, "general readback buffer"}};
+    general_readback_buffer = gpu_context->device.create_buffer({
+        .size = sizeof(ReadbackValues) * 4,
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "general readback buffer",
+    });
     visible_meshlet_instances = create_task_buffer(gpu_context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
@@ -61,8 +65,7 @@ Renderer::Renderer(
         meshlet_instances_last_frame,
         visible_meshlet_instances,
         visible_mesh_instances,
-        luminance_average,
-        general_readback_buffer};
+        luminance_average};
 
     swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
@@ -125,6 +128,10 @@ Renderer::~Renderer()
         {
             this->gpu_context->device.destroy_image(image);
         }
+    }
+    if (!general_readback_buffer.is_empty())
+    {
+        this->gpu_context->device.destroy_buffer(general_readback_buffer);
     }
     ddgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
@@ -782,28 +789,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.add_task({
         .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, meshlet_instances),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_READ, visible_mesh_instances),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, general_readback_buffer),
+            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, render_context->tgpu_render_data),
         },
         .task = [=, this](daxa::TaskInterface ti)
         {
             const u32 index = render_context->render_data.frame_index % 4;
-#define READBACK_HELPER_MACRO(SRC_BUF, SRC_STRUCT, SRC_FIELD, DST_FIELD)                    \
-    ti.recorder.copy_buffer_to_buffer({                                                     \
-        .src_buffer = ti.get(SRC_BUF).ids[0],                                               \
-        .dst_buffer = ti.get(general_readback_buffer).ids[0],                               \
-        .src_offset = offsetof(SRC_STRUCT, SRC_FIELD),                                      \
-        .dst_offset = offsetof(ReadbackValues, DST_FIELD) + sizeof(ReadbackValues) * index, \
-        .size = sizeof(SRC_STRUCT::SRC_FIELD),                                              \
-    })
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].pass_counts[0], first_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[0].pass_counts[1], second_pass_meshlet_count[0]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].pass_counts[0], first_pass_meshlet_count[1]);
-            READBACK_HELPER_MACRO(meshlet_instances, MeshletInstancesBufferHead, prepass_draw_lists[1].pass_counts[1], second_pass_meshlet_count[1]);
-            READBACK_HELPER_MACRO(visible_mesh_instances, VisibleMeshesList, count, visible_meshes);
 
-            render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(ti.get(general_readback_buffer).ids[0]).value()[index];
+            render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
         },
         .name = "general readback",
     });
@@ -903,7 +895,7 @@ void Renderer::render_frame(
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
 
     render_context->render_data.readback =
-        gpu_context->device.buffer_device_address(general_readback_buffer.get_state().buffers[0]).value() +
+        gpu_context->device.buffer_device_address(general_readback_buffer).value() +
         sizeof(ReadbackValues) * (render_context->render_data.frame_index % 4);
     if (sky_settings_changed)
     {

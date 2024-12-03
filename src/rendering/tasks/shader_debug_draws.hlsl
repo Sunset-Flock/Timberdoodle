@@ -24,12 +24,13 @@ func entry_vertex_circle(uint vertex_index : SV_VertexID, uint instance_index : 
     ret.color = circle.color;
     if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
-        float4x4 inv_view_rotation = push.attachments.globals->camera.inv_view;
+        CameraInfo * cam = push.attachments.globals.settings.draw_from_observer ? &push.attachments.globals->observer_camera : &push.attachments.globals->camera;
+        float4x4 inv_view_rotation = cam->inv_view;
         // Remove position aspect of the view matrix.
         inv_view_rotation[0][3] = 0;
-        inv_view_rotation[0][3] = 0;
-        inv_view_rotation[0][3] = 0;
-        inv_view_rotation[0][3] = 1;
+        inv_view_rotation[1][3] = 0;
+        inv_view_rotation[2][3] = 0;
+        inv_view_rotation[3][3] = 1;
         // Rotate circle to face camera.
         model_position = mul(inv_view_rotation, model_position);
         // Add on world position of circle
