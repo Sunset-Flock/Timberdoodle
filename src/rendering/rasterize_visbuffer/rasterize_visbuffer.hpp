@@ -15,7 +15,7 @@
 
 namespace raster_visbuf
 {
-    inline auto create_visbuffer(daxa::TaskGraph tg, RenderContext const & render_context) -> daxa::TaskImageView
+    inline auto create_visbuffer(daxa::TaskGraph tg, RenderContext const & render_context, char const * name = "view_camera_visbuffer") -> daxa::TaskImageView
     {
         return tg.create_transient_image({
             .format = daxa::Format::R32_UINT,
@@ -24,7 +24,7 @@ namespace raster_visbuf
                 render_context.render_data.settings.render_target_size.y,
                 1,
             },
-            .name = "visbuffer",
+            .name = name,
         });
     }
 
@@ -37,11 +37,11 @@ namespace raster_visbuf
                 render_context.render_data.settings.render_target_size.y,
                 1,
             },
-            .name = "atomic visbuffer",
+            .name = "atomic view_camera_visbuffer",
         });
     }
 
-    inline auto create_depth(daxa::TaskGraph tg, RenderContext const & render_context, char const * name = "depth") -> daxa::TaskImageView
+    inline auto create_depth(daxa::TaskGraph tg, RenderContext const & render_context, char const * name = "main_camera_depth") -> daxa::TaskImageView
     {
         daxa::Format format = render_context.render_data.settings.enable_atomic_visbuffer ? daxa::Format::R32_SFLOAT : daxa::Format::D32_SFLOAT;
         return tg.create_transient_image({
@@ -68,9 +68,11 @@ namespace raster_visbuf
     };
     struct TaskDrawVisbufferAllOut
     {
-        daxa::TaskImageView depth;
-        daxa::TaskImageView visbuffer;
-        daxa::TaskImageView overdraw_image;
+        daxa::TaskImageView main_camera_visbuffer;
+        daxa::TaskImageView main_camera_depth;
+        daxa::TaskImageView view_camera_visbuffer;  // 
+        daxa::TaskImageView view_camera_depth;      // View Camera is either observer or main camera
+        daxa::TaskImageView view_camera_overdraw;   // 
     };
     inline auto task_draw_visbuffer_all(TaskDrawVisbufferAllInfo const info) -> TaskDrawVisbufferAllOut
     {
@@ -82,28 +84,28 @@ namespace raster_visbuf
 
         // === Create Render Targets ===
 
-        ret.overdraw_image = daxa::NullTaskImage;
+        ret.view_camera_overdraw = daxa::NullTaskImage;
         if (info.render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_OVERDRAW)
         {
-            ret.overdraw_image = info.tg.create_transient_image({
+            ret.view_camera_overdraw = info.tg.create_transient_image({
                 .format = daxa::Format::R32_UINT,
                 .size = {
                     info.render_context->render_data.settings.render_target_size.x,
                     info.render_context->render_data.settings.render_target_size.y,
                     1,
                 },
-                .name = "overdraw_image",
+                .name = "view_camera_overdraw",
             });
-            info.tg.clear_image({ret.overdraw_image, std::array{0, 0, 0, 0}});
+            info.tg.clear_image({ret.view_camera_overdraw, std::array{0, 0, 0, 0}});
         }
-        ret.visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context);
+        ret.main_camera_visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context);
         if (visbuffer_culled_first_pass)
         {
-            ret.depth = raster_visbuf::create_depth(info.tg, *info.render_context);
+            ret.main_camera_depth = raster_visbuf::create_depth(info.tg, *info.render_context);
         }
         else
         {
-            ret.depth = info.depth_history;
+            ret.main_camera_depth = info.depth_history;
         }
         daxa::TaskImageView atomic_visbuffer = daxa::NullTaskImage;
         daxa::TaskImageView renderable_depth = daxa::NullTaskImage;
@@ -113,7 +115,7 @@ namespace raster_visbuf
         }
         else
         {
-            renderable_depth = ret.depth;
+            renderable_depth = ret.main_camera_depth;
         }
 
         // === Render Visbuffer ===
@@ -158,17 +160,17 @@ namespace raster_visbuf
                 .meshes = info.scene->_gpu_mesh_manifest,
                 .material_manifest = info.scene->_gpu_material_manifest,
                 .combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                .vis_image = ret.visbuffer,
                 .atomic_visbuffer = atomic_visbuffer,
+                .vis_image = ret.main_camera_visbuffer,
                 .debug_image = info.debug_image,
                 .depth_image = renderable_depth,
-                .overdraw_image = ret.overdraw_image,
+                .overdraw_image = ret.view_camera_overdraw,
             });
         }
         else
         {
             daxa::TaskImageView first_pass_hiz = {};
-            task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.depth, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::VISBUFFER_FIRST_PASS_GEN_HIZ});
+            task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::VISBUFFER_FIRST_PASS_GEN_HIZ});
 
             std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
             tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -206,11 +208,11 @@ namespace raster_visbuf
                 .hiz = first_pass_hiz,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.scene->mesh_instances_buffer,
-                .vis_image = ret.visbuffer,
+                .vis_image = ret.main_camera_visbuffer,
                 .atomic_visbuffer = atomic_visbuffer,
                 .debug_image = info.debug_image,
                 .depth_image = renderable_depth,
-                .overdraw_image = ret.overdraw_image,
+                .overdraw_image = ret.view_camera_overdraw,
             });
         }
 
@@ -220,8 +222,8 @@ namespace raster_visbuf
             info.tg.add_task(SplitAtomicVisbufferTask{
                 .views = std::array{
                     SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                    SplitAtomicVisbufferH::AT.visbuffer | ret.visbuffer,
-                    SplitAtomicVisbufferH::AT.depth | ret.depth,
+                    SplitAtomicVisbufferH::AT.visbuffer | ret.main_camera_visbuffer,
+                    SplitAtomicVisbufferH::AT.depth | ret.main_camera_depth,
                 },
                 .gpu_context = info.render_context->gpu_context,
                 .push = SplitAtomicVisbufferPush{.size = info.render_context->render_data.settings.render_target_size},
@@ -237,7 +239,7 @@ namespace raster_visbuf
         }
 
         daxa::TaskImageView hiz = {};
-        task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::VISBUFFER_SECOND_PASS_GEN_HIZ});
+        task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::VISBUFFER_SECOND_PASS_GEN_HIZ});
 
         std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -273,11 +275,11 @@ namespace raster_visbuf
             .hiz = hiz,
             .meshlet_instances = info.meshlet_instances,
             .mesh_instances = info.scene->mesh_instances_buffer,
-            .vis_image = ret.visbuffer,
+            .vis_image = ret.main_camera_visbuffer,
             .atomic_visbuffer = atomic_visbuffer,
             .debug_image = info.debug_image,
             .depth_image = renderable_depth,
-            .overdraw_image = ret.overdraw_image,
+            .overdraw_image = ret.view_camera_overdraw,
         });
 
         info.tg.clear_buffer({.buffer = info.visible_meshlet_instances, .size = 4, .clear_value = 0});
@@ -292,7 +294,7 @@ namespace raster_visbuf
             info.tg.add_task(AnalyzeVisBufferTask2{
                 .views = std::array{
                     AnalyzeVisbuffer2H::AT.globals | info.render_context->tgpu_render_data,
-                    AnalyzeVisbuffer2H::AT.visbuffer | (info.render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : ret.visbuffer),
+                    AnalyzeVisbuffer2H::AT.visbuffer | (info.render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : ret.main_camera_visbuffer),
                     AnalyzeVisbuffer2H::AT.meshlet_instances | info.meshlet_instances,
                     AnalyzeVisbuffer2H::AT.mesh_instances | info.scene->mesh_instances_buffer,
                     AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
@@ -304,12 +306,42 @@ namespace raster_visbuf
             });
         }
 
-        if (info.render_context->render_data.settings.draw_from_observer && (info.render_context->render_data.settings.enable_atomic_visbuffer == 0))
+        if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {
-            auto const observer_depth = raster_visbuf::create_depth(info.tg, *info.render_context, "observer depth");
+           info.tg.add_task(SplitAtomicVisbufferTask{
+                .views = std::array{
+                    SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
+                    SplitAtomicVisbufferH::AT.visbuffer | ret.main_camera_visbuffer,
+                    SplitAtomicVisbufferH::AT.depth | ret.main_camera_depth,
+                },
+                .gpu_context = info.render_context->gpu_context,
+                .push = SplitAtomicVisbufferPush{.size = info.render_context->render_data.settings.render_target_size},
+                .dispatch_callback = [=]()
+                {
+                    return daxa::DispatchInfo{
+                        round_up_div(info.render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
+                        round_up_div(info.render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
+                        1,
+                    };
+                },
+            });
+        }
+
+        if (info.render_context->render_data.settings.draw_from_observer)
+        {
+            auto const observer_depth = info.tg.create_transient_image({
+                .format = daxa::Format::D32_SFLOAT,
+                .size = { 
+                    info.render_context->render_data.settings.render_target_size.x,
+                    info.render_context->render_data.settings.render_target_size.y,
+                    1,
+                },
+                .name = "observer view_camera_depth",
+            });
+            auto const observer_visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context, "observer view_camera_visbuffer");
             
             info.tg.clear_image({observer_depth, daxa::DepthValue{0.0f,0u}});
-            info.tg.clear_image({ret.visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
+            info.tg.clear_image({observer_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
 
             if (info.render_context->render_data.settings.observer_draw_first_pass)
             {
@@ -323,10 +355,10 @@ namespace raster_visbuf
                     .meshes = info.scene->_gpu_mesh_manifest,
                     .material_manifest = info.scene->_gpu_material_manifest,
                     .combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                    .vis_image = ret.visbuffer,
                     .atomic_visbuffer = daxa::NullTaskImage,
+                    .vis_image = observer_visbuffer,
                     .depth_image = observer_depth,
-                    .overdraw_image = ret.overdraw_image,
+                    .overdraw_image = ret.view_camera_overdraw,
                 });
             }
             if (info.render_context->render_data.settings.observer_draw_second_pass)
@@ -341,32 +373,20 @@ namespace raster_visbuf
                     .meshes = info.scene->_gpu_mesh_manifest,
                     .material_manifest = info.scene->_gpu_material_manifest,
                     .combined_transforms = info.scene->_gpu_entity_combined_transforms,
-                    .vis_image = ret.visbuffer,
                     .atomic_visbuffer = daxa::NullTaskImage,
+                    .vis_image = observer_visbuffer,
                     .depth_image = observer_depth,
-                    .overdraw_image = ret.overdraw_image,
+                    .overdraw_image = ret.view_camera_overdraw,
                 });
             }
+
+            ret.view_camera_visbuffer = observer_visbuffer;
+            ret.view_camera_depth = observer_depth;
         }
-        if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
+        else
         {
-           info.tg.add_task(SplitAtomicVisbufferTask{
-                .views = std::array{
-                    SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                    SplitAtomicVisbufferH::AT.visbuffer | ret.visbuffer,
-                    SplitAtomicVisbufferH::AT.depth | ret.depth,
-                },
-                .gpu_context = info.render_context->gpu_context,
-                .push = SplitAtomicVisbufferPush{.size = info.render_context->render_data.settings.render_target_size},
-                .dispatch_callback = [=]()
-                {
-                    return daxa::DispatchInfo{
-                        round_up_div(info.render_context->render_data.settings.render_target_size.x, SPLIT_ATOMIC_VISBUFFER_X),
-                        round_up_div(info.render_context->render_data.settings.render_target_size.y, SPLIT_ATOMIC_VISBUFFER_Y),
-                        1,
-                    };
-                },
-            });
+            ret.view_camera_visbuffer = ret.main_camera_visbuffer;
+            ret.view_camera_depth = ret.main_camera_depth;
         }
 
         return ret;

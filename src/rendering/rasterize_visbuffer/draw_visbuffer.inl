@@ -232,7 +232,8 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
 
-        bool const compute_raster = render_context->render_data.settings.enable_atomic_visbuffer;
+        bool const atomic_visbuffer = !ti.get(AT.atomic_visbuffer).ids[0].is_empty();
+        bool const compute_raster = atomic_visbuffer;
         if (compute_raster)
         {
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
@@ -257,7 +258,6 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         {
             auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
             auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-            bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
             daxa::RenderPassBeginInfo render_pass_begin_info = {
                 .render_area = daxa::Rect2D{.width = x, .height = y},
             };
@@ -325,7 +325,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
     void callback(daxa::TaskInterface ti)
     {
         auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        bool const atomic_visbuffer = render_context->render_data.settings.enable_atomic_visbuffer;
+        bool const atomic_visbuffer = !ti.get(AT.atomic_visbuffer).ids[0].is_empty();
         auto [x, y, z] = ti.device.image_info(ti.get(AT.vis_image).ids[0]).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
             .render_area = daxa::Rect2D{.width = x, .height = y},
@@ -451,7 +451,8 @@ struct TaskCullAndDrawVisbufferInfo
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
-    bool const atomic_visbuf_clear = info.clear_render_targets && info.render_context->render_data.settings.enable_atomic_visbuffer;
+    bool const atomic_visbuffer = !info.atomic_visbuffer.is_null();
+    bool const atomic_visbuf_clear = info.clear_render_targets && atomic_visbuffer;
     if (atomic_visbuf_clear)
     {
         info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
@@ -557,8 +558,8 @@ struct TaskDrawVisbufferInfo
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView combined_transforms = {};
-    daxa::TaskImageView vis_image = {};
     daxa::TaskImageView atomic_visbuffer = {};
+    daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};    
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView overdraw_image = {};
@@ -571,7 +572,8 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
     });
 
-    bool const atomic_visbuf_clear = info.render_context->render_data.settings.enable_atomic_visbuffer && info.clear_render_targets;
+    bool const atomic_visbuf = !info.atomic_visbuffer.is_null() && info.depth_image.is_null() && info.vis_image.is_null();
+    bool const atomic_visbuf_clear = atomic_visbuf && info.clear_render_targets;
     if (atomic_visbuf_clear)
     {
         info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
@@ -602,8 +604,8 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             DrawVisbufferH::AT.meshes | info.meshes,
             DrawVisbufferH::AT.material_manifest | info.material_manifest,
             DrawVisbufferH::AT.entity_combined_transforms | info.combined_transforms,
-            DrawVisbufferH::AT.vis_image | info.vis_image,
             DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
+            DrawVisbufferH::AT.vis_image | info.vis_image,
             DrawVisbufferH::AT.depth_image | info.depth_image,
             DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
             DrawVisbufferH::AT.hiz | info.hiz,

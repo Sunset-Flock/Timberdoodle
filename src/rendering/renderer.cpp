@@ -552,21 +552,24 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     auto depth_hist = render_context->render_data.settings.enable_atomic_visbuffer ? f32_depth_vistory : depth_vistory;
     auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_hist});
-    daxa::TaskImageView depth = visbuffer_ret.depth;
-    daxa::TaskImageView visbuffer = visbuffer_ret.visbuffer;
-    daxa::TaskImageView overdraw_image = visbuffer_ret.overdraw_image;
+    daxa::TaskImageView main_camera_visbuffer = visbuffer_ret.main_camera_visbuffer;
+    daxa::TaskImageView main_camera_depth = visbuffer_ret.main_camera_depth;
+    daxa::TaskImageView view_camera_visbuffer = visbuffer_ret.view_camera_visbuffer;
+    daxa::TaskImageView view_camera_depth = visbuffer_ret.view_camera_depth;
+    daxa::TaskImageView overdraw_image = visbuffer_ret.view_camera_overdraw;
 
-    daxa::TaskImageView geo_normal_image = tg.create_transient_image({
+    daxa::TaskImageView main_camera_geo_normal_image = tg.create_transient_image({
         .format = GBUFFER_GEO_NORMAL_FORMAT,
         .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1 },
-        .name = "geo_normal_image",
+        .name = "main_camera_geo_normal_image",
     }); 
+    daxa::TaskImageView view_camera_geo_normal_image = main_camera_geo_normal_image;
     tg.add_task(GenGbufferTask{
         .views = std::array{
             GenGbufferTask::AT.globals | render_context->tgpu_render_data,
             GenGbufferTask::AT.debug_image | debug_image,
-            GenGbufferTask::AT.vis_image | visbuffer,
-            GenGbufferTask::AT.geo_normal_image | geo_normal_image,
+            GenGbufferTask::AT.vis_image | main_camera_visbuffer,
+            GenGbufferTask::AT.geo_normal_image | main_camera_geo_normal_image,
             GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
             GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
             GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
@@ -574,6 +577,31 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
+
+    // Some following passes need either the main views camera OR the views cameras perspective.
+    // The observer camera is not always appropriate to be used.
+    // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
+    if (render_context->render_data.settings.draw_from_observer)
+    {
+        view_camera_geo_normal_image = tg.create_transient_image({
+            .format = GBUFFER_GEO_NORMAL_FORMAT,
+            .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1 },
+            .name = "view_camera_geo_normal_image",
+        }); 
+        tg.add_task(GenGbufferTask{
+            .views = std::array{
+                GenGbufferTask::AT.globals | render_context->tgpu_render_data,
+                GenGbufferTask::AT.debug_image | debug_image,
+                GenGbufferTask::AT.vis_image | view_camera_visbuffer,
+                GenGbufferTask::AT.geo_normal_image | view_camera_geo_normal_image,
+                GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
+                GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
+                GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
+                GenGbufferTask::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            },
+            .render_context = render_context.get(),
+        });
+    }
 
     auto sky = tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
@@ -615,8 +643,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .meshes = scene->_gpu_mesh_manifest,
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
-            .g_buffer_depth = depth,
-            .g_buffer_geo_normal = geo_normal_image,
+            .g_buffer_depth = main_camera_depth,
+            .g_buffer_geo_normal = main_camera_geo_normal_image,
         });
     }
     else
@@ -658,7 +686,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
                 RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
                 RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
-                RayTraceAmbientOcclusionH::AT.vis_image | visbuffer,
+                RayTraceAmbientOcclusionH::AT.vis_image | view_camera_visbuffer,
                 RayTraceAmbientOcclusionH::AT.sky | sky,
                 RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
                 RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
@@ -675,7 +703,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(RTAODeoinserTask{
             .views = std::array{
                 RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
-                RTAODeoinserTask::AT.depth | depth,
+                RTAODeoinserTask::AT.depth | view_camera_depth,
                 RTAODeoinserTask::AT.src | ao_image_raw,
                 RTAODeoinserTask::AT.dst | ao_image,
             },
@@ -683,18 +711,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
-    // tg.add_task(DecodeVisbufferTestTask{
-    //     .views = std::array{
-    //         DecodeVisbufferTestH::AT.globals | render_context->tgpu_render_data,
-    //         DecodeVisbufferTestH::AT.debug_image | debug_image,
-    //         DecodeVisbufferTestH::AT.vis_image | visbuffer,
-    //         DecodeVisbufferTestH::AT.material_manifest | scene->_gpu_material_manifest,
-    //         DecodeVisbufferTestH::AT.instantiated_meshlets | meshlet_instances,
-    //         DecodeVisbufferTestH::AT.meshes | scene->_gpu_mesh_manifest,
-    //         DecodeVisbufferTestH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-    //     },
-    //     .gpu_context = gpu_context,
-    // });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     tg.add_task(ShadeOpaqueTask{
@@ -703,7 +719,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.ao_image | ao_image,
             ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
             ShadeOpaqueH::AT.color_image | color_image,
-            ShadeOpaqueH::AT.vis_image | visbuffer,
+            ShadeOpaqueH::AT.vis_image | view_camera_visbuffer,
             ShadeOpaqueH::AT.transmittance | transmittance,
             ShadeOpaqueH::AT.sky | sky,
             ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
@@ -751,7 +767,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .render_context = render_context.get(),
         .ddgi_state = &this->ddgi_state,
         .color_image = color_image,
-        .depth_image = depth,
+        .depth_image = view_camera_depth,
     });
     tg.add_task(WriteSwapchainTask{
         .views = std::array{
@@ -767,7 +783,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .views = std::array{
             DebugDrawH::AT.globals | render_context->tgpu_render_data,
             DebugDrawH::AT.color_image | swapchain_image,
-            DebugDrawH::AT.depth_image | depth,
+            DebugDrawH::AT.depth_image | view_camera_depth,
         },
         .render_context = render_context.get(),
     });

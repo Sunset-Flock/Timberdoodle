@@ -180,8 +180,8 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             
         meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
             DispatchIndirectStruct command;
-            command.x = push.attach.globals.settings.enable_atomic_visbuffer ? meshlets_to_draw : 1;
-            command.y = push.attach.globals.settings.enable_atomic_visbuffer ? 1 : meshlets_to_draw;
+            command.x = meshlets_to_draw;
+            command.y = 1;
             command.z = 1;
             ((DispatchIndirectStruct*)(push.attach.draw_commands))[draw_list_type] = command;
     }
@@ -334,11 +334,12 @@ func shuffle_arr2(float4 local_values[2], uint load_index) -> float4
 groupshared float4 gs_clip_vertex_positions[MAX_VERTICES_PER_MESHLET];
 func generic_mesh_compute_raster(
     DrawVisbufferPush push,
-    in uint3 svtid,
-    uint meshlet_instance_index,
-    MeshletInstance meshlet_instance,
-    bool cull_backfaces,
-    bool cull_hiz_occluded)
+    in GPUMesh mesh,
+    in uint meshlet_thread_index,
+    in uint meshlet_instance_index,
+    in MeshletInstance meshlet_instance,
+    in bool cull_backfaces,
+    in bool cull_hiz_occluded)
 {
     const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_instance.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
@@ -349,7 +350,7 @@ func generic_mesh_compute_raster(
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = push.draw_data.observer;
     const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull) && false;
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).observer_camera.view_proj : 
@@ -363,7 +364,7 @@ func generic_mesh_compute_raster(
     const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     {
-        const uint in_meshlet_vertex_index = svtid.x;
+        const uint in_meshlet_vertex_index = meshlet_thread_index;
         if (in_meshlet_vertex_index < meshlet.vertex_count)
         {
             // Very slow fetch, as its incoherent memory address across warps.
@@ -386,7 +387,7 @@ func generic_mesh_compute_raster(
     GroupMemoryBarrierWithGroupSync();
 
     {
-        const uint in_meshlet_triangle_index = svtid.x;
+        const uint in_meshlet_triangle_index = meshlet_thread_index;
         uint3 tri_in_meshlet_vertex_indices = uint3(0,0,0);
         if (in_meshlet_triangle_index < meshlet.triangle_count)
         {
@@ -439,7 +440,11 @@ func generic_mesh_compute_raster(
                     let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(push.attach.globals.settings.render_target_size));
                     cull_primitive = cull_micro_poly_invisible;
 
-                    if (push.attach.hiz.value != 0 && !cull_primitive && cull_hiz_occluded && false)
+                    const float2 ndc_size = (ndc_max - ndc_min);
+                    const float2 ndc_pixel_size = 0.5f * ndc_size * push.attach.globals.settings.render_target_size;
+                    const float ndc_pixel_area_size = ndc_pixel_size.x * ndc_pixel_size.y;
+                    bool large_triangle = ndc_pixel_area_size > 128;
+                    if (large_triangle && push.attach.globals.settings.enable_triangle_cull && (push.attach.hiz.value != 0) && !cull_primitive && cull_hiz_occluded)
                     {
                         let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,
@@ -477,18 +482,19 @@ func generic_mesh_compute_raster(
 
 
 // --- Mesh shader opaque ---
-[numthreads(1,COMPUTE_RASTERIZE_WORKGROUP_X,1)]
+[numthreads(COMPUTE_RASTERIZE_WORKGROUP_X,1,1)]
 [shader("compute")]
 func entry_mesh_opaque_compute_raster(
-    uint3 svtid_orig : SV_DispatchThreadID)
+    uint gtid : SV_GroupThreadID,
+    uint gid : SV_GroupID
+)
 {
-    uint3 svtid = svtid_orig.yxz;
     const uint meshlet_instance_index = get_meshlet_instance_index(
         draw_p.attach.globals,
         draw_p.attach.meshlet_instances, 
         draw_p.draw_data.pass_index, 
         PREPASS_DRAW_LIST_OPAQUE,
-        svtid.y);
+        gid);
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
         return;
@@ -510,7 +516,12 @@ func entry_mesh_opaque_compute_raster(
     // Because of this we simply dont hiz cull tris in first pass ever.
     let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
 
-    generic_mesh_compute_raster(draw_p, svtid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
+    const GPUMesh mesh = draw_p.attach.meshes[meshlet_instance.mesh_index];
+    if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+    {
+        return;
+    }
+    generic_mesh_compute_raster(draw_p, mesh, gtid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
@@ -671,7 +682,8 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 }
 
 func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    in uint3 svtid,
+    in uint gid,
+    in uint gtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives)
@@ -681,7 +693,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         draw_p.attach.meshlet_instances, 
         draw_p.draw_data.pass_index, 
         V::PREPASS_DRAW_LIST_TYPE,
-        svtid.y);
+        gid);
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
         SetMeshOutputCounts(0,0);
@@ -710,7 +722,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         SetMeshOutputCounts(0,0);
         return;
     }
-    generic_mesh(draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
+    generic_mesh(draw_p, out_indices, out_vertices, out_primitives, mesh, gtid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 // --- Mesh shader opaque ---
@@ -718,12 +730,14 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_opaque(
-    uint3 svtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    generic_mesh_draw_only(svtid, out_indices, out_vertices, out_primitives);
+
+    generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 // Didnt seem to do much.
@@ -752,12 +766,13 @@ FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderO
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_masked(
-    uint3 svtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    generic_mesh_draw_only(svtid, out_indices, out_vertices, out_primitives);
+    generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
