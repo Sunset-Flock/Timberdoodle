@@ -508,7 +508,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (renderer_settings)
     {
-        ui_renderer_settings(scene, render_context.render_data.settings, app_state);
+        ui_renderer_settings(scene, render_context.render_data, app_state);
     }
     if (widget_property_viewer)
     {
@@ -1161,7 +1161,7 @@ void UIEngine::ui_scenegraph(Scene const & scene)
     scene_graph.end(began);
 }
 
-void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, ApplicationState & app_state)
+void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & render_data, ApplicationState & app_state)
 {
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
@@ -1171,12 +1171,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
             "AA_MODE_SUPER_SAMPLE",
             "AA_MODE_DVM",
         };
-        ImGui::Combo("anti_aliasing_mode", &settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
+        ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
         auto ao_modes = std::array{
             "None",
             "RT"};
-        ImGui::Combo("ao mode", &settings.ao_mode, ao_modes.data(), ao_modes.size());
-        ImGui::InputInt("ao samples", &settings.ao_samples);
+        ImGui::Combo("ao mode", &render_data.settings.ao_mode, ao_modes.data(), ao_modes.size());
+        ImGui::InputInt("ao samples", &render_data.settings.ao_samples);
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{
@@ -1195,23 +1195,32 @@ void UIEngine::ui_renderer_settings(Scene const & scene, Settings & settings, Ap
                 "AO",
                 "LOD",
             };
-            ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
-            ImGui::InputFloat("debug visualization overdraw scale", &settings.debug_overdraw_scale);
-            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&settings.enable_mesh_cull));
-            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&settings.enable_meshlet_cull));
-            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&settings.enable_triangle_cull));
-            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&settings.enable_atomic_visbuffer));
-            ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool *>(&settings.enable_merged_scene_blas));
-            ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&settings.enable_rt_pipeline_for_ao));
-            ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&settings.enable_visbuffer_two_pass_culling));
-            ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&settings.enable_separate_compute_meshlet_culling));
-            ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&settings.enable_prefix_sum_work_expansion));
-            ImGui::InputInt("override_lod", &settings.lod_override);
-            ImGui::InputFloat("lod_acceptable_pixel_error", &settings.lod_acceptable_pixel_error);
+            ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
+            ImGui::InputFloat("debug visualization overdraw scale", &render_data.settings.debug_overdraw_scale);
+            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
+            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
+            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
+            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&render_data.settings.enable_atomic_visbuffer));
+            ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool *>(&render_data.settings.enable_merged_scene_blas));
+            ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&render_data.settings.enable_rt_pipeline_for_ao));
+            ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
+            ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
+            ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
+            ImGui::InputInt("override_lod", &render_data.settings.lod_override);
+            ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
             ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
+            ImGui::SeparatorText("Misc");
+            ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
+            ImGui::SeparatorText("Features");
+            if (ImGui::CollapsingHeader("DDGI Settings"))
+            {
+                ImGui::InputFloat3("Probe range", &render_data.ddgi_settings.probe_range.x);
+                ImGui::InputInt3("Probe count", &render_data.ddgi_settings.probe_count.x);
+                ImGui::InputFloat3("Fixed Probe Center Position", &render_data.ddgi_settings.fixed_center_position.x);
+                ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.ddgi_settings.fixed_center));
+                ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.ddgi_settings.draw_debug_probes));
+            }
         }
-        ImGui::SeparatorText("Misc");
-        ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
     }
     ImGui::End();
 }

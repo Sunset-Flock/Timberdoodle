@@ -16,6 +16,60 @@
 
 #define AT deref(push_opaque.attachments).attachments
 
+bool light_in_shadow_raytraced(float3 pos, float3 light_pos)
+{
+    float3 light_dir = normalize(light_pos - pos);
+    RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
+        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+
+    const float t_min = 0.01f;
+    const float t_max = 1000.0f;
+
+    RayDesc my_ray = {
+        pos,
+        t_min,
+        light_dir,
+        t_max,
+    };
+
+    // Set up a trace.  No work is done yet.
+    q.TraceRayInline(
+        daxa::RayTracingAccelerationStructureTable[push_opaque.attachments.attachments.tlas.index()],
+        0, // OR'd with flags above
+        0xFFFF,
+        my_ray);
+
+    // Proceed() below is where behind-the-scenes traversal happens,
+    // including the heaviest of any driver inlined code.
+    // In this simplest of scenarios, Proceed() only needs
+    // to be called once rather than a loop:
+    // Based on the template specialization above,
+    // traversal completion is guaranteed.
+    q.Proceed();
+
+
+    bool hit = false;
+    // Examine and act on the result of the traversal.
+    // Was a hit committed?
+    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    {
+        hit = true;
+    }
+
+    if (!hit)
+    {
+        return false;
+    }
+    else
+    {
+        float t = q.CandidateTriangleRayT();
+        float t_light = length(light_pos - pos);
+        bool shadowed = t < t_light;
+        return shadowed;
+    }
+}
+
 float compute_exposure(float average_luminance) 
 {
     const float exposure_bias = AT.globals->postprocess_settings.exposure_bias;
@@ -345,7 +399,13 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
             light.linear_falloff * to_light_dist + 
             light.quadratic_falloff + (to_light_dist * to_light_dist);
 
-        const float attenuation = 1.0 / falloff_factor;
+        float attenuation = 1.0 / falloff_factor;
+
+        let shadowed_rt = light_in_shadow_raytraced(world_position, light.position);
+        if (shadowed_rt)
+        {
+            attenuation = 0.0f;
+        }
         total_contribution += light.color * diffuse * attenuation * light.intensity;
     }
     return total_contribution;
@@ -480,7 +540,7 @@ void entry_main_cs(
         const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
 
         const float3 view_direction = get_view_direction(pixel_ndc.xy);
-        const float3 point_lights_direct = point_lights_contribution(normal, tri_data.world_position, view_direction, AT.point_lights);
+        float3 point_lights_direct = point_lights_contribution(normal, tri_data.world_position, view_direction, AT.point_lights);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);

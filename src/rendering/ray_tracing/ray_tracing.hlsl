@@ -109,7 +109,7 @@ void entry_rt_ao(
                     RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
 
             const float t_min = 0.01f;
-            const float t_max = 15.0f;
+            const float t_max = 2.5f;
 
             RayDesc my_ray = {
                 tri_data.world_position,
@@ -216,7 +216,7 @@ void ray_gen()
 
         RayDesc ray = {};
         ray.Origin = tri_data.world_position;
-        ray.TMax = 15.0f;
+        ray.TMax = 2.5f;
         ray.TMin = 0.01f;
 
         RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];

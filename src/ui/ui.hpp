@@ -133,5 +133,5 @@ struct UIEngine
 
         std::vector<daxa::ImageId> icons = {};
         void ui_scenegraph(Scene const & scene);
-        void ui_renderer_settings(Scene const & scene, Settings & settings, ApplicationState & app_state);
+        void ui_renderer_settings(Scene const & scene, RenderGlobalData & render_data, ApplicationState & app_state);
 };

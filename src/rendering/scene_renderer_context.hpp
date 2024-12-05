@@ -472,6 +472,7 @@ struct RenderContext
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};
     VSMSettings prev_vsm_settings = {};
+    DDGISettings prev_ddgi_settings = {};
     RenderGlobalData render_data = {};
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
     i32 debug_frustum = {-1};

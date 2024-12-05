@@ -5,4 +5,9 @@
 
 struct DDGISettings
 {
+    daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 16);
+    daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(24 TIDO_COMMA 24 TIDO_COMMA 12);
+    daxa_f32vec3 fixed_center_position TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 0);
+    daxa_b32 fixed_center TIDO_DEFAULT_VALUE(false);
+    daxa_b32 draw_debug_probes TIDO_DEFAULT_VALUE(false);
 };

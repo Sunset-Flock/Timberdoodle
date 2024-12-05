@@ -6,6 +6,7 @@
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
 #include "ddgi_update.inl"
+#include "../../shader_lib/ddgi.hlsl"
 
 struct DrawDebugProbesVertexToPixel
 {
@@ -21,10 +22,18 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     let push = draw_debug_probe_p;
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
-    position *= 0.25f;
+    position *= 0.125f;
 
-    let grid_index = float3(instance_index & 0x7, (instance_index >> 3) & 0x7, (instance_index >> 6) & 0x7);
-    position += (grid_index - float3(2,2,2)) * 2;
+    uint probes_per_z_slice = (push.attach.globals.ddgi_settings.probe_count.x * push.attach.globals.ddgi_settings.probe_count.y);
+    uint probe_z = instance_index / probes_per_z_slice;
+    uint probes_per_y_row = push.attach.globals.ddgi_settings.probe_count.x;
+    uint probe_y = (instance_index - probe_z * probes_per_z_slice) / probes_per_y_row;
+    uint probe_x = (instance_index - probe_z * probes_per_z_slice - probe_y * probes_per_y_row);
+
+    float3 probe_anchor = push.attach.globals.ddgi_settings.fixed_center ? push.attach.globals.ddgi_settings.fixed_center_position : push.attach.globals.camera.position;
+
+    uint3 probe_index = uint3(probe_x, probe_y, probe_z);
+    position +=ddgi_probe_index_to_worldspace(push.attach.globals.ddgi_settings, probe_anchor, probe_index);
 
     float4x4* viewproj = {};
     if (push.attach.globals.settings.draw_from_observer != 0)

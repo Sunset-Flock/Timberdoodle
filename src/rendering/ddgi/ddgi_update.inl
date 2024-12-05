@@ -117,7 +117,7 @@ struct DDGIDrawDebugProbesTask : DDGIDrawDebugProbesH::Task
 
         render_cmd.draw_indexed({
             .index_count = ddgi_state->debug_probe_mesh_triangles * 3,
-            .instance_count = 8*8*8,
+            .instance_count = static_cast<u32>(render_context->render_data.ddgi_settings.probe_count.x * render_context->render_data.ddgi_settings.probe_count.y * render_context->render_data.ddgi_settings.probe_count.z),
         });
 
         ti.recorder = std::move(render_cmd).end_renderpass();

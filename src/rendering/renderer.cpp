@@ -762,13 +762,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .gpu_context = gpu_context,
     });
-    task_ddgi_draw_debug_probes({
-        .tg = tg,
-        .render_context = render_context.get(),
-        .ddgi_state = &this->ddgi_state,
-        .color_image = color_image,
-        .depth_image = view_camera_depth,
-    });
+    if (render_context->render_data.ddgi_settings.draw_debug_probes)
+    {
+        task_ddgi_draw_debug_probes({
+            .tg = tg,
+            .render_context = render_context.get(),
+            .ddgi_state = &this->ddgi_state,
+            .color_image = color_image,
+            .depth_image = view_camera_depth,
+        });
+    }
     tg.add_task(WriteSwapchainTask{
         .views = std::array{
             WriteSwapchainH::AT.globals | render_context->tgpu_render_data,
@@ -897,12 +900,13 @@ void Renderer::render_frame(
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
+    bool const ddgi_settings_changed = render_context->render_data.ddgi_settings.draw_debug_probes != render_context->prev_ddgi_settings.draw_debug_probes;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =
         render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
     // Sky is transient of main task graph
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || ddgi_settings_changed)
     {
         recreate_framebuffer();
         main_task_graph = create_main_task_graph();

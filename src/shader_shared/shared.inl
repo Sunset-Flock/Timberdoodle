@@ -15,6 +15,14 @@
 #define MESHLET_CULL_WORKGROUP_X 128
 #define CULLING_DEBUG_DRAWS 1
 
+#define TIDO_COMMA ,
+
+#if defined(__cplusplus)
+#define TIDO_DEFAULT_VALUE(X) = {X}
+#else
+#define TIDO_DEFAULT_VALUE(X)
+#endif
+
 #if defined(__cplusplus)
 #define GLM_FORCE_DEPTH_ZERO_TO_ONE 1
 #include <glm/glm.hpp>
@@ -328,6 +336,11 @@ daxa_f32mat4x4 mat_4x3_to_4x4(daxa_f32mat4x3 in_mat)
 SHARED_FUNCTION daxa_u32 round_up_to_multiple(daxa_u32 value, daxa_u32 multiple_of)
 {
     return ((value + multiple_of - 1) / multiple_of) * multiple_of;
+}
+
+SHARED_FUNCTION daxa_f32 f32_round_down_to_multiple(daxa_f32 value, daxa_f32 multiple_of)
+{
+    return floor((value) / multiple_of) * multiple_of;
 }
 
 SHARED_FUNCTION daxa_u32 round_up_to_multiple_po2(daxa_u32 value, daxa_u32 multiple_of)
