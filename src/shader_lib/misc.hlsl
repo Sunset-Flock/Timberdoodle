@@ -104,7 +104,12 @@ float2 unpackSnorm2x12(uint d)
     return float2(uint2(d,d>>12)&4095u)/2047.5 - 1.0;
 }
 
-float2 msign( float2 v )
+float msign( float v )
+{
+    return (v.x>=0.0) ? 1.0 : -1.0;
+}
+
+float2 msign2( float2 v )
 {
     return float2( (v.x>=0.0) ? 1.0 : -1.0, 
                  (v.y>=0.0) ? 1.0 : -1.0 );
@@ -113,7 +118,7 @@ float2 msign( float2 v )
 uint compress_normal_octahedral_24( in float3 nor )
 {
     nor /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
-    nor.xy = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign(nor.xy);
+    nor.xy = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign2(nor.xy);
     return packSnorm2x12(nor.xy);
 }
 
@@ -130,7 +135,7 @@ float3 uncompress_normal_octahedral_24( uint data )
 uint compress_normal_octahedral_32( in float3 nor )
 {
     nor.xy /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
-    nor.xy  = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign(nor.xy);
+    nor.xy  = (nor.z >= 0.0) ? nor.xy : (1.0-abs(nor.yx))*msign2(nor.xy);
     uint2 d = uint2(round(32767.5 + nor.xy*32767.5));  
     return d.x|(d.y<<16u);
 }
@@ -144,6 +149,27 @@ float3 uncompress_normal_octahedral_32( uint data )
     nor.x += (nor.x>0.0)?-t:t;
     nor.y += (nor.y>0.0)?-t:t;
     return normalize( nor );
+}
+
+float2 map_octahedral(float3 nor) {
+    const float fac = 1.0f / (abs(nor.x) + abs(nor.y) + abs(nor.z));
+    nor.x *= fac;
+    nor.y *= fac;
+    if (nor.z < 0.0f) {
+        const float2 temp = nor.xy;
+        nor.x = (1.0f - abs(temp.y)) * msign(temp.x);
+        nor.y = (1.0f - abs(temp.x)) * msign(temp.y);
+    }
+    return float2(nor.x, nor.y) * 0.5f + 0.5f;
+}
+
+float3 unmap_octahedral(float2 v) {
+    v = v * 2.0f - 1.0f;
+    float3 nor = float3(v, 1.0f - abs(v.x) - abs(v.y)); // Rune Stubbe's version,
+    float t = max(-nor.z, 0.0f);                        // much faster than original
+    nor.x += (nor.x > 0.0f) ? -t : t;                   // implementation of this
+    nor.y += (nor.y > 0.0f) ? -t : t;                   // technique
+    return normalize(nor);
 }
 
 /// ===== =====

@@ -1,5 +1,6 @@
 #pragma once
 
+#define DAXA_RAY_TRACING 1
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 #include "../../shader_shared/shared.inl"
@@ -10,12 +11,26 @@ DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(Rende
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE_TYPED(FRAGMENT_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, scene_depth_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, probes_depth_image)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_radiance)
 DAXA_DECL_TASK_HEAD_END
 
 struct DDGIDrawDebugProbesPush
 {
     DDGIDrawDebugProbesH::AttachmentShaderBlob attach;
     daxa_f32vec3* probe_mesh_positions;
+};
+
+#define DDGI_UPDATE_WG_XYZ 4
+
+DAXA_DECL_TASK_HEAD_BEGIN(DDGIUpdateProbesH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_radiance)
+DAXA_TH_TLAS_ID(COMPUTE_SHADER_READ, tlas)
+DAXA_DECL_TASK_HEAD_END
+
+struct DDGIUpdateProbesPush
+{
+    DDGIUpdateProbesH::AttachmentShaderBlob attach;
 };
 
 #if defined(__cplusplus)
@@ -124,6 +139,44 @@ struct DDGIDrawDebugProbesTask : DDGIDrawDebugProbesH::Task
     }
 };
 
+
+
+inline auto ddgi_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/ddgi/ddgi_update.hlsl"},
+        .entry_point = "entry_update_probes",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(DDGIUpdateProbesPush)),
+        .name = std::string{DDGIUpdateProbesH::NAME},
+    };
+}
+
+struct DDGIUpdateProbesTask : DDGIUpdateProbesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    DDGIState* ddgi_state = {};
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(ddgi_update_probes_compute_compile_info().name));
+
+        DDGIUpdateProbesPush push = {};
+        push.attach = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+
+        auto const x = render_context->render_data.ddgi_settings.probe_count.x * render_context->render_data.ddgi_settings.probe_surface_resolution;
+        auto const y = render_context->render_data.ddgi_settings.probe_count.y;
+        auto const z = render_context->render_data.ddgi_settings.probe_count.z;
+        auto const dispatch_x = round_up_div(x, DDGI_UPDATE_WG_XYZ);
+        auto const dispatch_y = round_up_div(y, DDGI_UPDATE_WG_XYZ);
+        auto const dispatch_z = round_up_div(z, DDGI_UPDATE_WG_XYZ);
+        ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+    }
+};
+
+
+
 struct TaskDDgiDrawDebugProbesInfo
 {
     daxa::TaskGraph & tg;
@@ -146,6 +199,7 @@ void task_ddgi_draw_debug_probes(TaskDDgiDrawDebugProbesInfo const & info)
             DDGIDrawDebugProbesH::AT.color_image | info.color_image,
             DDGIDrawDebugProbesH::AT.scene_depth_image | info.depth_image,
             DDGIDrawDebugProbesH::AT.probes_depth_image | debug_draw_depth,
+            DDGIDrawDebugProbesH::AT.probe_radiance | info.ddgi_state->probe_radiance_view,
         },
         .render_context = info.render_context,
         .ddgi_state = info.ddgi_state,

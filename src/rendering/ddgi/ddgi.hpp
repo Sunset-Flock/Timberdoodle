@@ -16,6 +16,14 @@ struct DDGIState
     daxa::u32 debug_probe_mesh_vertices = {};
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
+    // Probes are separated into z layers within the texture
+    // Probe index (1,2,3) goes into the lyaer with index 3
+    // Additionally the previous frames probes are stored in the same texture in layers behind all regular probes
+    // So a probes layer is probe_index.z + (probe_count.z * frame)
+    daxa::TaskImage probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init ddgi probe radiance texture"});
+    daxa::TaskImageView probe_radiance_view = {};
+
     void initialize(daxa::Device& device);
+    void recreate_resources(daxa::Device& device, DDGISettings const & settings);
     void cleanup(daxa::Device& device);
 };

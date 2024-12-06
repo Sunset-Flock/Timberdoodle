@@ -1219,6 +1219,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
                 ImGui::InputFloat3("Fixed Probe Center Position", &render_data.ddgi_settings.fixed_center_position.x);
                 ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.ddgi_settings.fixed_center));
                 ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.ddgi_settings.draw_debug_probes));
+                ImGui::InputInt("Prove Surface Resolution", &render_data.ddgi_settings.probe_surface_resolution);
             }
         }
     }

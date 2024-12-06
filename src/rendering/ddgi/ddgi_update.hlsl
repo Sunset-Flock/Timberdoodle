@@ -1,5 +1,6 @@
 #pragma once
 
+#define DAXA_RAY_TRACING 1
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 
@@ -7,11 +8,14 @@
 #include "../../shader_shared/globals.inl"
 #include "ddgi_update.inl"
 #include "../../shader_lib/ddgi.hlsl"
+#include "../../shader_lib/misc.hlsl"
+#include "../../shader_lib/debug.glsl"
 
 struct DrawDebugProbesVertexToPixel
 {
     float4 position : SV_Position;
     float3 normal;
+    nointerpolation uint3 probe_index;
 };
 
 [[vk::push_constant]] DDGIDrawDebugProbesPush draw_debug_probe_p;
@@ -33,7 +37,7 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     float3 probe_anchor = push.attach.globals.ddgi_settings.fixed_center ? push.attach.globals.ddgi_settings.fixed_center_position : push.attach.globals.camera.position;
 
     uint3 probe_index = uint3(probe_x, probe_y, probe_z);
-    position +=ddgi_probe_index_to_worldspace(push.attach.globals.ddgi_settings, probe_anchor, probe_index);
+    position += ddgi_probe_index_to_worldspace(push.attach.globals.ddgi_settings, probe_anchor, probe_index);
 
     float4x4* viewproj = {};
     if (push.attach.globals.settings.draw_from_observer != 0)
@@ -48,6 +52,7 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     DrawDebugProbesVertexToPixel ret = {};
     ret.position = mul(*viewproj, float4(position, 1));
     ret.normal = normal;
+    ret.probe_index = probe_index;
     return ret;
 }
 
@@ -60,7 +65,108 @@ struct DrawDebugProbesFragmentOut
 func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) -> DrawDebugProbesFragmentOut
 {
     let push = draw_debug_probe_p;
+    DDGISettings settings = push.attach.globals.ddgi_settings;
     const float depth_bufer_depth = push.attach.scene_depth_image.get()[int2(vertToPix.position.xy)];
     if ( depth_bufer_depth > vertToPix.position.z ) { discard; }
-    return DrawDebugProbesFragmentOut(float4(vertToPix.normal * 0.5f + 0.5f,1));
+    //return DrawDebugProbesFragmentOut(float4(vertToPix.normal * 0.5f + 0.5f,1));
+    float2 octa_index = floor(float(settings.probe_surface_resolution) * map_octahedral(vertToPix.normal));
+    uint3 probe_texture_base_index = ddgi_probe_base_texture_index(push.attach.globals.ddgi_settings, vertToPix.probe_index, push.attach.globals.frame_index);
+    uint3 probe_texture_index = probe_texture_base_index + uint3(octa_index.x, octa_index.y, 0);
+    float4 radiance = push.attach.probe_radiance.get()[probe_texture_index];
+    return DrawDebugProbesFragmentOut(float4(radiance.rgb,1));
+}
+
+func trace_ray(RaytracingAccelerationStructure tlas, float3 pos, float3 light_dir) -> float
+{
+    RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
+        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
+        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+
+    const float t_min = 0.01f;
+    const float t_max = 1000.0f;
+
+    RayDesc my_ray = {
+        pos,
+        t_min,
+        light_dir,
+        t_max,
+    };
+
+    // Set up a trace.  No work is done yet.
+    q.TraceRayInline(
+        tlas,
+        0, // OR'd with flags above
+        0xFFFF,
+        my_ray);
+
+    // Proceed() below is where behind-the-scenes traversal happens,
+    // including the heaviest of any driver inlined code.
+    // In this simplest of scenarios, Proceed() only needs
+    // to be called once rather than a loop:
+    // Based on the template specialization above,
+    // traversal completion is guaranteed.
+    q.Proceed();
+
+
+    bool hit = false;
+    // Examine and act on the result of the traversal.
+    // Was a hit committed?
+    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+    {
+        hit = true;
+    }
+
+    if (!hit)
+    {
+        return 10000.0f;
+    }
+    else
+    {
+        return q.CandidateTriangleRayT();
+    }
+}
+
+[[vk::push_constant]] DDGIUpdateProbesPush update_probes_push;
+
+[shader("compute")]
+[numthreads(DDGI_UPDATE_WG_XYZ,DDGI_UPDATE_WG_XYZ,DDGI_UPDATE_WG_XYZ)]
+func entry_update_probes(
+    uint3 dtid : SV_DispatchThreadID,
+)
+{
+    let push = update_probes_push;
+    DDGISettings settings = push.attach.globals.ddgi_settings;
+
+    let probe_ray_index = dtid.x % settings.probe_surface_resolution;
+    let probe_index = uint3(dtid.x / settings.probe_surface_resolution, dtid.y, dtid.z);
+
+    if (any(greaterThanEqual(probe_index, settings.probe_count)))
+    {
+        return;
+    }
+    
+    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
+    float3 probe_position = ddgi_probe_index_to_worldspace(push.attach.globals.ddgi_settings, probe_anchor, probe_index);
+
+    uint3 probe_texture_base_index = ddgi_probe_base_texture_index(settings, probe_index, push.attach.globals.frame_index);
+    uint3 probe_texture_base_index_prev = ddgi_probe_base_texture_index_prev_frame(settings, probe_index, push.attach.globals.frame_index);
+    
+    const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + push.attach.globals.frame_index * 17);
+    rand_seed(thread_seed);
+    float noise = rand();
+    uint2 probe_octa_index = uint2(probe_ray_index, uint(noise * settings.probe_surface_resolution));
+    uint3 probe_texture_index = probe_texture_base_index + uint3(probe_octa_index, 0);
+    uint3 probe_texture_index_prev_frame = probe_texture_base_index + uint3(probe_octa_index, 0);
+
+    float2 octa_texel_size = rcp(float(settings.probe_surface_resolution));
+    float texel_noise_x = rand();
+    float texel_noise_y = rand();
+    float2 octa_position = (probe_octa_index + float2(texel_noise_x, texel_noise_y)) * rcp(settings.probe_surface_resolution);
+
+    float3 probe_texel_dir = unmap_octahedral(octa_position);
+
+    float dist = trace_ray(daxa::RayTracingAccelerationStructureTable[push.attach.tlas.index()], probe_position, probe_texel_dir);
+
+    float4 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index_prev_frame];
+    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx * 0.002,1), 0.01f);
 }

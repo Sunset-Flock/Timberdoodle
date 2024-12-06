@@ -181,6 +181,7 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {ddgi_update_probes_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -331,6 +332,7 @@ void Renderer::recreate_framebuffer()
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
     }
+    this->ddgi_state.recreate_resources(gpu_context->device, render_context->render_data.ddgi_settings);
 }
 
 void Renderer::clear_select_buffers()
@@ -366,7 +368,10 @@ void Renderer::clear_select_buffers()
     });
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
-    tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
+    //tg.use_persistent_buffer(luminance_average);
+    //tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
+    tg.use_persistent_image(ddgi_state.probe_radiance);
+    tg.clear_image({.view = ddgi_state.probe_radiance.view().view({.layer_count=2}), .name = "clear ddgi radiance"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -521,6 +526,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
     tg.use_persistent_tlas(scene->_scene_tlas);
+    tg.use_persistent_image(ddgi_state.probe_radiance);
 
     tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
 
@@ -711,6 +717,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
+    tg.add_task(DDGIUpdateProbesTask{
+        .views = std::array{
+            DDGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+            DDGIUpdateProbesTask::AT.probe_radiance | ddgi_state.probe_radiance_view,
+            DDGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
+        },
+        .render_context = render_context.get(),
+        .ddgi_state = &this->ddgi_state,
+    });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     tg.add_task(ShadeOpaqueTask{
@@ -740,6 +755,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
             ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
+            ShadeOpaqueH::AT.ddgi_probe_radiance | ddgi_state.probe_radiance_view,
         },
         .render_context = render_context.get(),
     });
@@ -900,7 +916,12 @@ void Renderer::render_frame(
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
-    bool const ddgi_settings_changed = render_context->render_data.ddgi_settings.draw_debug_probes != render_context->prev_ddgi_settings.draw_debug_probes;
+    bool const ddgi_settings_changed = 
+        render_context->render_data.ddgi_settings.draw_debug_probes != render_context->prev_ddgi_settings.draw_debug_probes ||
+        render_context->render_data.ddgi_settings.probe_count.x != render_context->prev_ddgi_settings.probe_count.x ||
+        render_context->render_data.ddgi_settings.probe_count.y != render_context->prev_ddgi_settings.probe_count.y ||
+        render_context->render_data.ddgi_settings.probe_count.z != render_context->prev_ddgi_settings.probe_count.z ||
+        render_context->render_data.ddgi_settings.probe_surface_resolution != render_context->prev_ddgi_settings.probe_surface_resolution;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =
@@ -909,6 +930,7 @@ void Renderer::render_frame(
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || ddgi_settings_changed)
     {
         recreate_framebuffer();
+        clear_select_buffers();
         main_task_graph = create_main_task_graph();
     }
     daxa::DeviceAddress render_data_device_address =
@@ -942,6 +964,7 @@ void Renderer::render_frame(
                      std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction);
     render_context->render_data.vsm_settings.sun_moved = sun_moved ? 0u : 1u;
     render_context->prev_settings = render_context->render_data.settings;
+    render_context->prev_ddgi_settings = render_context->render_data.ddgi_settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
 

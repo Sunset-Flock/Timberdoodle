@@ -44,3 +44,23 @@ float3 ddgi_probe_index_to_worldspace(DDGISettings settings, float3 main_camera_
     float3 probe_pos = min_probe_pos + ddgi_grid_cell_size * float3(probe_index);
     return probe_pos;
 }
+
+uint3 ddgi_probe_base_texture_index(DDGISettings settings, uint3 probe_index, uint frame_index)
+{
+    let probe_texture_layer_offset = 0;//settings.probe_count.z * (frame_index & 0x1);
+    let probe_texture_base_xy = probe_index.xy * settings.probe_surface_resolution;
+    let probe_texture_z = probe_texture_layer_offset + probe_index.z;
+
+    var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
+    return probe_texture_index;
+}
+
+uint3 ddgi_probe_base_texture_index_prev_frame(DDGISettings settings, uint3 probe_index, uint frame_index)
+{
+    let probe_texture_layer_offset = 0;//settings.probe_count.z * ((frame_index+1) & 0x1);
+    let probe_texture_base_xy = probe_index.xy * settings.probe_surface_resolution;
+    let probe_texture_z = probe_texture_layer_offset + probe_index.z;
+
+    var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
+    return probe_texture_index;
+}

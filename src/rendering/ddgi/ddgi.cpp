@@ -1470,11 +1470,43 @@ void DDGIState::initialize(daxa::Device& device)
     this->debug_probe_mesh_vertex_positions_addr = reinterpret_cast<daxa_f32vec3*>(device_addr + probe_triangles_mem_size);
 }
 
+void DDGIState::recreate_resources(daxa::Device& device, DDGISettings const & settings)
+{
+    if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_radiance.get_state().images[0]);
+    }
+
+    daxa::ImageId probe_irradiance_image = device.create_image({
+        .dimensions = 2,
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {
+            static_cast<u32>(settings.probe_count.x * settings.probe_surface_resolution),
+            static_cast<u32>(settings.probe_count.y * settings.probe_surface_resolution),
+            1
+        },
+        .array_layer_count = static_cast<u32>(settings.probe_count.z) * 2,
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "ddgi probe radiance",
+    });
+
+    this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ probe_irradiance_image }},
+        .name = "ddgi probe radiance",
+    });
+
+    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z) * 2});
+}
+
 void DDGIState::cleanup(daxa::Device& device)
 {
     if (!this->debug_probe_mesh_buffer.is_empty())
     {
         device.destroy_buffer(this->debug_probe_mesh_buffer);
+    }
+    if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_radiance.get_state().images[0]);
     }
     *this = {};
 }
