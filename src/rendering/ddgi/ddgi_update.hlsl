@@ -66,8 +66,6 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 {
     let push = draw_debug_probe_p;
     DDGISettings settings = push.attach.globals.ddgi_settings;
-    const float depth_bufer_depth = push.attach.scene_depth_image.get()[int2(vertToPix.position.xy)];
-    if ( depth_bufer_depth > vertToPix.position.z ) { discard; }
     //return DrawDebugProbesFragmentOut(float4(vertToPix.normal * 0.5f + 0.5f,1));
     float2 octa_index = floor(float(settings.probe_surface_resolution) * map_octahedral(vertToPix.normal));
     uint3 probe_texture_base_index = ddgi_probe_base_texture_index(push.attach.globals.ddgi_settings, vertToPix.probe_index, push.attach.globals.frame_index);
@@ -83,7 +81,7 @@ func trace_ray(RaytracingAccelerationStructure tlas, float3 pos, float3 light_di
         RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
 
     const float t_min = 0.01f;
-    const float t_max = 1000.0f;
+    const float t_max = 100.0f;
 
     RayDesc my_ray = {
         pos,
@@ -118,7 +116,7 @@ func trace_ray(RaytracingAccelerationStructure tlas, float3 pos, float3 light_di
 
     if (!hit)
     {
-        return 10000.0f;
+        return 100.0f;
     }
     else
     {
@@ -150,6 +148,8 @@ func entry_update_probes(
 
     uint3 probe_texture_base_index = ddgi_probe_base_texture_index(settings, probe_index, push.attach.globals.frame_index);
     uint3 probe_texture_base_index_prev = ddgi_probe_base_texture_index_prev_frame(settings, probe_index, push.attach.globals.frame_index);
+    float3 probe_range = float3(settings.probe_range) * rcp(settings.probe_count) * 2.0f;
+    float max_probe_range = max(probe_range.x, max(probe_range.y, probe_range.z));
     
     const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + push.attach.globals.frame_index * 17);
     rand_seed(thread_seed);
@@ -159,14 +159,17 @@ func entry_update_probes(
     uint3 probe_texture_index_prev_frame = probe_texture_base_index + uint3(probe_octa_index, 0);
 
     float2 octa_texel_size = rcp(float(settings.probe_surface_resolution));
-    float texel_noise_x = rand();
-    float texel_noise_y = rand();
+    float texel_noise_x = 0;//rand();
+    float texel_noise_y = 0;//rand();
     float2 octa_position = (probe_octa_index + float2(texel_noise_x, texel_noise_y)) * rcp(settings.probe_surface_resolution);
 
     float3 probe_texel_dir = unmap_octahedral(octa_position);
 
-    float dist = trace_ray(daxa::RayTracingAccelerationStructureTable[push.attach.tlas.index()], probe_position, probe_texel_dir);
+    float dist = min(max_probe_range, trace_ray(daxa::RayTracingAccelerationStructureTable[push.attach.tlas.index()], probe_position, normalize(probe_texel_dir)));
+
+    debug_draw_line(push.attach.globals.debug, ShaderDebugLineDraw(probe_position, probe_position + probe_texel_dir * dist, float3(0.4,0.4,0.8), 0));
+    debug_draw_circle(push.attach.globals.debug, ShaderDebugCircleDraw(probe_position + probe_texel_dir * dist, float3(1,1,0), 0.01, 0));
 
     float4 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index_prev_frame];
-    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx * 0.002,1), 0.01f);
+    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx,1), 1.0f);
 }

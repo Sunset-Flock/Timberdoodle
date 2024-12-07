@@ -1072,7 +1072,7 @@ inline void debug_draw_clip_fusti(DebugDrawClipFrustiInfo const & info)
             auto const world_pos = std::bit_cast<glm::mat4x4>(clip_projection.camera.inv_view_proj) * ndc_pos;
             box_draw.vertices[i] = {world_pos.x, world_pos.y, world_pos.z};
         }
-        info.debug_context->cpu_debug_box_draws.push_back(box_draw);
+        info.debug_context->box_draws.draw(box_draw);
     }
 }
 
@@ -1114,7 +1114,7 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
             auto const world_pos = inverse_view * glm::vec4(view_pos, 1.0f);
             box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
         }
-        info.debug_context->cpu_debug_box_draws.push_back(box_draw);
+        info.debug_context->box_draws.draw(box_draw);
     }
 }
 #endif //__cplusplus

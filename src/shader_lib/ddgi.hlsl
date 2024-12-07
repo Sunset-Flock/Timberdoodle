@@ -8,14 +8,14 @@
 // Example Probe Grid 4x4 probes in 2d
 //
 // O-----------O           O           O <- Probe
-// |  probe    |
-// |  grid     |
-// |  cell     |
+// |   probe   |
+// |   grid    |
+// |   cell    |
 // O-----------O           O           O
 //
 //                   x <- main camera position
 //
-// O           O           O          O
+// O           O           O           O
 //
 //
 //

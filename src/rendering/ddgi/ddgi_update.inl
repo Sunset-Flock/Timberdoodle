@@ -9,8 +9,7 @@
 DAXA_DECL_TASK_HEAD_BEGIN(DDGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
-DAXA_TH_IMAGE_TYPED(FRAGMENT_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, scene_depth_image)
-DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, probes_depth_image)
+DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_radiance)
 DAXA_DECL_TASK_HEAD_END
 
@@ -99,9 +98,9 @@ struct DDGIDrawDebugProbesTask : DDGIDrawDebugProbesH::Task
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.probes_depth_image).view_ids[0],
+                    .image_view = ti.get(AT.depth_image).view_ids[0],
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = daxa::AttachmentLoadOp::CLEAR,
+                    .load_op = daxa::AttachmentLoadOp::LOAD,
                     .store_op = daxa::AttachmentStoreOp::STORE,
                     .clear_value = daxa::DepthValue{0.0f, 0},
                 },
@@ -175,35 +174,5 @@ struct DDGIUpdateProbesTask : DDGIUpdateProbesH::Task
     }
 };
 
-
-
-struct TaskDDgiDrawDebugProbesInfo
-{
-    daxa::TaskGraph & tg;
-    RenderContext * render_context = {};
-    DDGIState * ddgi_state = {};
-    daxa::TaskImageView color_image = {};
-    daxa::TaskImageView depth_image = {};
-};
-void task_ddgi_draw_debug_probes(TaskDDgiDrawDebugProbesInfo const & info)
-{
-    daxa::TaskImageView debug_draw_depth = info.tg.create_transient_image({
-        .format = daxa::Format::D32_SFLOAT,
-        .size = { info.render_context->render_data.settings.render_target_size.x, info.render_context->render_data.settings.render_target_size.y, 1},
-        .name = "ddgi draw debug probes depth image",
-    });
-
-    info.tg.add_task(DDGIDrawDebugProbesTask{
-        .views = std::array{
-            DDGIDrawDebugProbesH::AT.globals | info.render_context->tgpu_render_data,
-            DDGIDrawDebugProbesH::AT.color_image | info.color_image,
-            DDGIDrawDebugProbesH::AT.scene_depth_image | info.depth_image,
-            DDGIDrawDebugProbesH::AT.probes_depth_image | debug_draw_depth,
-            DDGIDrawDebugProbesH::AT.probe_radiance | info.ddgi_state->probe_radiance_view,
-        },
-        .render_context = info.render_context,
-        .ddgi_state = info.ddgi_state,
-    });
-}
 
 #endif

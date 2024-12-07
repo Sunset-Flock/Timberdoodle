@@ -13,10 +13,32 @@ struct VertexToPixel
 [[vk::push_constant]] DebugDrawPush push;
 
 [shader("vertex")]
+func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
+{
+    VertexToPixel ret = {};
+    const ShaderDebugLineDraw line = push.attachments.globals->debug->line_draws.draws[instance_index];
+    const float3 position = vertex_index == 0 ? line.start : line.end;
+
+    ret.color = line.color;
+    if (line.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        CameraInfo * cam = push.attachments.globals.settings.draw_from_observer ? &push.attachments.globals->observer_camera : &push.attachments.globals->camera;
+        const float4x4 view_proj = cam.view_proj;
+        const float4 clipspace_position = mul(view_proj, float4(position, 1.0));
+        ret.position = clipspace_position;
+    }
+    else
+    {
+        ret.position = float4(position,1.0f);
+    }
+    return ret;
+}
+
+[shader("vertex")]
 func entry_vertex_circle(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
     VertexToPixel ret = {};
-    const ShaderDebugCircleDraw circle = push.attachments.globals->debug->circle_draws[instance_index];
+    const ShaderDebugCircleDraw circle = push.attachments.globals->debug->circle_draws.draws[instance_index];
 
     const float rotation = float(vertex_index) * (1.0f / (64.0f - 1.0f)) * 2.0f * 3.14f;
     // Make circle in world space.
@@ -67,7 +89,7 @@ static const float2 rectangle_pos[6] = float2[6](
 func entry_vertex_rectangle(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
     VertexToPixel ret = {};
-    const ShaderDebugRectangleDraw rectangle = push.attachments.globals->debug->rectangle_draws[instance_index];
+    const ShaderDebugRectangleDraw rectangle = push.attachments.globals->debug->rectangle_draws.draws[instance_index];
     const float2 scaled_position = rectangle_pos[vertex_index] * rectangle.span;
 
     ret.color = rectangle.color;
@@ -119,7 +141,7 @@ func entry_vertex_aabb(uint vertex_index : SV_VertexID, uint instance_index : SV
 {
     VertexToPixel ret = {};
 
-    const ShaderDebugAABBDraw aabb = push.attachments.globals->debug->aabb_draws[instance_index];
+    const ShaderDebugAABBDraw aabb = push.attachments.globals->debug->aabb_draws.draws[instance_index];
 
     const float3 model_position = aabb_vertex_base_offsets[vertex_index] * 0.5f * aabb.size + aabb.position;
     ret.color = aabb.color;
@@ -156,7 +178,7 @@ static const uint box_vertex_indices[24] = uint[24](
 func entry_vertex_box(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
     VertexToPixel ret = {};
-    const ShaderDebugBoxDraw box = push.attachments.globals->debug->box_draws[instance_index];
+    const ShaderDebugBoxDraw box = push.attachments.globals->debug->box_draws.draws[instance_index];
 
     const float3 model_position = box.vertices[box_vertex_indices[vertex_index]];
     ret.color = box.color;
@@ -188,8 +210,6 @@ struct FragmentOut
 [shader("fragment")]
 func entry_fragment(VertexToPixel vertToPix) -> FragmentOut
 {
-    // const float depth_bufer_depth = texelFetch(daxa_texture2D(push.attachments.depth_image), ivec2(gl_FragCoord.xy), 0).x;
-    // if(depth_bufer_depth > gl_FragCoord.z) { discard; }
     return FragmentOut(float4(vertToPix.color,1));
 }
 

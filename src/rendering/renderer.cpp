@@ -160,6 +160,7 @@ void Renderer::compile_pipelines()
         {draw_visbuffer_mesh_shader_pipelines[7]},
         {cull_and_draw_pages_pipelines[0]},
         {cull_and_draw_pages_pipelines[1]},
+        {draw_shader_debug_lines_pipeline_compile_info()},
         {draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
@@ -778,16 +779,33 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .gpu_context = gpu_context,
     });
+    daxa::TaskImageView debug_draw_depth = tg.create_transient_image({
+        .format = daxa::Format::D32_SFLOAT,
+        .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
+        .name = "debug depth",
+    });
+    tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
     if (render_context->render_data.ddgi_settings.draw_debug_probes)
     {
-        task_ddgi_draw_debug_probes({
-            .tg = tg,
+        tg.add_task(DDGIDrawDebugProbesTask{
+            .views = std::array{
+                DDGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
+                DDGIDrawDebugProbesH::AT.color_image | color_image,
+                DDGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
+                DDGIDrawDebugProbesH::AT.probe_radiance | ddgi_state.probe_radiance_view,
+            },
             .render_context = render_context.get(),
-            .ddgi_state = &this->ddgi_state,
-            .color_image = color_image,
-            .depth_image = view_camera_depth,
+            .ddgi_state = &ddgi_state,
         });
     }
+    tg.add_task(DebugDrawTask{
+        .views = std::array{
+            DebugDrawH::AT.globals | render_context->tgpu_render_data,
+            DebugDrawH::AT.color_image | color_image,
+            DebugDrawH::AT.depth_image | debug_draw_depth,
+        },
+        .render_context = render_context.get(),
+    });
     tg.add_task(WriteSwapchainTask{
         .views = std::array{
             WriteSwapchainH::AT.globals | render_context->tgpu_render_data,
@@ -796,15 +814,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             WriteSwapchainH::AT.color_image | color_image,
         },
         .gpu_context = gpu_context,
-    });
-
-    tg.add_task(DebugDrawTask{
-        .views = std::array{
-            DebugDrawH::AT.globals | render_context->tgpu_render_data,
-            DebugDrawH::AT.color_image | swapchain_image,
-            DebugDrawH::AT.depth_image | view_camera_depth,
-        },
-        .render_context = render_context.get(),
     });
 
     tg.add_task({
@@ -1017,7 +1026,7 @@ void Renderer::render_frame(
     render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 
     // Draw Frustum Camera.
-    gpu_context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
+    gpu_context->shader_debug_context.aabb_draws.draw(ShaderDebugAABBDraw{
         .position = daxa_f32vec3(0, 0, 0.5),
         .size = daxa_f32vec3(2.01, 2.01, 0.999),
         .color = daxa_f32vec3(1, 0, 0),

@@ -6,16 +6,29 @@
 #include "shader_shared/globals.inl"
 #include "shader_shared/vsm_shared.inl"
 
+template<typename T>
+struct CPUDebugDraws
+{
+    u32 max_draws = {};
+    u32 vertices = {};
+    std::vector<T> cpu_draws = {};
+
+    void draw(T const & draw)
+    {
+        if (cpu_draws.size() < max_draws)
+        {
+            cpu_draws.push_back(draw);
+        }
+    }
+};
+
 struct ShaderDebugDrawContext
 {
-    u32 max_circle_draws = 256'000;
-    u32 max_rectangle_draws = 256'000;
-    u32 max_aabb_draws = 256'000;
-    u32 max_box_draws = 64'000;
-    u32 circle_vertices = 64; // Uses line strip
-    u32 rectangle_vertices = 5; // Uses line strip
-    u32 aabb_vertices = 24; // Uses line list
-    u32 box_vertices = 24;
+    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 256'000, .vertices = 2 };
+    CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = { .max_draws = 256'000, .vertices = 64 };
+    CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 256'000, .vertices = 5 };
+    CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 64'000, .vertices = 24 };
+    CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 64'000, .vertices = 24 };
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
@@ -37,20 +50,16 @@ struct ShaderDebugDrawContext
     daxa::TaskImage vsm_debug_page_table = {};
     daxa::BufferId readback_queue = {};
 
-    std::vector<ShaderDebugCircleDraw> cpu_debug_circle_draws = {};
-    std::vector<ShaderDebugRectangleDraw> cpu_debug_rectangle_draws = {};
-    std::vector<ShaderDebugAABBDraw> cpu_debug_aabb_draws = {};
-    std::vector<ShaderDebugBoxDraw> cpu_debug_box_draws = {};
-
     u32 frame_index = 0;
 
     void init(daxa::Device & device)
     {
         usize size = sizeof(ShaderDebugBufferHead);
-        size += sizeof(ShaderDebugCircleDraw) * max_circle_draws;
-        size += sizeof(ShaderDebugRectangleDraw) * max_rectangle_draws;
-        size += sizeof(ShaderDebugAABBDraw) * max_aabb_draws;
-        size += sizeof(ShaderDebugBoxDraw) * max_box_draws;
+        size += sizeof(ShaderDebugLineDraw) * line_draws.max_draws;
+        size += sizeof(ShaderDebugCircleDraw) * circle_draws.max_draws;
+        size += sizeof(ShaderDebugRectangleDraw) * rectangle_draws.max_draws;
+        size += sizeof(ShaderDebugAABBDraw) * aabb_draws.max_draws;
+        size += sizeof(ShaderDebugBoxDraw) * box_draws.max_draws;
         buffer = device.create_buffer({
             .size = size,
             .name = "shader debug buffer",
@@ -125,7 +134,7 @@ struct ShaderDebugDrawContext
             auto span_u = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(window_size.x);
             auto span_v = (static_cast<f32>(detector_window_size + 2)) / static_cast<f32>(window_size.y);
             
-            cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
+            aabb_draws.cpu_draws.push_back(ShaderDebugAABBDraw{
                 .position = {u * 2.0f - 1.0f, v * 2.0f - 1.0f, 0.5},
                 .size = {span_u * 2.0f, span_v * 2.0f, 0.99999999 },
                 .color = daxa_f32vec3(1,0,0),
@@ -140,51 +149,33 @@ struct ShaderDebugDrawContext
     
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
-        u32 const circle_buffer_offset = sizeof(ShaderDebugBufferHead);
-        u32 const rectangle_buffer_offset = circle_buffer_offset + sizeof(ShaderDebugCircleDraw) * max_circle_draws;
-        u32 const aabb_buffer_offset = rectangle_buffer_offset + sizeof(ShaderDebugRectangleDraw) * max_rectangle_draws;
-        u32 const box_buffer_offset = aabb_buffer_offset + sizeof(ShaderDebugAABBDraw) * max_aabb_draws;
-        
+        u32 buffer_mem_offset = sizeof(ShaderDebugBufferHead);
         auto head = ShaderDebugBufferHead{
-            .circle_draw_indirect_info = {
-                .vertex_count = circle_vertices,
-                .instance_count = std::min(static_cast<u32>(cpu_debug_circle_draws.size()), max_circle_draws),
-                .first_vertex = 0,
-                .first_instance = 0,
-            },
-            .rectangle_draw_indirect_info = {
-                .vertex_count = rectangle_vertices,
-                .instance_count = std::min(static_cast<u32>(cpu_debug_rectangle_draws.size()), max_rectangle_draws),
-                .first_vertex = 0,
-                .first_instance = 0,
-            },
-            .aabb_draw_indirect_info = {
-                .vertex_count = aabb_vertices,
-                .instance_count = std::min(static_cast<u32>(cpu_debug_aabb_draws.size()), max_aabb_draws),
-                .first_vertex = 0,
-                .first_instance = 0,
-            },
-            .box_draw_indirect_info = {
-                .vertex_count = box_vertices,
-                .instance_count = std::min(static_cast<u32>(cpu_debug_box_draws.size()), max_box_draws),
-                .first_vertex = 0,
-                .first_instance = 0
-            },
-            .circle_draw_capacity = max_circle_draws,
-            .rectangle_draw_capacity = max_rectangle_draws,
-            .aabb_draw_capacity = max_aabb_draws,
-            .box_draw_capacity = max_box_draws,
-            .circle_draw_requests = std::min(static_cast<u32>(cpu_debug_circle_draws.size()), max_circle_draws),
-            .rectangle_draw_requests = std::min(static_cast<u32>(cpu_debug_rectangle_draws.size()), max_rectangle_draws),
-            .aabb_draw_requests = std::min(static_cast<u32>(cpu_debug_aabb_draws.size()), max_aabb_draws),
-            .box_draw_requests = std::min(static_cast<u32>(cpu_debug_box_draws.size()), max_box_draws),
             .cpu_input = shader_debug_input,
             .gpu_output = {},
-            .circle_draws = device.buffer_device_address(buffer).value() + circle_buffer_offset,
-            .rectangle_draws = device.buffer_device_address(buffer).value() + rectangle_buffer_offset,
-            .aabb_draws = device.buffer_device_address(buffer).value() + aabb_buffer_offset,
-            .box_draws = device.buffer_device_address(buffer).value() + box_buffer_offset,
         };
+
+        auto update_debug_draws = [&](auto& draws, auto& cpu_draws)
+        {
+            u32 const offset = buffer_mem_offset;
+            buffer_mem_offset += cpu_draws.max_draws * sizeof(decltype(cpu_draws.cpu_draws[0]));
+            draws.draw_indirect = {
+                .vertex_count = cpu_draws.vertices,
+                .instance_count = std::min(static_cast<u32>(cpu_draws.cpu_draws.size()), cpu_draws.max_draws),
+                .first_vertex = 0,
+                .first_instance = 0,
+            };
+            draws.draw_capacity = cpu_draws.max_draws;
+            draws.draw_requests = std::min(static_cast<u32>(cpu_draws.cpu_draws.size()), cpu_draws.max_draws);
+            draws.draws = device.device_address(buffer).value() + offset;
+        };
+        
+        update_debug_draws(head.line_draws, line_draws);
+        update_debug_draws(head.circle_draws, circle_draws);
+        update_debug_draws(head.rectangle_draws, rectangle_draws);
+        update_debug_draws(head.aabb_draws, aabb_draws);
+        update_debug_draws(head.box_draws, box_draws);
+
         auto alloc = allocator.allocate_fill(head).value();
         recorder.copy_buffer_to_buffer({
             .src_buffer = allocator.buffer(),
@@ -193,66 +184,30 @@ struct ShaderDebugDrawContext
             .dst_offset = 0,
             .size = sizeof(ShaderDebugBufferHead),
         });
-        
-        auto stage_circle_draws_size = sizeof(ShaderDebugCircleDraw) * head.circle_draw_indirect_info.instance_count;
-        if (stage_circle_draws_size > 0)
-        {
-            auto stage_circle_draws = allocator.allocate(stage_circle_draws_size,4).value();
-            std::memcpy(stage_circle_draws.host_address, cpu_debug_circle_draws.data(), stage_circle_draws_size);
-            recorder.copy_buffer_to_buffer({
-                .src_buffer = allocator.buffer(),
-                .dst_buffer = buffer,
-                .src_offset = stage_circle_draws.buffer_offset,
-                .dst_offset = circle_buffer_offset,
-                .size = stage_circle_draws_size,
-            });
-            cpu_debug_circle_draws.clear();
-        }
-        
-        auto stage_rectangle_draws_size = sizeof(ShaderDebugRectangleDraw) * head.rectangle_draw_indirect_info.instance_count;
-        if (stage_rectangle_draws_size > 0)
-        {
-            auto stage_rectangle_draws = allocator.allocate(stage_rectangle_draws_size,4).value();
-            std::memcpy(stage_rectangle_draws.host_address, cpu_debug_rectangle_draws.data(), stage_rectangle_draws_size);
-            recorder.copy_buffer_to_buffer({
-                .src_buffer = allocator.buffer(),
-                .dst_buffer = buffer,
-                .src_offset = stage_rectangle_draws.buffer_offset,
-                .dst_offset = rectangle_buffer_offset,
-                .size = stage_rectangle_draws_size,
-            });
-            cpu_debug_rectangle_draws.clear();
-        }
-        
-        auto stage_aabb_draws_size = sizeof(ShaderDebugAABBDraw) * head.aabb_draw_indirect_info.instance_count;
-        if (stage_aabb_draws_size > 0)
-        {
-            auto stage_aabb_draws = allocator.allocate(stage_aabb_draws_size,4).value();
-            std::memcpy(stage_aabb_draws.host_address, cpu_debug_aabb_draws.data(), stage_aabb_draws_size);
-            recorder.copy_buffer_to_buffer({
-                .src_buffer = allocator.buffer(),
-                .dst_buffer = buffer,
-                .src_offset = stage_aabb_draws.buffer_offset,
-                .dst_offset = aabb_buffer_offset,
-                .size = stage_aabb_draws_size,
-            });
-            cpu_debug_aabb_draws.clear();
-        }
 
-        auto stage_box_draws_size = sizeof(ShaderDebugBoxDraw) * head.box_draw_indirect_info.instance_count;
-        if (stage_box_draws_size > 0)
-        {
-            auto stage_box_draws = allocator.allocate(stage_box_draws_size,4).value();
-            std::memcpy(stage_box_draws.host_address, cpu_debug_box_draws.data(), stage_box_draws_size);
-            recorder.copy_buffer_to_buffer({
-                .src_buffer = allocator.buffer(),
-                .dst_buffer = buffer,
-                .src_offset = stage_box_draws.buffer_offset,
-                .dst_offset = box_buffer_offset,
-                .size = stage_box_draws_size,
-            });
-            cpu_debug_box_draws.clear();
-        }
+        auto upload_debug_draws = [&](auto& draws, auto& cpu_draws){
+            u32 const upload_size = sizeof(decltype(cpu_draws.cpu_draws[0])) * draws.draw_indirect.instance_count;
+            if (upload_size > 0)
+            {
+                u32 const buffer_offset = draws.draws - device.device_address(buffer).value();
+                auto stage_line_draws = allocator.allocate(upload_size,4).value();
+                std::memcpy(stage_line_draws.host_address, cpu_draws.cpu_draws.data(), upload_size);
+                recorder.copy_buffer_to_buffer({
+                    .src_buffer = allocator.buffer(),
+                    .dst_buffer = buffer,
+                    .src_offset = stage_line_draws.buffer_offset,
+                    .dst_offset = buffer_offset,
+                    .size = upload_size,
+                });
+                cpu_draws.cpu_draws.clear();
+            }
+        };
+
+        upload_debug_draws(head.line_draws, line_draws);
+        upload_debug_draws(head.circle_draws, circle_draws);
+        upload_debug_draws(head.rectangle_draws, rectangle_draws);
+        upload_debug_draws(head.aabb_draws, aabb_draws);
+        upload_debug_draws(head.box_draws, box_draws);
     }
 };
 
