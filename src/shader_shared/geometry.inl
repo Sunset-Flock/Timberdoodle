@@ -157,3 +157,11 @@ inline auto size_of_meshlet_instance_buffer() -> daxa::usize
 #endif
 
 #define INVALID_MANIFEST_INDEX (~0u)
+
+struct GPUMeshGroup
+{
+    daxa_BufferPtr(daxa_u32) mesh_lod_group_indices;
+    daxa_u32 mesh_lod_group_count;
+    daxa_u32 padd;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)

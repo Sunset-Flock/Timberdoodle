@@ -22,6 +22,8 @@ void main(uint thread_id : SV_DispatchThreadID)
     const uint mesh_index = mesh_instance.mesh_index;
 
     uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
+    //if (draw_list_type == PREPASS_DRAW_LIST_MASKED) return;
+
     GPUMesh mesh = deref_i(push.attach.meshes, mesh_index);
     if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
     {

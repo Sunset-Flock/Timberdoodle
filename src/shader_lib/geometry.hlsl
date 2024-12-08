@@ -7,7 +7,6 @@
 
 struct TriangleGeometry
 {
-    GPUMaterial* material;
     uint entity_index;
     uint mesh_index;
     uint material_index;
@@ -23,6 +22,21 @@ struct TriangleGeometryPoint
     float3 world_tangent;
     float3 world_normal;
     daxa_f32vec2 uv;
-    daxa_f32vec2 uv_ddx;
-    daxa_f32vec2 uv_ddy;
+    daxa_f32vec2 uv_ddx;    // Only roughly approximated in rt
+    daxa_f32vec2 uv_ddy;    // Only roughly approximated in rt
+};
+
+struct MaterialPointData
+{
+    float3 albedo;
+    float alpha;
+    float3 normal;
+    float3 geometry_normal;
+    float3 position;
+};
+
+interface LightVisibilityTesterI
+{
+    float sun_light(MaterialPointData material_point);
+    float point_light(MaterialPointData material_point, uint light_index);
 };

@@ -33,14 +33,6 @@ struct MeshInstance
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(MeshInstance, 4);
 
-struct GPUMeshGroup
-{
-    daxa_BufferPtr(daxa_u32) mesh_lod_group_indices;
-    daxa_u32 mesh_lod_group_count;
-    daxa_u32 padd;
-};
-DAXA_DECL_BUFFER_PTR_ALIGN(GPUMeshGroup, 8)
-
 
 // The engine has one GPUMeshInstances buffer.
 // This buffer is written from scratch every frame from cpu.

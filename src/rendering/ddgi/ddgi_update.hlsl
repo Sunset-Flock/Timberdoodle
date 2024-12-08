@@ -10,6 +10,8 @@
 #include "../../shader_lib/ddgi.hlsl"
 #include "../../shader_lib/misc.hlsl"
 #include "../../shader_lib/debug.glsl"
+#include "../../shader_lib/shading.hlsl"
+#include "../../shader_lib/raytracing.hlsl"
 
 struct DrawDebugProbesVertexToPixel
 {
@@ -70,58 +72,17 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float2 octa_index = floor(float(settings.probe_surface_resolution) * map_octahedral(vertToPix.normal));
     uint3 probe_texture_base_index = ddgi_probe_base_texture_index(push.attach.globals.ddgi_settings, vertToPix.probe_index, push.attach.globals.frame_index);
     uint3 probe_texture_index = probe_texture_base_index + uint3(octa_index.x, octa_index.y, 0);
-    float4 radiance = push.attach.probe_radiance.get()[probe_texture_index];
+
+    uint2 probe_texture_size = uint2(settings.probe_count.xy * settings.probe_surface_resolution);
+    float2 probe_texture_base_uv = float2(probe_texture_base_index.xy) * rcp(probe_texture_size);
+    float2 probe_octa_uv = map_octahedral(vertToPix.normal) * rcp(settings.probe_count.xy);
+    float4 radiance = push.attach.probe_radiance.get().SampleLevel(
+        push.attach.globals.samplers.linear_clamp.get(),
+        float3(probe_texture_base_uv + probe_octa_uv, probe_texture_index.z),
+        0
+    );
+
     return DrawDebugProbesFragmentOut(float4(radiance.rgb,1));
-}
-
-func trace_ray(RaytracingAccelerationStructure tlas, float3 pos, float3 light_dir) -> float
-{
-    RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
-        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-
-    const float t_min = 0.01f;
-    const float t_max = 100.0f;
-
-    RayDesc my_ray = {
-        pos,
-        t_min,
-        light_dir,
-        t_max,
-    };
-
-    // Set up a trace.  No work is done yet.
-    q.TraceRayInline(
-        tlas,
-        0, // OR'd with flags above
-        0xFFFF,
-        my_ray);
-
-    // Proceed() below is where behind-the-scenes traversal happens,
-    // including the heaviest of any driver inlined code.
-    // In this simplest of scenarios, Proceed() only needs
-    // to be called once rather than a loop:
-    // Based on the template specialization above,
-    // traversal completion is guaranteed.
-    q.Proceed();
-
-
-    bool hit = false;
-    // Examine and act on the result of the traversal.
-    // Was a hit committed?
-    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
-        hit = true;
-    }
-
-    if (!hit)
-    {
-        return 100.0f;
-    }
-    else
-    {
-        return q.CandidateTriangleRayT();
-    }
 }
 
 [[vk::push_constant]] DDGIUpdateProbesPush update_probes_push;
@@ -146,12 +107,14 @@ func entry_update_probes(
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
     float3 probe_position = ddgi_probe_index_to_worldspace(push.attach.globals.ddgi_settings, probe_anchor, probe_index);
 
-    uint3 probe_texture_base_index = ddgi_probe_base_texture_index(settings, probe_index, push.attach.globals.frame_index);
-    uint3 probe_texture_base_index_prev = ddgi_probe_base_texture_index_prev_frame(settings, probe_index, push.attach.globals.frame_index);
+    uint frame_index = push.attach.globals.frame_index;
+
+    uint3 probe_texture_base_index = ddgi_probe_base_texture_index(settings, probe_index, frame_index);
+    uint3 probe_texture_base_index_prev = ddgi_probe_base_texture_index_prev_frame(settings, probe_index, frame_index);
     float3 probe_range = float3(settings.probe_range) * rcp(settings.probe_count) * 2.0f;
     float max_probe_range = max(probe_range.x, max(probe_range.y, probe_range.z));
     
-    const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + push.attach.globals.frame_index * 17);
+    const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + frame_index * 17);
     rand_seed(thread_seed);
     float noise = rand();
     uint2 probe_octa_index = uint2(probe_ray_index, uint(noise * settings.probe_surface_resolution));
@@ -165,11 +128,81 @@ func entry_update_probes(
 
     float3 probe_texel_dir = unmap_octahedral(octa_position);
 
-    float dist = min(max_probe_range, trace_ray(daxa::RayTracingAccelerationStructureTable[push.attach.tlas.index()], probe_position, normalize(probe_texel_dir)));
+    float t_max = 1000.0f;
+    float t = t_max;
 
-    debug_draw_line(push.attach.globals.debug, ShaderDebugLineDraw(probe_position, probe_position + probe_texel_dir * dist, float3(0.4,0.4,0.8), 0));
-    debug_draw_circle(push.attach.globals.debug, ShaderDebugCircleDraw(probe_position + probe_texel_dir * dist, float3(1,1,0), 0.01, 0));
+    // Trace Ray
+    float3 shaded_color = float3(0,0,0);
+    {
+        RayQuery<RAY_FLAG_FORCE_OPAQUE> q;
+
+        const float t_min = 0.001f;
+
+        RayDesc my_ray = {
+            probe_position,
+            t_min,
+            probe_texel_dir,
+            t_max,
+        };
+
+        // Set up a trace.  No work is done yet.
+        q.TraceRayInline(
+            push.attach.tlas.get(),
+            0, // OR'd with flags above
+            0xFFFF,
+            my_ray);
+
+        q.Proceed();
+
+        bool hit = false;
+        // Examine and act on the result of the traversal.
+        // Was a hit committed?
+        if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
+        {
+            hit = true;
+        }
+
+        if (hit)
+        {
+            t = q.CandidateTriangleRayT();
+        }
+
+        if (hit)
+        {
+            float3 hit_point = probe_position + probe_texel_dir * t;
+            TriangleGeometry tri_geo = rt_get_triangle_geo(
+                q.CommittedRayBarycentrics(),
+                q.CommittedInstanceID(),
+                q.CommittedGeometryIndex(),
+                q.CommittedPrimitiveIndex(),
+                push.attach.globals.scene.meshes,
+                push.attach.globals.scene.entity_to_meshgroup,
+                push.attach.globals.scene.mesh_groups
+            );
+            TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
+                tri_geo,
+                push.attach.globals.scene.meshes,
+                push.attach.globals.scene.entity_to_meshgroup,
+                push.attach.globals.scene.mesh_groups,
+                push.attach.globals.scene.entity_combined_transforms
+            );
+            MaterialPointData material_point = evaluate_material(
+                push.attach.globals,
+                tri_geo,
+                tri_point
+            );
+            RTLightVisibilityTester light_vis_tester = RTLightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
+            shaded_color = shade_material(push.attach.globals, material_point, probe_texel_dir, light_vis_tester).rgb;
+        }
+        else
+        {
+            shaded_color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, probe_texel_dir);
+        }
+    }
+
+    //debug_draw_line(push.attach.globals.debug, ShaderDebugLineDraw(probe_position, probe_position + probe_texel_dir * t, float3(0.4,0.4,0.8), 0));
+    //debug_draw_circle(push.attach.globals.debug, ShaderDebugCircleDraw(probe_position + probe_texel_dir * t, float3(1,1,0), 0.01, 0));
 
     float4 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index_prev_frame];
-    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx * rcp(3),1), 0.1f);
+    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(shaded_color,1), 0.01f);
 }

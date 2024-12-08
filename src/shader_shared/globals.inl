@@ -9,11 +9,23 @@
 #include "cull_util.inl"
 #include "ddgi.inl"
 
+struct GPUScene
+{
+    daxa_BufferPtr(GPUMesh) meshes;
+    daxa_BufferPtr(GPUMeshLodGroup) mesh_lod_groups;
+    daxa_BufferPtr(GPUMeshGroup) mesh_groups;
+    daxa_BufferPtr(daxa_u32) entity_to_meshgroup;
+    daxa_BufferPtr(GPUMaterial) materials;
+    daxa_BufferPtr(daxa_f32mat4x3) entity_transforms;
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
+};
+
 struct RenderGlobalData
 {
+    GPUScene scene;
     CameraInfo camera;
-    CameraInfo observer_camera;
     CameraInfo camera_prev_frame;
+    CameraInfo observer_camera;
     CameraInfo observer_camera_prev_frame;
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;

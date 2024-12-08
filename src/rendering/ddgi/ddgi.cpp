@@ -1486,7 +1486,10 @@ void DDGIState::recreate_resources(daxa::Device& device, DDGISettings const & se
             1
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z) * 2,
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
+                daxa::ImageUsageFlagBits::TRANSFER_SRC | 
+                daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "ddgi probe radiance",
     });
 

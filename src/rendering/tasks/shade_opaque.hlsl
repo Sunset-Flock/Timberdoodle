@@ -10,65 +10,13 @@
 #include "shader_lib/vsm_util.glsl"
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/volumetric.hlsl"
+#include "shader_lib/shading.hlsl"
+#include "shader_lib/raytracing.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
 #define AT deref(push_opaque.attachments).attachments
-
-bool light_in_shadow_raytraced(float3 pos, float3 light_pos)
-{
-    float3 light_dir = normalize(light_pos - pos);
-    RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
-        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-
-    const float t_min = 0.01f;
-    const float t_max = 1000.0f;
-
-    RayDesc my_ray = {
-        pos,
-        t_min,
-        light_dir,
-        t_max,
-    };
-
-    // Set up a trace.  No work is done yet.
-    q.TraceRayInline(
-        daxa::RayTracingAccelerationStructureTable[push_opaque.attachments.attachments.tlas.index()],
-        0, // OR'd with flags above
-        0xFFFF,
-        my_ray);
-
-    // Proceed() below is where behind-the-scenes traversal happens,
-    // including the heaviest of any driver inlined code.
-    // In this simplest of scenarios, Proceed() only needs
-    // to be called once rather than a loop:
-    // Based on the template specialization above,
-    // traversal completion is guaranteed.
-    q.Proceed();
-
-
-    bool hit = false;
-    // Examine and act on the result of the traversal.
-    // Was a hit committed?
-    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
-        hit = true;
-    }
-
-    if (!hit)
-    {
-        return false;
-    }
-    else
-    {
-        float t = q.CandidateTriangleRayT();
-        float t_light = length(light_pos - pos);
-        bool shadowed = t < t_light;
-        return shadowed;
-    }
-}
 
 float compute_exposure(float average_luminance) 
 {
@@ -100,38 +48,6 @@ static const float2 poisson_disk[16] = {
     float2( 0.19984126, 0.78641367 ),
     float2( 0.14383161, -0.14100790 )
 };
-
-struct AtmosphereLightingInfo
-{
-    // illuminance from atmosphere along normal vector
-    float3 atmosphere_normal_illuminance;
-    // illuminance from atmosphere along view vector
-    float3 atmosphere_direct_illuminance;
-    // direct sun illuminance
-    float3 sun_direct_illuminance;
-};
-
-float3 get_sun_direct_lighting(daxa_BufferPtr(SkySettings) settings, float3 view_direction, float3 world_position)
-{
-    const float bottom_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
-        float3(0.0, 0.0, length(world_position)),
-        view_direction,
-        float3(0.0),
-        settings->atmosphere_bottom
-    );
-    bool view_ray_intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
-    const float3 direct_sun_illuminance = view_ray_intersects_ground ? 
-        float3(0.0) : 
-        get_sun_illuminance(
-            settings,
-            AT.transmittance,
-            AT.globals->samplers.linear_clamp,
-            view_direction,
-            length(world_position),
-            dot(settings->sun_direction, normalize(world_position))
-        );
-    return direct_sun_illuminance;
-}
 
 // ndc going in needs to be in range [-1, 1]
 float3 get_view_direction(float2 ndc_xy)
@@ -401,7 +317,7 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
 
         float attenuation = 1.0 / falloff_factor;
 
-        let shadowed_rt = light_in_shadow_raytraced(world_position, light.position);
+        let shadowed_rt = rt_is_path_occluded(AT.tlas.get(), world_position, light.position);
         if (shadowed_rt)
         {
             attenuation = 0.0f;
@@ -489,13 +405,7 @@ void entry_main_cs(
         world_space_depth = length(tri_point.world_position - camera_position);
 
         float3 normal = tri_point.world_normal;
-        GPUMaterial material;
-        material.diffuse_texture_id.value = 0;
-        material.normal_texture_id.value = 0;
-        material.roughnes_metalness_id.value = 0;
-        material.alpha_discard_enabled = false;
-        material.normal_compressed_bc5_rg = false;
-        material.base_color = float3(1.0);
+        GPUMaterial material = GPU_MATERIAL_FALLBACK;
         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
             material = AT.material_manifest[tri_geo.material_index];
@@ -546,7 +456,9 @@ void entry_main_cs(
         const float3 view_direction = get_view_direction(pixel_ndc.xy);
         float3 point_lights_direct = point_lights_contribution(normal, tri_point.world_position, view_direction, AT.point_lights);
 
-        const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
+        const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
+            AT.globals, AT.transmittance, AT.sky,
+            AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
@@ -659,7 +571,9 @@ void entry_main_cs(
             view_direction,
             bottom_atmo_offset_camera_position
         );
-        const float3 sun_direct_illuminance = get_sun_direct_lighting(AT.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
+        const float3 sun_direct_illuminance = get_sun_direct_lighting(
+            AT.globals, AT.transmittance, AT.sky,
+            AT.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
         const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;

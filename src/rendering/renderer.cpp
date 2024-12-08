@@ -723,6 +723,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             DDGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
             DDGIUpdateProbesTask::AT.probe_radiance | ddgi_state.probe_radiance_view,
             DDGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
+            DDGIUpdateProbesTask::AT.sky_transmittance | transmittance,
+            DDGIUpdateProbesTask::AT.sky | sky,
         },
         .render_context = render_context.get(),
         .ddgi_state = &this->ddgi_state,
@@ -899,6 +901,12 @@ void Renderer::render_frame(
             {
                 std::cout << "Successfully reloaded!\n";
             }
+            for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
+            {
+                auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
+                this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
+                this->gpu_context->ray_tracing_pipelines[name].sbt_buffer_id = sbt_info.buffer;
+            }
         }
 
         vsm_state.update_vsm_lights(scene->_active_point_lights);
@@ -976,6 +984,18 @@ void Renderer::render_frame(
     render_context->prev_ddgi_settings = render_context->render_data.ddgi_settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
+
+    // Write GPUScene pointers
+    {
+        auto& device = render_context->gpu_context->device;
+        render_context->render_data.scene.meshes = device.device_address(scene->_gpu_mesh_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.mesh_lod_groups = device.device_address(scene->_gpu_mesh_lod_group_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.mesh_groups = device.device_address(scene->_gpu_mesh_group_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.entity_to_meshgroup = device.device_address(scene->_gpu_entity_mesh_groups.get_state().buffers[0]).value();
+        render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.get_state().buffers[0]).value();
+        render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.get_state().buffers[0]).value();
+    }
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{
         .camera_info = &render_context->render_data.camera,
