@@ -2,6 +2,7 @@
 
 #include "daxa/daxa.inl"
 #include "../shader_shared/ddgi.inl"
+#include "../shader_lib/misc.hlsl"
 
 // ===== DDGI Probe Grid =====
 // 
@@ -63,4 +64,32 @@ uint3 ddgi_probe_base_texture_index_prev_frame(DDGISettings settings, uint3 prob
 
     var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
     return probe_texture_index;
+}
+
+float2 ddgi_probe_normal_to_probe_texel(float3 normal)
+{
+    return map_octahedral(normal);
+}
+
+float3 ddgi_probe_texel_to_probe_normal(float2 texel_index)
+{
+    return unmap_octahedral(texel_index);
+}
+
+float4 ddgi_cos_sample_probe(DDGISettings settings, Texture2DArray<float4> probe_radiance, uint3 probe_index, float3 sample_direction)
+{
+    // Sample half the probes texels,
+    // Weigh them by the cosine of the sampledirection and texel world normal
+    float3 sample_probe_normal = -sample_direction;
+    float2 probe_texel = ddgi_probe_normal_to_probe_texel(sample_probe_normal);
+
+    // To sample half the probes texels around the sample directions texel, we loop 
+    uint sampling_width = uint(float(settings.probe_surface_resolution) * sqrt(2));
+    for (uint x = 0; x < sampling_width; ++x)
+    {
+        for (uint y = 0; y < sampling_width; ++y)
+        {
+            
+        }
+    }
 }

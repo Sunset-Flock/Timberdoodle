@@ -4,12 +4,9 @@
 #include <set>
 #include <daxa/utils/imgui.hpp>
 
-#include "../window.hpp"
 #include "../scene/scene.hpp"
-#include "../scene/asset_processor.hpp"
 
 #include "../shader_shared/geometry.inl"
-#include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/readback.inl"
 
 #include "../gpu_context.hpp"

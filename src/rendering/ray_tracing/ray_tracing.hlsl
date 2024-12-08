@@ -7,21 +7,9 @@
 #include "ray_tracing.inl"
 
 #include "shader_lib/visbuffer.hlsl"
+#include "shader_lib/misc.hlsl"
 
 #define PI 3.1415926535897932384626433832795
-
-static uint _rand_state;
-void rand_seed(uint seed) {
-    _rand_state = seed;
-}
-
-float rand() {
-    // https://www.pcg-random.org/
-    _rand_state = _rand_state * 747796405u + 2891336453u;
-    uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
-    result = (result >> 22u) ^ result;
-    return result / 4294967295.0;
-}
 
 float rand_normal_dist() {
     float theta = 2.0 * PI * rand();
@@ -82,7 +70,7 @@ void entry_rt_ao(
         MeshletInstancesBufferHead* instantiated_meshlets = push.attach.instantiated_meshlets;
         GPUMesh* meshes = push.attach.meshes;
         daxa_f32mat4x3* combined_transforms = push.attach.combined_transforms;
-        VisbufferTriangleData tri_data = visgeo_triangle_data(
+        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id,
             float2(index),
             push.attach.globals->settings.render_target_size,
@@ -92,7 +80,13 @@ void entry_rt_ao(
             meshes,
             combined_transforms
         );
-        float3 normal = tri_data.world_normal;
+        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
+        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
+        float depth = visbuf_tri.depth;
+        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
+        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
+        uint meshlet_index = visbuf_tri.meshlet_index;
+        float3 normal = tri_point.world_normal;
         
         const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
 
@@ -112,7 +106,7 @@ void entry_rt_ao(
             const float t_max = 2.5f;
 
             RayDesc my_ray = {
-                tri_data.world_position,
+                tri_point.world_position,
                 t_min,
                 rand_hemi_dir(normal),
                 t_max,
@@ -196,7 +190,7 @@ void ray_gen()
         MeshletInstancesBufferHead* instantiated_meshlets = push.attach.instantiated_meshlets;
         GPUMesh* meshes = push.attach.meshes;
         daxa_f32mat4x3* combined_transforms = push.attach.combined_transforms;
-        VisbufferTriangleData tri_data = visgeo_triangle_data(
+        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id,
             float2(index),
             push.attach.globals->settings.render_target_size,
@@ -206,7 +200,13 @@ void ray_gen()
             meshes,
             combined_transforms
         );
-        float3 normal = tri_data.world_normal;
+        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
+        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
+        float depth = visbuf_tri.depth;
+        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
+        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
+        uint meshlet_index = visbuf_tri.meshlet_index;
+        float3 normal = tri_point.world_normal;
         
         const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
 
@@ -215,7 +215,7 @@ void ray_gen()
         uint hit_count = 0;
 
         RayDesc ray = {};
-        ray.Origin = tri_data.world_position;
+        ray.Origin = tri_point.world_position;
         ray.TMax = 2.5f;
         ray.TMin = 0.01f;
 

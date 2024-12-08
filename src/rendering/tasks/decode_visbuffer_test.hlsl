@@ -38,7 +38,7 @@ void entry_decode_visbuffer(uint2 index : SV_DispatchThreadID)
             view_proj = deref(push.attachments.globals).camera.view_proj;
             camera_position = deref(push.attachments.globals).camera.position;
         }
-        VisbufferTriangleData tri_data = visgeo_triangle_data(
+        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id, 
             float2(index), 
             push.size,
@@ -47,7 +47,13 @@ void entry_decode_visbuffer(uint2 index : SV_DispatchThreadID)
             push.attachments.instantiated_meshlets,
             push.attachments.meshes,
             push.attachments.combined_transforms);
-        float3 normal = tri_data.world_normal;
+        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
+        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
+        float depth = visbuf_tri.depth;
+        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
+        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
+        uint meshlet_index = visbuf_tri.meshlet_index;
+        float3 normal = tri_point.world_normal;
 
         // Used to prevent it beeing optimized away.
         if (length(normal) > 2.0f)

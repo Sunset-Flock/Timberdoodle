@@ -159,8 +159,8 @@ func entry_update_probes(
     uint3 probe_texture_index_prev_frame = probe_texture_base_index + uint3(probe_octa_index, 0);
 
     float2 octa_texel_size = rcp(float(settings.probe_surface_resolution));
-    float texel_noise_x = 0;//rand();
-    float texel_noise_y = 0;//rand();
+    float texel_noise_x = rand();
+    float texel_noise_y = rand();
     float2 octa_position = (probe_octa_index + float2(texel_noise_x, texel_noise_y)) * rcp(settings.probe_surface_resolution);
 
     float3 probe_texel_dir = unmap_octahedral(octa_position);
@@ -171,5 +171,5 @@ func entry_update_probes(
     debug_draw_circle(push.attach.globals.debug, ShaderDebugCircleDraw(probe_position + probe_texel_dir * dist, float3(1,1,0), 0.01, 0));
 
     float4 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index_prev_frame];
-    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx,1), 1.0f);
+    push.attach.probe_radiance.get()[probe_texture_index] = lerp(prev_frame_radiance, float4(dist.xxx * rcp(3),1), 0.1f);
 }

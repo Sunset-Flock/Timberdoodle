@@ -3,6 +3,8 @@
 #include "../shader_shared/visbuffer.inl"
 #include "../shader_shared/geometry.inl"
 #include "../shader_lib/debug.glsl"
+#include "../shader_lib/misc.hlsl"
+#include "../shader_lib/geometry.hlsl"
 
 /**
  * DESCRIPTION:
@@ -78,67 +80,17 @@ daxa_f32vec3 interpolate_with_deriv(BarycentricDeriv deriv, float v0, float v1, 
     return ret;
 }
 
-float visgeo_interpolate_float(daxa_f32vec3 derivator, float v0, float v1, float v2)
+struct VisbufferTriangleGeometry
 {
-    daxa_f32vec3 mergedV = daxa_f32vec3(v0, v1, v2);
-    float ret;
-    ret = dot(mergedV, derivator);
-    return ret;
-}
-
-daxa_f32vec2 visgeo_interpolate_vec2(daxa_f32vec3 derivator, daxa_f32vec2 v0, daxa_f32vec2 v1, daxa_f32vec2 v2)
-{
-    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
-    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
-    daxa_f32vec2 ret;
-    ret.x = dot(merged_x, derivator);
-    ret.y = dot(merged_y, derivator);
-    return ret;
-}
-
-daxa_f32vec3 visgeo_interpolate_vec3(daxa_f32vec3 derivator, daxa_f32vec3 v0, daxa_f32vec3 v1, daxa_f32vec3 v2)
-{
-    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
-    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
-    daxa_f32vec3 merged_z = daxa_f32vec3(v0.z, v1.z, v2.z);
-    daxa_f32vec3 ret;
-    ret.x = dot(merged_x, derivator);
-    ret.y = dot(merged_y, derivator);
-    ret.z = dot(merged_z, derivator);
-    return ret;
-}
-
-daxa_f32vec4 visgeo_interpolate_vec4(daxa_f32vec3 derivator, daxa_f32vec4 v0, daxa_f32vec4 v1, daxa_f32vec4 v2)
-{
-    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
-    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
-    daxa_f32vec3 merged_z = daxa_f32vec3(v0.z, v1.z, v2.z);
-    daxa_f32vec3 merged_w = daxa_f32vec3(v0.w, v1.w, v2.w);
-    daxa_f32vec4 ret;
-    ret.x = dot(merged_x, derivator);
-    ret.y = dot(merged_y, derivator);
-    ret.z = dot(merged_z, derivator);
-    ret.w = dot(merged_w, derivator);
-    return ret;
-}
-
-struct VisbufferTriangleData
-{
-    uint meshlet_instance_index;
+    TriangleGeometry tri_geo;
+    TriangleGeometryPoint tri_geo_point;
+    float depth;
     uint meshlet_triangle_index;
-    MeshletInstance meshlet_instance;
-    BarycentricDeriv bari_deriv;
-    daxa_u32vec3 vertex_indices;
-    daxa_f32vec3 world_position;
-    daxa_f32vec3 world_normal;
-    daxa_f32vec3 world_tangent;
-    daxa_f32 depth;
-    daxa_f32vec2 uv;
-    daxa_f32vec2 uv_ddx;
-    daxa_f32vec2 uv_ddy;
+    uint meshlet_instance_index;
+    uint meshlet_index;
 };
 
-VisbufferTriangleData visgeo_triangle_data(
+VisbufferTriangleGeometry visgeo_triangle_data(
     uint triangle_id, 
     daxa_f32vec2 xy, 
     daxa_f32vec2 screen_size,
@@ -149,7 +101,7 @@ VisbufferTriangleData visgeo_triangle_data(
     daxa_BufferPtr(daxa_f32mat4x3) combined_transforms)
 {
 
-    VisbufferTriangleData ret;
+    VisbufferTriangleGeometry ret;
     ret.meshlet_instance_index = TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(triangle_id);
     ret.meshlet_triangle_index = TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(triangle_id);
 
@@ -164,10 +116,17 @@ VisbufferTriangleData visgeo_triangle_data(
         }
     #endif
 
-    ret.meshlet_instance = deref_i(deref(meshlet_instances).meshlets, ret.meshlet_instance_index);
+    MeshletInstance meshlet_instance = deref_i(deref(meshlet_instances).meshlets, ret.meshlet_instance_index);
+    ret.tri_geo.entity_index = meshlet_instance.entity_index;
+    ret.meshlet_index = meshlet_instance.meshlet_index;
+    ret.tri_geo.mesh_index = meshlet_instance.mesh_index;
+    ret.tri_geo.material_index = meshlet_instance.material_index;
+    ret.tri_geo.in_mesh_group_index = meshlet_instance.in_mesh_group_index;
+    ret.tri_geo.mesh_instance_index = meshlet_instance.mesh_instance_index;
 
-    GPUMesh mesh = deref_i(meshes, ret.meshlet_instance.mesh_index);
-    Meshlet meshlet = deref_i(mesh.meshlets, ret.meshlet_instance.meshlet_index);
+
+    GPUMesh mesh = deref_i(meshes, ret.tri_geo.mesh_index);
+    Meshlet meshlet = deref_i(mesh.meshlets, ret.meshlet_index);
 
     const daxa_u32vec3 micro_indices = daxa_u32vec3(
         get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.meshlet_triangle_index * 3 + 0),
@@ -175,20 +134,20 @@ VisbufferTriangleData visgeo_triangle_data(
         get_micro_index(mesh.micro_indices, meshlet.micro_indices_offset + ret.meshlet_triangle_index * 3 + 2)
     );
 
-    ret.vertex_indices = daxa_u32vec3(
+    ret.tri_geo.vertex_indices = daxa_u32vec3(
         deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + micro_indices.x),
         deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + micro_indices.y),
         deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + micro_indices.z)
     );
 
-    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(combined_transforms, ret.meshlet_instance.entity_index));
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(combined_transforms, ret.tri_geo.entity_index));
 
     const daxa_f32vec2 ndc_xy = ((xy + 0.5f) * inv_screen_size) * 2.0f - 1.0f;
 
     const daxa_f32vec3[3] vertex_positions = daxa_f32vec3[3](
-        deref_i(mesh.vertex_positions, ret.vertex_indices.x),
-        deref_i(mesh.vertex_positions, ret.vertex_indices.y),
-        deref_i(mesh.vertex_positions, ret.vertex_indices.z)
+        deref_i(mesh.vertex_positions, ret.tri_geo.vertex_indices.x),
+        deref_i(mesh.vertex_positions, ret.tri_geo.vertex_indices.y),
+        deref_i(mesh.vertex_positions, ret.tri_geo.vertex_indices.z)
     );
 
     const daxa_f32vec4[3] world_vertex_positions = daxa_f32vec4[3](
@@ -203,23 +162,24 @@ VisbufferTriangleData visgeo_triangle_data(
         mul(view_proj, world_vertex_positions[2])
     );
     
-    ret.bari_deriv = calc_bary_and_deriv(
+    BarycentricDeriv bari_deriv = calc_bary_and_deriv(
         clipspace_vertex_positions[0],
         clipspace_vertex_positions[1],
         clipspace_vertex_positions[2],
         ndc_xy,
         screen_size
     );
+    ret.tri_geo.barycentrics = bari_deriv.m_lambda;
 
-    ret.world_position = visgeo_interpolate_vec3(
-        ret.bari_deriv.m_lambda, 
+    ret.tri_geo_point.world_position = interpolate_vec3(
+        bari_deriv.m_lambda, 
         world_vertex_positions[0].xyz,
         world_vertex_positions[1].xyz,
         world_vertex_positions[2].xyz
     );
 
-    const daxa_f32vec2 interp_zw = visgeo_interpolate_vec2(
-        ret.bari_deriv.m_lambda,
+    const daxa_f32vec2 interp_zw = interpolate_vec2(
+        bari_deriv.m_lambda,
         clipspace_vertex_positions[0].zw,
         clipspace_vertex_positions[1].zw,
         clipspace_vertex_positions[2].zw
@@ -227,9 +187,9 @@ VisbufferTriangleData visgeo_triangle_data(
     ret.depth = interp_zw.r / interp_zw.g;
 
     const daxa_f32vec3[3] vertex_normals = daxa_f32vec3[3](
-        deref_i(mesh.vertex_normals, ret.vertex_indices.x),
-        deref_i(mesh.vertex_normals, ret.vertex_indices.y),
-        deref_i(mesh.vertex_normals, ret.vertex_indices.z)
+        deref_i(mesh.vertex_normals, ret.tri_geo.vertex_indices.x),
+        deref_i(mesh.vertex_normals, ret.tri_geo.vertex_indices.y),
+        deref_i(mesh.vertex_normals, ret.tri_geo.vertex_indices.z)
     );
 
     // WARNING: WE ACTUALLY NEED THE TRANSPOSE INVERSE HERE
@@ -239,35 +199,35 @@ VisbufferTriangleData visgeo_triangle_data(
         mul(model_matrix, daxa_f32vec4(vertex_normals[2], 0))
     );
 
-    ret.world_normal = normalize(visgeo_interpolate_vec3(
-        ret.bari_deriv.m_lambda, 
+    ret.tri_geo_point.world_normal = normalize(interpolate_vec3(
+        bari_deriv.m_lambda, 
         worldspace_vertex_normals[0].xyz,
         worldspace_vertex_normals[1].xyz,
         worldspace_vertex_normals[2].xyz
     ));
 
     const daxa_f32vec2[3] vertex_uvs = daxa_f32vec2[3](
-        deref_i(mesh.vertex_uvs, ret.vertex_indices.x),
-        deref_i(mesh.vertex_uvs, ret.vertex_indices.y),
-        deref_i(mesh.vertex_uvs, ret.vertex_indices.z)
+        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.x),
+        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.y),
+        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.z)
     );
 
-    ret.uv = visgeo_interpolate_vec2(
-        ret.bari_deriv.m_lambda, 
+    ret.tri_geo_point.uv = interpolate_vec2(
+        bari_deriv.m_lambda, 
         vertex_uvs[0],
         vertex_uvs[1],
         vertex_uvs[2]
     );
 
-    ret.uv_ddx = visgeo_interpolate_vec2(
-        ret.bari_deriv.m_ddx, 
+    ret.tri_geo_point.uv_ddx = interpolate_vec2(
+        bari_deriv.m_ddx, 
         vertex_uvs[0],
         vertex_uvs[1],
         vertex_uvs[2]
     );
 
-    ret.uv_ddy = visgeo_interpolate_vec2(
-        ret.bari_deriv.m_ddy, 
+    ret.tri_geo_point.uv_ddy = interpolate_vec2(
+        bari_deriv.m_ddy, 
         vertex_uvs[0],
         vertex_uvs[1],
         vertex_uvs[2]
@@ -275,30 +235,18 @@ VisbufferTriangleData visgeo_triangle_data(
 
     // Calculae Tangent.
     {
-        // Credit: https://stackoverflow.com/questions/5255806/how-to-calculate-tangent-and-binormal
-        /// derivations of the fragment position
-        daxa_f32vec3 p_dx = visgeo_interpolate_vec3(
-            ret.bari_deriv.m_ddx, 
-            world_vertex_positions[0].xyz,
-            world_vertex_positions[1].xyz,
-            world_vertex_positions[2].xyz
-        );
-        daxa_f32vec3 p_dy = visgeo_interpolate_vec3(
-            ret.bari_deriv.m_ddy, 
-            world_vertex_positions[0].xyz,
-            world_vertex_positions[1].xyz,
-            world_vertex_positions[2].xyz
-        );
-        // derivations of the texture coordinate
-        daxa_f32vec2 tc_dx = ret.uv_ddx;
-        daxa_f32vec2 tc_dy = ret.uv_ddy;
-        // compute initial tangent and bi-tangent
-        daxa_f32vec3 t = normalize( tc_dy.y * p_dx - tc_dx.y * p_dy );
-        // get new tangent from a given mesh normal
-        daxa_f32vec3 x = cross(ret.world_normal, t);
-        t = cross(x, ret.world_normal);
+        float3 d_p1 = vertex_positions[1] - vertex_positions[0];
+        float3 d_p2 = vertex_positions[2] - vertex_positions[0];
+        float2 d_uv1 = vertex_uvs[1] - vertex_uvs[0];
+        float2 d_uv2 = vertex_uvs[2] - vertex_uvs[0];
+        float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y);
+        float3 t = normalize(r * ( d_uv2.y * d_p1 - d_uv1.y * d_p2 ));
+
+        float3 x = cross(ret.tri_geo_point.world_normal, t);
+        t = cross(x, ret.tri_geo_point.world_normal);
         t = normalize(t);
-        ret.world_tangent = t;
+
+        ret.tri_geo_point.world_tangent = t;
     }
 
     return ret;

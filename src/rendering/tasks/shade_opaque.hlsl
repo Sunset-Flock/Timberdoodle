@@ -411,8 +411,6 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
     return total_contribution;
 }
 
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> tex_u64_table[];
-
 [numthreads(SHADE_OPAQUE_WG_X, SHADE_OPAQUE_WG_Y, 1)]
 [shader("compute")]
 void entry_main_cs(
@@ -471,7 +469,7 @@ void entry_main_cs(
         daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT.instantiated_meshlets;
         daxa_BufferPtr(GPUMesh) meshes = AT.meshes;
         daxa_BufferPtr(daxa_f32mat4x3) combined_transforms = AT.combined_transforms;
-        VisbufferTriangleData tri_data = visgeo_triangle_data(
+        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id,
             float2(index),
             push.size,
@@ -481,10 +479,16 @@ void entry_main_cs(
             meshes,
             combined_transforms
         );        
+        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
+        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
+        float depth = visbuf_tri.depth;
+        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
+        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
+        uint meshlet_index = visbuf_tri.meshlet_index;
 
-        world_space_depth = length(tri_data.world_position - camera_position);
+        world_space_depth = length(tri_point.world_position - camera_position);
 
-        float3 normal = tri_data.world_normal;
+        float3 normal = tri_point.world_normal;
         GPUMaterial material;
         material.diffuse_texture_id.value = 0;
         material.normal_texture_id.value = 0;
@@ -492,9 +496,9 @@ void entry_main_cs(
         material.alpha_discard_enabled = false;
         material.normal_compressed_bc5_rg = false;
         material.base_color = float3(1.0);
-        if(tri_data.meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
+        if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
-            material = AT.material_manifest[tri_data.meshlet_instance.material_index];
+            material = AT.material_manifest[tri_geo.material_index];
         }
 
         float3 albedo = float3(material.base_color);
@@ -503,7 +507,7 @@ void entry_main_cs(
             albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
                 // SamplerState::get(AT.globals->samplers.nearest_repeat_ani),
                 SamplerState::get(AT.globals->samplers.linear_repeat_ani),
-                tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
+                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
             ).rgb;
         }
 
@@ -514,7 +518,7 @@ void entry_main_cs(
             {
                 const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
                     SamplerState::get(AT.globals->samplers.normals),
-                    tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
+                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
                 ).rg;
                 const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
                 const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
@@ -524,23 +528,23 @@ void entry_main_cs(
             {
                 const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
                     SamplerState::get(AT.globals->samplers.normals),
-                    tri_data.uv, tri_data.uv_ddx, tri_data.uv_ddy
+                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
                 ).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
             }
-            const float3x3 tbn = transpose(float3x3(-tri_data.world_tangent, -cross(tri_data.world_tangent, tri_data.world_normal), tri_data.world_normal));
+            const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
             normal = mul(tbn, normal_map_value);
         }
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
-        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, tri_data.depth, tri_data.world_position, sun_norm_dot) : 1.0f;
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
         const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
 
         const float3 view_direction = get_view_direction(pixel_ndc.xy);
-        float3 point_lights_direct = point_lights_contribution(normal, tri_data.world_position, view_direction, AT.point_lights);
+        float3 point_lights_direct = point_lights_contribution(normal, tri_point.world_position, view_direction, AT.point_lights);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
@@ -570,12 +574,12 @@ void entry_main_cs(
                 }
                 break;
             }
-            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index * 10 + tri_data.meshlet_triangle_index; break;
-            case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_data.meshlet_instance.entity_index * 100 + tri_data.meshlet_instance.meshlet_index; break;
-            case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_data.meshlet_instance.entity_index; break;
+            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index * 10 + meshlet_triangle_index; break;
+            case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index; break;
+            case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_geo.entity_index; break;
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
             {
-                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
+                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
                 output_value.rgb = vsm_debug_color;
                 break;
             }
@@ -583,7 +587,7 @@ void entry_main_cs(
             {
                 if (AT.globals->vsm_settings.enable != 0)
                 {
-                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, tri_data.depth, tri_data.world_position);
+                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
                     let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
                     output_value.rgb = debug_albedo;
                 }
@@ -591,7 +595,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
-                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, tri_data.depth, tri_data.world_normal);
+                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, tri_point.world_normal);
                 let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
                 output_value.rgb = debug_albedo;
                 // output_value.rgb = vsm_debug_color;
@@ -599,7 +603,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DEPTH:
             {
-                float depth = tri_data.depth;
+                float depth = depth;
                 let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.camera.near_plane, depth));
                 output_value.rgb = color;
                 break;
@@ -627,7 +631,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_LOD:
             {
-                uint lod = tri_data.meshlet_instance.mesh_index % MAX_MESHES_PER_LOD_GROUP;
+                uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
                 output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP));
                 break;
             }

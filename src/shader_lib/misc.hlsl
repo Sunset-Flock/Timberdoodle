@@ -172,4 +172,48 @@ float3 unmap_octahedral(float2 v) {
     return normalize(nor);
 }
 
+float interpolate_float(daxa_f32vec3 derivator, float v0, float v1, float v2)
+{
+    daxa_f32vec3 mergedV = daxa_f32vec3(v0, v1, v2);
+    float ret;
+    ret = dot(mergedV, derivator);
+    return ret;
+}
+
+daxa_f32vec2 interpolate_vec2(daxa_f32vec3 derivator, daxa_f32vec2 v0, daxa_f32vec2 v1, daxa_f32vec2 v2)
+{
+    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
+    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
+    daxa_f32vec2 ret;
+    ret.x = dot(merged_x, derivator);
+    ret.y = dot(merged_y, derivator);
+    return ret;
+}
+
+daxa_f32vec3 interpolate_vec3(daxa_f32vec3 derivator, daxa_f32vec3 v0, daxa_f32vec3 v1, daxa_f32vec3 v2)
+{
+    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
+    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
+    daxa_f32vec3 merged_z = daxa_f32vec3(v0.z, v1.z, v2.z);
+    daxa_f32vec3 ret;
+    ret.x = dot(merged_x, derivator);
+    ret.y = dot(merged_y, derivator);
+    ret.z = dot(merged_z, derivator);
+    return ret;
+}
+
+daxa_f32vec4 interpolate_vec4(daxa_f32vec3 derivator, daxa_f32vec4 v0, daxa_f32vec4 v1, daxa_f32vec4 v2)
+{
+    daxa_f32vec3 merged_x = daxa_f32vec3(v0.x, v1.x, v2.x);
+    daxa_f32vec3 merged_y = daxa_f32vec3(v0.y, v1.y, v2.y);
+    daxa_f32vec3 merged_z = daxa_f32vec3(v0.z, v1.z, v2.z);
+    daxa_f32vec3 merged_w = daxa_f32vec3(v0.w, v1.w, v2.w);
+    daxa_f32vec4 ret;
+    ret.x = dot(merged_x, derivator);
+    ret.y = dot(merged_y, derivator);
+    ret.z = dot(merged_z, derivator);
+    ret.w = dot(merged_w, derivator);
+    return ret;
+}
+
 /// ===== =====

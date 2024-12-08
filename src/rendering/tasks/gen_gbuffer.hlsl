@@ -65,7 +65,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
         MeshletInstancesBufferHead* instantiated_meshlets = push.attachments.instantiated_meshlets;
         GPUMesh* meshes = push.attachments.meshes;
         daxa_f32mat4x3* combined_transforms = push.attachments.combined_transforms;
-        VisbufferTriangleData tri_data = visgeo_triangle_data(
+        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id,
             float2(dtid),
             push.size,
@@ -75,8 +75,14 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
             meshes,
             combined_transforms
         );   
+        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
+        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
+        float depth = visbuf_tri.depth;
+        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
+        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
+        uint meshlet_index = visbuf_tri.meshlet_index;
 
-        packed_geometric_normal = compress_normal_octahedral_32(tri_data.world_normal);
+        packed_geometric_normal = compress_normal_octahedral_32(tri_point.world_normal);
 
         //push.attachments.debug_image.get()[dtid].xyz = tri_data.world_normal * 0.5f + 0.5f;
 
