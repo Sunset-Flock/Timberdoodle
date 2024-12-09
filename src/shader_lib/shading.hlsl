@@ -121,6 +121,7 @@ float3 get_sun_direct_lighting(
             length(world_position),
             dot(settings->sun_direction, normalize(world_position))
         );
+
     return direct_sun_illuminance;
 }
 

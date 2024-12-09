@@ -96,8 +96,8 @@ func entry_update_probes(
     let push = update_probes_push;
     DDGISettings settings = push.attach.globals.ddgi_settings;
 
-    let probe_ray_index = dtid.x % settings.probe_surface_resolution;
-    let probe_index = uint3(dtid.x / settings.probe_surface_resolution, dtid.y, dtid.z);
+    let probe_ray_index = (dtid.xy % settings.probe_surface_resolution);
+    let probe_index = uint3(dtid.xy / settings.probe_surface_resolution, dtid.z);
 
     if (any(greaterThanEqual(probe_index, settings.probe_count)))
     {
@@ -117,7 +117,7 @@ func entry_update_probes(
     const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + frame_index * 17);
     rand_seed(thread_seed);
     float noise = rand();
-    uint2 probe_octa_index = uint2(probe_ray_index, uint(noise * settings.probe_surface_resolution));
+    uint2 probe_octa_index = probe_ray_index;
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_octa_index, 0);
     uint3 probe_texture_index_prev_frame = probe_texture_base_index + uint3(probe_octa_index, 0);
 
@@ -134,7 +134,7 @@ func entry_update_probes(
     // Trace Ray
     float3 shaded_color = float3(0,0,0);
     {
-        RayQuery<RAY_FLAG_FORCE_OPAQUE> q;
+        RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;
 
         const float t_min = 0.001f;
 

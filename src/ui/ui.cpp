@@ -1180,20 +1180,21 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{
-                "NONE",
-                "OVERDRAW",
-                "TRIANGLE_INSTANCE_ID",
-                "MESHLET_INSTANCE_ID",
-                "ENTITY_ID",
-                "VSM_OVERDRAW",
-                "VSM_CLIP_LEVEL",
-                "VSM_POINT_MIP_LEVEL",
-                "DEPTH",
-                "ALBEDO",
-                "NORMAL",
-                "LIGHT",
-                "AO",
-                "LOD",
+                "NONE", // DEBUG_DRAW_MODE_NONE
+                "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
+                "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
+                "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
+                "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
+                "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                "VSM_POINT_MIP_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                "DEPTH", // DEBUG_DRAW_MODE_DEPTH
+                "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
+                "NORMAL", // DEBUG_DRAW_MODE_NORMAL
+                "LIGHT", // DEBUG_DRAW_MODE_LIGHT
+                "AO", // DEBUG_DRAW_MODE_AO
+                "GI", // DEBUG_DRAW_MODE_GI
+                "LOD", // DEBUG_DRAW_MODE_LOD
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &render_data.settings.debug_overdraw_scale);

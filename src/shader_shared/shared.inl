@@ -170,7 +170,8 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_NORMAL 10
 #define DEBUG_DRAW_MODE_LIGHT 11
 #define DEBUG_DRAW_MODE_AO 12
-#define DEBUG_DRAW_MODE_LOD 13
+#define DEBUG_DRAW_MODE_GI 13
+#define DEBUG_DRAW_MODE_LOD 14
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -240,6 +241,7 @@ struct Settings
     }
 #endif
 };
+
 
 struct PostprocessSettings
 {

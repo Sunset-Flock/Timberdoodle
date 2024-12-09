@@ -167,7 +167,7 @@ struct DDGIUpdateProbesTask : DDGIUpdateProbesH::Task
         ti.recorder.push_constant(push);
 
         auto const x = render_context->render_data.ddgi_settings.probe_count.x * render_context->render_data.ddgi_settings.probe_surface_resolution;
-        auto const y = render_context->render_data.ddgi_settings.probe_count.y;
+        auto const y = render_context->render_data.ddgi_settings.probe_count.y * render_context->render_data.ddgi_settings.probe_surface_resolution;
         auto const z = render_context->render_data.ddgi_settings.probe_count.z;
         auto const dispatch_x = round_up_div(x, DDGI_UPDATE_WG_XYZ);
         auto const dispatch_y = round_up_div(y, DDGI_UPDATE_WG_XYZ);

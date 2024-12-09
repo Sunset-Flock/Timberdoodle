@@ -12,6 +12,7 @@
 #include "shader_lib/volumetric.hlsl"
 #include "shader_lib/shading.hlsl"
 #include "shader_lib/raytracing.hlsl"
+#include "shader_lib/ddgi.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -317,7 +318,10 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
 
         float attenuation = 1.0 / falloff_factor;
 
-        let shadowed_rt = rt_is_path_occluded(AT.tlas.get(), world_position, light.position);
+        float t_max = length(light.position - world_position);
+        float3 dir = normalize(light.position - world_position);
+        float t = rt_free_path(AT.tlas.get(), world_position, dir, t_max);
+        bool shadowed_rt = t != t_max;
         if (shadowed_rt)
         {
             attenuation = 0.0f;
@@ -467,7 +471,13 @@ void entry_main_cs(
             ambient_occlusion = AT.ao_image.get().Load(index);
         }
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
-        const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
+        
+        
+        float4 probe_light = ddgi_sample_nearest_rt_occlusion(AT.globals, AT.globals.ddgi_settings, tri_point.world_position, tri_point.world_normal, AT.tlas.get(), AT.ddgi_probe_radiance.get());
+        
+        
+        // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
+        const float3 lighting = directional_light_direct + point_lights_direct + (probe_light.rgb * ambient_occlusion);
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -539,6 +549,11 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_AO:
             {
                 output_value.rgb = ambient_occlusion;
+                break;
+            }
+            case DEBUG_DRAW_MODE_GI:
+            {
+                output_value.rgb = probe_light.rgb;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:

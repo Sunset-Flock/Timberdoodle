@@ -13,9 +13,9 @@
 
 float rt_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max)
 {
-    RayQuery<RAY_FLAG_FORCE_OPAQUE> q;
+    RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;
 
-    const float t_min = 0.001f;
+    const float t_min = 0.01f;
 
     RayDesc my_ray = {
         origin,
@@ -49,60 +49,6 @@ float rt_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 d
     else
     {
         return q.CandidateTriangleRayT();
-    }
-}
-
-bool rt_is_path_occluded(RaytracingAccelerationStructure tlas, float3 start_pos, float3 end_pos)
-{
-    float3 light_dir = normalize(start_pos - end_pos);
-    RayQuery<RAY_FLAG_CULL_NON_OPAQUE |
-        RAY_FLAG_SKIP_PROCEDURAL_PRIMITIVES |
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
-
-    const float t_min = 0.01f;
-    const float t_max = length(start_pos - end_pos) * 1.01f;
-
-    RayDesc my_ray = {
-        start_pos,
-        t_min,
-        light_dir,
-        t_max,
-    };
-
-    // Set up a trace.  No work is done yet.
-    q.TraceRayInline(
-        tlas,
-        0, // OR'd with flags above
-        0xFFFF,
-        my_ray);
-
-    // Proceed() below is where behind-the-scenes traversal happens,
-    // including the heaviest of any driver inlined code.
-    // In this simplest of scenarios, Proceed() only needs
-    // to be called once rather than a loop:
-    // Based on the template specialization above,
-    // traversal completion is guaranteed.
-    q.Proceed();
-
-
-    bool hit = false;
-    // Examine and act on the result of the traversal.
-    // Was a hit committed?
-    if(q.CommittedStatus() == COMMITTED_TRIANGLE_HIT)
-    {
-        hit = true;
-    }
-
-    if (!hit)
-    {
-        return false;
-    }
-    else
-    {
-        float t = q.CandidateTriangleRayT();
-        float t_light = length(end_pos - start_pos);
-        bool shadowed = t < t_light;
-        return shadowed;
     }
 }
 

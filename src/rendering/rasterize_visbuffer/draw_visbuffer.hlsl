@@ -544,6 +544,10 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(push.attach.globals).observer_camera.view_proj : 
         deref(push.attach.globals).camera.view_proj;
 
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
+    const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
+    let mvp = mul(view_proj, model_mat);
+
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
@@ -553,8 +557,6 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     float4 local_clip_vertices[2];
     float3 local_ndc_vertices[2];
 
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
-    const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     for (uint l = 0; l < 2; ++l)
     {
         uint vertex_offset = MESH_SHADER_WORKGROUP_X * l;
@@ -571,7 +573,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         
         // Very slow fetch, as its incoherent memory address across warps.
         const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-        const daxa_f32vec4 pos = mul(view_proj, mul(model_mat, vertex_position));
+        const daxa_f32vec4 pos = mul(mvp, vertex_position);
 
         V vertex;
         local_clip_vertices[l] = pos;
