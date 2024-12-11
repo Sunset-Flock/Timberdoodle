@@ -12,7 +12,8 @@
 #include "shader_lib/volumetric.hlsl"
 #include "shader_lib/shading.hlsl"
 #include "shader_lib/raytracing.hlsl"
-#include "shader_lib/ddgi.hlsl"
+#include "shader_lib/pgi.hlsl"
+#include "shader_lib/SH.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -473,11 +474,12 @@ void entry_main_cs(
         const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         
         
-        float4 probe_light = ddgi_sample_nearest_rt_occlusion(AT.globals, AT.globals.ddgi_settings, tri_point.world_position, tri_point.world_normal, AT.tlas.get(), AT.ddgi_probe_radiance.get());
+        float3 probe_light = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position + tri_point.world_normal * 0.01f, tri_point.world_normal, AT.tlas.get(), AT.pgi_probe_radiance.get());
+        //float3 probe_light = pgi_sample_sh_rt_occlusion(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, AT.tlas.get(), AT.pgi_sh_probes.get());
         
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + point_lights_direct + (probe_light.rgb * ambient_occlusion);
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (probe_light.rgb * ambient_occlusion);
 
         let shaded_color = albedo.rgb * lighting;
 

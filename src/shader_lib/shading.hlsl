@@ -10,6 +10,7 @@
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/volumetric.hlsl"
 #include "shader_lib/geometry.hlsl"
+#include "shader_lib/pgi.hlsl"
 
 // DO NOT INCLUDE VSM SHADING NOR RAY TRACED SHADING HEADERS HERE!
 
@@ -72,7 +73,9 @@ func shade_material(
     RenderGlobalData* globals, 
     MaterialPointData material_point, 
     float3 incoming_ray,
-    LIGHT_VIS_TESTER_T light_visibility
+    LIGHT_VIS_TESTER_T light_visibility,
+    Texture2DArray<float4> probe_irradiance,
+    RaytracingAccelerationStructure tlas,
 ) -> float4
 {
     float3 diffuse_light = float3(0,0,0);
@@ -82,6 +85,9 @@ func shade_material(
         float3 sun_light = float3(1,1,1) * globals.sky_settings.sun_brightness * sun_visibility * max(0.0f, dot(material_point.normal, globals.sky_settings.sun_direction));
         diffuse_light += float3(1,1,1) * sun_visibility;//sun_light;
     }
+
+    //float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, incoming_ray, tlas, probe_irradiance);
+    //diffuse_light += global_illumination;
 
     return float4(material_point.albedo * diffuse_light, material_point.alpha);
 }

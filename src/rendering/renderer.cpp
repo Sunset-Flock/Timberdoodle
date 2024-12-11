@@ -8,7 +8,7 @@
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
 #include "virtual_shadow_maps/vsm.inl"
-#include "ddgi/ddgi_update.inl"
+#include "pgi/pgi_update.inl"
 
 #include "ray_tracing/ray_tracing.inl"
 
@@ -75,7 +75,7 @@ Renderer::Renderer(
     f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
-    ddgi_state.initialize(gpu_context->device);
+    pgi_state.initialize(gpu_context->device);
 
     images = {
         transmittance,
@@ -133,7 +133,7 @@ Renderer::~Renderer()
     {
         this->gpu_context->device.destroy_buffer(general_readback_buffer);
     }
-    ddgi_state.cleanup(gpu_context->device);
+    pgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
     this->gpu_context->device.wait_idle();
     this->gpu_context->device.collect_garbage();
@@ -165,7 +165,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_rectangles_pipeline_compile_info()},
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
-        {ddgi_draw_debug_probes_compile_info()},
+        {pgi_draw_debug_probes_compile_info()},
     };
     for (auto info : rasters)
     {
@@ -182,7 +182,7 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
-        {ddgi_update_probes_compute_compile_info()},
+        {pgi_update_probes_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -240,6 +240,7 @@ void Renderer::compile_pipelines()
 
     std::vector<daxa::RayTracingPipelineCompileInfo> ray_tracing = {
         {ray_trace_ao_rt_pipeline_info()},
+        {pgi_trace_probe_lighting_pipeline_compile_info()},
     };
     for (auto const & info : ray_tracing)
     {
@@ -333,7 +334,7 @@ void Renderer::recreate_framebuffer()
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
     }
-    this->ddgi_state.recreate_resources(gpu_context->device, render_context->render_data.ddgi_settings);
+    this->pgi_state.recreate_resources(gpu_context->device, render_context->render_data.pgi_settings);
 }
 
 void Renderer::clear_select_buffers()
@@ -371,8 +372,8 @@ void Renderer::clear_select_buffers()
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     //tg.use_persistent_buffer(luminance_average);
     //tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
-    tg.use_persistent_image(ddgi_state.probe_radiance);
-    tg.clear_image({.view = ddgi_state.probe_radiance.view().view({.layer_count=2}), .name = "clear ddgi radiance"});
+    tg.use_persistent_image(pgi_state.probe_radiance);
+    tg.clear_image({.view = pgi_state.probe_radiance_view, .name = "clear pgi radiance"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -527,7 +528,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
     tg.use_persistent_tlas(scene->_scene_tlas);
-    tg.use_persistent_image(ddgi_state.probe_radiance);
+    tg.use_persistent_image(pgi_state.probe_radiance);
 
     tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
 
@@ -718,16 +719,32 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
-    tg.add_task(DDGIUpdateProbesTask{
+    daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
+    tg.add_task(PGITraceProbeLightingTask{
         .views = std::array{
-            DDGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-            DDGIUpdateProbesTask::AT.probe_radiance | ddgi_state.probe_radiance_view,
-            DDGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
-            DDGIUpdateProbesTask::AT.sky_transmittance | transmittance,
-            DDGIUpdateProbesTask::AT.sky | sky,
+            PGITraceProbeLightingTask::AT.globals | render_context->tgpu_render_data,
+            PGITraceProbeLightingTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+            PGITraceProbeLightingTask::AT.tlas | scene->_scene_tlas,
+            PGITraceProbeLightingTask::AT.sky_transmittance | transmittance,
+            PGITraceProbeLightingTask::AT.sky | sky,
+            PGITraceProbeLightingTask::AT.trace_result | pgi_trace_result,
         },
         .render_context = render_context.get(),
-        .ddgi_state = &this->ddgi_state,
+        .pgi_state = &this->pgi_state,
+    });
+    daxa::TaskImageView pgi_sh_probes = pgi_create_sh_texture(tg, render_context->render_data.pgi_settings, pgi_state);
+    tg.add_task(PGIUpdateProbesTask{
+        .views = std::array{
+            PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+            PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+            PGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
+            PGIUpdateProbesTask::AT.sky_transmittance | transmittance,
+            PGIUpdateProbesTask::AT.sky | sky,
+            PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+            PGIUpdateProbesTask::AT.sh_probes | pgi_sh_probes,
+        },
+        .render_context = render_context.get(),
+        .pgi_state = &this->pgi_state,
     });
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
@@ -758,7 +775,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
             ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
-            ShadeOpaqueH::AT.ddgi_probe_radiance | ddgi_state.probe_radiance_view,
+            ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
+            ShadeOpaqueH::AT.pgi_sh_probes | pgi_sh_probes,
         },
         .render_context = render_context.get(),
     });
@@ -787,17 +805,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
-    if (render_context->render_data.ddgi_settings.draw_debug_probes)
+    if (render_context->render_data.pgi_settings.draw_debug_probes)
     {
-        tg.add_task(DDGIDrawDebugProbesTask{
+        tg.add_task(PGIDrawDebugProbesTask{
             .views = std::array{
-                DDGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
-                DDGIDrawDebugProbesH::AT.color_image | color_image,
-                DDGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
-                DDGIDrawDebugProbesH::AT.probe_radiance | ddgi_state.probe_radiance_view,
+                PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
+                PGIDrawDebugProbesH::AT.color_image | color_image,
+                PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
+                PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGIDrawDebugProbesH::AT.sh_probes | pgi_sh_probes,
+                PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
             },
             .render_context = render_context.get(),
-            .ddgi_state = &ddgi_state,
+            .pgi_state = &pgi_state,
         });
     }
     tg.add_task(DebugDrawTask{
@@ -900,12 +920,12 @@ void Renderer::render_frame(
             if (auto _ = daxa::get_if<daxa::PipelineReloadSuccess>(&reloaded_result))
             {
                 std::cout << "Successfully reloaded!\n";
-            }
-            for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
-            {
-                auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
-                this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
-                this->gpu_context->ray_tracing_pipelines[name].sbt_buffer_id = sbt_info.buffer;
+                for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
+                {
+                    auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
+                    this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
+                    this->gpu_context->ray_tracing_pipelines[name].sbt_buffer_id = sbt_info.buffer;
+                }
             }
         }
 
@@ -931,20 +951,23 @@ void Renderer::render_frame(
 
         render_context->render_data.cull_data = fill_cull_data(*render_context);
     }
+    render_context->render_data.pgi_settings.probe_count.x = std::max(1, render_context->render_data.pgi_settings.probe_count.x);
+    render_context->render_data.pgi_settings.probe_count.y = std::max(1, render_context->render_data.pgi_settings.probe_count.y);
+    render_context->render_data.pgi_settings.probe_count.z = std::max(1, render_context->render_data.pgi_settings.probe_count.z);
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
-    bool const ddgi_settings_changed = 
-        render_context->render_data.ddgi_settings.draw_debug_probes != render_context->prev_ddgi_settings.draw_debug_probes ||
-        render_context->render_data.ddgi_settings.probe_count.x != render_context->prev_ddgi_settings.probe_count.x ||
-        render_context->render_data.ddgi_settings.probe_count.y != render_context->prev_ddgi_settings.probe_count.y ||
-        render_context->render_data.ddgi_settings.probe_count.z != render_context->prev_ddgi_settings.probe_count.z ||
-        render_context->render_data.ddgi_settings.probe_surface_resolution != render_context->prev_ddgi_settings.probe_surface_resolution;
+    bool const pgi_settings_changed = 
+        render_context->render_data.pgi_settings.draw_debug_probes != render_context->prev_pgi_settings.draw_debug_probes ||
+        render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
+        render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
+        render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||
+        render_context->render_data.pgi_settings.probe_surface_resolution != render_context->prev_pgi_settings.probe_surface_resolution;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =
         render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
     // Sky is transient of main task graph
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || ddgi_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed)
     {
         recreate_framebuffer();
         clear_select_buffers();
@@ -981,7 +1004,7 @@ void Renderer::render_frame(
                      std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction);
     render_context->render_data.vsm_settings.sun_moved = sun_moved ? 0u : 1u;
     render_context->prev_settings = render_context->render_data.settings;
-    render_context->prev_ddgi_settings = render_context->render_data.ddgi_settings;
+    render_context->prev_pgi_settings = render_context->render_data.pgi_settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
 

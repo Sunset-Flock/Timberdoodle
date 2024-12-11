@@ -224,7 +224,7 @@ void ray_gen()
         for (uint ray_i = 0; ray_i < AO_RAY_COUNT; ++ray_i)
         {
             ray.Direction = rand_hemi_dir(normal);
-            TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
+            TraceRay(tlas, {}, ~0, 0, 0, 0, ray, payload);
             hit_count += payload.hit ? 1 : 0;
         }
 

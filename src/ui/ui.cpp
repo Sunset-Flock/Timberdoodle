@@ -1213,14 +1213,14 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
             ImGui::SeparatorText("Misc");
             ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
             ImGui::SeparatorText("Features");
-            if (ImGui::CollapsingHeader("DDGI Settings"))
+            if (ImGui::CollapsingHeader("PGI Settings"))
             {
-                ImGui::InputFloat3("Probe range", &render_data.ddgi_settings.probe_range.x);
-                ImGui::InputInt3("Probe count", &render_data.ddgi_settings.probe_count.x);
-                ImGui::InputFloat3("Fixed Probe Center Position", &render_data.ddgi_settings.fixed_center_position.x);
-                ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.ddgi_settings.fixed_center));
-                ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.ddgi_settings.draw_debug_probes));
-                ImGui::InputInt("Prove Surface Resolution", &render_data.ddgi_settings.probe_surface_resolution);
+                ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
+                ImGui::InputInt3("Probe count", &render_data.pgi_settings.probe_count.x);
+                ImGui::InputFloat3("Fixed Probe Center Position", &render_data.pgi_settings.fixed_center_position.x);
+                ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.pgi_settings.fixed_center));
+                ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.pgi_settings.draw_debug_probes));
+                ImGui::InputInt("Prove Surface Resolution", &render_data.pgi_settings.probe_surface_resolution);
             }
         }
     }

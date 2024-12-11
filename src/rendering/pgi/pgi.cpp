@@ -1,4 +1,4 @@
-#include "ddgi.hpp"
+#include "pgi.hpp"
 
 static const daxa_f32vec3 PROBE_MESH_POSITIONS[] = {
     daxa_f32vec3{ 0.000000, 0.555570, 0.831470 },
@@ -1448,7 +1448,7 @@ static const daxa_i32 PROBE_MESH_INDICES[] = {
     466-1, 465-1, 3-1,
 };
 
-void DDGIState::initialize(daxa::Device& device)
+void PGIState::initialize(daxa::Device& device)
 {
     this->debug_probe_mesh_triangles = (sizeof(PROBE_MESH_INDICES) / sizeof(daxa_i32)) / 3;
     auto const probe_triangles_mem_size = this->debug_probe_mesh_triangles * 3 * sizeof(daxa_i32);
@@ -1458,7 +1458,7 @@ void DDGIState::initialize(daxa::Device& device)
     this->debug_probe_mesh_buffer = device.create_buffer({
         .size = probe_triangles_mem_size * probe_vertex_mem_size,
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-        .name = "ddgi probe debug mesh buffer",
+        .name = "pgi probe debug mesh buffer",
     });
 
     std::byte* host_addr = device.buffer_host_address(this->debug_probe_mesh_buffer).value();
@@ -1470,7 +1470,7 @@ void DDGIState::initialize(daxa::Device& device)
     this->debug_probe_mesh_vertex_positions_addr = reinterpret_cast<daxa_f32vec3*>(device_addr + probe_triangles_mem_size);
 }
 
-void DDGIState::recreate_resources(daxa::Device& device, DDGISettings const & settings)
+void PGIState::recreate_resources(daxa::Device& device, PGISettings const & settings)
 {
     if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
     {
@@ -1485,23 +1485,23 @@ void DDGIState::recreate_resources(daxa::Device& device, DDGISettings const & se
             static_cast<u32>(settings.probe_count.y * settings.probe_surface_resolution),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z) * 2,
+        .array_layer_count = static_cast<u32>(settings.probe_count.z),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-        .name = "ddgi probe radiance",
+        .name = "pgi probe radiance",
     });
 
     this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
         .initial_images = daxa::TrackedImages{.images = std::array{ probe_irradiance_image }},
-        .name = "ddgi probe radiance",
+        .name = "pgi probe radiance",
     });
 
-    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z) * 2});
+    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
 }
 
-void DDGIState::cleanup(daxa::Device& device)
+void PGIState::cleanup(daxa::Device& device)
 {
     if (!this->debug_probe_mesh_buffer.is_empty())
     {

@@ -15,7 +15,7 @@ float rt_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 d
 {
     RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;
 
-    const float t_min = 0.01f;
+    const float t_min = 0.0f;
 
     RayDesc my_ray = {
         origin,
@@ -170,6 +170,7 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;
     RenderGlobalData* globals;
+    float3 origin;
     float sun_light(MaterialPointData material_point)
     {
         let sky = globals->sky_settings;

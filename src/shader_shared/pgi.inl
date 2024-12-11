@@ -3,7 +3,7 @@
 #include "daxa/daxa.inl"
 #include "shared.inl"
 
-struct DDGISettings
+struct PGISettings
 {
     daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
     daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);

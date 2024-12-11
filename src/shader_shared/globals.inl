@@ -7,7 +7,7 @@
 #include "readback.inl"
 #include "volumetric.inl"
 #include "cull_util.inl"
-#include "ddgi.inl"
+#include "pgi.inl"
 
 struct GPUScene
 {
@@ -38,7 +38,7 @@ struct RenderGlobalData
     VSMSettings vsm_settings;
     VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;
-    DDGISettings ddgi_settings;
+    PGISettings pgi_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
