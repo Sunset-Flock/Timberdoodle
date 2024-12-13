@@ -68,9 +68,40 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     return ret;
 }
 
+float3 get_sun_direct_lighting(
+    RenderGlobalData* globals, 
+    daxa_ImageViewId sky_transmittance,
+    daxa_ImageViewId sky,
+    float3 view_direction, 
+    float3 atmo_position)
+{
+    const float bottom_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
+        float3(0.0, 0.0, length(atmo_position)),
+        view_direction,
+        float3(0.0),
+        globals.sky_settings.atmosphere_bottom
+    );
+    
+    bool view_ray_intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
+    const float3 direct_sun_illuminance = view_ray_intersects_ground ? 
+        float3(0.0) : 
+        get_sun_illuminance(
+            &globals.sky_settings,
+            sky_transmittance,
+            globals->samplers.linear_clamp,
+            view_direction,
+            length(atmo_position),
+            dot(globals.sky_settings.sun_direction, normalize(atmo_position))
+        );
+
+    return direct_sun_illuminance;
+}
+
 __generic<LIGHT_VIS_TESTER_T : LightVisibilityTesterI>
 func shade_material(
     RenderGlobalData* globals, 
+    daxa_ImageViewId sky_transmittance,
+    daxa_ImageViewId sky,
     MaterialPointData material_point, 
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
@@ -78,57 +109,41 @@ func shade_material(
     RaytracingAccelerationStructure tlas,
 ) -> float4
 {
+    // TODO: material_point.normal is busted only in ray tracing for some reason
+
     float3 diffuse_light = float3(0,0,0);
+
+    float3 atmo_position = get_atmo_position(globals);
+
     // Sun Shading
     {
-        float sun_visibility = light_visibility.sun_light(material_point);
-        float3 sun_light = float3(1,1,1) * globals.sky_settings.sun_brightness * sun_visibility * max(0.0f, dot(material_point.normal, globals.sky_settings.sun_direction));
-        diffuse_light += float3(1,1,1) * sun_visibility;//sun_light;
+        float sun_visibility = max(0.0f, dot(material_point.geometry_normal, globals.sky_settings.sun_direction));
+
+        if (sun_visibility > 0.0f)
+        {
+            sun_visibility *= light_visibility.sun_light(material_point, incoming_ray);
+        }
+
+        if (sun_visibility > 0.0f)
+        {
+            float3 sun_light = get_sun_direct_lighting(
+                globals,
+                sky_transmittance,
+                sky,
+                globals.sky_settings.sun_direction,
+                atmo_position
+            );
+            diffuse_light += sun_light * sun_visibility;
+        }
     }
 
-    //float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, incoming_ray, tlas, probe_irradiance);
-    //diffuse_light += global_illumination;
+    // Indirect Diffuse
+    {
+        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance);
+        diffuse_light += global_illumination;
+    }
 
     return float4(material_point.albedo * diffuse_light, material_point.alpha);
-}
-
-struct AtmosphereLightingInfo
-{
-    // illuminance from atmosphere along normal vector
-    float3 atmosphere_normal_illuminance;
-    // illuminance from atmosphere along view vector
-    float3 atmosphere_direct_illuminance;
-    // direct sun illuminance
-    float3 sun_direct_illuminance;
-};
-
-float3 get_sun_direct_lighting(
-    RenderGlobalData* globals, 
-    daxa_ImageViewId sky_transmittance,
-    daxa_ImageViewId sky,
-    SkySettings* settings, 
-    float3 view_direction, 
-    float3 world_position)
-{
-    const float bottom_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
-        float3(0.0, 0.0, length(world_position)),
-        view_direction,
-        float3(0.0),
-        settings->atmosphere_bottom
-    );
-    bool view_ray_intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
-    const float3 direct_sun_illuminance = view_ray_intersects_ground ? 
-        float3(0.0) : 
-        get_sun_illuminance(
-            settings,
-            sky_transmittance,
-            globals->samplers.linear_clamp,
-            view_direction,
-            length(world_position),
-            dot(settings->sun_direction, normalize(world_position))
-        );
-
-    return direct_sun_illuminance;
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;
@@ -138,12 +153,7 @@ func shade_sky(
     daxa_ImageViewId sky,
     float3 incoming_ray) -> float3
 {
-
-    const float3 atmo_camera_position = globals->settings.draw_from_observer == 1 ? 
-        globals->observer_camera.position * M_TO_KM_SCALE :
-        globals->camera.position * M_TO_KM_SCALE;
-    const float3 bottom_atmo_offset = float3(0,0, globals->sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
-    const float3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
+    float3 atmo_position = get_atmo_position(globals);
 
     const float3 atmosphere_direct_illuminnace = get_atmosphere_illuminance_along_ray(
         globals->sky_settings_ptr,
@@ -151,11 +161,11 @@ func shade_sky(
         sky,
         globals->samplers.linear_clamp,
         incoming_ray,
-        bottom_atmo_offset_camera_position
+        atmo_position
     );
     const float3 sun_direct_illuminance = get_sun_direct_lighting(
         globals, sky_transmittance, sky,
-        globals->sky_settings_ptr, incoming_ray, bottom_atmo_offset_camera_position);
+        incoming_ray, atmo_position);
     const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
     DEBUG_atmosphere_direct_illuminnace = atmosphere_direct_illuminnace;
     return total_direct_illuminance;

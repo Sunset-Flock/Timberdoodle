@@ -701,9 +701,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
                 RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
                 RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-                RayTraceAmbientOcclusionH::AT.geo_inst_indirections | scene->_scene_as_indirections,
                 RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
                 RayTraceAmbientOcclusionH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
+                RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
@@ -719,33 +719,35 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
-    daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
-    tg.add_task(PGITraceProbeLightingTask{
-        .views = std::array{
-            PGITraceProbeLightingTask::AT.globals | render_context->tgpu_render_data,
-            PGITraceProbeLightingTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-            PGITraceProbeLightingTask::AT.tlas | scene->_scene_tlas,
-            PGITraceProbeLightingTask::AT.sky_transmittance | transmittance,
-            PGITraceProbeLightingTask::AT.sky | sky,
-            PGITraceProbeLightingTask::AT.trace_result | pgi_trace_result,
-        },
-        .render_context = render_context.get(),
-        .pgi_state = &this->pgi_state,
-    });
-    daxa::TaskImageView pgi_sh_probes = pgi_create_sh_texture(tg, render_context->render_data.pgi_settings, pgi_state);
-    tg.add_task(PGIUpdateProbesTask{
-        .views = std::array{
-            PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-            PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-            PGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
-            PGIUpdateProbesTask::AT.sky_transmittance | transmittance,
-            PGIUpdateProbesTask::AT.sky | sky,
-            PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
-            PGIUpdateProbesTask::AT.sh_probes | pgi_sh_probes,
-        },
-        .render_context = render_context.get(),
-        .pgi_state = &this->pgi_state,
-    });
+    if (render_context->render_data.pgi_settings.enabled)
+    {
+        daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
+        tg.add_task(PGITraceProbeLightingTask{
+            .views = std::array{
+                PGITraceProbeLightingTask::AT.globals | render_context->tgpu_render_data,
+                PGITraceProbeLightingTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGITraceProbeLightingTask::AT.tlas | scene->_scene_tlas,
+                PGITraceProbeLightingTask::AT.sky_transmittance | transmittance,
+                PGITraceProbeLightingTask::AT.sky | sky,
+                PGITraceProbeLightingTask::AT.trace_result | pgi_trace_result,
+                PGITraceProbeLightingTask::AT.mesh_instances | scene->mesh_instances_buffer,
+            },
+            .render_context = render_context.get(),
+            .pgi_state = &this->pgi_state,
+        });
+        tg.add_task(PGIUpdateProbesTask{
+            .views = std::array{
+                PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+                PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
+                PGIUpdateProbesTask::AT.sky_transmittance | transmittance,
+                PGIUpdateProbesTask::AT.sky | sky,
+                PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+            },
+            .render_context = render_context.get(),
+            .pgi_state = &this->pgi_state,
+        });
+    }
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     tg.add_task(ShadeOpaqueTask{
@@ -776,7 +778,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
             ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
             ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
-            ShadeOpaqueH::AT.pgi_sh_probes | pgi_sh_probes,
+            ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
         },
         .render_context = render_context.get(),
     });
@@ -805,7 +807,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
-    if (render_context->render_data.pgi_settings.draw_debug_probes)
+    if (render_context->render_data.pgi_settings.enabled && render_context->render_data.pgi_settings.draw_debug_probes)
     {
         tg.add_task(PGIDrawDebugProbesTask{
             .views = std::array{
@@ -813,7 +815,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 PGIDrawDebugProbesH::AT.color_image | color_image,
                 PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
                 PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIDrawDebugProbesH::AT.sh_probes | pgi_sh_probes,
                 PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
             },
             .render_context = render_context.get(),
@@ -961,7 +962,8 @@ void Renderer::render_frame(
         render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
         render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
         render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||
-        render_context->render_data.pgi_settings.probe_surface_resolution != render_context->prev_pgi_settings.probe_surface_resolution;
+        render_context->render_data.pgi_settings.probe_surface_resolution != render_context->prev_pgi_settings.probe_surface_resolution ||
+        render_context->render_data.pgi_settings.enabled != render_context->prev_pgi_settings.enabled;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =

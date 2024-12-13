@@ -349,19 +349,18 @@ void entry_main_cs(
     const int2 index = svdtid.xy;
     const float2 screen_uv = (float2(svdtid.xy) + 0.5f) * AT.globals->settings.render_target_size_inv;
 
-    const float3 atmo_camera_position = AT.globals->settings.draw_from_observer == 1 ? 
-        AT.globals->observer_camera.position * M_TO_KM_SCALE :
-        AT.globals->camera.position * M_TO_KM_SCALE;
-    const float3 bottom_atmo_offset = float3(0,0, AT.globals->sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
-    const float3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
-
-    uint triangle_id;
+    uint triangle_id = INVALID_TRIANGLE_ID;
     if(all(lessThan(index, AT.globals->settings.render_target_size)))
     {
         triangle_id = AT.vis_image.get()[index].x;
-    } else {
-        triangle_id = INVALID_TRIANGLE_ID;
     }
+
+    if (all(index == AT.globals->settings.render_target_size/2))
+    {
+        debug_pixel = 1;
+    }
+
+    float3 atmo_position = get_atmo_position(AT.globals);
 
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
@@ -456,14 +455,12 @@ void entry_main_cs(
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
-        const float3 atmo_camera_position = AT.globals->camera.position * M_TO_KM_SCALE;
-
         const float3 view_direction = get_view_direction(pixel_ndc.xy);
         float3 point_lights_direct = point_lights_contribution(normal, tri_point.world_position, view_direction, AT.point_lights);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
-            AT.globals->sky_settings_ptr, sun_direction, bottom_atmo_offset_camera_position);
+            sun_direction, atmo_position);
         const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
@@ -471,15 +468,15 @@ void entry_main_cs(
         {
             ambient_occlusion = AT.ao_image.get().Load(index);
         }
-        const float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
+        float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         
-        
-        float3 probe_light = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position + tri_point.world_normal * 0.01f, tri_point.world_normal, AT.tlas.get(), AT.pgi_probe_radiance.get());
-        //float3 probe_light = pgi_sample_sh_rt_occlusion(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, AT.tlas.get(), AT.pgi_sh_probes.get());
-        
+        if (AT.globals.pgi_settings.enabled)
+        {
+            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get());
+        }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (probe_light.rgb * ambient_occlusion);
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion);
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -501,6 +498,13 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index * 10 + meshlet_triangle_index; break;
             case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index; break;
             case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_geo.entity_index; break;
+            case DEBUG_DRAW_MODE_MESH_ID: id_to_visualize = tri_geo.mesh_index; break;
+            case DEBUG_DRAW_MODE_MESH_GROUP_ID:
+            {
+                uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
+                id_to_visualize = mesh_group_index;
+                break;
+            }
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
             {
                 let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
@@ -555,7 +559,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_GI:
             {
-                output_value.rgb = probe_light.rgb;
+                output_value.rgb = indirect_lighting.rgb;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:
@@ -571,7 +575,7 @@ void entry_main_cs(
         }
         if (id_to_visualize != ~0u)
         {
-            output_value.rgb = hsv2rgb(float3(float(id_to_visualize) * 0.1323f, 1, 1));
+            output_value.rgb = hsv2rgb(float3(frac(float(id_to_visualize) * 7.1323f), 1, 1));
         }
     }
     else 
@@ -586,11 +590,11 @@ void entry_main_cs(
             AT.sky,
             AT.globals->samplers.linear_clamp,
             view_direction,
-            bottom_atmo_offset_camera_position
+            atmo_position
         );
         const float3 sun_direct_illuminance = get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
-            AT.globals->sky_settings_ptr, view_direction, bottom_atmo_offset_camera_position);
+            view_direction, atmo_position);
         const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;

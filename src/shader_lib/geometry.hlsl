@@ -37,6 +37,6 @@ struct MaterialPointData
 
 interface LightVisibilityTesterI
 {
-    float sun_light(MaterialPointData material_point);
-    float point_light(MaterialPointData material_point, uint light_index);
+    float sun_light(MaterialPointData material_point, float3 incoming_ray);
+    float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index);
 };

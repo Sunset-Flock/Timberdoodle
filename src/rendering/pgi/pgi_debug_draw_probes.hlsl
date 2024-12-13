@@ -73,7 +73,8 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     let push = draw_debug_probe_p;
     PGISettings settings = push.attach.globals.pgi_settings;
 
-    float3 radiance = pgi_sample_irradiance(push.attach.globals, settings, vertToPix.probe_position, vertToPix.normal, push.attach.tlas.get(), push.attach.probe_radiance.get());
+    float3 view_ray = -vertToPix.normal;
+    float3 radiance = pgi_sample_irradiance_probe(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
 
     return DrawDebugProbesFragmentOut(float4(radiance,1));
 }

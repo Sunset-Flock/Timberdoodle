@@ -11,17 +11,25 @@
 #include "shader_shared/geometry.inl"
 #include "shader_shared/globals.inl"
 
+static const float RAY_MIN_POSITION_OFFSET = 0.001f;
+
+float3 rt_calc_ray_start(float3 position, float3 geo_normal, float3 view_ray)
+{
+    float float_error_scaled_offset = RAY_MIN_POSITION_OFFSET * (max(position.x, max(position.y, position.z)) + 1.0f);
+    return position + (geo_normal - view_ray * 2) * RAY_MIN_POSITION_OFFSET;
+}
+
 float rt_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max)
 {
     RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;
 
-    const float t_min = 0.0f;
+    const float t_min = 0.000f;
 
     RayDesc my_ray = {
         origin,
         t_min,
         dir,
-        t_max,
+        t_max*1.001f,
     };
 
     // Set up a trace.  No work is done yet.
@@ -59,18 +67,20 @@ func rt_get_triangle_geo(
     uint tlas_instance_geometry_triangle_index,
     GPUMesh* meshes,
     uint* entity_to_meshgroup,
-    GPUMeshGroup* mesh_groups) -> TriangleGeometry
+    GPUMeshGroup* mesh_groups,
+    MeshInstance* mesh_instances) -> TriangleGeometry
 {
-    float3 barycentrics = float3(1.0f - (rt_barycentrics.x + rt_barycentrics.y), rt_barycentrics.x, rt_barycentrics.y );
-            
     TriangleGeometry ret = {};
+
+    float3 barycentrics = float3(1.0f - (rt_barycentrics.x + rt_barycentrics.y), rt_barycentrics.x, rt_barycentrics.y );
     ret.barycentrics = barycentrics;
-    ret.entity_index = tlas_instance_index;
-    uint mesh_group_index =  entity_to_meshgroup[ret.entity_index];
-    const GPUMeshGroup* mesh_group = &mesh_groups[mesh_group_index];
-    uint lod = 0;
-    const uint mesh_index = mesh_group->mesh_lod_group_indices[tlas_instance_geometry_index] * MAX_MESHES_PER_LOD_GROUP + lod;
-    ret.mesh_index = mesh_index;
+
+    const uint mesh_instance_index = tlas_instance_index;
+    MeshInstance mesh_instance = mesh_instances[mesh_instance_index];
+    ret.entity_index = mesh_instance.entity_index;
+    ret.mesh_index = mesh_instance.mesh_index;
+    ret.in_mesh_group_index = mesh_instance.in_mesh_group_index;
+    ret.mesh_instance_index = mesh_instance_index;
 
     GPUMesh* mesh = meshes + ret.mesh_index;
     ret.material_index = mesh.material_index;
@@ -171,12 +181,12 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
     RaytracingAccelerationStructure tlas;
     RenderGlobalData* globals;
     float3 origin;
-    float sun_light(MaterialPointData material_point)
+    float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         let sky = globals->sky_settings;
 
         float t_max = 100.0f;
-        float3 start = material_point.position + material_point.geometry_normal * 0.01f;
+        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
         float3 dir = sky.sun_direction;
         float t = rt_free_path(tlas, start, dir, t_max);
 
@@ -184,7 +194,7 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
 
         return path_occluded ? 0.0f : 1.0f;
     }
-    float point_light(MaterialPointData material_point, uint light_index)
+    float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
     {
         return 0.0f;
     }

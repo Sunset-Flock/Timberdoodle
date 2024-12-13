@@ -8,11 +8,6 @@
 
 #define GPU_ASSERTS 1
 
-void debug_draw_line(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
-{
-
-}
-
 #define DEBUG_DRAW(DEBUG_DATA, field, VALUE)\
 {\
     const uint capacity = deref(DEBUG_DATA).field ## _draws.draw_capacity;\

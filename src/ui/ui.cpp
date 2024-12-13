@@ -1185,9 +1185,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
                 "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
                 "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
                 "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
+                "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
+                "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
                 "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
                 "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                "VSM_POINT_MIP_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
                 "DEPTH", // DEBUG_DRAW_MODE_DEPTH
                 "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
                 "NORMAL", // DEBUG_DRAW_MODE_NORMAL
@@ -1202,7 +1205,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
             ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
             ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
             ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&render_data.settings.enable_atomic_visbuffer));
-            ImGui::Checkbox("enable_merged_scene_blas", reinterpret_cast<bool *>(&render_data.settings.enable_merged_scene_blas));
             ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&render_data.settings.enable_rt_pipeline_for_ao));
             ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
             ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
@@ -1215,12 +1217,15 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
             ImGui::SeparatorText("Features");
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
-                ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
-                ImGui::InputInt3("Probe count", &render_data.pgi_settings.probe_count.x);
+                ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 ImGui::InputFloat3("Fixed Probe Center Position", &render_data.pgi_settings.fixed_center_position.x);
                 ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.pgi_settings.fixed_center));
                 ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.pgi_settings.draw_debug_probes));
                 ImGui::InputInt("Prove Surface Resolution", &render_data.pgi_settings.probe_surface_resolution);
+                ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
+                ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
+                ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
+                ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
             }
         }
     }

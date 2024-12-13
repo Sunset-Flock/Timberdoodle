@@ -2,6 +2,7 @@
 
 #include <daxa/daxa.inl>
 #include "../shader_shared/shared.inl"
+#include "../shader_shared/globals.inl"
 
 #define PLANET_RADIUS_OFFSET 0.01
 #define BASE_HEIGHT_OFFSET 3.0
@@ -430,17 +431,28 @@ daxa_f32vec3 get_sun_illuminance(
     return daxa_f32vec3(0.0);
 }
 
+// TODO(SAKY): precalculate value on cpu
+daxa_f32vec3 get_atmo_position(daxa_BufferPtr(RenderGlobalData) globals)
+{
+    const daxa_f32vec3 atmo_camera_position = deref(globals).settings.draw_from_observer == 1 ? 
+        deref(globals).observer_camera.position * M_TO_KM_SCALE :
+        deref(globals).camera.position * M_TO_KM_SCALE;
+    const daxa_f32vec3 bottom_atmo_offset = daxa_f32vec3(0,0, deref(globals).sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
+    const daxa_f32vec3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
+    return bottom_atmo_offset_camera_position;
+}
+
 daxa_f32vec3 get_atmosphere_illuminance_along_ray(
     daxa_BufferPtr(SkySettings) settings,
     daxa_ImageViewId transmittance,
     daxa_ImageViewId sky,
     daxa_SamplerId lin_sampler,
     daxa_f32vec3 ray,
-    daxa_f32vec3 world_position
+    daxa_f32vec3 atmo_position
 )
 {
-    const daxa_f32 height = length(world_position);
-    const daxa_f32mat3x3 basis = build_orthonormal_basis(world_position / height);
+    const daxa_f32 height = length(atmo_position);
+    const daxa_f32mat3x3 basis = build_orthonormal_basis(atmo_position / height);
     ray = mul(ray, basis);
     const daxa_f32vec3 sun_direction = mul(deref(settings).sun_direction, basis);
 

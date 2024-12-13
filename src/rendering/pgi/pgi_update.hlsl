@@ -47,20 +47,19 @@ func entry_update_probes(
     
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
 
-
-    float3 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index].rgb;
-
     int s = settings.probe_surface_resolution;
 
     float3 cosine_convoluted_trace_result = float3(0.0f,0.0f,0.0f);
-    float acc_weight = 0.0f;
+    float acc_weight = settings.cos_wrap_around;
+    float cos_wrap_around = settings.cos_wrap_around;
+    float cos_wrap_around_rcp = rcp(cos_wrap_around + 1.0f);
     for (int y = 0; y < s; ++y)
     {
         for (int x = 0; x < s; ++x)
         {
             float2 sample_uv = (float2(x,y) + 0.5f) * rcp(s);
             float3 sample_normal = pgi_probe_uv_to_probe_normal(sample_uv);
-            float cos_weight = max(0.0f, dot(sample_normal, probe_texel_normal));
+            float cos_weight = max(0.0f, (cos_wrap_around + dot(sample_normal, probe_texel_normal)) * cos_wrap_around_rcp);
             int3 sample_texture_index = probe_texture_base_index + uint3(x,y,0);
             if (cos_weight > 0.0f)
             {
@@ -72,6 +71,6 @@ func entry_update_probes(
     }
     cosine_convoluted_trace_result *= rcp(acc_weight);
 
-
-    push.attach.probe_radiance.get()[probe_texture_index].rgb = lerp(prev_frame_radiance, cosine_convoluted_trace_result, 0.005f);
+    float3 prev_frame_radiance = push.attach.probe_radiance.get()[probe_texture_index].rgb;
+    push.attach.probe_radiance.get()[probe_texture_index].rgb = lerp(prev_frame_radiance, cosine_convoluted_trace_result, 0.01f);
 }

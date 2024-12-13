@@ -162,16 +162,19 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID 2
 #define DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID 3
 #define DEBUG_DRAW_MODE_ENTITY_ID 4
-#define DEBUG_DRAW_MODE_VSM_OVERDRAW 5
-#define DEBUG_DRAW_MODE_VSM_CLIP_LEVEL 6
-#define DEBUG_DRAW_MODE_VSM_POINT_LEVEL 7
-#define DEBUG_DRAW_MODE_DEPTH 8
-#define DEBUG_DRAW_MODE_ALBEDO 9
-#define DEBUG_DRAW_MODE_NORMAL 10
-#define DEBUG_DRAW_MODE_LIGHT 11
-#define DEBUG_DRAW_MODE_AO 12
-#define DEBUG_DRAW_MODE_GI 13
-#define DEBUG_DRAW_MODE_LOD 14
+#define DEBUG_DRAW_MODE_MESH_ID 5
+#define DEBUG_DRAW_MODE_MESH_GROUP_ID 6
+#define DEBUG_DRAW_MODE_MESH_LOD 7
+#define DEBUG_DRAW_MODE_VSM_OVERDRAW 8
+#define DEBUG_DRAW_MODE_VSM_CLIP_LEVEL 9
+#define DEBUG_DRAW_MODE_VSM_POINT_LEVEL 10
+#define DEBUG_DRAW_MODE_DEPTH 11
+#define DEBUG_DRAW_MODE_ALBEDO 12
+#define DEBUG_DRAW_MODE_NORMAL 13
+#define DEBUG_DRAW_MODE_LIGHT 14
+#define DEBUG_DRAW_MODE_AO 15
+#define DEBUG_DRAW_MODE_GI 16
+#define DEBUG_DRAW_MODE_LOD 17
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -196,7 +199,6 @@ struct Settings
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
     daxa_b32 enable_atomic_visbuffer;
-    daxa_b32 enable_merged_scene_blas;
     daxa_b32 enable_rt_pipeline_for_ao;
     daxa_b32 enable_visbuffer_two_pass_culling;
     daxa_b32 enable_separate_compute_meshlet_culling;
@@ -223,20 +225,19 @@ struct Settings
           observer_draw_second_pass{1},
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
-          ao_mode{AO_MODE_RT},
+          ao_mode{AO_MODE_NONE},
           ao_samples{8},
           debug_overdraw_scale{0.1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
           enable_triangle_cull{1},
           enable_atomic_visbuffer{0},
-          enable_merged_scene_blas{0},
           enable_rt_pipeline_for_ao{1},
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
-          lod_acceptable_pixel_error{ 1.0f } 
+          lod_acceptable_pixel_error{ 1.0f }
     {
     }
 #endif

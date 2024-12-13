@@ -152,20 +152,71 @@ func pgi_sample_nearest(
     return accum * rcp(8.0f);
 }
 
+static uint debug_pixel = 0;
+
+func pgi_sample_irradiance_probe(
+    RenderGlobalData* globals,
+    PGISettings settings,
+    float3 shading_normal,
+    Texture2DArray<float4> probes,
+    int3 probe_index) -> float3
+{
+    // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
+    float2 probe_octa_uv = map_octahedral(shading_normal);
+    float2 probe_local_texel = probe_octa_uv * float(settings.probe_surface_resolution);
+    // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
+    int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
+    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_surface_resolution));
+    int3 base_offset = pgi_probe_texture_base_offset(settings, probe_index);
+
+    float3 linearly_filtered_samples = float3(0,0,0);
+    for (int y = 0; y < 2; ++y)
+    for (int x = 0; x < 2; ++x)
+    {
+        int2 xy_sample_offset = int2(x,y);
+        int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
+
+        // Octahedral texel clamping is very strange..
+        if (probe_local_sample_texel.y >= settings.probe_surface_resolution || probe_local_sample_texel.y == -1)
+        {
+            probe_local_sample_texel.y = clamp(probe_local_sample_texel.y, 0, settings.probe_surface_resolution-1);
+            // Mirror x sample when y is out of bounds
+            probe_local_sample_texel.x = settings.probe_surface_resolution - 1 - probe_local_sample_texel.x;
+        }
+        if (probe_local_sample_texel.x >= settings.probe_surface_resolution || probe_local_sample_texel.x == -1)
+        {
+            probe_local_sample_texel.x = clamp(probe_local_sample_texel.x, 0, settings.probe_surface_resolution-1);
+            // Mirror y sample when x is out of bounds
+            probe_local_sample_texel.y = settings.probe_surface_resolution - 1 - probe_local_sample_texel.y;
+        }
+
+        int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
+        float3 sample = probes[sample_texel].rgb;
+        float weight = 
+            (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
+            (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
+        linearly_filtered_samples += weight * sample;
+    }
+    return linearly_filtered_samples;
+}
+
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
     float3 position,
-    float3 direction,
+    float3 geo_normal,
+    float3 shading_normal,
+    float3 view_direction,
     RaytracingAccelerationStructure tlas,
     Texture2DArray<float4> probes
 ) -> float3
 {
-    position += direction * 0.01f;
+    position = rt_calc_ray_start(position, geo_normal, view_direction);
+
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
     int3 base_probe = floor(grid_coord);
     float3 interpolants = frac(grid_coord);
-    float3 probe_normal = direction;
+    float3 probe_normal = geo_normal;
 
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
@@ -179,72 +230,55 @@ func pgi_sample_irradiance(
             for (int x = 0; x < 2; ++x)
             {
                 int3 probe_index = base_probe + int3(x,y,z);
-                float probe_weight = 
-                    (x == 0 ? 1.0f - interpolants.x : interpolants.x) *
-                    (y == 0 ? 1.0f - interpolants.y : interpolants.y) *
-                    (z == 0 ? 1.0f - interpolants.z : interpolants.z);
+                float3 probe_weights = float3(
+                    (x == 0 ? 1.0f - interpolants.x : interpolants.x),
+                    (y == 0 ? 1.0f - interpolants.y : interpolants.y),
+                    (z == 0 ? 1.0f - interpolants.z : interpolants.z)
+                );
+                probe_weights = float3(
+                    smoothstep(0.0f, 1.0f, probe_weights.x),
+                    smoothstep(0.0f, 1.0f, probe_weights.y),
+                    smoothstep(0.0f, 1.0f, probe_weights.z),
+                );
+                float probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
 
                 if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
                 {
                     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
+                    float distance = length(probe_position - position) * 1.02f;
+                    float3 to_probe_direction = normalize(probe_position - position);
 
-                    float distance = length(probe_position - position) * 1.01f;
-                    float3 direction = normalize(probe_position - position);
+                    float smooth_backface_term = (1.0f + dot(shading_normal, to_probe_direction)) * 0.5f;
+                    probe_weight *= smooth_backface_term;
 
-                    float t = rt_free_path(tlas, position, direction, distance);
+                    float t = rt_free_path(tlas, position, to_probe_direction, distance);
                     bool visible = t >= distance;
                     if (!visible) 
                     {
                         continue;
                     }
 
-                    // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
-                    float2 probe_octa_uv = map_octahedral(probe_normal);
-                    float2 probe_local_texel = probe_octa_uv * float(settings.probe_surface_resolution);
-                    // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
-                    int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
-                    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_surface_resolution));
-                    int3 base_offset = pgi_probe_texture_base_offset(settings, probe_index);
-
-                    float3 linearly_filtered_samples = float3(0,0,0);
-                    for (int y = 0; y < 2; ++y)
-                    for (int x = 0; x < 2; ++x)
+                    float3 linearly_filtered_samples = pgi_sample_irradiance_probe(
+                        globals,
+                        settings,
+                        shading_normal,
+                        probes,
+                        probe_index
+                    );
+                    
+                    if (debug_pixel)
                     {
-                        int2 xy_sample_offset = int2(x,y);
-                        int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
-
-                        // Octahedral texel clamping is very strange..
-                        if (probe_local_sample_texel.y >= settings.probe_surface_resolution || probe_local_sample_texel.y == -1)
-                        {
-                            probe_local_sample_texel.y = clamp(probe_local_sample_texel.y, 0, settings.probe_surface_resolution-1);
-                            // Mirror x sample when y is out of bounds
-                            probe_local_sample_texel.x = settings.probe_surface_resolution - 1 - probe_local_sample_texel.x;
-                        }
-                        if (probe_local_sample_texel.x >= settings.probe_surface_resolution || probe_local_sample_texel.x == -1)
-                        {
-                            probe_local_sample_texel.x = clamp(probe_local_sample_texel.x, 0, settings.probe_surface_resolution-1);
-                            // Mirror y sample when x is out of bounds
-                            probe_local_sample_texel.y = settings.probe_surface_resolution - 1 - probe_local_sample_texel.y;
-                        }
-
-                        int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
-                        float3 sample = probes[sample_texel].rgb;
-                        float weight = 
-                            (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
-                            (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
-                        linearly_filtered_samples += weight * sample;
+                        ShaderDebugLineDraw line = {};
+                        line.start = position;
+                        line.end = probe_position;
+                        line.color = linearly_filtered_samples.rgb;
+                        debug_draw_line(globals.debug, line);
+                        line.start = probe_position;
+                        line.end = probe_position + probe_normal * 0.2;
+                        line.color = linearly_filtered_samples.rgb;
+                        debug_draw_line(globals.debug, line);
                     }
-                    //if (any(int2(probe_local_texel) == int2(5,5)))
-                    //{
-                    //    linearly_filtered_samples = float3(1,0,0);
-                    //}
 
-                    //linearly_filtered_samples = float3(probe_octa_uv,0);//float3(float2(probe_local_base_texel + 1+1) * rcp(8), 0);
-
-                    //float2 octa_index = floor(float(settings.probe_surface_resolution) * map_octahedral(probe_normal));
-                    //uint3 probe_texture_base_index = pgi_probe_texture_base_offset(globals.pgi_settings, probe_index);
-                    //uint3 probe_texture_index = probe_texture_base_index + uint3(octa_index.x, octa_index.y, 0);
-                    //float4 probe_fetch = probes[probe_texture_index];
                     accum += probe_weight * linearly_filtered_samples.rgb;
                     weight_accum += probe_weight;
                 }

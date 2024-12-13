@@ -237,31 +237,19 @@ void ray_gen()
 [shader("anyhit")]
 void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    
+    let push = rt_ao_push;
     const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const uint geometry_index = GeometryIndex();
-    const uint primitive_index = PrimitiveIndex() * 3;
+    const uint primitive_index = PrimitiveIndex();
     GPUMesh *mesh = {};
-    if(rt_ao_push.attach.globals.settings.enable_merged_scene_blas)
-    {
-        let geo_indirect_info = rt_ao_push.attach.geo_inst_indirections[geometry_index];
-        mesh = &rt_ao_push.attach.meshes[geo_indirect_info.mesh_index];
-    }
-    else
-    {
-        const uint entity_index = InstanceID();
-        const uint mesh_group_index = rt_ao_push.attach.entity_to_meshgroup[entity_index];
-        const GPUMeshGroup * mesh_group = &rt_ao_push.attach.mesh_groups[mesh_group_index];
-        // TODO: We always select the most detailed lod here.
-        const uint lod = 0;
-        const uint mesh_index = mesh_group->mesh_lod_group_indices[geometry_index] * MAX_MESHES_PER_LOD_GROUP + lod;
-        mesh = rt_ao_push.attach.meshes + mesh_index;
-    }
+    
+    const uint mesh_instance_index = InstanceID();
+    MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
+    mesh = push.attach.meshes + mesh_instance->mesh_index;
 
     const int primitive_indices[3] = {
-        mesh.primitive_indices[primitive_index],
-        mesh.primitive_indices[primitive_index + 1],
-        mesh.primitive_indices[primitive_index + 2],
+        mesh.primitive_indices[3 * primitive_index],
+        mesh.primitive_indices[3 * primitive_index + 1],
+        mesh.primitive_indices[3 * primitive_index + 2],
     };
 
     const float2 uvs[3] = {
@@ -270,7 +258,7 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
         mesh.vertex_uvs[primitive_indices[2]],
     };
     const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y* (uvs[2] - uvs[0]);
-    const GPUMaterial *material = &rt_ao_push.attach.material_manifest[mesh.material_index];
+    const GPUMaterial *material = &push.attach.material_manifest[mesh.material_index];
     
     if (mesh.material_index == INVALID_MANIFEST_INDEX)
     {
@@ -282,7 +270,7 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     if(has_opacity_texture && alpha_discard_enabled)
     {
         let oppacity_tex = Texture2D<float>::get(material.opacity_texture_id);
-        let oppacity = oppacity_tex.SampleLevel(SamplerState::get(rt_ao_push.attach.globals->samplers.linear_repeat), interp_uv, 2).r;
+        let oppacity = oppacity_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 2).r;
         if(oppacity < 0.5) {
             IgnoreHit();
         }

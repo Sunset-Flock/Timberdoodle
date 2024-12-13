@@ -83,10 +83,12 @@ struct MeshLodGroupManifestEntry
     u32 asset_local_primitive_index = {};
     u32 mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
+    std::string name = {}; // TODO(pahrens): fill out.
 
     struct Runtime
     {
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+        std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
         daxa_u32 lod_count = {};
     };
     std::optional<Runtime> runtime = {};
@@ -203,6 +205,7 @@ struct Scene
     std::vector<ModifiedEntityInfo> _modified_render_entities = {};
 
     std::vector<u32> _newly_completed_mesh_groups = {};
+    std::vector<u32> _mesh_as_build_queue = {};
     /**
      * NOTES:
      * -    growing and initializing the manifest on the gpu is recorded in the scene,
@@ -220,8 +223,13 @@ struct Scene
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
     daxa::TaskBuffer _gpu_material_manifest = {};
     daxa::TaskBuffer _gpu_scratch_buffer = {};
+    daxa::TaskBuffer _gpu_mesh_acceleration_structure_build_scratch_buffer = {};
+    daxa::TaskBuffer _gpu_tlas_build_scratch_buffer = {};
     static constexpr u32 _gpu_scratch_buffer_size = 1u << 28u;
+    static constexpr u32 _gpu_mesh_acceleration_structure_build_scratch_buffer_size = 1u << 28u;
+    static constexpr u32 _gpu_tlas_build_scratch_buffer_size = 1u << 24u;
     static constexpr u32 _indirections_count = (1 << 26);
+    static constexpr u32 MAX_MESH_BLAS_BUILDS_PER_FRAME = 64;
     std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
     std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
@@ -281,9 +289,8 @@ struct Scene
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
 
-    auto create_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
-    auto create_merged_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList;
-
+    auto create_mesh_acceleration_structures() -> daxa::ExecutableCommandList;
+    auto create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instances) -> daxa::ExecutableCommandList;
 
     /// --- Transient Processes ---
 
@@ -293,5 +300,5 @@ struct Scene
     daxa::TaskBuffer mesh_instances_buffer = {};
     bool entities_changed = {};
     auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;
-    void write_gpu_mesh_instances_buffer(CPUMeshInstances && mesh_instances);
+    void write_gpu_mesh_instances_buffer(CPUMeshInstances const& mesh_instances);
 };

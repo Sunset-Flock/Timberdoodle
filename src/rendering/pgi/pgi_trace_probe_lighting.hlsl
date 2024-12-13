@@ -74,7 +74,7 @@ void entry_ray_gen()
     ray.Direction = probe_normal;
     ray.Origin = probe_position;
     ray.TMax = 1000.0f;
-    ray.TMin = 0.01f;
+    ray.TMin = 0.0f;
 
     RayPayload payload;
 
@@ -88,17 +88,11 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
 {
     let push = pgi_trace_probe_lighting_push;
     const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const uint geometry_index = GeometryIndex();
     const uint primitive_index = PrimitiveIndex() * 3;
     GPUMesh *mesh = {};
-
-    const uint entity_index = InstanceID();
-    const uint mesh_group_index = push.attach.globals.scene.entity_to_meshgroup[entity_index];
-    const GPUMeshGroup * mesh_group = &push.attach.globals.scene.mesh_groups[mesh_group_index];
-    // TODO: We always select the most detailed lod here.
-    const uint lod = 0;
-    const uint mesh_index = mesh_group->mesh_lod_group_indices[geometry_index] * MAX_MESHES_PER_LOD_GROUP + lod;
-    mesh = push.attach.globals.scene.meshes + mesh_index;
+    const uint mesh_instance_index = InstanceID();
+    MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
+    mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
 
     const int primitive_indices[3] = {
         mesh.primitive_indices[primitive_index],
@@ -138,6 +132,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     payload.hit = true;
 
     float3 hit_point = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+    MeshInstance* mi = push.attach.mesh_instances.instances;
     TriangleGeometry tri_geo = rt_get_triangle_geo(
         attr.barycentrics,
         InstanceID(),
@@ -145,7 +140,8 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         PrimitiveIndex(),
         push.attach.globals.scene.meshes,
         push.attach.globals.scene.entity_to_meshgroup,
-        push.attach.globals.scene.mesh_groups
+        push.attach.globals.scene.mesh_groups,
+        mi
     );
     TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
         tri_geo,
@@ -161,7 +157,16 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     );
     RTLightVisibilityTester light_vis_tester = RTLightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
     light_vis_tester.origin = WorldRayOrigin();
-    payload.color_depth.rgb = shade_material(push.attach.globals, material_point, WorldRayDirection(), light_vis_tester, push.attach.probe_radiance.get(), push.attach.tlas.get()).rgb;
+    payload.color_depth.rgb = shade_material(
+        push.attach.globals, 
+        push.attach.sky_transmittance,
+        push.attach.sky,
+        material_point, 
+        WorldRayDirection(), 
+        light_vis_tester, 
+        push.attach.probe_radiance.get(), 
+        push.attach.tlas.get()
+    ).rgb;
 
     payload.color_depth.a = RayTCurrent();
 }

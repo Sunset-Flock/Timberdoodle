@@ -11,6 +11,7 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/raytracing.inl"
+#include "../../shader_shared/geometry_pipeline.inl"
 
 #define RT_AO_X 8
 #define RT_AO_Y 8
@@ -30,7 +31,7 @@ DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_to_meshgroup)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), mesh_groups)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), combined_transforms)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MergedSceneBlasIndirection), geo_inst_indirections)
+DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_TLAS_ID(RAY_TRACING_SHADER_READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 

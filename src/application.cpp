@@ -45,7 +45,7 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    //std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies3.gltf";
@@ -134,7 +134,7 @@ auto Application::run() -> i32
 void Application::update()
 {
     // TODO(msakmary) HACKY - fix this
-    // =========================================================================
+    // ===== Saky's Ball =====
     {
         auto mat_4x3_to_4x4 = [](glm::mat4x3 const & transform) -> glm::mat4x4
         {
@@ -184,26 +184,36 @@ void Application::update()
             }
         }
     }
-    // =========================================================================
+    // ===== Saky's Ball =====
+
+    // ===== Process Render Entities, Generate Mesh Instances =====
+
+    auto frame_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
+
+    // ===== Process Render Entities, Generate Mesh Instances =====
+
+    // ===== Update GPU Scene Buffers =====
+
+    _scene->write_gpu_mesh_instances_buffer(frame_mesh_instances);
+
+    usize cmd_list_count = 0ull;
+    std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
-    auto manifest_update_commands = _scene->record_gpu_manifest_update({
+    cmd_lists.at(cmd_list_count++) = std::move(asset_data_upload_info.upload_commands);
+    
+    cmd_lists.at(cmd_list_count++) = _scene->record_gpu_manifest_update({
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-    auto tmp_cpu_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
-    _scene->write_gpu_mesh_instances_buffer(std::move(tmp_cpu_mesh_instances));
 
-    bool const merged_blas = _renderer->render_context->render_data.settings.enable_merged_scene_blas;
-    auto rt_merged_update_commands = _scene->create_merged_as_and_record_build_commands(merged_blas);
-    auto rt_update_commands = _scene->create_as_and_record_build_commands(!merged_blas);
-    auto cmd_lists = std::array{
-        std::move(asset_data_upload_info.upload_commands),
-        std::move(manifest_update_commands),
-        std::move(rt_merged_update_commands),
-        std::move(rt_update_commands),
-    };
-    _gpu_context->device.submit_commands({.command_lists = cmd_lists});
+    cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
+    cmd_lists.at(cmd_list_count++) = _scene->create_tlas_from_mesh_instances(frame_mesh_instances);
+    _gpu_context->device.submit_commands({.command_lists = std::span{cmd_lists.data(), cmd_list_count}});
+
+    // ===== Update GPU Scene Buffers =====
+
+    // ===== Input Handling =====
 
     app_state.reset_observer = false;
     if (_window->size.x == 0 || _window->size.y == 0)
@@ -262,6 +272,8 @@ void Application::update()
         _renderer->render_context->render_data.settings.draw_from_observer = static_cast<u32>(false);
         app_state.observer_camera_controller = app_state.camera_controller;
     }
+
+    // ===== Input Handling =====
 }
 
 

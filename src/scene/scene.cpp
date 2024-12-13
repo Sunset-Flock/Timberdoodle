@@ -13,6 +13,7 @@
 
 #include "../shader_shared/raytracing.inl"
 #include "../shader_shared/scene.inl"
+#include "mesh_lod.hpp"
 
 Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     : _device{std::move(device)}, gpu_context{gpu_context}
@@ -30,6 +31,8 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _gpu_point_lights = tido::make_task_buffer(_device, sizeof(GPUPointLight) * MAX_POINT_LIGHTS, "_gpu_point_lights", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
+    _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
+    _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
     mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
     _scene_tlas = daxa::TaskTlas{
         {
@@ -62,6 +65,10 @@ Scene::~Scene()
             for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
             {
                 _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
+                if (!mesh.runtime.value().blas_lods[lod].is_empty())
+                {
+                    _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
+                }
             }
         }
     }
@@ -1025,6 +1032,11 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
                 .lods = upload.lods,
                 .lod_count = upload.lod_count,
             };
+            for (u32 i = 0; i < upload.lod_count; ++i)
+            {
+                u32 mesh_index = upload.mesh_lod_manifest_index * MAX_MESHES_PER_LOD_GROUP + i;
+                scene._mesh_as_build_queue.push_back(mesh_index);
+            }
             // Check if all meshes in a meshgroup are loaded
             auto & mesh_lod_group = scene._mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index);
             // Incrementing loaded mesh count in mesh group
@@ -1211,79 +1223,69 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
     }
 }
 
-auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::ExecutableCommandList
+auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 {
-    auto get_aligned = [&](u64 to_align, u64 alignment) -> u64
-    {
-        return ((to_align + (alignment - 1)) & ~(alignment - 1));
-    };
-
     auto const scratch_buffer_offset_alignment =
         _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
 
     u32 current_scratch_buffer_offset = 0;
-    auto const scratch_device_address = _device.buffer_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
-    std::vector<std::vector<daxa::BlasTriangleGeometryInfo>> build_geometries = {};
+    auto const scratch_device_address = _device.buffer_device_address(_gpu_mesh_acceleration_structure_build_scratch_buffer.get_state().buffers[0]).value();
+    std::vector<daxa::BlasTriangleGeometryInfo> build_geometries = {};
+    // Reserve is nessecary to avoid memory resising.
+    // We store pointers to the vector memory elsewhere, IT MUST NOT REALLOCATE!
+    build_geometries.reserve(MAX_MESH_BLAS_BUILDS_PER_FRAME);
     std::vector<daxa::BlasBuildInfo> build_infos = {};
-    while (!_newly_completed_mesh_groups.empty())
+    while (!_mesh_as_build_queue.empty() && build_geometries.size() < MAX_MESH_BLAS_BUILDS_PER_FRAME)
     {
-        auto const mesh_group_index = _newly_completed_mesh_groups.back();
+        auto const mesh_index = _mesh_as_build_queue.back();
+        auto const lod = mesh_index % MAX_MESHES_PER_LOD_GROUP;
+        auto const lod_group_index = mesh_index / MAX_MESHES_PER_LOD_GROUP;
+        MeshLodGroupManifestEntry & mesh_lod_group = _mesh_lod_group_manifest.at(lod_group_index);
 
-        auto & mesh_group = _mesh_group_manifest.at(mesh_group_index);
-
-        std::vector<daxa::BlasTriangleGeometryInfo> geometries = {};
-        geometries.reserve(mesh_group.mesh_lod_group_count);
-        auto const mesh_lod_group_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
-
-        for (u32 in_group_index = 0; in_group_index < mesh_group.mesh_lod_group_count; in_group_index++)
+        bool is_alpha_discard = false;
+        if (mesh_lod_group.material_index.has_value())
         {
-            u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_lod_group_indices_meshgroup_offset + in_group_index);
-            auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
-
-            bool is_alpha_discard = false;
-            if (mesh_lod_group.material_index.has_value())
-            {
-                is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
-            }
-
-            GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[0];
-
-            geometries.push_back({
-                .vertex_data = mesh.vertex_positions,
-                .max_vertex = mesh.vertex_count - 1,
-                .index_data = mesh.primitive_indices,
-                .count = static_cast<daxa_u32>(mesh.primitive_count),
-                .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
-            });
+            is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
         }
 
+        GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[lod];
+
+        // Must store geometries in vector as the memory address must persist for outside of the loop!
+        build_geometries.push_back(daxa::BlasTriangleGeometryInfo{
+            .vertex_data = mesh.vertex_positions,
+            .max_vertex = mesh.vertex_count - 1,
+            .index_data = mesh.primitive_indices,
+            .count = static_cast<daxa_u32>(mesh.primitive_count),
+            .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
+        });
+        auto& geometry = build_geometries.back();
         daxa::BlasBuildInfo blas_build_info = daxa::BlasBuildInfo{
             .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE |
                      daxa::AccelerationStructureBuildFlagBits::ALLOW_DATA_ACCESS,
             .geometries = daxa::Span<daxa::BlasTriangleGeometryInfo const>(
-                geometries.data(), geometries.size()),
+                &geometry, 1ull),
         };
 
         auto const build_size_info = _device.blas_build_sizes(blas_build_info);
-        u64 aligned_scratch_size = get_aligned(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
-        DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_scratch_buffer_size,
+        u64 aligned_scratch_size = round_up_to_multiple(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
+        DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_mesh_acceleration_structure_build_scratch_buffer_size,
             "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
  
-        bool const fits_scratch = (current_scratch_buffer_offset + aligned_scratch_size <= _gpu_scratch_buffer_size);
+        bool const fits_scratch = (current_scratch_buffer_offset + aligned_scratch_size <= _gpu_mesh_acceleration_structure_build_scratch_buffer_size);
         if (!fits_scratch) { break; }
 
         blas_build_info.scratch_data = scratch_device_address + current_scratch_buffer_offset;
         current_scratch_buffer_offset += aligned_scratch_size;
-        auto const aligned_accel_structure_size = get_aligned(build_size_info.acceleration_structure_size, 256);
-        mesh_group.blas = _device.create_blas({
+        auto const aligned_accel_structure_size = round_up_to_multiple(build_size_info.acceleration_structure_size, 256);
+        auto blas = _device.create_blas({
             .size = aligned_accel_structure_size,
-            .name = mesh_group.name,
+            .name = mesh_lod_group.name,
         });
-        blas_build_info.dst_blas = mesh_group.blas;
+        blas_build_info.dst_blas = blas;
+        mesh_lod_group.runtime->blas_lods[lod] = blas;
 
-        build_geometries.push_back(std::move(geometries));
         build_infos.push_back(std::move(blas_build_info));
-        _newly_completed_mesh_groups.pop_back();
+        _mesh_as_build_queue.pop_back();
     }
 
     auto recorder = _device.create_command_recorder({});
@@ -1297,47 +1299,37 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         .dst_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ,
     });
 
-    if (!build_tlas) { return recorder.complete_current_commands(); }
+    return recorder.complete_current_commands();
+}
+
+auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instances) -> daxa::ExecutableCommandList
+{
+    auto recorder = _device.create_command_recorder({});
 
     std::vector<daxa_BlasInstanceData> blas_instances = {};
-    for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
+    for (u32 mesh_inst_i = 0; mesh_inst_i < mesh_instances.mesh_instances.size(); ++mesh_inst_i)
     {
-        RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
-        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
-        {
-            MeshGroupManifestEntry const & m_entry = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-            if (m_entry.blas.is_empty())
-            {
-                continue;
-            }
+        MeshInstance const& mesh_instance =  mesh_instances.mesh_instances[mesh_inst_i];
+        auto const lod = mesh_instance.mesh_index % MAX_MESHES_PER_LOD_GROUP;
+        auto const lod_group = mesh_instance.mesh_index / MAX_MESHES_PER_LOD_GROUP;
 
-            auto const mesh_lod_group_indices_meshgroup_offset = m_entry.mesh_lod_group_manifest_indices_array_offset;
-            bool is_alpha_discard = false;
-            for (i32 in_group_index = 0; in_group_index < m_entry.mesh_lod_group_count; in_group_index++)
-            {
-                u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_lod_group_indices_meshgroup_offset + in_group_index);
-                auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
-                
-                if (mesh_lod_group.material_index.has_value())
-                {
-                    is_alpha_discard |= _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
-                }
-            }
+        if (!_mesh_lod_group_manifest[lod_group].runtime.has_value()) { continue; }
+        if (_mesh_lod_group_manifest[lod_group].runtime.value().blas_lods[lod].is_empty()) { continue; }
 
-            auto const t = r_ent->combined_transform;
-            blas_instances.push_back(daxa_BlasInstanceData{
-                .transform = {
-                    {t[0][0], t[1][0], t[2][0], t[3][0]},
-                    {t[0][1], t[1][1], t[2][1], t[3][1]},
-                    {t[0][2], t[1][2], t[2][2], t[3][2]},
-                },
-                .instance_custom_index = entity_i,
-                .mask = 0xFF,
-                .instance_shader_binding_table_record_offset = is_alpha_discard ? 1u : 0u,
-                .flags = 0,
-                .blas_device_address = _device.blas_device_address(m_entry.blas).value(),
-            });
-        }
+        RenderEntity const* render_entity = _render_entities.slot_by_index(mesh_instance.entity_index);
+        auto const& t = render_entity->combined_transform;
+        blas_instances.push_back(daxa_BlasInstanceData{
+            .transform = {
+                {t[0][0], t[1][0], t[2][0], t[3][0]},
+                {t[0][1], t[1][1], t[2][1], t[3][1]},
+                {t[0][2], t[1][2], t[2][2], t[3][2]},
+            },
+            .instance_custom_index = mesh_inst_i,
+            .mask = 0xFF,
+            .instance_shader_binding_table_record_offset = ((mesh_instance.flags & MESH_INSTANCE_FLAG_MASKED) != 0) ? 1u : 0u,
+            .flags = 0,
+            .blas_device_address = _device.blas_device_address(_mesh_lod_group_manifest[lod_group].runtime.value().blas_lods[lod]).value(),
+        });
     }
 
     daxa::BufferId blas_instances_buffer = {};
@@ -1386,223 +1378,10 @@ auto Scene::create_as_and_record_build_commands(bool const build_tlas) -> daxa::
         .latest_access = daxa::AccessConsts::NONE,
     });
 
-    DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_scratch_buffer_size,
-        "[ERROR][Scene::create_and_record_build_as] Tlas too big for scratch buffer - create bigger scratch buffer");
+    DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_tlas_build_scratch_buffer_size,
+        "[ERROR][Scene::create_tlas_from_mesh_instances] Tlas too big for scratch buffer - create bigger scratch buffer");
 
-    tlas_build_info.dst_tlas = scene_tlas_id;
-    tlas_build_info.scratch_data = scratch_device_address;
-
-    recorder.build_acceleration_structures({.tlas_build_infos = std::array{tlas_build_info}});
-    recorder.pipeline_barrier({
-        .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ_WRITE,
-        .dst_access = daxa::AccessConsts::READ_WRITE,
-    });
-
-    return recorder.complete_current_commands();
-}
-
-auto Scene::create_merged_as_and_record_build_commands(bool const create_tlas) -> daxa::ExecutableCommandList
-{
-    auto get_aligned = [&](u64 to_align, u64 alignment) -> u64
-    {
-        return ((to_align + (alignment - 1)) & ~(alignment - 1));
-    };
-
-    auto recorder = _device.create_command_recorder({});
-    return recorder.complete_current_commands();
-    auto const scratch_device_address = _device.buffer_device_address(_gpu_scratch_buffer.get_state().buffers[0]).value();
-    if (!_newly_completed_mesh_groups.empty())
-    {
-
-        auto indirections = std::span{
-            _device.buffer_host_address_as<MergedSceneBlasIndirection>(_scene_as_indirections.get_state().buffers[0]).value(),
-            _indirections_count,
-        };
-
-        auto const scratch_buffer_offset_alignment =
-            _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
-
-        u32 geometry_count = 0;
-        u32 active_entities = 0;
-
-        for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
-        {
-            RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
-            if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
-            {
-                auto const & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-                if (mesh_group.loaded_mesh_lod_groups != mesh_group.mesh_lod_group_count)
-                {
-                    continue;
-                }
-                active_entities += 1;
-            }
-        }
-        if (active_entities == 0)
-        {
-            return _device.create_command_recorder({}).complete_current_commands();
-        }
-
-        std::vector<daxa::BlasTriangleGeometryInfo> build_geometries = {};
-        build_geometries.reserve(active_entities);
-
-        daxa::BufferId geometry_transforms_buf = _device.create_buffer({
-            .size = sizeof(daxa_f32mat3x4) * active_entities,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-            .name = "as build geometry transforms",
-        });
-        recorder.destroy_buffer_deferred(geometry_transforms_buf);
-        u64 geometry_transforms_device_address = _device.buffer_device_address(geometry_transforms_buf).value();
-        auto geometry_transforms = std::span{
-            _device.buffer_host_address_as<daxa_f32mat3x4>(geometry_transforms_buf).value(),
-            active_entities,
-        };
-
-        u32 active_entity_offset = 0;
-        for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
-        {
-            RenderEntity const * r_ent = _render_entities.slot_by_index(entity_i);
-            if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
-            {
-                if (!r_ent->mesh_group_manifest_index.has_value())
-                {
-                    continue;
-                }
-                auto const & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
-                if (mesh_group.loaded_mesh_lod_groups != mesh_group.mesh_lod_group_count)
-                {
-                    continue;
-                }
-
-                geometry_transforms[active_entity_offset] = std::bit_cast<daxa_f32mat3x4>(glm::transpose(r_ent->combined_transform));
-
-                build_geometries.reserve(mesh_group.mesh_lod_group_count);
-                auto const mesh_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
-                for (u32 in_mesh_group_index = 0; in_mesh_group_index < mesh_group.mesh_lod_group_count; in_mesh_group_index++)
-                {
-                    u32 const mesh_lod_group_manifest_index = _mesh_lod_group_manifest_indices.at(mesh_indices_meshgroup_offset + in_mesh_group_index);
-                    auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
-                    bool is_alpha_discard = false;
-                    if (mesh_lod_group.material_index.has_value())
-                    {
-                        is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
-                    }
-
-                    // TODO: build blas per lod of all the meshes in the mesh group.
-                    // TODO: this requires all meshes in a mesh group to lod together!
-                    GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[0];
-
-                    build_geometries.push_back({
-                        .vertex_data = mesh.vertex_positions,
-                        .max_vertex = mesh.vertex_count - 1,
-                        .index_data = mesh.primitive_indices,
-                        .transform_data = geometry_transforms_device_address + sizeof(daxa_f32mat3x4) * active_entity_offset,
-                        .count = static_cast<daxa_u32>(mesh.primitive_count),
-                        .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
-                    });
-
-                    indirections[build_geometries.size() - 1] = MergedSceneBlasIndirection{
-                        .entity_index = entity_i,
-                        .mesh_group_index = r_ent->mesh_group_manifest_index.value(),
-                        .mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP,
-                        .in_mesh_group_index = in_mesh_group_index,
-                    };
-                }
-                active_entity_offset += 1;
-            }
-        }
-
-        daxa::BlasBuildInfo blas_build_info = daxa::BlasBuildInfo{
-            .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE,
-            .geometries = daxa::Span<daxa::BlasTriangleGeometryInfo const>(build_geometries.data(), build_geometries.size()),
-        };
-
-        auto const build_size_info = _device.blas_build_sizes(blas_build_info);
-        u64 aligned_scratch_size = get_aligned(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
-        daxa::BufferId scratch_buffer = _device.create_buffer({
-            .size = aligned_scratch_size,
-            .name = "Global blas scratch buffer",
-        });
-        recorder.destroy_buffer_deferred(scratch_buffer);
-
-        blas_build_info.scratch_data = _device.buffer_device_address(scratch_buffer).value();
-        auto const aligned_accel_structure_size = get_aligned(build_size_info.acceleration_structure_size, 256);
-        if (!_scene_blas.is_empty())
-        {
-            _device.destroy_blas(_scene_blas);
-        }
-
-        _scene_blas = _device.create_blas({.size = aligned_accel_structure_size,
-            .name = "Global blas"});
-        blas_build_info.dst_blas = _scene_blas;
-
-        recorder.build_acceleration_structures({.blas_build_infos = {&blas_build_info, 1}});
-    }
-    recorder.pipeline_barrier({
-        .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_WRITE,
-        .dst_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ,
-    });
-
-    if (_scene_blas.is_empty())
-    {
-        return recorder.complete_current_commands();
-    }
-
-    if (!create_tlas) { return recorder.complete_current_commands(); }
-
-    daxa_BlasInstanceData blas_instance = daxa_BlasInstanceData{
-        .transform = {
-            {1.0f, 0.0f, 0.0f, 0.0f},
-            {0.0f, 1.0f, 0.0f, 0.0f},
-            {0.0f, 0.0f, 1.0f, 0.0f},
-        },
-        .instance_custom_index = 0,
-        .mask = 0xFF,
-        .instance_shader_binding_table_record_offset = 1,
-        .blas_device_address = _device.blas_device_address(_scene_blas).value(),
-    };
-
-    daxa::BufferId blas_instances_buffer = _device.create_buffer({
-        .size = sizeof(daxa_BlasInstanceData),
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-        .name = "blas instances buffer",
-    });
-    recorder.destroy_buffer_deferred(blas_instances_buffer);
-
-    std::memcpy(_device.buffer_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(), &blas_instance, sizeof(daxa_BlasInstanceData));
-
-    auto tlas_blas_instances_info = daxa::TlasInstanceInfo{
-        .data = _device.buffer_device_address(blas_instances_buffer).value(),
-        .count = 1u,
-        .is_data_array_of_pointers = false,
-        .flags = daxa::GeometryFlagBits::NONE,
-    };
-
-    auto tlas_build_info = daxa::TlasBuildInfo{
-        .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE,
-        .instances = std::array{tlas_blas_instances_info},
-    };
-
-    daxa::AccelerationStructureBuildSizesInfo const tlas_build_sizes = _device.get_tlas_build_sizes(tlas_build_info);
-
-    if (_scene_tlas.get_state().tlas[0] != gpu_context->dummy_tlas_id)
-    {
-        _device.destroy_tlas(_scene_tlas.get_state().tlas[0]);
-    }
-
-    auto scene_tlas_id = _device.create_tlas({
-        .size = tlas_build_sizes.acceleration_structure_size,
-        .name = "scene tlas",
-    });
-
-    _scene_tlas.set_tlas({
-        .tlas = std::array{scene_tlas_id},
-        .latest_access = daxa::AccessConsts::NONE,
-    });
-
-    DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_scratch_buffer_size,
-        "[ERROR][Scene::create_and_record_build_as] Tlas too big for scratch buffer - create bigger scratch buffer");
-
+    daxa::DeviceAddress scratch_device_address = _device.buffer_device_address(_gpu_tlas_build_scratch_buffer.get_state().buffers[0]).value();
     tlas_build_info.dst_tlas = scene_tlas_id;
     tlas_build_info.scratch_data = scratch_device_address;
 
@@ -1631,7 +1410,8 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
 
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
         {
-            MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(r_ent->mesh_group_manifest_index.value());
+            usize mesh_group_index = r_ent->mesh_group_manifest_index.value();
+            MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(mesh_group_index);
             bool const is_mesh_group_loaded = (mesh_group.loaded_mesh_lod_groups == mesh_group.mesh_lod_group_count);
             bool const is_mesh_group_just_loaded = !mesh_group.fully_loaded_last_frame && is_mesh_group_loaded;
             mesh_group.fully_loaded_last_frame = is_mesh_group_loaded;
@@ -1669,83 +1449,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
                     if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
 
-                    /// ===== Select LOD ======
-                    // To select the lod we use calculate an acceptable error for each mesh transformed in world position.
-                    // We then calculate the error that each lod would have and select the highest lod that is lower than the acceptable error.
-                    // Error:
-                    //   Lod error is a value from 0-1.
-                    //   Its the mean squared error of mesh surface positions compared to lod0
-                    //   The unit of the error is model space difference divided by model world space size, so it is irrelevant how large the model is in worldspace.
-                    // Error Estimation for Lod Selection
-                    //   We can very coarsely calculate how many pixels would change from a lod change:
-                    //   - mesh lod aabb pixel size * mesh lod error
-                    //   We can then determine a pixel error that we do not want to overstep, lets say 2 or 4.
-                    //   We calculate the pixel error for each lod and pick the highest one with acceptable error.
-                    // Off screen handling
-                    //   We still want meshes loded properly if they are off screen
-                    //   Important for raytracing
-                    //   Important for shadowmaps
-                    //   Because of this we can not simply project the aabb into viewspace and calculate the real pixel coverage.
-                    //   Instead, a simplified method will be used to estimate a rough pixel size each mesh would be, 
-                    //   based on distance, fov and resolution only, no projection.
-                    // Mesh Pixel Size Approximation
-                    //   This should be VERY fast to be able to handle tens of thousands of meshes
-                    //   It can be very coarse, we can investigate finer lodding later
-                    /// ===== Select LOD ======
-
-                    // Iterate over lods, calculate estimated pixel error, select last lod with acceptable error.
-                    u32 selected_lod_lod = 0;
-
-                    if (render_data.settings.lod_override >= 0)
-                    {
-                        selected_lod_lod = std::min(static_cast<u32>(render_data.settings.lod_override), mesh_lod_group.runtime->lod_count - 1u);
-                    }
-                    else
-                    {
-                        for (u32 lod = 1; lod < mesh_lod_group.runtime->lod_count; ++lod)
-                        {
-                            GPUMesh const & mesh = mesh_lod_group.runtime->lods[lod]; 
-                            f32 const aabb_extent_x = length(r_ent->combined_transform[0]) * mesh.aabb.size.x;
-                            f32 const aabb_extent_y = length(r_ent->combined_transform[1]) * mesh.aabb.size.y;
-                            f32 const aabb_extent_z = length(r_ent->combined_transform[2]) * mesh.aabb.size.z;
-                            f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
-
-                            glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh.aabb.center), 1.0f);
-                            f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.camera.position)) - 0.5f * aabb_rough_extent);
-
-                            f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
-
-                            // Assumes a 90 fov camera for simplicity
-                            f32 const fov90_distance_to_screen_ratio = 2.0f;
-                            f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
-                            f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
-                            f32 const rough_aabb_pixel_size = aabb_size_at_1m / pixel_size_at_1m;
-
-                            f32 const rough_pixel_error = rough_aabb_pixel_size * mesh.lod_error;
-                            if (rough_pixel_error < render_data.settings.lod_acceptable_pixel_error)
-                            {
-                                selected_lod_lod = lod;
-                            }
-                            else
-                            {
-                                break;
-                            }
-
-                            // gpu_context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
-                            //     .position = std::bit_cast<daxa_f32vec3>(aabb_center),
-                            //     .size = daxa_f32vec3(aabb_extent_x, aabb_extent_y, aabb_extent_z),
-                            //     .color = daxa_f32vec3(1, 0, 0),
-                            //     .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
-                            // });
-                        }
-                    }
-                    u32 mesh_index = mesh_lod_group_manifest_index * MAX_MESHES_PER_LOD_GROUP + selected_lod_lod;
+                    u32 mesh_index = select_lod(render_data, mesh_lod_group, mesh_lod_group_manifest_index, r_ent);
 
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
                     ret.mesh_instances.push_back({
                         .entity_index = entity_i,
                         .mesh_index = mesh_index,
                         .in_mesh_group_index = in_mesh_group_index,
+                        .mesh_group_index = static_cast<u32>(mesh_group_index),
                         .flags = s_cast<daxa_u32>(is_alpha_discard ? MESH_INSTANCE_FLAG_MASKED : MESH_INSTANCE_FLAG_OPAQUE),
                     });
                 }
@@ -1755,7 +1466,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
     return ret;
 }
 
-void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances && cpu_mesh_instances)
+void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_instances)
 {
     // Calculate offsets into buffer and required size:
     usize offset = {};

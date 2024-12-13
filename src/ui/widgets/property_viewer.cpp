@@ -93,8 +93,8 @@ namespace tido
                             f32 angle_x_deg = glm::degrees(angle_x_rad) + offset;
                             angle_x_deg += angle_x_deg < 0 ? 360.0f : 0.0f;
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 4;
-                            better_drag_float({"Angle X", &angle_x_deg, 0.5f, 0.0f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
-                            better_drag_float({"Angle Y", &angle_y_deg, 0.5f, 0.0f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
+                            better_drag_float({"Angle X", &angle_x_deg, 0.5f, 0.1f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
+                            better_drag_float({"Angle Y", &angle_y_deg, 0.5f, 0.1f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
                             info.sky_settings->sun_direction =
                                 {
                                     daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
