@@ -74,7 +74,16 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     PGISettings settings = push.attach.globals.pgi_settings;
 
     float3 view_ray = -vertToPix.normal;
-    float3 radiance = pgi_sample_irradiance_probe(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
+    float3 radiance = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
+    float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), vertToPix.probe_index);
+    float mean = abs(visibility.x);
+    float mean2 = visibility.y;
+    float variance = abs(mean*mean - mean2);
 
-    return DrawDebugProbesFragmentOut(float4(radiance,1));
+    float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
+    float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
+
+    rand_seed(0);
+
+    return DrawDebugProbesFragmentOut(float4(visibility.xxx,1));
 }

@@ -216,4 +216,19 @@ daxa_f32vec4 interpolate_vec4(daxa_f32vec3 derivator, daxa_f32vec4 v0, daxa_f32v
     return ret;
 }
 
+float square(float x)
+{
+    return x * x;
+}
+
+float2 square(float2 x)
+{
+    return x * x;
+}
+
+float3 square(float3 x)
+{
+    return x * x;
+}
+
 /// ===== =====

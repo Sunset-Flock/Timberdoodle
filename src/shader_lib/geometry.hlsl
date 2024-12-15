@@ -21,10 +21,15 @@ struct TriangleGeometryPoint
     float3 world_position;
     float3 world_tangent;
     float3 world_normal;
+    float3 face_normal;
     daxa_f32vec2 uv;
     daxa_f32vec2 uv_ddx;    // Only roughly approximated in rt
     daxa_f32vec2 uv_ddy;    // Only roughly approximated in rt
 };
+
+#define MATERIAL_FLAG_NONE (0u)
+#define MATERIAL_FLAG_ALPHA_DISCARD (1u << 0u)
+#define MATERIAL_FLAG_DOUBLE_SIDED (1u << 1u)
 
 struct MaterialPointData
 {
@@ -33,6 +38,7 @@ struct MaterialPointData
     float3 normal;
     float3 geometry_normal;
     float3 position;
+    uint material_flags;
 };
 
 interface LightVisibilityTesterI

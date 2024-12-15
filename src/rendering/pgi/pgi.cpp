@@ -1476,6 +1476,10 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
     {
         device.destroy_image(this->probe_radiance.get_state().images[0]);
     }
+    if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_visibility.get_state().images[0]);
+    }
 
     daxa::ImageId probe_irradiance_image = device.create_image({
         .dimensions = 2,
@@ -1498,7 +1502,29 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
         .name = "pgi probe radiance",
     });
 
+    daxa::ImageId probe_visibility_image = device.create_image({
+        .dimensions = 2,
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = {
+            static_cast<u32>(settings.probe_count.x * settings.probe_visibility_resolution),
+            static_cast<u32>(settings.probe_count.y * settings.probe_visibility_resolution),
+            1
+        },
+        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
+                daxa::ImageUsageFlagBits::TRANSFER_SRC | 
+                daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .name = "pgi probe visibility",
+    });
+
+    this->probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ probe_visibility_image }},
+        .name = "pgi probe visibility",
+    });
+
     probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
+    probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
 }
 
 void PGIState::cleanup(daxa::Device& device)
@@ -1510,6 +1536,10 @@ void PGIState::cleanup(daxa::Device& device)
     if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
     {
         device.destroy_image(this->probe_radiance.get_state().images[0]);
+    }
+    if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_visibility.get_state().images[0]);
     }
     *this = {};
 }

@@ -472,7 +472,7 @@ void entry_main_cs(
         
         if (AT.globals.pgi_settings.enabled)
         {
-            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get());
+            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get());
         }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);

@@ -1222,6 +1222,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
                 ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.pgi_settings.fixed_center));
                 ImGui::Checkbox("Debug Draw Probes", reinterpret_cast<bool *>(&render_data.pgi_settings.draw_debug_probes));
                 ImGui::InputInt("Prove Surface Resolution", &render_data.pgi_settings.probe_surface_resolution);
+                ImGui::InputInt("Prove Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
+                ImGui::InputInt("Prove Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
                 ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
                 ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);

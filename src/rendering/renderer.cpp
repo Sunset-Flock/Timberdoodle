@@ -183,6 +183,7 @@ void Renderer::compile_pipelines()
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {pgi_update_probes_compute_compile_info()},
+        {pgi_update_probes_compute_compile_info2()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -373,7 +374,9 @@ void Renderer::clear_select_buffers()
     //tg.use_persistent_buffer(luminance_average);
     //tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
     tg.use_persistent_image(pgi_state.probe_radiance);
+    tg.use_persistent_image(pgi_state.probe_visibility);
     tg.clear_image({.view = pgi_state.probe_radiance_view, .name = "clear pgi radiance"});
+    tg.clear_image({.view = pgi_state.probe_visibility_view, .name = "clear pgi visibility"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -529,6 +532,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(swapchain_image);
     tg.use_persistent_tlas(scene->_scene_tlas);
     tg.use_persistent_image(pgi_state.probe_radiance);
+    tg.use_persistent_image(pgi_state.probe_visibility);
 
     tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
 
@@ -726,6 +730,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .views = std::array{
                 PGITraceProbeLightingTask::AT.globals | render_context->tgpu_render_data,
                 PGITraceProbeLightingTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGITraceProbeLightingTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGITraceProbeLightingTask::AT.tlas | scene->_scene_tlas,
                 PGITraceProbeLightingTask::AT.sky_transmittance | transmittance,
                 PGITraceProbeLightingTask::AT.sky | sky,
@@ -739,6 +744,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .views = std::array{
                 PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
                 PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGIUpdateProbesTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGIUpdateProbesTask::AT.tlas | scene->_scene_tlas,
                 PGIUpdateProbesTask::AT.sky_transmittance | transmittance,
                 PGIUpdateProbesTask::AT.sky | sky,
@@ -779,6 +785,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
             ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
             ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
+            ShadeOpaqueH::AT.pgi_probe_visibility | pgi_state.probe_visibility_view,
         },
         .render_context = render_context.get(),
     });
@@ -815,6 +822,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 PGIDrawDebugProbesH::AT.color_image | color_image,
                 PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
                 PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGIDrawDebugProbesH::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
             },
             .render_context = render_context.get(),
@@ -963,6 +971,8 @@ void Renderer::render_frame(
         render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
         render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||
         render_context->render_data.pgi_settings.probe_surface_resolution != render_context->prev_pgi_settings.probe_surface_resolution ||
+        render_context->render_data.pgi_settings.probe_trace_resolution != render_context->prev_pgi_settings.probe_trace_resolution ||
+        render_context->render_data.pgi_settings.probe_visibility_resolution != render_context->prev_pgi_settings.probe_visibility_resolution ||
         render_context->render_data.pgi_settings.enabled != render_context->prev_pgi_settings.enabled;
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);

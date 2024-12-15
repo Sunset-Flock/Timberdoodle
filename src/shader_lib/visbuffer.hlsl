@@ -233,10 +233,13 @@ VisbufferTriangleGeometry visgeo_triangle_data(
         vertex_uvs[2]
     );
 
+    // Calculate Face Normal
+    ret.tri_geo_point.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));
+
     // Calculae Tangent.
     {
-        float3 d_p1 = vertex_positions[1] - vertex_positions[0];
-        float3 d_p2 = vertex_positions[2] - vertex_positions[0];
+        float3 d_p1 = world_vertex_positions[1].xyz - world_vertex_positions[0].xyz;
+        float3 d_p2 = world_vertex_positions[2].xyz - world_vertex_positions[0].xyz;
         float2 d_uv1 = vertex_uvs[1] - vertex_uvs[0];
         float2 d_uv2 = vertex_uvs[2] - vertex_uvs[0];
         float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y);

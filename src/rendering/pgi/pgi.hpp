@@ -130,8 +130,6 @@ struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
     }
 };
 
-
-
 inline auto pgi_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
 {
     return daxa::ComputePipelineCompileInfo2{
@@ -139,7 +137,18 @@ inline auto pgi_update_probes_compute_compile_info() -> daxa::ComputePipelineCom
         .entry_point = "entry_update_probes",
         .language = daxa::ShaderLanguage::SLANG,
         .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
-        .name = std::string{PGIUpdateProbesH::NAME},
+        .name = std::string{"entry_update_probes"},
+    };
+}
+
+inline auto pgi_update_probes_compute_compile_info2() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
+        .entry_point = "entry_update_probe_visibility",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
+        .name = std::string{"entry_update_probe_visibility"},
     };
 }
 
@@ -150,19 +159,30 @@ struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
     PGIState* pgi_state = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info().name));
-
-        PGIUpdateProbesPush push = {};
-        push.attach = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-
-        auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_surface_resolution;
-        auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_surface_resolution;
-        auto const z = render_context->render_data.pgi_settings.probe_count.z;
-        auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-        auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-        auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-        ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            PGIUpdateProbesPush push = {};
+            push.attach = ti.attachment_shader_blob;
+        {
+            ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info().name));
+            ti.recorder.push_constant(push);
+            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_surface_resolution;
+            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_surface_resolution;
+            auto const z = render_context->render_data.pgi_settings.probe_count.z;
+            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+        }
+        {
+            ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info2().name));
+            ti.recorder.push_constant(push);
+            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_visibility_resolution;
+            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_visibility_resolution;
+            auto const z = render_context->render_data.pgi_settings.probe_count.z;
+            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+        }
     }
 };
 
@@ -237,8 +257,8 @@ struct PGITraceProbeLightingTask : PGITraceProbeLightingH::Task
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
 
-        u32 const x = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_surface_resolution);
-        u32 const y = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_surface_resolution);
+        u32 const x = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_trace_resolution);
+        u32 const y = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_trace_resolution);
         u32 const z = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.z);
         ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
     }
@@ -249,8 +269,8 @@ inline auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& se
     return tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = { 
-            static_cast<u32>(settings.probe_count.x * settings.probe_surface_resolution),
-            static_cast<u32>(settings.probe_count.y * settings.probe_surface_resolution),
+            static_cast<u32>(settings.probe_count.x * settings.probe_trace_resolution),
+            static_cast<u32>(settings.probe_count.y * settings.probe_trace_resolution),
             1,
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z),

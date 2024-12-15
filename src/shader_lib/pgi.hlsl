@@ -50,6 +50,8 @@
 //
 // ===== PGI Probe Texture Layouts =====
 
+#define PGI_BACKFACE_WALL_THICKNESS 0.2f
+
 float3 pgi_probe_index_to_worldspace(PGISettings settings, float3 probes_anchor, uint3 probe_index)
 {
     float3 pgi_grid_cell_size = settings.probe_range / settings.probe_count;   // TODO: precalculate
@@ -66,18 +68,10 @@ float3 pgi_probe_index_to_worldspace(PGISettings settings, float3 probes_anchor,
     return probe_pos;
 }
 
-uint3 pgi_probe_texture_base_offset(PGISettings settings, uint3 probe_index)
+// The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
+uint3 pgi_probe_texture_base_offset(PGISettings settings, int texel_res, int3 probe_index)
 {
-    let probe_texture_base_xy = probe_index.xy * settings.probe_surface_resolution;
-    let probe_texture_z = probe_index.z;
-
-    var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
-    return probe_texture_index;
-}
-
-uint3 pgi_probe_texture_base_offset_prev_frame(PGISettings settings, uint3 probe_index)
-{
-    let probe_texture_base_xy = probe_index.xy * settings.probe_surface_resolution;
+    let probe_texture_base_xy = probe_index.xy * texel_res;
     let probe_texture_z = probe_index.z;
 
     var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
@@ -94,7 +88,13 @@ float3 pgi_probe_uv_to_probe_normal(float2 uv)
     return unmap_octahedral(uv);
 }
 
-
+float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
+{
+    const uint seed = (probe_index.x * 1823754 + probe_index.y * 5232 + probe_index.z * 21 + frame_index);
+    rand_seed(seed);
+    float2 in_texel_offset = { rand(), rand() };
+    return in_texel_offset;
+}
 
 // Grid space starts at 0,0,0 at the min probe and ends at settings.probe_count
 // floor(grid_space_pos) is the base probe of the position
@@ -112,49 +112,27 @@ func pgi_world_space_to_grid_coordinate(
     return grid_space_coordinate;
 }
 
-func pgi_sample_nearest(
-    RenderGlobalData* globals,
-    PGISettings settings,
-    float3 position,
-    float3 direction,
-    RWTexture2DArray<float4> probes
-) -> float4
-{
-    float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
-    int3 base_probe = int3(grid_coord);
-    float3 interpolants = frac(grid_coord);
-    float3 probe_normal = direction;
-
-    float4 accum = float4(0,0,0,0);
-    for (int z = 0; z < 2; ++z)
-    {
-        for (int y = 0; y < 2; ++y)
-        {
-            for (int x = 0; x < 2; ++x)
-            {
-                int3 probe_index = base_probe + int3(x,y,z);
-                float probe_weight = 
-                    (x == 0 ? 1.0f - interpolants.x : interpolants.x) *
-                    (y == 0 ? 1.0f - interpolants.y : interpolants.y) *
-                    (z == 0 ? 1.0f - interpolants.z : interpolants.z);
-
-                if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
-                {
-                    float2 octa_index = floor(float(settings.probe_surface_resolution) * map_octahedral(probe_normal));
-                    uint3 probe_texture_base_index = pgi_probe_texture_base_offset(globals.pgi_settings, probe_index);
-                    uint3 probe_texture_index = probe_texture_base_index + uint3(octa_index.x, octa_index.y, 0);
-                    float4 probe_fetch = probes[probe_texture_index];
-                    accum += probe_weight * probe_fetch;
-                }
-            }
-        }
-    }
-    return accum * rcp(8.0f);
-}
-
 static uint debug_pixel = 0;
 
-func pgi_sample_irradiance_probe(
+func octahedtral_texel_wrap(int2 index, int2 resolution) -> int2
+{
+    // Octahedral texel clamping is very strange..
+    if (index.y >= resolution.y || index.y == -1)
+    {
+        index.y = clamp(index.y, 0, resolution.y-1);
+        // Mirror x sample when y is out of bounds
+        index.x = resolution.x - 1 - index.x;
+    }
+    if (index.x >= resolution.x|| index.x == -1)
+    {
+        index.x = clamp(index.x, 0, resolution.x-1);
+        // Mirror y sample when x is out of bounds
+        index.y = resolution.y - 1 - index.y;
+    }
+    return index;
+}
+
+func pgi_sample_probe_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
     float3 shading_normal,
@@ -167,7 +145,7 @@ func pgi_sample_irradiance_probe(
     // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
     int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
     float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_surface_resolution));
-    int3 base_offset = pgi_probe_texture_base_offset(settings, probe_index);
+    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_surface_resolution, probe_index);
 
     float3 linearly_filtered_samples = float3(0,0,0);
     for (int y = 0; y < 2; ++y)
@@ -175,20 +153,7 @@ func pgi_sample_irradiance_probe(
     {
         int2 xy_sample_offset = int2(x,y);
         int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
-
-        // Octahedral texel clamping is very strange..
-        if (probe_local_sample_texel.y >= settings.probe_surface_resolution || probe_local_sample_texel.y == -1)
-        {
-            probe_local_sample_texel.y = clamp(probe_local_sample_texel.y, 0, settings.probe_surface_resolution-1);
-            // Mirror x sample when y is out of bounds
-            probe_local_sample_texel.x = settings.probe_surface_resolution - 1 - probe_local_sample_texel.x;
-        }
-        if (probe_local_sample_texel.x >= settings.probe_surface_resolution || probe_local_sample_texel.x == -1)
-        {
-            probe_local_sample_texel.x = clamp(probe_local_sample_texel.x, 0, settings.probe_surface_resolution-1);
-            // Mirror y sample when x is out of bounds
-            probe_local_sample_texel.y = settings.probe_surface_resolution - 1 - probe_local_sample_texel.y;
-        }
+        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_surface_resolution.xx);
 
         int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
         float3 sample = probes[sample_texel].rgb;
@@ -200,6 +165,38 @@ func pgi_sample_irradiance_probe(
     return linearly_filtered_samples;
 }
 
+func pgi_sample_probe_visibility(
+    RenderGlobalData* globals,
+    PGISettings settings,
+    float3 shading_normal,
+    Texture2DArray<float2> probe_visibility,
+    int3 probe_index) -> float2 // returns visibility (x) and certainty (y)
+{
+    // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
+    float2 probe_octa_uv = map_octahedral(shading_normal);
+    float2 probe_local_texel = probe_octa_uv * float(settings.probe_visibility_resolution);
+    // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
+    int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
+    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_visibility_resolution));
+    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_visibility_resolution, probe_index);
+
+    float2 linearly_filtered_samples = float2(0,0);
+    for (int y = 0; y < 2; ++y)
+    for (int x = 0; x < 2; ++x)
+    {
+        int2 xy_sample_offset = int2(x,y);
+        int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
+        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_visibility_resolution.xx);
+        int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
+        float2 sample = probe_visibility[sample_texel].rg;
+        float weight = 
+            (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
+            (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
+        linearly_filtered_samples += weight * sample;
+    }
+    return float2(linearly_filtered_samples.x, linearly_filtered_samples.y);
+}
+
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
@@ -208,7 +205,8 @@ func pgi_sample_irradiance(
     float3 shading_normal,
     float3 view_direction,
     RaytracingAccelerationStructure tlas,
-    Texture2DArray<float4> probes
+    Texture2DArray<float4> probes,
+    Texture2DArray<float2> probe_visibility
 ) -> float3
 {
     position = rt_calc_ray_start(position, geo_normal, view_direction);
@@ -223,6 +221,7 @@ func pgi_sample_irradiance(
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0;
+    int visible_probes = 0;
     for (int z = 0; z < 2; ++z)
     {
         for (int y = 0; y < 2; ++y)
@@ -245,20 +244,76 @@ func pgi_sample_irradiance(
                 if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
                 {
                     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
-                    float distance = length(probe_position - position) * 1.02f;
                     float3 to_probe_direction = normalize(probe_position - position);
+                    float distance = length(probe_position - position) + RAY_MIN_POSITION_OFFSET;
 
-                    float smooth_backface_term = (1.0f + dot(shading_normal, to_probe_direction)) * 0.5f;
+                    float smooth_backface_term = square((1.0f + dot(shading_normal, to_probe_direction)) * 0.5f);
                     probe_weight *= smooth_backface_term;
 
-                    float t = rt_free_path(tlas, position, to_probe_direction, distance);
-                    bool visible = t >= distance;
-                    if (!visible) 
-                    {
-                        continue;
-                    }
+                    //float t = rt_free_path(tlas, position, to_probe_direction, distance);
+                    //bool visible = true;//t >= distance;
+                    //if (!visible) 
+                    //{
+                    //    continue;
+                    //}
 
-                    float3 linearly_filtered_samples = pgi_sample_irradiance_probe(
+                    float2 visibility = pgi_sample_probe_visibility(
+                        globals,
+                        settings,
+                        -to_probe_direction,
+                        probe_visibility,
+                        probe_index
+                    );
+                    // visibility (Chebyshev)
+                    float mean = 0.0f;
+                    float std_dev = 0.1f;
+                    float visibility_weight = 1.0f;
+                    {
+                        mean = max(visibility.x, 0.0f);
+                        float average_mean_difference = sqrt(visibility.y);
+                        // Technically wrong, but leads to much better results than averaging d^2.
+                        std_dev = average_mean_difference * 1.5f;
+                        float variance = square(std_dev);
+                        if (distance > mean)
+                        {
+                            visibility_weight = variance / (variance + square(distance - mean));
+                            visibility_weight = max(0.0001f, visibility_weight * visibility_weight * visibility_weight);
+                            const float crushThreshold = 0.2f;
+                            if (visibility_weight < crushThreshold)
+                            {
+                                visibility_weight *= (visibility_weight * visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold * crushThreshold));
+                            }
+                        }
+                    }
+                    {
+                        visible_probes += 1;
+                        if (debug_pixel)
+                        {
+                            ShaderDebugLineDraw line = {};
+                            line.start = probe_position;
+                            line.end = probe_position - to_probe_direction * (mean + std_dev);
+                            line.color = visibility_weight.rrr;
+                            debug_draw_line(globals.debug, line);
+                            ShaderDebugCircleDraw hit = {};
+                            hit.position = probe_position - to_probe_direction * (mean);
+                            hit.color = float3(0,1,0) * visibility_weight;
+                            hit.radius = 0.11f;
+                            debug_draw_circle(globals.debug, hit);
+                            ShaderDebugCircleDraw start = {};
+                            start.position = probe_position - to_probe_direction * (mean - std_dev);
+                            start.color = float3(1,0,0) * visibility_weight;
+                            start.radius = 0.11f;
+                            debug_draw_circle(globals.debug, start);
+                            ShaderDebugCircleDraw end = {};
+                            end.position = probe_position - to_probe_direction * (mean + std_dev);
+                            end.color = float3(0,0,1) * visibility_weight;
+                            end.radius = 0.11f;
+                            debug_draw_circle(globals.debug, end);
+                        }
+                    }
+                    probe_weight *= visibility_weight;
+
+                    float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
                         globals,
                         settings,
                         shading_normal,
@@ -266,18 +321,20 @@ func pgi_sample_irradiance(
                         probe_index
                     );
                     
+                    #if 0 // draw probe influence
                     if (debug_pixel)
                     {
                         ShaderDebugLineDraw line = {};
                         line.start = position;
                         line.end = probe_position;
-                        line.color = linearly_filtered_samples.rgb;
+                        line.color = probe_weight.rrr;
                         debug_draw_line(globals.debug, line);
                         line.start = probe_position;
                         line.end = probe_position + probe_normal * 0.2;
                         line.color = linearly_filtered_samples.rgb;
                         debug_draw_line(globals.debug, line);
                     }
+                    #endif
 
                     accum += probe_weight * linearly_filtered_samples.rgb;
                     weight_accum += probe_weight;
@@ -285,6 +342,7 @@ func pgi_sample_irradiance(
             }
         }
     }
+    //return (float(visible_probes) * rcp(8)).xxx;
     if (weight_accum == 0)
     {
         return float3(0,0,0);

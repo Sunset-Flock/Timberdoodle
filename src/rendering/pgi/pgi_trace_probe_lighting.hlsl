@@ -52,21 +52,22 @@ void entry_ray_gen()
     PGISettings settings = push.attach.globals.pgi_settings;
     const int3 dtid = DispatchRaysIndex().xyz;
     uint frame_index = push.attach.globals.frame_index;
-    const uint thread_seed = (dtid.x * 1023 + dtid.y * 31 + dtid.z + frame_index * 17);
-    rand_seed(thread_seed);
 
-    let probe_texel = (dtid.xy % settings.probe_surface_resolution);
-    let probe_index = uint3(dtid.xy / settings.probe_surface_resolution, dtid.z);
+    let probe_texel = (dtid.xy % settings.probe_trace_resolution);
+    let probe_index = uint3(dtid.xy / settings.probe_trace_resolution, dtid.z);
+
+    // Seed is the same for all threads processing a probe.
+    // This is important to be able to efficiently reconstruct data between tracing and probe texel updates.
+    float2 in_texel_offset = pgi_probe_trace_noise(probe_index, frame_index);
 
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_anchor, probe_index);
 
-    uint3 probe_texture_base_index = pgi_probe_texture_base_offset(settings, probe_index);
+    uint3 probe_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
     uint3 trace_result_texture_index = probe_texture_index;
 
-    float2 in_texel_offset = { rand(), rand() };
-    float2 probe_uv = float2(float2(probe_texel) + in_texel_offset) * rcp(settings.probe_surface_resolution);
+    float2 probe_uv = float2(float2(probe_texel) + in_texel_offset) * rcp(settings.probe_trace_resolution);
 
     float3 probe_normal = pgi_probe_uv_to_probe_normal(probe_uv);
 
@@ -125,6 +126,17 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
     }
 }
 
+float ray_plane_intersection2(float3 ray_direction, float3 ray_origin, float3 plane_normal, float3 plane_origin)
+{
+    float denom = dot(plane_normal, ray_direction);
+    if (abs(denom) > 0.0001f) // your favorite epsilon
+    {
+        float t = dot((plane_origin - ray_origin), plane_normal) / denom;
+        return t;
+    }
+    return 0.0f;
+}
+
 [shader("closesthit")]
 void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
@@ -165,10 +177,29 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         WorldRayDirection(), 
         light_vis_tester, 
         push.attach.probe_radiance.get(), 
+        push.attach.probe_visibility.get(), 
         push.attach.tlas.get()
     ).rgb;
 
-    payload.color_depth.a = RayTCurrent();
+    float distance = RayTCurrent();
+    bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f;
+    if (backface && !((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE))
+    {
+        // Intersect the ray again with a virtual wall that is based on the backface position and normal.
+        // float3 backface_wall_plane_origin = hit_point - tri_point.face_normal * 0.1f;
+        // float dst_to_backface_wall = ray_plane_intersection2(WorldRayDirection(), WorldRayOrigin(), -tri_point.face_normal, backface_wall_plane_origin);
+        //distance = max(0.0f, dst_to_backface_wall);
+        //distance = 0.0f;
+        distance *= -1.0f;
+    }
+
+    //float face_plane_distance = dot(hit_point - tri_point.world_position, backface ? -tri_point.face_normal : tri_point.face_normal);
+    //if (!backface && face_plane_distance < 0.2f) 
+    //{
+    ////    distance *= -1.0f;
+    //}
+
+    payload.color_depth.a = distance;
 }
 
 [shader("miss")]
@@ -177,5 +208,5 @@ void entry_miss(inout RayPayload payload)
     let push = pgi_trace_probe_lighting_push;
     payload.hit = false;
     payload.color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
-    payload.color_depth.a = RayTCurrent();
+    payload.color_depth.a = 1000.0f;
 }

@@ -64,6 +64,10 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
         const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
         ret.normal = mul(tbn, normal_map_value);
     }
+    if (material.alpha_discard_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_ALPHA_DISCARD | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
 
     return ret;
 }
@@ -106,6 +110,7 @@ func shade_material(
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
     Texture2DArray<float4> probe_irradiance,
+    Texture2DArray<float2> probe_visibility,
     RaytracingAccelerationStructure tlas,
 ) -> float4
 {
@@ -139,7 +144,7 @@ func shade_material(
 
     // Indirect Diffuse
     {
-        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance);
+        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility);
         diffuse_light += global_illumination;
     }
 
