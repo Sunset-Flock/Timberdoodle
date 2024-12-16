@@ -144,14 +144,15 @@ func entry_update_probe_visibility(
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
         if (cos_weight > 0.0f)
         {
-            float power_cos_weight = pow(cos_weight, 200.0f);
+            float power_cos_weight = pow(cos_weight, 100.0f);
+            //float power_cos_weight2 = pow(cos_weight, 50.0f);
             float trace_depth = push.attach.trace_result.get()[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
             bool is_backface_relevant = abs(trace_depth) < max_depth;
-            trace_depth = abs(trace_depth);
 
-            deactivate = deactivate || (trace_depth < 0.05f);
-            if (trace_depth < max_depth)
+            trace_depth = abs(trace_depth);
+            trace_depth = min(trace_depth, max_depth);
+            deactivate = deactivate || (is_backface);
             {
                 if (is_backface && is_backface_relevant) // Backface probe killer.
                 { 
@@ -162,7 +163,8 @@ func entry_update_probe_visibility(
                 else
                 {
                     relevant_trace_blend.x += trace_depth * power_cos_weight;
-                    relevant_trace_blend.y += square(abs(max(0.0f, prev_frame_visibility.x) - trace_depth)) * power_cos_weight;
+                    float diff = (abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + 0.1f) * 1.0f;
+                    relevant_trace_blend.y += diff * power_cos_weight;
                     acc_cos_weights += power_cos_weight;
                 }
                 valid_trace_count += 1;
@@ -174,7 +176,7 @@ func entry_update_probe_visibility(
     {
         relevant_trace_blend *= rcp(acc_cos_weights);
 
-        float blending = 0.001f;
+        float blending = 0.01f;
         float2 new_blended_val = lerp(prev_frame_visibility, relevant_trace_blend, blending);
         push.attach.probe_visibility.get()[probe_texture_index] = new_blended_val;
 

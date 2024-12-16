@@ -209,7 +209,10 @@ func pgi_sample_irradiance(
     Texture2DArray<float2> probe_visibility
 ) -> float3
 {
-    position = rt_calc_ray_start(position, geo_normal, view_direction);
+    //position = rt_calc_ray_start(position, geo_normal, view_direction);
+    
+    float float_error_scaled_offset = RAY_MIN_POSITION_OFFSET * (max(position.x, max(position.y, position.z)) + 1.0f);
+    position += (geo_normal * 0.4f - view_direction * 0.6f) * 0.4;
 
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
     int3 base_probe = floor(grid_coord);
@@ -270,9 +273,9 @@ func pgi_sample_irradiance(
                     float visibility_weight = 1.0f;
                     {
                         mean = max(visibility.x, 0.0f);
-                        float average_mean_difference = sqrt(visibility.y);
+                        float average_mean_difference = visibility.y;
                         // Technically wrong, but leads to much better results than averaging d^2.
-                        std_dev = average_mean_difference * 1.5f;
+                        std_dev = average_mean_difference;
                         float variance = square(std_dev);
                         if (distance > mean)
                         {
