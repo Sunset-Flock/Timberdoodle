@@ -85,5 +85,5 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 
     rand_seed(0);
 
-    return DrawDebugProbesFragmentOut(float4(visibility.xxx,1));
+    return DrawDebugProbesFragmentOut(float4(radiance,1));
 }

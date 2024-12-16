@@ -321,7 +321,7 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
 
         float t_max = length(light.position - world_position);
         float3 dir = normalize(light.position - world_position);
-        float t = rt_free_path(AT.tlas.get(), world_position, dir, t_max);
+        float t = 10000;//rt_free_path(AT.tlas.get(), world_position, dir, t_max);
         bool shadowed_rt = t != t_max;
         if (shadowed_rt)
         {

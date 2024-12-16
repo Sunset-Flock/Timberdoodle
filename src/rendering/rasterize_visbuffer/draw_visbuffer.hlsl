@@ -507,7 +507,7 @@ func entry_mesh_opaque_compute_raster(
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
         GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
-        cull_backfaces = !material.alpha_discard_enabled;
+        cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
     }
 
     // Culling in first pass would require calculating tri vertex positions in old camera space.
@@ -709,7 +709,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
         GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
-        cull_backfaces = !material.alpha_discard_enabled;
+        cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
     }
 
     // Culling in first pass would require calculating tri vertex positions in old camera space.
@@ -1080,7 +1080,7 @@ func entry_task_meshlet_cull(
         if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = push.attach.material_manifest[meshlet_instance.material_index];
-            cull_backfaces = !material.alpha_discard_enabled;
+            cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
         }
     }
     payload.cull_backfaces_mask = WaveActiveBallot(cull_backfaces).x;

@@ -880,6 +880,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         // return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
     }
     fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
+    
     bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;

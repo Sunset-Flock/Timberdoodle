@@ -97,6 +97,7 @@ struct GPUMaterial
     daxa_ImageViewId normal_texture_id;
     daxa_ImageViewId roughnes_metalness_id;
     daxa_b32 alpha_discard_enabled;  
+    daxa_b32 double_sided_enabled;
     daxa_b32 normal_compressed_bc5_rg;
     daxa_f32vec3 base_color;
 };
@@ -108,6 +109,7 @@ static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
     daxa_ImageViewId(),
     daxa_ImageViewId(),
     daxa_ImageViewId(),
+    false,
     false,
     false,
     daxa_f32vec3(1,1,1)

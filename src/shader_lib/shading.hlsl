@@ -68,6 +68,10 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     {
         ret.material_flags = ret.material_flags | MATERIAL_FLAG_ALPHA_DISCARD | MATERIAL_FLAG_DOUBLE_SIDED;
     }
+    if (material.double_sided_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
 
     return ret;
 }

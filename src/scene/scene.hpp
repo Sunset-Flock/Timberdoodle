@@ -69,6 +69,7 @@ struct MaterialManifestEntry
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
+    bool double_sided = {};
     bool normal_compressed_bc5_rg = {}; 
     // Did we just load alpha texture this frame
     bool alpha_dirty = {};

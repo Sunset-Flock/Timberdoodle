@@ -315,6 +315,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
             .gltf_asset_manifest_index = load_ctx.gltf_asset_manifest_index,
             .asset_local_index = material_index,
             .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask, // || material.alphaMode == fastgltf::AlphaMode::Blend,
+            .double_sided = material.doubleSided,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
             .name = material.name.c_str(),
         });
@@ -1206,6 +1207,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
             staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
             staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
             staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
+            staging_origin_ptr[dirty_materials_index].double_sided_enabled = static_cast<daxa_b32>(material.double_sided);
 
             daxa::BufferId gpu_material_manifest = scene._gpu_material_manifest.get_state().buffers[0];
             recorder.copy_buffer_to_buffer({
