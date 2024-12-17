@@ -814,7 +814,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
-    if (render_context->render_data.pgi_settings.enabled && render_context->render_data.pgi_settings.draw_debug_probes)
+    if (render_context->render_data.pgi_settings.enabled && (render_context->render_data.pgi_settings.debug_probe_draw_mode != PGI_DEBUG_PROBE_DRAW_MODE_OFF))
     {
         tg.add_task(PGIDrawDebugProbesTask{
             .views = std::array{
@@ -960,13 +960,25 @@ void Renderer::render_frame(
 
         render_context->render_data.cull_data = fill_cull_data(*render_context);
     }
+
+    // PGI Settings Resolve
     render_context->render_data.pgi_settings.probe_count.x = std::max(1, render_context->render_data.pgi_settings.probe_count.x);
     render_context->render_data.pgi_settings.probe_count.y = std::max(1, render_context->render_data.pgi_settings.probe_count.y);
     render_context->render_data.pgi_settings.probe_count.z = std::max(1, render_context->render_data.pgi_settings.probe_count.z);
+    render_context->render_data.pgi_settings.probe_distance = {
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.x) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.x),
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.y) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.y),
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.z) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.z),
+    };    
+    render_context->render_data.pgi_settings.probe_distance_rcp = {
+        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_distance.x),
+        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_distance.y),
+        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_distance.z),
+    };
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const pgi_settings_changed = 
-        render_context->render_data.pgi_settings.draw_debug_probes != render_context->prev_pgi_settings.draw_debug_probes ||
+        render_context->render_data.pgi_settings.debug_probe_draw_mode != render_context->prev_pgi_settings.debug_probe_draw_mode ||
         render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
         render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
         render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||

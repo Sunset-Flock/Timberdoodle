@@ -197,6 +197,15 @@ func pgi_sample_probe_visibility(
     return float2(linearly_filtered_samples.x, linearly_filtered_samples.y);
 }
 
+// Moves the sample position back along view ray and offset by normal based on probe grid density.
+// Greatly reduces self shadowing for corners.
+func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
+{
+    const float BIAS_FACTOR = 0.3f;
+    const float NORMAL_TO_VIEW_WEIGHT = 0.4f;
+    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_distance * BIAS_FACTOR;
+}
+
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
@@ -207,145 +216,166 @@ func pgi_sample_irradiance(
     RaytracingAccelerationStructure tlas,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility
-) -> float3
-{
-    //position = rt_calc_ray_start(position, geo_normal, view_direction);
-    
-    float float_error_scaled_offset = RAY_MIN_POSITION_OFFSET * (max(position.x, max(position.y, position.z)) + 1.0f);
-    position += (geo_normal * 0.4f - view_direction * 0.6f) * 0.4;
-
+) -> float3 {
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
-    int3 base_probe = floor(grid_coord);
+    int3 base_probe = int3(floor(grid_coord));
     float3 interpolants = frac(grid_coord);
     float3 probe_normal = geo_normal;
+    
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0;
-    int visible_probes = 0;
-    for (int z = 0; z < 2; ++z)
+    for (uint probe = 0; probe < 8; ++probe)
     {
-        for (int y = 0; y < 2; ++y)
+        int x = int((probe >> 0u) & 0x1u);
+        int y = int((probe >> 1u) & 0x1u);
+        int z = int((probe >> 2u) & 0x1u);
+        int3 probe_index = base_probe + int3(x,y,z);
+
+        float probe_weight = 1.0f;
+        
+        // Trilinear Probe Proximity Weighting
         {
-            for (int x = 0; x < 2; ++x)
+            float3 probe_weights = float3(
+                (x == 0 ? 1.0f - interpolants.x : interpolants.x),
+                (y == 0 ? 1.0f - interpolants.y : interpolants.y),
+                (z == 0 ? 1.0f - interpolants.z : interpolants.z)
+            );
+            probe_weights = float3(
+                smoothstep(0.0f, 1.0f, probe_weights.x),
+                smoothstep(0.0f, 1.0f, probe_weights.y),
+                smoothstep(0.0f, 1.0f, probe_weights.z),
+            );
+            probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
+        }
+
+        if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
+        {
+            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
+            float3 shading_to_probe_direction = normalize(probe_position - position);
+
+            // Backface influence
+            // - smooth backface used to ensure smooth transition between probes
+            // - normal cosine influence causes hash cutoffs
+            float smooth_backface_term = square((1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f);
+            probe_weight *= smooth_backface_term;
+
+            // visibility (Chebyshev)
+            // ===== Shadow Map Visibility Test =====
+            // - Shadowmap channel r contains average ray length
+            // - Shadowmap channel g contains average *difference to average* of raylength
+            // - Original DDGI stores distance^2 in g channel
+            //   - I noticed that this leads to very bad results for certain exponential averaging values
+            //   - Using the average difference to average raylength is much more stable and "close enough" to the std dev
+            //   - Leads to better results in my testing
+            float visibility_distance = length(probe_position - visibility_sample_position) + RAY_MIN_POSITION_OFFSET;
+            float3 visibility_to_probe_direction = normalize(probe_position - visibility_sample_position);
+            float average_distance = 0.0f;
+            float average_distance_std_dev = 0.0f;
+            float visibility_weight = 1.0f;
             {
-                int3 probe_index = base_probe + int3(x,y,z);
-                float3 probe_weights = float3(
-                    (x == 0 ? 1.0f - interpolants.x : interpolants.x),
-                    (y == 0 ? 1.0f - interpolants.y : interpolants.y),
-                    (z == 0 ? 1.0f - interpolants.z : interpolants.z)
+                float2 visibility = pgi_sample_probe_visibility(
+                    globals,
+                    settings,
+                    -visibility_to_probe_direction,
+                    probe_visibility,
+                    probe_index
                 );
-                probe_weights = float3(
-                    smoothstep(0.0f, 1.0f, probe_weights.x),
-                    smoothstep(0.0f, 1.0f, probe_weights.y),
-                    smoothstep(0.0f, 1.0f, probe_weights.z),
-                );
-                float probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
 
-                if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
+                average_distance = max(visibility.x, 0.0f); // Can contain negative values (back face disabling)
+                float average_difference_to_average_distance = visibility.y;
+                average_distance_std_dev = average_difference_to_average_distance; // Wrong but works better :P
+                float variance = square(average_distance_std_dev);
+                if (visibility_distance > average_distance)
                 {
-                    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
-                    float3 to_probe_direction = normalize(probe_position - position);
-                    float distance = length(probe_position - position) + RAY_MIN_POSITION_OFFSET;
+                    visibility_weight = variance / (variance + square(visibility_distance - average_distance));
+                    const float min_visibility = 0.00001f; // Bias. If all probes are occluded we want to fallback to leaking.
+                    visibility_weight = max(min_visibility, visibility_weight * visibility_weight * visibility_weight);
 
-                    float smooth_backface_term = square((1.0f + dot(shading_normal, to_probe_direction)) * 0.5f);
-                    probe_weight *= smooth_backface_term;
-
-                    //float t = rt_free_path(tlas, position, to_probe_direction, distance);
-                    //bool visible = true;//t >= distance;
-                    //if (!visible) 
-                    //{
-                    //    continue;
-                    //}
-
-                    float2 visibility = pgi_sample_probe_visibility(
-                        globals,
-                        settings,
-                        -to_probe_direction,
-                        probe_visibility,
-                        probe_index
-                    );
-                    // visibility (Chebyshev)
-                    float mean = 0.0f;
-                    float std_dev = 0.1f;
-                    float visibility_weight = 1.0f;
+                    // Crushing tiny weights reduces leaking BUT does not reduce image blending smoothness.
+                    const float crushThreshold = 0.2f;
+                    if (visibility_weight < crushThreshold)
                     {
-                        mean = max(visibility.x, 0.0f);
-                        float average_mean_difference = visibility.y;
-                        // Technically wrong, but leads to much better results than averaging d^2.
-                        std_dev = average_mean_difference;
-                        float variance = square(std_dev);
-                        if (distance > mean)
-                        {
-                            visibility_weight = variance / (variance + square(distance - mean));
-                            visibility_weight = max(0.0001f, visibility_weight * visibility_weight * visibility_weight);
-                            const float crushThreshold = 0.2f;
-                            if (visibility_weight < crushThreshold)
-                            {
-                                visibility_weight *= (visibility_weight * visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold * crushThreshold));
-                            }
-                        }
+                        visibility_weight *= (visibility_weight * visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold * crushThreshold));
                     }
-                    {
-                        visible_probes += 1;
-                        if (debug_pixel)
-                        {
-                            ShaderDebugLineDraw line = {};
-                            line.start = probe_position;
-                            line.end = probe_position - to_probe_direction * (mean + std_dev);
-                            line.color = visibility_weight.rrr;
-                            debug_draw_line(globals.debug, line);
-                            ShaderDebugCircleDraw hit = {};
-                            hit.position = probe_position - to_probe_direction * (mean);
-                            hit.color = float3(0,1,0) * visibility_weight;
-                            hit.radius = 0.11f;
-                            debug_draw_circle(globals.debug, hit);
-                            ShaderDebugCircleDraw start = {};
-                            start.position = probe_position - to_probe_direction * (mean - std_dev);
-                            start.color = float3(1,0,0) * visibility_weight;
-                            start.radius = 0.11f;
-                            debug_draw_circle(globals.debug, start);
-                            ShaderDebugCircleDraw end = {};
-                            end.position = probe_position - to_probe_direction * (mean + std_dev);
-                            end.color = float3(0,0,1) * visibility_weight;
-                            end.radius = 0.11f;
-                            debug_draw_circle(globals.debug, end);
-                        }
-                    }
-                    probe_weight *= visibility_weight;
-
-                    float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
-                        globals,
-                        settings,
-                        shading_normal,
-                        probes,
-                        probe_index
-                    );
-                    
-                    #if 0 // draw probe influence
-                    if (debug_pixel)
-                    {
-                        ShaderDebugLineDraw line = {};
-                        line.start = position;
-                        line.end = probe_position;
-                        line.color = probe_weight.rrr;
-                        debug_draw_line(globals.debug, line);
-                        line.start = probe_position;
-                        line.end = probe_position + probe_normal * 0.2;
-                        line.color = linearly_filtered_samples.rgb;
-                        debug_draw_line(globals.debug, line);
-                    }
-                    #endif
-
-                    accum += probe_weight * linearly_filtered_samples.rgb;
-                    weight_accum += probe_weight;
                 }
             }
+            // ===== Shadow Map Visibility Test =====
+
+            if (debug_pixel && settings.debug_probe_influence)
+            {
+                ShaderDebugLineDraw white_line = {};
+                white_line.start = probe_position;
+                white_line.end = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                white_line.color = visibility_weight.rrr;
+                debug_draw_line(globals.debug, white_line);
+
+                ShaderDebugLineDraw green_line = {};
+                green_line.start = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                green_line.end = probe_position - visibility_to_probe_direction * (average_distance);
+                green_line.color = visibility_weight.rrr * float3(0,1,0);
+                debug_draw_line(globals.debug, green_line);
+
+                ShaderDebugLineDraw blue_line = {};
+                blue_line.start = probe_position - visibility_to_probe_direction * (average_distance);
+                blue_line.end = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                blue_line.color = visibility_weight.rrr * float3(0,0,1);
+                debug_draw_line(globals.debug, blue_line);
+
+                if (visibility_weight < 0.001f)
+                {
+                    ShaderDebugLineDraw black_line = {};
+                    black_line.start = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                    black_line.end = visibility_sample_position;
+                    black_line.color = float3(1,0.02,0.02) * 0.01;
+                    debug_draw_line(globals.debug, black_line);
+                }
+
+                ShaderDebugCircleDraw start = {};
+                start.position = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                start.color = float3(0,1,0) * visibility_weight;
+                start.radius = 0.01f;
+                debug_draw_circle(globals.debug, start);
+                ShaderDebugCircleDraw end = {};
+                end.position = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                end.color = float3(0,0,1) * visibility_weight;
+                end.radius = 0.01f;
+                debug_draw_circle(globals.debug, end);
+
+                ShaderDebugLineDraw bias_offset_line = {};
+                bias_offset_line.start = visibility_sample_position;
+                bias_offset_line.end = position;
+                bias_offset_line.color = float3(1,1,0);
+                debug_draw_line(globals.debug, bias_offset_line);
+                ShaderDebugCircleDraw sample_pos = {};
+                sample_pos.position = position;
+                sample_pos.color = float3(1,1,0);
+                sample_pos.radius = 0.04f;
+                debug_draw_circle(globals.debug, sample_pos);
+                ShaderDebugCircleDraw sample_pos_offset = {};
+                sample_pos_offset.position = visibility_sample_position;
+                sample_pos_offset.color = float3(1,1,0);
+                sample_pos_offset.radius = 0.01f;
+                debug_draw_circle(globals.debug, sample_pos_offset);
+            }
+            probe_weight *= visibility_weight;
+
+            float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
+                globals,
+                settings,
+                shading_normal,
+                probes,
+                probe_index
+            );
+
+            accum += probe_weight * linearly_filtered_samples.rgb;
+            weight_accum += probe_weight;
         }
     }
-    //return (float(visible_probes) * rcp(8)).xxx;
     if (weight_accum == 0)
     {
         return float3(0,0,0);

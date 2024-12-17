@@ -131,6 +131,7 @@ func entry_update_probe_visibility(
     int3 trace_result_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     const float max_depth = length(settings.probe_range * rcp(settings.probe_count))* 1.01f;
+    const float max_probe_distance = length(settings.probe_distance);
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
     float acc_cos_weights = 0.0f;
     int s = settings.probe_trace_resolution;
@@ -163,8 +164,10 @@ func entry_update_probe_visibility(
                 else
                 {
                     relevant_trace_blend.x += trace_depth * power_cos_weight;
-                    float diff = (abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + 0.1f) * 1.0f;
-                    relevant_trace_blend.y += diff * power_cos_weight;
+                    // Smooth out hard contacts. Its always better to have a minimum difference to the average.
+                    const float DIFF_TO_AVERAGE_BIAS = 0.01f;
+                    float difference_to_average = abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + DIFF_TO_AVERAGE_BIAS * max_probe_distance;
+                    relevant_trace_blend.y += difference_to_average * power_cos_weight;
                     acc_cos_weights += power_cos_weight;
                 }
                 valid_trace_count += 1;
@@ -172,7 +175,7 @@ func entry_update_probe_visibility(
         }
     }
     
-    if (valid_trace_count > 0 && !deactivate)
+    if (valid_trace_count > 0)
     {
         relevant_trace_blend *= rcp(acc_cos_weights);
 

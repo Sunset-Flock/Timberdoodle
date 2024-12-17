@@ -72,18 +72,27 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 {
     let push = draw_debug_probe_p;
     PGISettings settings = push.attach.globals.pgi_settings;
+    
 
     float3 view_ray = -vertToPix.normal;
     float3 radiance = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
     float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), vertToPix.probe_index);
     float mean = abs(visibility.x);
     float mean2 = visibility.y;
-    float variance = abs(mean*mean - mean2);
 
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
     float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
 
-    rand_seed(0);
-
-    return DrawDebugProbesFragmentOut(float4(visibility.xxx,1));
+    float3 draw_color = (float3)0;
+    switch(settings.debug_probe_draw_mode)
+    {
+        case PGI_DEBUG_PROBE_DRAW_MODE_OFF: break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = radiance; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE: draw_color = visibility.xxx; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY: draw_color = visibility.yyy; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_TEXEL: draw_color = float3(texel,1); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
+    }
+    return DrawDebugProbesFragmentOut(float4(draw_color,1));
 }
