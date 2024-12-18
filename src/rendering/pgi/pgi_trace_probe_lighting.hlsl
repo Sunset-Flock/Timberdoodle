@@ -60,8 +60,10 @@ void entry_ray_gen()
     // This is important to be able to efficiently reconstruct data between tracing and probe texel updates.
     float2 in_texel_offset = pgi_probe_trace_noise(probe_index, frame_index);
 
+    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_anchor, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
 
     uint3 probe_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
@@ -178,6 +180,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         light_vis_tester, 
         push.attach.probe_radiance.get(), 
         push.attach.probe_visibility.get(), 
+        push.attach.probe_info.get(),
         push.attach.tlas.get()
     ).rgb;
 

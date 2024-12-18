@@ -14,22 +14,22 @@
 #include "../../shader_lib/raytracing.hlsl"
 #include "../../shader_lib/SH.hlsl"
 
-[[vk::push_constant]] PGIUpdateProbesPush update_probes_push;
+[[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
 [shader("compute")]
 [numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
-func entry_update_probes(
+func entry_update_probe_irradiance(
     int3 dtid : SV_DispatchThreadID,
 ) 
 {
-    let push = update_probes_push;
+    let push = update_probe_texels_push;
     PGISettings settings = push.attach.globals.pgi_settings;
 
     let probe_texel_res = settings.probe_surface_resolution;
     
     // Runtime Int Divs are terrible horror but they stay until i am done prototyping.
-    let probe_texel = (dtid.xy % probe_texel_res);
-    let probe_index = int3(dtid.xy / probe_texel_res, dtid.z);
+    let probe_index = int3(float2(dtid.xy) * rcp(probe_texel_res), dtid.z);
+    let probe_texel = dtid.xy - probe_index.xy * probe_texel_res;
     uint frame_index = push.attach.globals.frame_index;
 
     if (any(greaterThanEqual(probe_index, settings.probe_count)))
@@ -38,7 +38,8 @@ func entry_update_probes(
     }
     
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_anchor, probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
     float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal(probe_texel_uv);
 
@@ -86,7 +87,10 @@ func entry_update_probes(
     if (acc_weight > 0.0f)
     {
         cosine_convoluted_trace_result *= rcp(acc_weight);
-        update_factor = 0.01f;
+        update_factor = 0.001f;
+
+        float ray_to_texel_ratio = float(settings.probe_trace_resolution * settings.probe_trace_resolution) / float(settings.probe_surface_resolution * settings.probe_surface_resolution);
+        update_factor *= ray_to_texel_ratio;
     }
 
     float3 new_radiance = cosine_convoluted_trace_result.rgb;
@@ -101,14 +105,14 @@ func entry_update_probe_visibility(
     int3 dtid : SV_DispatchThreadID,
 ) 
 {
-    let push = update_probes_push;
+    let push = update_probe_texels_push;
     PGISettings settings = push.attach.globals.pgi_settings;
 
     let probe_texel_res = settings.probe_visibility_resolution;
     
     // Runtime Int Divs are terrible horror but they stay until i am done prototyping.
-    let probe_texel = (dtid.xy % probe_texel_res);
-    let probe_index = int3(dtid.xy / probe_texel_res, dtid.z);
+    let probe_index = int3(float2(dtid.xy) * rcp(probe_texel_res), dtid.z);
+    let probe_texel = dtid.xy - probe_index.xy * probe_texel_res;
     uint frame_index = push.attach.globals.frame_index;
 
     if (any(greaterThanEqual(probe_index, settings.probe_count)))
@@ -117,7 +121,8 @@ func entry_update_probe_visibility(
     }
     
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_anchor, probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
     float2 probe_texel_min_uv = (float2(probe_texel)) * rcp(probe_texel_res);
     float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal((probe_texel_max_uv + probe_texel_min_uv) * 0.5f);
@@ -130,8 +135,7 @@ func entry_update_probe_visibility(
     int valid_trace_count = 0;
     int3 trace_result_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
-    const float max_depth = length(settings.probe_range * rcp(settings.probe_count))* 1.01f;
-    const float max_probe_distance = length(settings.probe_distance);
+    const float max_depth = settings.max_visibility_distance;
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
     float acc_cos_weights = 0.0f;
     int s = settings.probe_trace_resolution;
@@ -146,7 +150,6 @@ func entry_update_probe_visibility(
         if (cos_weight > 0.0f)
         {
             float power_cos_weight = pow(cos_weight, 100.0f);
-            //float power_cos_weight2 = pow(cos_weight, 50.0f);
             float trace_depth = push.attach.trace_result.get()[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
             bool is_backface_relevant = abs(trace_depth) < max_depth;
@@ -157,16 +160,16 @@ func entry_update_probe_visibility(
             {
                 if (is_backface && is_backface_relevant) // Backface probe killer.
                 { 
-                    relevant_trace_blend.x += -10000.0f * cos_weight;
-                    relevant_trace_blend.y += 0.00001f * cos_weight;
-                    acc_cos_weights += 100000 * cos_weight;
+                    relevant_trace_blend.x += -trace_depth * PGI_BACKFACE_DIST_SCALE * cos_weight;
+                    relevant_trace_blend.y += 0.0f;
+                    acc_cos_weights += PGI_BACKFACE_DIST_SCALE * cos_weight;
                 }
                 else
                 {
                     relevant_trace_blend.x += trace_depth * power_cos_weight;
                     // Smooth out hard contacts. Its always better to have a minimum difference to the average.
                     const float DIFF_TO_AVERAGE_BIAS = 0.01f;
-                    float difference_to_average = abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + DIFF_TO_AVERAGE_BIAS * max_probe_distance;
+                    float difference_to_average = abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + DIFF_TO_AVERAGE_BIAS * max_depth;
                     relevant_trace_blend.y += difference_to_average * power_cos_weight;
                     acc_cos_weights += power_cos_weight;
                 }
@@ -203,5 +206,105 @@ func entry_update_probe_visibility(
             std_dev_point.radius = 0.1f;
             debug_draw_circle(push.attach.globals.debug, std_dev_point);
         }
+    }
+}
+
+[[vk::push_constant]] PGIUpdateProbesPush update_probes_push;
+
+[shader("compute")]
+[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
+func entry_update_probe(
+    int3 dtid : SV_DispatchThreadID)
+{
+    int3 probe_index = dtid;
+    let push = update_probes_push;
+    PGISettings settings = push.attach.globals.pgi_settings;
+
+    if (any(greaterThanEqual(probe_index, settings.probe_count)))
+    {
+        return;
+    }
+
+    int3 trace_base_texel = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
+
+    const float max_probe_distance = settings.max_visibility_distance;
+    float3 attraction_vector = float3(0,0,0);
+    float3 repulsion_vector = float3(0,0,0);
+    int s = settings.probe_trace_resolution;
+    float vis_res_rcp = rcp(float(settings.probe_trace_resolution));
+    for (int y = 0; y < s; ++y)
+    for (int x = 0; x < s; ++x)
+    {
+        int2 probe_local_texel = int2(x,y);
+        int3 texel = trace_base_texel + int3(x,y,0);
+        float depth = push.attach.trace_result.get()[texel].a;
+
+        if (abs(depth) > settings.max_visibility_distance)
+        {
+            continue;
+        }
+
+        float2 uv = (float2(probe_local_texel) + 0.5f) * vis_res_rcp;
+        float3 normal = pgi_probe_uv_to_probe_normal(uv);
+
+        bool is_backface = depth < 0.0f;
+        float unscaled_distance = is_backface ? -depth * rcp(PGI_BACKFACE_DIST_SCALE) : depth;
+        float distance_weight = rcp(0.1f + unscaled_distance); // bigger weight for smaller distances, max weight 10.0f
+
+        if (is_backface)
+        {
+            attraction_vector += normal * distance_weight;
+        }
+        else if (depth < (PGI_MIN_RELATIVE_SURFACE_DISTANCE * max_probe_distance))
+        {
+            repulsion_vector += -normal * distance_weight;
+        }
+    }
+
+    bool sees_backface = any(repulsion_vector != 0.0f);
+    float validity = sees_backface ? -1.0f : 1.0f;
+
+    if (!settings.probe_repositioning)
+    {
+        push.attach.probe_info.get()[probe_index] = float4(0.0f, 0.0f, 0.0f, validity);
+        return;
+    }
+
+    bool attract = any(attraction_vector != float3(0,0,0));
+    bool repulse = any(repulsion_vector != float3(0,0,0));
+
+    bool conflicting_directions = false;
+    if (attract && repulse)
+    {
+        attraction_vector = normalize(attraction_vector);
+        repulsion_vector = normalize(repulsion_vector);
+        conflicting_directions = abs(dot(attraction_vector, repulsion_vector)) < 0.05f;
+    }
+    float3 adjustment_direction = normalize(attraction_vector + 10 * repulsion_vector);
+
+    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
+    PGIProbeInfo probe_info = {};
+    float3 original_probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
+    probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
+
+    if (settings.debug_draw_repositioning)
+    {
+        ShaderDebugLineDraw line = {};
+        line.start = probe_position;
+        line.end = original_probe_position;
+        line.color = float3(1,1,0);
+        debug_draw_line(push.attach.globals.debug, line);
+    }
+
+    if ((attract || repulse) && !conflicting_directions)
+    {
+
+        float3 curr_offset = probe_info.offset;
+        float3 new_offset = curr_offset + adjustment_direction * PGI_RELATIVE_REPOSITIONING_STEP;
+        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);
+        //new_offset = float3(0,0,0);
+
+        push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
     }
 }

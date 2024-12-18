@@ -50,22 +50,44 @@
 //
 // ===== PGI Probe Texture Layouts =====
 
-#define PGI_BACKFACE_WALL_THICKNESS 0.2f
+#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.1f
+#define PGI_RELATIVE_REPOSITIONING_STEP 0.001f
+#define PGI_MAX_RELATIVE_REPOSITIONING 0.48f
+#define PGI_BACKFACE_DIST_SCALE 1000.0f
 
-float3 pgi_probe_index_to_worldspace(PGISettings settings, float3 probes_anchor, uint3 probe_index)
+struct PGIProbeInfo
 {
-    float3 pgi_grid_cell_size = settings.probe_range / settings.probe_count;   // TODO: precalculate
+    float3 offset;
+    float validity;
+
+    static func load(Texture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    {
+        PGIProbeInfo ret = {};
+        float4 fetch = probe_info_tex[probe_index];
+        ret.offset = fetch.xyz;
+        ret.validity = fetch.w;
+        return ret;
+    }
+
+    static func load(RWTexture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    {
+        PGIProbeInfo ret = {};
+        float4 fetch = probe_info_tex[probe_index];
+        ret.offset = fetch.xyz;
+        ret.validity = fetch.w;
+        return ret;
+    }
+}
+
+float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, float3 probes_anchor, uint3 probe_index)
+{
+    float3 pgi_grid_cell_size = settings.probe_spacing;   // TODO: precalculate
     float3 center_grid_cell_min_probe_pos = float3(
         f32_round_down_to_multiple(probes_anchor.x, pgi_grid_cell_size.x),
         f32_round_down_to_multiple(probes_anchor.y, pgi_grid_cell_size.y),
         f32_round_down_to_multiple(probes_anchor.z, pgi_grid_cell_size.z),
     );
-    return (int3(probe_index) - settings.probe_count/2) * pgi_grid_cell_size + center_grid_cell_min_probe_pos;
-
-
-    float3 min_probe_pos = center_grid_cell_min_probe_pos - pgi_grid_cell_size * 0.5f * float3(settings.probe_count);
-    float3 probe_pos = min_probe_pos + pgi_grid_cell_size * float3(probe_index);
-    return probe_pos;
+    return (int3(probe_index) - settings.probe_count/2 + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos;
 }
 
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
@@ -106,7 +128,8 @@ func pgi_world_space_to_grid_coordinate(
 ) -> float3
 {
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
-    float3 min_probe_world_position = pgi_probe_index_to_worldspace(settings, probe_anchor, uint3(0,0,0)); 
+    PGIProbeInfo info_dummy = {};
+    float3 min_probe_world_position = pgi_probe_index_to_worldspace(settings, info_dummy, probe_anchor, uint3(0,0,0)); 
     float3 min_probe_relative_position = position - min_probe_world_position;
     float3 grid_space_coordinate = min_probe_relative_position * rcp(settings.probe_range) * settings.probe_count;
     return grid_space_coordinate;
@@ -203,7 +226,7 @@ func pgi_calc_biased_sample_position(PGISettings settings, float3 position, floa
 {
     const float BIAS_FACTOR = 0.3f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.4f;
-    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_distance * BIAS_FACTOR;
+    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
 func pgi_sample_irradiance(
@@ -215,7 +238,8 @@ func pgi_sample_irradiance(
     float3 view_direction,
     RaytracingAccelerationStructure tlas,
     Texture2DArray<float4> probes,
-    Texture2DArray<float2> probe_visibility
+    Texture2DArray<float2> probe_visibility,
+    Texture2DArray<float4> probe_infos
 ) -> float3 {
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
     int3 base_probe = int3(floor(grid_coord));
@@ -236,27 +260,34 @@ func pgi_sample_irradiance(
         int z = int((probe >> 2u) & 0x1u);
         int3 probe_index = base_probe + int3(x,y,z);
 
-        float probe_weight = 1.0f;
-        
-        // Trilinear Probe Proximity Weighting
-        {
-            float3 probe_weights = float3(
-                (x == 0 ? 1.0f - interpolants.x : interpolants.x),
-                (y == 0 ? 1.0f - interpolants.y : interpolants.y),
-                (z == 0 ? 1.0f - interpolants.z : interpolants.z)
-            );
-            probe_weights = float3(
-                smoothstep(0.0f, 1.0f, probe_weights.x),
-                smoothstep(0.0f, 1.0f, probe_weights.y),
-                smoothstep(0.0f, 1.0f, probe_weights.z),
-            );
-            probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
-        }
-
         if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
         {
-            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
+            float probe_weight = 1.0f;
+
+            PGIProbeInfo probe_info = PGIProbeInfo::load(probe_infos, probe_index);
+            if (probe_info.validity < 0.0f)
+            {
+                probe_weight = 0.0f;
+            }
+            
+            // Trilinear Probe Proximity Weighting
+            {
+                float3 probe_weights = float3(
+                    (x == 0 ? 1.0f - interpolants.x : interpolants.x),
+                    (y == 0 ? 1.0f - interpolants.y : interpolants.y),
+                    (z == 0 ? 1.0f - interpolants.z : interpolants.z)
+                );
+                probe_weights = float3(
+                    smoothstep(0.0f, 1.0f, probe_weights.x),
+                    smoothstep(0.0f, 1.0f, probe_weights.y),
+                    smoothstep(0.0f, 1.0f, probe_weights.z),
+                );
+                probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
+            }
+
+            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
             float3 shading_to_probe_direction = normalize(probe_position - position);
+
 
             // Backface influence
             // - smooth backface used to ensure smooth transition between probes

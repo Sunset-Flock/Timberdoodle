@@ -31,7 +31,7 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     PGISettings settings = push.attach.globals.pgi_settings;
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
-    position *= 0.125f;
+    position *= 0.03f * settings.max_visibility_distance;
 
     uint probes_per_z_slice = (push.attach.globals.pgi_settings.probe_count.x * push.attach.globals.pgi_settings.probe_count.y);
     uint probe_z = instance_index / probes_per_z_slice;
@@ -40,9 +40,11 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     uint probe_x = (instance_index - probe_z * probes_per_z_slice - probe_y * probes_per_y_row);
 
     float3 probe_anchor = push.attach.globals.pgi_settings.fixed_center ? push.attach.globals.pgi_settings.fixed_center_position : push.attach.globals.camera.position;
-
     uint3 probe_index = uint3(probe_x, probe_y, probe_z);
-    position += pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_anchor, probe_index);
+
+    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
+    position += probe_position;
 
     float4x4* viewproj = {};
     if (push.attach.globals.settings.draw_from_observer != 0)
@@ -58,7 +60,7 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     ret.position = mul(*viewproj, float4(position, 1));
     ret.normal = normal;
     ret.probe_index = probe_index;
-    ret.probe_position = pgi_probe_index_to_worldspace(settings, probe_anchor, probe_index);
+    ret.probe_position = probe_position;
     return ret;
 }
 

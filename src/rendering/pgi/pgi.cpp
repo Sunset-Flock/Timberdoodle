@@ -1480,8 +1480,12 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
     {
         device.destroy_image(this->probe_visibility.get_state().images[0]);
     }
+    if (!this->probe_info.get_state().images.empty() && !this->probe_info.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_info.get_state().images[0]);
+    }
 
-    daxa::ImageId probe_irradiance_image = device.create_image({
+    daxa::ImageId probe_radiance_image = device.create_image({
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {
@@ -1496,12 +1500,6 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "pgi probe radiance",
     });
-
-    this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ probe_irradiance_image }},
-        .name = "pgi probe radiance",
-    });
-
     daxa::ImageId probe_visibility_image = device.create_image({
         .dimensions = 2,
         .format = daxa::Format::R16G16_SFLOAT,
@@ -1517,14 +1515,38 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "pgi probe visibility",
     });
+    daxa::ImageId probe_info_image = device.create_image({
+        .dimensions = 2,
+        .format = daxa::Format::R32G32B32A32_SFLOAT,
+        .size = {
+            static_cast<u32>(settings.probe_count.x),
+            static_cast<u32>(settings.probe_count.y),
+            1
+        },
+        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
+                daxa::ImageUsageFlagBits::TRANSFER_SRC | 
+                daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .name = "pgi probe info tex",
+    });
 
+    this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ probe_radiance_image }},
+        .name = "pgi probe radiance",
+    });
     this->probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{
         .initial_images = daxa::TrackedImages{.images = std::array{ probe_visibility_image }},
         .name = "pgi probe visibility",
     });
+    this->probe_info = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ probe_info_image }},
+        .name = "pgi probe info tex",
+    });
 
     probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
     probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
+    probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
 }
 
 void PGIState::cleanup(daxa::Device& device)
@@ -1536,10 +1558,17 @@ void PGIState::cleanup(daxa::Device& device)
     if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
     {
         device.destroy_image(this->probe_radiance.get_state().images[0]);
+        probe_radiance_view = daxa::NullTaskImage;
     }
     if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
     {
         device.destroy_image(this->probe_visibility.get_state().images[0]);
+        probe_visibility_view = daxa::NullTaskImage;
+    }
+    if (!this->probe_info.get_state().images.empty() && !this->probe_info.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->probe_info.get_state().images[0]);
+        probe_info_view = daxa::NullTaskImage;
     }
     *this = {};
 }

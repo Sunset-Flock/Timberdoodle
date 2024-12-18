@@ -20,7 +20,9 @@ struct PGISettings
     daxa_b32 debug_probe_influence TIDO_DEFAULT_VALUE(false);
     daxa_i32 probe_surface_resolution TIDO_DEFAULT_VALUE(6);
     daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(6);
-    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(12);
+    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(16);
+    daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(false);
+    daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
     // Non photorealistic factor.
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
@@ -29,6 +31,7 @@ struct PGISettings
     daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
     daxa_i32vec3 debug_probe_index TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 0);
     // Calculated by Renderer
-    daxa_f32vec3 probe_distance; // probe_range / probe_count
-    daxa_f32vec3 probe_distance_rcp; // 1.0f / probe_distance
+    daxa_f32vec3 probe_spacing;             // probe_range / probe_count
+    daxa_f32vec3 probe_spacing_rcp;         // 1.0f / probe_spacing
+    daxa_f32 max_visibility_distance;       // length(probe_spacing) * 1.5f
 };

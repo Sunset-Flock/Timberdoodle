@@ -1218,6 +1218,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
+                ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
+                ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::InputFloat3("Fixed Probe Center Position", &render_data.pgi_settings.fixed_center_position.x);
                 ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.pgi_settings.fixed_center));
                 auto debug_daw_modes = std::array{

@@ -18,9 +18,11 @@ struct PGIState
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
     daxa::TaskImage probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
-    daxa::TaskImageView probe_radiance_view = {};
+    daxa::TaskImageView probe_radiance_view = daxa::NullTaskImage;
     daxa::TaskImage probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe visibility texture"});
-    daxa::TaskImageView probe_visibility_view = {};
+    daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
+    daxa::TaskImage probe_info = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe info texture"});
+    daxa::TaskImageView probe_info_view = daxa::NullTaskImage;
 
     void initialize(daxa::Device& device);
     void recreate_resources(daxa::Device& device, PGISettings const & settings);
@@ -134,10 +136,10 @@ inline auto pgi_update_probes_compute_compile_info() -> daxa::ComputePipelineCom
 {
     return daxa::ComputePipelineCompileInfo2{
         .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
-        .entry_point = "entry_update_probes",
+        .entry_point = "entry_update_probe_irradiance",
         .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
-        .name = std::string{"entry_update_probes"},
+        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbeTexelsPush)),
+        .name = std::string{"entry_update_probe_irradiance"},
     };
 }
 
@@ -147,19 +149,19 @@ inline auto pgi_update_probes_compute_compile_info2() -> daxa::ComputePipelineCo
         .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
         .entry_point = "entry_update_probe_visibility",
         .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
+        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbeTexelsPush)),
         .name = std::string{"entry_update_probe_visibility"},
     };
 }
 
-struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
+struct PGIUpdateProbeTexelsTask : PGIUpdateProbeTexelsH::Task
 {
     AttachmentViews views = {};
     RenderContext* render_context = {};
     PGIState* pgi_state = {};
     void callback(daxa::TaskInterface ti)
     {
-            PGIUpdateProbesPush push = {};
+            PGIUpdateProbeTexelsPush push = {};
             push.attach = ti.attachment_shader_blob;
         {
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info().name));
@@ -183,6 +185,39 @@ struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
             auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
             ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
         }
+    }
+};
+
+inline auto pgi_update_probes_compute_compile_info3() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
+        .entry_point = "entry_update_probe",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
+        .name = std::string{"entry_update_probe"},
+    };
+}
+
+struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    PGIState* pgi_state = {};
+    void callback(daxa::TaskInterface ti)
+    {
+        PGIUpdateProbesPush push = {};
+        push.attach = ti.attachment_shader_blob;
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info3().name));
+        ti.recorder.push_constant(push);
+        push.attach = ti.attachment_shader_blob;
+        auto const x = render_context->render_data.pgi_settings.probe_count.x;
+        auto const y = render_context->render_data.pgi_settings.probe_count.y;
+        auto const z = render_context->render_data.pgi_settings.probe_count.z;
+        auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+        auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+        auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+        ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
     }
 };
 
@@ -243,7 +278,7 @@ inline auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracing
 
 // Traces one ray per probe texel.
 // Results (color, depth) are written to the trace result texture.
-struct PGITraceProbeLightingTask : PGITraceProbeLightingH::Task
+struct PGITraceProbeRaysTask : PGITraceProbeLightingH::Task
 {
     AttachmentViews views = {};
     RenderContext* render_context = {};
