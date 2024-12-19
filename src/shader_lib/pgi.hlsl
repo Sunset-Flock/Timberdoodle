@@ -50,10 +50,12 @@
 //
 // ===== PGI Probe Texture Layouts =====
 
-#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.1f
-#define PGI_RELATIVE_REPOSITIONING_STEP 0.001f
-#define PGI_MAX_RELATIVE_REPOSITIONING 0.48f
-#define PGI_BACKFACE_DIST_SCALE 1000.0f
+// Have at least 25% of the probe grid as distance to the next geo surface
+#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.25f 
+#define PGI_RELATIVE_REPOSITIONING_STEP 0.1f
+#define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
+#define PGI_MAX_RELATIVE_REPOSITIONING 0.4f
+#define PGI_BACKFACE_DIST_SCALE 10.0f
 
 struct PGIProbeInfo
 {
@@ -78,6 +80,12 @@ struct PGIProbeInfo
         return ret;
     }
 }
+
+struct PGIProbeState
+{
+    float3 position_update_vector;
+    float d;
+};
 
 float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, float3 probes_anchor, uint3 probe_index)
 {
@@ -164,11 +172,11 @@ func pgi_sample_probe_irradiance(
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
-    float2 probe_local_texel = probe_octa_uv * float(settings.probe_surface_resolution);
+    float2 probe_local_texel = probe_octa_uv * float(settings.probe_radiance_resolution);
     // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
     int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
-    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_surface_resolution));
-    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_surface_resolution, probe_index);
+    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_radiance_resolution));
+    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_radiance_resolution, probe_index);
 
     float3 linearly_filtered_samples = float3(0,0,0);
     for (int y = 0; y < 2; ++y)
@@ -176,7 +184,7 @@ func pgi_sample_probe_irradiance(
     {
         int2 xy_sample_offset = int2(x,y);
         int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
-        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_surface_resolution.xx);
+        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_radiance_resolution.xx);
 
         int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
         float3 sample = probes[sample_texel].rgb;
@@ -224,8 +232,8 @@ func pgi_sample_probe_visibility(
 // Greatly reduces self shadowing for corners.
 func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
 {
-    const float BIAS_FACTOR = 0.3f;
-    const float NORMAL_TO_VIEW_WEIGHT = 0.4f;
+    const float BIAS_FACTOR = 0.15f;
+    const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
@@ -243,7 +251,7 @@ func pgi_sample_irradiance(
 ) -> float3 {
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
     int3 base_probe = int3(floor(grid_coord));
-    float3 interpolants = frac(grid_coord);
+    float3 grid_interpolants = frac(grid_coord);
     float3 probe_normal = geo_normal;
     
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
@@ -272,28 +280,31 @@ func pgi_sample_irradiance(
             
             // Trilinear Probe Proximity Weighting
             {
-                float3 probe_weights = float3(
-                    (x == 0 ? 1.0f - interpolants.x : interpolants.x),
-                    (y == 0 ? 1.0f - interpolants.y : interpolants.y),
-                    (z == 0 ? 1.0f - interpolants.z : interpolants.z)
+                float3 probe_grid_coord = base_probe + float3(x,y,z) + probe_info.offset;
+                float3 grid_coord_distance = abs(probe_grid_coord - grid_coord);
+                float3 distance_probe_weights = float3(
+                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.x)),
+                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.y)),
+                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.z)),
                 );
-                probe_weights = float3(
-                    smoothstep(0.0f, 1.0f, probe_weights.x),
-                    smoothstep(0.0f, 1.0f, probe_weights.y),
-                    smoothstep(0.0f, 1.0f, probe_weights.z),
+                float3 cell_probe_weights = float3(
+                    sqrt(x == 0 ? 1.0f - grid_interpolants.x : grid_interpolants.x),
+                    sqrt(y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
+                    sqrt(z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                probe_weight = probe_weights.x * probe_weights.y * probe_weights.z;
+                float3 probe_weights = cell_probe_weights * distance_probe_weights;
+                probe_weights = smoothstep(float3(0,0,0), float3(1,1,1), probe_weights);
+                probe_weight *= probe_weights.x * probe_weights.y * probe_weights.z;
             }
 
             float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
             float3 shading_to_probe_direction = normalize(probe_position - position);
 
-
             // Backface influence
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
-            float smooth_backface_term = square((1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f);
-            probe_weight *= smooth_backface_term;
+            float smooth_backface_term = (1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f;
+            probe_weight *= square(smooth_backface_term);
 
             // visibility (Chebyshev)
             // ===== Shadow Map Visibility Test =====
@@ -335,6 +346,7 @@ func pgi_sample_irradiance(
                     }
                 }
             }
+            probe_weight *= visibility_weight;
             // ===== Shadow Map Visibility Test =====
 
             if (debug_pixel && settings.debug_probe_influence)
@@ -357,7 +369,7 @@ func pgi_sample_irradiance(
                 blue_line.color = visibility_weight.rrr * float3(0,0,1);
                 debug_draw_line(globals.debug, blue_line);
 
-                if (visibility_weight < 0.001f)
+                if (probe_weight < 0.001f)
                 {
                     ShaderDebugLineDraw black_line = {};
                     black_line.start = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
@@ -393,7 +405,6 @@ func pgi_sample_irradiance(
                 sample_pos_offset.radius = 0.01f;
                 debug_draw_circle(globals.debug, sample_pos_offset);
             }
-            probe_weight *= visibility_weight;
 
             float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
                 globals,

@@ -25,7 +25,7 @@ func entry_update_probe_irradiance(
     let push = update_probe_texels_push;
     PGISettings settings = push.attach.globals.pgi_settings;
 
-    let probe_texel_res = settings.probe_surface_resolution;
+    let probe_texel_res = settings.probe_radiance_resolution;
     
     // Runtime Int Divs are terrible horror but they stay until i am done prototyping.
     let probe_index = int3(float2(dtid.xy) * rcp(probe_texel_res), dtid.z);
@@ -55,30 +55,17 @@ func entry_update_probe_irradiance(
     float cos_wrap_around = settings.cos_wrap_around;
     float cos_wrap_around_rcp = rcp(cos_wrap_around + 1.0f);
     for (int y = 0; y < s; ++y)
+    for (int x = 0; x < s; ++x)
     {
-        for (int x = 0; x < s; ++x)
+        float2 trace_tex_uv = (float2(x,y) + trace_texel_noise) * rcp(s);
+        float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
+        float cos_weight = max(0.0f, (cos_wrap_around + dot(trace_direction, probe_texel_normal)) * cos_wrap_around_rcp);
+        int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
+        if (cos_weight > 0.0f)
         {
-            float2 trace_tex_uv = clamp((float2(x,y) + trace_texel_noise) * rcp(s), 0.0f, 0.999999f);
-            float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
-            float cos_weight = max(0.0f, (cos_wrap_around + dot(trace_direction, probe_texel_normal)) * cos_wrap_around_rcp);
-            int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
-            if (cos_weight > 0.0f)
-            {
-                float4 sample = push.attach.trace_result.get()[sample_texture_index].rgba;
-                cosine_convoluted_trace_result += sample * cos_weight;
-                acc_weight += cos_weight;
-
-                #if 0 // draw probe influence
-                //if (all(probe_index == settings.debug_probe_index))
-                if (probe_texel.y == 0 && probe_texel.x == 0 && update_step == 1){
-                    ShaderDebugLineDraw line = {};
-                    line.start = probe_position;
-                    line.end = probe_position + trace_direction * cos_weight;
-                    line.color = sample.rgb;
-                    debug_draw_line(push.attach.globals.debug, line);
-                }
-                #endif
-            }
+            float4 sample = push.attach.trace_result.get()[sample_texture_index].rgba;
+            cosine_convoluted_trace_result += sample * cos_weight;
+            acc_weight += cos_weight;
         }
     }
     
@@ -87,9 +74,9 @@ func entry_update_probe_irradiance(
     if (acc_weight > 0.0f)
     {
         cosine_convoluted_trace_result *= rcp(acc_weight);
-        update_factor = 0.001f;
+        update_factor = 0.01f;
 
-        float ray_to_texel_ratio = float(settings.probe_trace_resolution * settings.probe_trace_resolution) / float(settings.probe_surface_resolution * settings.probe_surface_resolution);
+        float ray_to_texel_ratio = float(settings.probe_trace_resolution) / float(settings.probe_radiance_resolution);
         update_factor *= ray_to_texel_ratio;
     }
 
@@ -139,7 +126,6 @@ func entry_update_probe_visibility(
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
     float acc_cos_weights = 0.0f;
     int s = settings.probe_trace_resolution;
-    bool deactivate = false;
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
@@ -152,17 +138,15 @@ func entry_update_probe_visibility(
             float power_cos_weight = pow(cos_weight, 100.0f);
             float trace_depth = push.attach.trace_result.get()[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
-            bool is_backface_relevant = abs(trace_depth) < max_depth;
 
             trace_depth = abs(trace_depth);
             trace_depth = min(trace_depth, max_depth);
-            deactivate = deactivate || (is_backface);
             {
-                if (is_backface && is_backface_relevant) // Backface probe killer.
+                if (is_backface) // Backface probe killer.
                 { 
-                    relevant_trace_blend.x += -trace_depth * PGI_BACKFACE_DIST_SCALE * cos_weight;
+                    relevant_trace_blend.x += -trace_depth * cos_weight * PGI_BACKFACE_DIST_SCALE;
                     relevant_trace_blend.y += 0.0f;
-                    acc_cos_weights += PGI_BACKFACE_DIST_SCALE * cos_weight;
+                    acc_cos_weights += cos_weight * PGI_BACKFACE_DIST_SCALE;
                 }
                 else
                 {
@@ -182,8 +166,12 @@ func entry_update_probe_visibility(
     {
         relevant_trace_blend *= rcp(acc_cos_weights);
 
-        float blending = 0.01f;
-        float2 new_blended_val = lerp(prev_frame_visibility, relevant_trace_blend, blending);
+        float update_factor = 0.01f;
+
+        float ray_to_texel_ratio = float(settings.probe_trace_resolution) / float(settings.probe_visibility_resolution);
+        update_factor *= ray_to_texel_ratio;
+
+        float2 new_blended_val = lerp(prev_frame_visibility, relevant_trace_blend, update_factor);
         push.attach.probe_visibility.get()[probe_texture_index] = new_blended_val;
 
         if (all(probe_texel == int2(0,0)) && false)
@@ -225,69 +213,94 @@ func entry_update_probe(
         return;
     }
 
+    if (!settings.probe_repositioning)
+    {
+        push.attach.probe_info.get()[probe_index] = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        return;
+    }
+
     int3 trace_base_texel = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
 
+    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
+    PGIProbeInfo probe_info = {}; // The dummy here is intentionally used to query default world space position.
+    float3 original_probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
+    probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
+
+    float2 texel_trace_noise = pgi_probe_trace_noise(probe_index, push.attach.globals.frame_index);
     const float max_probe_distance = settings.max_visibility_distance;
     float3 attraction_vector = float3(0,0,0);
+    float attraction_count = 0.0f;
+    float attraction_relative_dist = 2.0f;
     float3 repulsion_vector = float3(0,0,0);
+    float repulsion_vector_count = 0.0f;
     int s = settings.probe_trace_resolution;
-    float vis_res_rcp = rcp(float(settings.probe_trace_resolution));
+    float trace_res_rcp = rcp(float(settings.probe_trace_resolution));
+    float probe_spacing_crp = min(settings.probe_spacing_rcp.x, min(settings.probe_spacing_rcp.y, settings.probe_spacing_rcp.z));
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
         int2 probe_local_texel = int2(x,y);
         int3 texel = trace_base_texel + int3(x,y,0);
+        float2 uv = (float2(probe_local_texel) + texel_trace_noise) * trace_res_rcp;
+        float3 ray_dir = pgi_probe_uv_to_probe_normal(uv);
+        
         float depth = push.attach.trace_result.get()[texel].a;
+        float3 grid_coord_ray_hit = ray_dir * depth * settings.probe_spacing_rcp + probe_info.offset;
 
-        if (abs(depth) > settings.max_visibility_distance)
+        // Ignore all rays that hit something outside of the repositioning range
+        // Probes are allowed to cross surfaces, even if that means they can not reach the PGI_MIN_RELATIVE_SURFACE_DISTANCE.
+        // We still constrain prohibit probes to cross surfaces that can not reach PGI_MIN_RELATIVE_SURFACE_DISTANCE/2 distance to that surface.
+        if (any(abs(grid_coord_ray_hit) > (PGI_MAX_RELATIVE_REPOSITIONING - PGI_MIN_RELATIVE_SURFACE_DISTANCE/2)))
         {
             continue;
         }
 
-        float2 uv = (float2(probe_local_texel) + 0.5f) * vis_res_rcp;
-        float3 normal = pgi_probe_uv_to_probe_normal(uv);
-
         bool is_backface = depth < 0.0f;
-        float unscaled_distance = is_backface ? -depth * rcp(PGI_BACKFACE_DIST_SCALE) : depth;
-        float distance_weight = rcp(0.1f + unscaled_distance); // bigger weight for smaller distances, max weight 10.0f
-
+        float relative_distance = (is_backface ? -depth : depth) * probe_spacing_crp;
         if (is_backface)
         {
-            attraction_vector += normal * distance_weight;
+            if (relative_distance < attraction_relative_dist)
+            {
+                attraction_relative_dist = relative_distance;
+                attraction_vector = ray_dir;
+            }
+            attraction_count += 1.0f;
         }
-        else if (depth < (PGI_MIN_RELATIVE_SURFACE_DISTANCE * max_probe_distance))
+        else if (relative_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE)
         {
-            repulsion_vector += -normal * distance_weight;
+            // Using the distance weight we reduce repositioning step size the more the probe distances itself from the surface.
+            float distance_weight = 1.0f - min(relative_distance, PGI_MIN_RELATIVE_SURFACE_DISTANCE) * rcp(PGI_MIN_RELATIVE_SURFACE_DISTANCE);
+            distance_weight = square(distance_weight);
+            repulsion_vector = -ray_dir * distance_weight;
+            repulsion_vector_count += 1.0f;
         }
     }
 
-    bool sees_backface = any(repulsion_vector != 0.0f);
-    float validity = sees_backface ? -1.0f : 1.0f;
-
-    if (!settings.probe_repositioning)
+    if (repulsion_vector_count > 0.0f)
     {
-        push.attach.probe_info.get()[probe_index] = float4(0.0f, 0.0f, 0.0f, validity);
-        return;
+        repulsion_vector *= rcp(repulsion_vector_count);
     }
+    
+    // Probes will sometimes shoot rays into cracks of objects.
+    // This leads to very sporadic backface hits.
+    // Simply ignore backface hits if its not a significant amount.
+    // Also disable such Probes.
+    bool too_few_backface_hits = attraction_count < 3;
+    if (too_few_backface_hits)
+    {
+        attraction_vector = {};
+    }
+
+    // Currently we use the raw trace results here.
+    // We need the accumulated depths to determine validity.
+    float validity = 1.0f ;// sees_too_many_backfaces ? -1.0f : 1.0f;
 
     bool attract = any(attraction_vector != float3(0,0,0));
     bool repulse = any(repulsion_vector != float3(0,0,0));
-
-    bool conflicting_directions = false;
-    if (attract && repulse)
-    {
-        attraction_vector = normalize(attraction_vector);
-        repulsion_vector = normalize(repulsion_vector);
-        conflicting_directions = abs(dot(attraction_vector, repulsion_vector)) < 0.05f;
-    }
-    float3 adjustment_direction = normalize(attraction_vector + 10 * repulsion_vector);
-
-    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
-    PGIProbeInfo probe_info = {};
-    float3 original_probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
-    probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
-
+    
+    float3 adjustment_vector = attraction_vector + repulsion_vector * 2;
+    
     if (settings.debug_draw_repositioning)
     {
         ShaderDebugLineDraw line = {};
@@ -297,14 +310,17 @@ func entry_update_probe(
         debug_draw_line(push.attach.globals.debug, line);
     }
 
-    if ((attract || repulse) && !conflicting_directions)
+    if ((attract || repulse))
     {
-
         float3 curr_offset = probe_info.offset;
-        float3 new_offset = curr_offset + adjustment_direction * PGI_RELATIVE_REPOSITIONING_STEP;
-        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);
-        //new_offset = float3(0,0,0);
+        float3 new_offset = curr_offset + adjustment_vector;
+        new_offset = clamp(new_offset, float3(-1,-1,-1) * PGI_RELATIVE_REPOSITIONING_STEP, float3(1,1,1) * PGI_RELATIVE_REPOSITIONING_STEP);
+        float3 offset_weights = 1.0f - abs(new_offset);
+        float offset_weight = offset_weights.x * offset_weights.y * offset_weights.z; // the higher the current offset, the less we allow movement. Helps convergence to a point.
+        adjustment_vector *= PGI_RELATIVE_REPOSITIONING_STEP * offset_weight;
 
+        new_offset = curr_offset + adjustment_vector;
+        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);        
         push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
     }
 }

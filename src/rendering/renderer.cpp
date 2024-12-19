@@ -1005,7 +1005,7 @@ void Renderer::render_frame(
         render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
         render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
         render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||
-        render_context->render_data.pgi_settings.probe_surface_resolution != render_context->prev_pgi_settings.probe_surface_resolution ||
+        render_context->render_data.pgi_settings.probe_radiance_resolution != render_context->prev_pgi_settings.probe_radiance_resolution ||
         render_context->render_data.pgi_settings.probe_trace_resolution != render_context->prev_pgi_settings.probe_trace_resolution ||
         render_context->render_data.pgi_settings.probe_visibility_resolution != render_context->prev_pgi_settings.probe_visibility_resolution ||
         render_context->render_data.pgi_settings.enabled != render_context->prev_pgi_settings.enabled;

@@ -166,8 +166,8 @@ struct PGIUpdateProbeTexelsTask : PGIUpdateProbeTexelsH::Task
         {
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info().name));
             ti.recorder.push_constant(push);
-            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_surface_resolution;
-            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_surface_resolution;
+            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_radiance_resolution;
+            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_radiance_resolution;
             auto const z = render_context->render_data.pgi_settings.probe_count.z;
             auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
             auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);

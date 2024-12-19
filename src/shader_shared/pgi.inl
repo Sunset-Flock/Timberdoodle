@@ -18,11 +18,11 @@ struct PGISettings
     daxa_f32vec3 fixed_center_position TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 8);
     daxa_i32 debug_probe_draw_mode TIDO_DEFAULT_VALUE(PGI_DEBUG_PROBE_DRAW_MODE_OFF);
     daxa_b32 debug_probe_influence TIDO_DEFAULT_VALUE(false);
-    daxa_i32 probe_surface_resolution TIDO_DEFAULT_VALUE(6);
-    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(6);
-    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(16);
-    daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
+    daxa_i32 probe_radiance_resolution TIDO_DEFAULT_VALUE(6);
+    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(6);
+    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(12);
+    daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
     // Non photorealistic factor.
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
