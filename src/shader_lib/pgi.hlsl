@@ -51,10 +51,10 @@
 // ===== PGI Probe Texture Layouts =====
 
 // Have at least 25% of the probe grid as distance to the next geo surface
-#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.25f 
+#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.45f 
 #define PGI_RELATIVE_REPOSITIONING_STEP 0.1f
 #define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
-#define PGI_MAX_RELATIVE_REPOSITIONING 0.4f
+#define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
 #define PGI_BACKFACE_DIST_SCALE 10.0f
 
 struct PGIProbeInfo
@@ -89,13 +89,13 @@ struct PGIProbeState
 
 float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, float3 probes_anchor, uint3 probe_index)
 {
-    float3 pgi_grid_cell_size = settings.probe_spacing;   // TODO: precalculate
+    float3 pgi_grid_cell_size = settings.probe_spacing;
     float3 center_grid_cell_min_probe_pos = float3(
         f32_round_down_to_multiple(probes_anchor.x, pgi_grid_cell_size.x),
         f32_round_down_to_multiple(probes_anchor.y, pgi_grid_cell_size.y),
         f32_round_down_to_multiple(probes_anchor.z, pgi_grid_cell_size.z),
     );
-    return (int3(probe_index) - settings.probe_count/2 + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos;
+    return (int3(probe_index) - int3(uint3(settings.probe_count) >> 1)) * pgi_grid_cell_size + center_grid_cell_min_probe_pos + probe_info.offset;
 }
 
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
@@ -120,6 +120,7 @@ float3 pgi_probe_uv_to_probe_normal(float2 uv)
 
 float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
 {
+    //return float2(0.5f,0.5f);
     const uint seed = (probe_index.x * 1823754 + probe_index.y * 5232 + probe_index.z * 21 + frame_index);
     rand_seed(seed);
     float2 in_texel_offset = { rand(), rand() };
@@ -249,12 +250,13 @@ func pgi_sample_irradiance(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos
 ) -> float3 {
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
+
     float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
     int3 base_probe = int3(floor(grid_coord));
     float3 grid_interpolants = frac(grid_coord);
     float3 probe_normal = geo_normal;
     
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
@@ -414,16 +416,17 @@ func pgi_sample_irradiance(
                 probe_index
             );
 
-            accum += probe_weight * linearly_filtered_samples.rgb;
+            accum += (probe_weight) * sqrt(linearly_filtered_samples.rgb);
             weight_accum += probe_weight;
         }
     }
+
     if (weight_accum == 0)
     {
         return float3(0,0,0);
     }
     else
     {
-        return accum * rcp(weight_accum);
+        return square(accum * rcp(weight_accum));
     }
 }

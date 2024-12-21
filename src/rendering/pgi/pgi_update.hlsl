@@ -135,7 +135,7 @@ func entry_update_probe_visibility(
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
         if (cos_weight > 0.0f)
         {
-            float power_cos_weight = pow(cos_weight, 100.0f);
+            float power_cos_weight = pow(cos_weight, 10.0f);
             float trace_depth = push.attach.trace_result.get()[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -227,16 +227,20 @@ func entry_update_probe(
     probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
 
+    // As the offset is in "probe space" (-1 to 1 in xyz between probes), we convert all directions and values into probe space as well.
+    const float SOME_LARGE_VALUE = 10000.0f;
     float2 texel_trace_noise = pgi_probe_trace_noise(probe_index, push.attach.globals.frame_index);
     const float max_probe_distance = settings.max_visibility_distance;
     float3 attraction_vector = float3(0,0,0);
-    float attraction_count = 0.0f;
-    float attraction_relative_dist = 2.0f;
     float3 repulsion_vector = float3(0,0,0);
+    float attraction_count = 0.0f;
     float repulsion_vector_count = 0.0f;
+    float closest_attractor_dist = SOME_LARGE_VALUE;
+    float closest_probe_space_distance = SOME_LARGE_VALUE;
+    float furthest_repulsion_dist = 0.0f;
+    float3 furthest_repulsion_direction = {};
     int s = settings.probe_trace_resolution;
     float trace_res_rcp = rcp(float(settings.probe_trace_resolution));
-    float probe_spacing_crp = min(settings.probe_spacing_rcp.x, min(settings.probe_spacing_rcp.y, settings.probe_spacing_rcp.z));
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
@@ -245,41 +249,59 @@ func entry_update_probe(
         float2 uv = (float2(probe_local_texel) + texel_trace_noise) * trace_res_rcp;
         float3 ray_dir = pgi_probe_uv_to_probe_normal(uv);
         
-        float depth = push.attach.trace_result.get()[texel].a;
-        float3 grid_coord_ray_hit = ray_dir * depth * settings.probe_spacing_rcp + probe_info.offset;
+        float trace_result_a = push.attach.trace_result.get()[texel].a;
+        bool is_backface_hit = trace_result_a < 0.0f;
+        float trace_distance = (is_backface_hit ? -trace_result_a : trace_result_a);
+        float3 probe_space_hit_position_no_offset = trace_distance * ray_dir * settings.probe_spacing_rcp;
+        float3 probe_space_hit_position = probe_space_hit_position_no_offset + probe_info.offset;
+        float probe_space_depth = length(probe_space_hit_position_no_offset);
+        float3 probe_space_ray_dir = normalize(ray_dir * settings.probe_spacing_rcp);
+        
+        if (probe_space_depth > furthest_repulsion_dist)
+        {
+            furthest_repulsion_dist = probe_space_depth;
+            furthest_repulsion_direction = probe_space_ray_dir;
+        }
 
         // Ignore all rays that hit something outside of the repositioning range
         // Probes are allowed to cross surfaces, even if that means they can not reach the PGI_MIN_RELATIVE_SURFACE_DISTANCE.
         // We still constrain prohibit probes to cross surfaces that can not reach PGI_MIN_RELATIVE_SURFACE_DISTANCE/2 distance to that surface.
-        if (any(abs(grid_coord_ray_hit) > (PGI_MAX_RELATIVE_REPOSITIONING - PGI_MIN_RELATIVE_SURFACE_DISTANCE/2)))
+        const float RELEVANT_POSITION_RANGE = min(PGI_MAX_RELATIVE_REPOSITIONING * 2, 1.0f); // min ensures that no depth is ever greater than 1.0f.
+        if (any(abs(probe_space_hit_position) > RELEVANT_POSITION_RANGE))
         {
             continue;
         }
 
-        bool is_backface = depth < 0.0f;
-        float relative_distance = (is_backface ? -depth : depth) * probe_spacing_crp;
-        if (is_backface)
+        if (is_backface_hit)
         {
-            if (relative_distance < attraction_relative_dist)
+            if (probe_space_depth < closest_attractor_dist)
             {
-                attraction_relative_dist = relative_distance;
-                attraction_vector = ray_dir;
+                closest_attractor_dist = probe_space_depth;
+                attraction_vector = probe_space_ray_dir;
             }
             attraction_count += 1.0f;
         }
-        else if (relative_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE)
+        else if (probe_space_depth < PGI_MIN_RELATIVE_SURFACE_DISTANCE)
         {
             // Using the distance weight we reduce repositioning step size the more the probe distances itself from the surface.
-            float distance_weight = 1.0f - min(relative_distance, PGI_MIN_RELATIVE_SURFACE_DISTANCE) * rcp(PGI_MIN_RELATIVE_SURFACE_DISTANCE);
-            distance_weight = square(distance_weight);
-            repulsion_vector = -ray_dir * distance_weight;
+            float distance_weight = 1.0f - min(probe_space_depth + 0.01f, PGI_MIN_RELATIVE_SURFACE_DISTANCE) * rcp(PGI_MIN_RELATIVE_SURFACE_DISTANCE);
+            repulsion_vector += -probe_space_ray_dir * distance_weight;
             repulsion_vector_count += 1.0f;
+            
+
+            // ShaderDebugLineDraw line = {};
+            // line.start = probe_position;
+            // line.end = probe_position + probe_space_ray_dir * trace_distance;
+            // line.color = float3(0.2,0.5,0.1) * distance_weight * distance_weight;
+            // debug_draw_line(push.attach.globals.debug, line);
         }
+        closest_probe_space_distance = min(closest_probe_space_distance, probe_space_depth);
     }
 
     if (repulsion_vector_count > 0.0f)
     {
         repulsion_vector *= rcp(repulsion_vector_count);
+        repulsion_vector = lerp(repulsion_vector, furthest_repulsion_direction * 0.1f, 0.75f);
     }
     
     // Probes will sometimes shoot rays into cracks of objects.
@@ -292,14 +314,29 @@ func entry_update_probe(
         attraction_vector = {};
     }
 
-    // Currently we use the raw trace results here.
-    // We need the accumulated depths to determine validity.
-    float validity = 1.0f ;// sees_too_many_backfaces ? -1.0f : 1.0f;
-
     bool attract = any(attraction_vector != float3(0,0,0));
     bool repulse = any(repulsion_vector != float3(0,0,0));
-    
-    float3 adjustment_vector = attraction_vector + repulsion_vector * 2;
+
+    float3 adjustment_vector = attraction_vector + repulsion_vector;
+
+    rand_seed((probe_index.x * 12333) ^ (probe_index.y * 72) ^ (probe_index.z * 5) + push.attach.globals.frame_index);
+    bool random_jump = (closest_probe_space_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE) && attract;
+    bool directed_jump = false;//(closest_probe_space_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE) && repulse;
+    // If we are very close to a surface, randomly jump to avoid getting stuck in local minima.
+    if (random_jump)
+    {
+        float3 jump = normalize(float3(rand(), rand(), rand()) * 2.0f - 1.0f) * rand();
+        adjustment_vector = jump;
+    }
+    else if (directed_jump)
+    {
+        float3 jump = normalize(float3(rand(), rand(), rand()) * 2.0f - 1.0f) * rand();
+        jump = lerp(jump, repulsion_vector,  0.75 * length(probe_info.offset));
+        adjustment_vector = jump;
+    }
+
+    // Random jumping probes are considered invalid as they cause serve flicker.
+    float validity = 1.0f;//random_jump || directed_jump ? -1.0f : 1.0f;// sees_too_many_backfaces ? -1.0f : 1.0f;
     
     if (settings.debug_draw_repositioning)
     {
@@ -317,10 +354,12 @@ func entry_update_probe(
         new_offset = clamp(new_offset, float3(-1,-1,-1) * PGI_RELATIVE_REPOSITIONING_STEP, float3(1,1,1) * PGI_RELATIVE_REPOSITIONING_STEP);
         float3 offset_weights = 1.0f - abs(new_offset);
         float offset_weight = offset_weights.x * offset_weights.y * offset_weights.z; // the higher the current offset, the less we allow movement. Helps convergence to a point.
+        if (random_jump) offset_weight = 1.0f;
         adjustment_vector *= PGI_RELATIVE_REPOSITIONING_STEP * offset_weight;
 
         new_offset = curr_offset + adjustment_vector;
         new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);        
+        //new_offset = float3(0,0,0);
         push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
     }
 }
