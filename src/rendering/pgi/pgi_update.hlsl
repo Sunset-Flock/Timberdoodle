@@ -227,6 +227,21 @@ func entry_update_probe(
     probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
 
+    
+    if (settings.debug_draw_repositioning)
+    {
+        ShaderDebugLineDraw line = {};
+        line.start = probe_position;
+        line.end = original_probe_position;
+        line.color = float3(1,1,0);
+        debug_draw_line(push.attach.globals.debug, line);
+    }
+
+    if (probe_info.validity > 1.0f)
+    {
+        return;
+    }
+
     // As the offset is in "probe space" (-1 to 1 in xyz between probes), we convert all directions and values into probe space as well.
     const float SOME_LARGE_VALUE = 10000.0f;
     float2 texel_trace_noise = pgi_probe_trace_noise(probe_index, push.attach.globals.frame_index);
@@ -266,7 +281,7 @@ func entry_update_probe(
         // Ignore all rays that hit something outside of the repositioning range
         // Probes are allowed to cross surfaces, even if that means they can not reach the PGI_MIN_RELATIVE_SURFACE_DISTANCE.
         // We still constrain prohibit probes to cross surfaces that can not reach PGI_MIN_RELATIVE_SURFACE_DISTANCE/2 distance to that surface.
-        const float RELEVANT_POSITION_RANGE = min(PGI_MAX_RELATIVE_REPOSITIONING * 2, 1.0f); // min ensures that no depth is ever greater than 1.0f.
+        const float RELEVANT_POSITION_RANGE = PGI_MAX_RELATIVE_REPOSITIONING;
         if (any(abs(probe_space_hit_position) > RELEVANT_POSITION_RANGE))
         {
             continue;
@@ -300,8 +315,8 @@ func entry_update_probe(
 
     if (repulsion_vector_count > 0.0f)
     {
-        repulsion_vector *= rcp(repulsion_vector_count);
-        repulsion_vector = lerp(repulsion_vector, furthest_repulsion_direction * 0.1f, 0.75f);
+        repulsion_vector = normalize(repulsion_vector);
+        repulsion_vector = lerp(repulsion_vector, furthest_repulsion_direction, 0.3f);
     }
     
     // Probes will sometimes shoot rays into cracks of objects.
@@ -320,7 +335,7 @@ func entry_update_probe(
     float3 adjustment_vector = attraction_vector + repulsion_vector;
 
     rand_seed((probe_index.x * 12333) ^ (probe_index.y * 72) ^ (probe_index.z * 5) + push.attach.globals.frame_index);
-    bool random_jump = (closest_probe_space_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE) && attract;
+    bool random_jump = false;//(closest_probe_space_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE) && attract;
     bool directed_jump = false;//(closest_probe_space_distance < PGI_MIN_RELATIVE_SURFACE_DISTANCE) && repulse;
     // If we are very close to a surface, randomly jump to avoid getting stuck in local minima.
     if (random_jump)
@@ -335,31 +350,27 @@ func entry_update_probe(
         adjustment_vector = jump;
     }
 
-    // Random jumping probes are considered invalid as they cause serve flicker.
-    float validity = 1.0f;//random_jump || directed_jump ? -1.0f : 1.0f;// sees_too_many_backfaces ? -1.0f : 1.0f;
-    
-    if (settings.debug_draw_repositioning)
+    float validity = probe_info.validity + 0.1f;//random_jump || directed_jump ? -1.0f : 1.0f;// sees_too_many_backfaces ? -1.0f : 1.0f;
+
+    if (attract || repulse)
     {
-        ShaderDebugLineDraw line = {};
-        line.start = probe_position;
-        line.end = original_probe_position;
-        line.color = float3(1,1,0);
-        debug_draw_line(push.attach.globals.debug, line);
+        validity = 0.0f;
     }
 
+    float3 new_offset = probe_info.offset;
     if ((attract || repulse))
     {
         float3 curr_offset = probe_info.offset;
-        float3 new_offset = curr_offset + adjustment_vector;
+        new_offset = curr_offset + adjustment_vector;
         new_offset = clamp(new_offset, float3(-1,-1,-1) * PGI_RELATIVE_REPOSITIONING_STEP, float3(1,1,1) * PGI_RELATIVE_REPOSITIONING_STEP);
         float3 offset_weights = 1.0f - abs(new_offset);
         float offset_weight = offset_weights.x * offset_weights.y * offset_weights.z; // the higher the current offset, the less we allow movement. Helps convergence to a point.
         if (random_jump) offset_weight = 1.0f;
-        adjustment_vector *= PGI_RELATIVE_REPOSITIONING_STEP * offset_weight;
+        adjustment_vector *= PGI_RELATIVE_REPOSITIONING_STEP * offset_weight * 0.3;
 
         new_offset = curr_offset + adjustment_vector;
-        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);        
+        //new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);        
         //new_offset = float3(0,0,0);
-        push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
     }
+    push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
 }
