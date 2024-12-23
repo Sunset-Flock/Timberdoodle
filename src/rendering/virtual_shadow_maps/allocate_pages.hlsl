@@ -62,7 +62,8 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         uint packed_meta_memory_page_entry = 0;
         if(is_point_light)
         {
-            allocate_pages_push.vsm_point_page_table[request.point_light_mip].get()[request.coords] = new_vsm_page_entry;
+            const uint point_page_array_index = get_vsm_point_page_array_idx(request.coords.z, request.point_light_index);
+            allocate_pages_push.vsm_point_page_table[request.point_light_mip].get()[uint3(request.coords.xy, point_page_array_index)] = new_vsm_page_entry;
 
             const PointLightCoords vsm_point_light_page_coords = PointLightCoords(
                 request.coords.xy,          // texel_coords
@@ -97,7 +98,8 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(get_meta_memory_is_point_light(meta_entry))
         {
             const PointLightCoords owning_vsm_coords = get_vsm_point_light_coords_from_meta_entry(meta_entry);
-            const int3 page_coords = int3(owning_vsm_coords.texel_coords, owning_vsm_coords.point_light_index);
+            const uint point_page_array_index = get_vsm_point_page_array_idx(owning_vsm_coords.face_index, owning_vsm_coords.point_light_index);
+            const int3 page_coords = int3(owning_vsm_coords.texel_coords, point_page_array_index);
             allocate_pages_push.vsm_point_page_table[owning_vsm_coords.mip_level].get()[page_coords] = 0u;
         }
         else
@@ -109,6 +111,10 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         uint packed_meta_memory_page_entry = 0;
         if(is_point_light)
         {
+
+            const uint point_page_array_index = get_vsm_point_page_array_idx(request.coords.z, request.point_light_index);
+            allocate_pages_push.vsm_point_page_table[request.point_light_mip].get()[uint3(request.coords.xy, point_page_array_index)] = new_vsm_page_entry;
+
             const PointLightCoords vsm_point_light_page_coords = PointLightCoords(
                 request.coords.xy,          // texel_coords
                 request.point_light_mip,    // mip_level

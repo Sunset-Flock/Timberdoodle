@@ -12,6 +12,7 @@
 #define VSM_MEMORY_RESOLUTION (8192)
 #define VSM_PAGE_SIZE 64
 #define VSM_CLIP_LEVELS 16
+
 // #define VSM_PAGE_TABLE_RESOLUTION (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE) // NOLINT(bugprone-integer-division)
 #define VSM_PAGE_TABLE_RESOLUTION (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE) // NOLINT(bugprone-integer-division)
 #define VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION 8
@@ -23,6 +24,8 @@
 #define VSM_DEBUG_META_MEMORY_TABLE_SCALE 10
 #define VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION (VSM_META_MEMORY_TABLE_RESOLUTION * VSM_DEBUG_META_MEMORY_TABLE_SCALE)
 
+#define VSM_POINT_LIGHT_NEAR 0.001f
+
 #define MAX_VSM_ALLOC_REQUESTS (512 * 512)
 #if defined(__cplusplus)
 static_assert(VSM_PAGE_TABLE_RESOLUTION <= 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
@@ -30,6 +33,7 @@ static_assert(VSM_PAGE_TABLE_RESOLUTION <= (1u << 7), "VSM_PAGE_TABLE_RESOLUTION
 
 // TODO: Pack point light shit further so that we can fit more here
 static_assert(MAX_POINT_LIGHTS <= 32, "MAX_POINT_LIGHTS must be less than 32 because of packing into meta entry");
+static_assert(VSM_TEXTURE_RESOLUTION == 4096, "Point lights require this right now - need to adjust mip count");
 #endif //defined(__cplusplus)
 
 struct VSMGlobals
@@ -88,9 +92,7 @@ DAXA_DECL_BUFFER_PTR(FreeWrappedPagesInfo)
 
 struct VSMPointLight
 {
-    daxa_ImageViewId page_table;
-    glmsf32mat4 view_matrices[6];
-    glmsf32mat4 inverse_view_matrices[6];
+    CameraInfo face_cameras[6];
     daxa_BufferPtr(GPUPointLight) light;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(VSMPointLight, 8);

@@ -52,7 +52,6 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube/cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld2.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "repro\\minimal.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
@@ -80,6 +79,7 @@ Application::Application()
     else
     {
         auto const r_id = std::get<RenderEntityId>(result);
+        app_state.root_id = r_id;
         RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
 
         for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
@@ -149,6 +149,15 @@ void Application::update()
         };
         static f32 total_time = 0.0f;
         total_time += app_state.delta_time;
+
+        // {
+        //     RenderEntity * r_ent = _scene->_render_entities.slot(app_state.root_id);
+        //     auto transform = mat_4x3_to_4x4(r_ent->transform);
+        //     transform = glm::rotate(transform, glm::radians(90.0f), f32vec3(1.0f, 0.0f, 0.0f));
+
+        //     r_ent->transform = transform;
+        //     _scene->_dirty_render_entities.push_back(app_state.root_id);
+        // }
 
         auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
         // if (dynamic_ball_ent)
