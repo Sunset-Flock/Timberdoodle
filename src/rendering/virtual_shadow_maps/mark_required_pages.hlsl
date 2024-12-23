@@ -130,12 +130,21 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
 
+        for(int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
         {
             const float2 screen_space_uv = float2(svdtid.xy) * mark_pages_push.globals.settings.render_target_size_inv;
-            const PointMipInfo vsm_light_mip_info = project_into_point_light(depth, geo_normal, 0, screen_space_uv, mark_pages_push.globals, mark_pages_push.vsm_point_lights, mark_pages_push.vsm_globals);
 
-            uint prev_page_state;
-            bool thread_active = vsm_light_mip_info.mip_level < 6;
+            const PointMipInfo vsm_light_mip_info = project_into_point_light(
+                depth,
+                geo_normal,
+                point_light_idx,
+                screen_space_uv,
+                mark_pages_push.globals,
+                mark_pages_push.vsm_point_lights,
+                mark_pages_push.vsm_globals
+            );
+
+            bool thread_active = vsm_light_mip_info.cube_face != -1;
             bool first_to_see = false;
 
             const int4 vsm_point_page_coords = int4(vsm_light_mip_info.page_texel_coords, vsm_light_mip_info.cube_face, vsm_light_mip_info.mip_level);
@@ -155,25 +164,27 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 
             if(first_to_see)
             {
+                uint prev_page_state_point;
+                const uint point_page_array_index = get_vsm_point_page_array_idx(vsm_point_page_coords.z, point_light_idx);
                 InterlockedOr(
-                    mark_pages_push.vsm_point_page_table[vsm_point_page_coords.w].get()[vsm_point_page_coords.xyz],
+                    mark_pages_push.vsm_point_page_table[vsm_point_page_coords.w].get()[uint3(vsm_point_page_coords.xy, point_page_array_index)],
                     uint(requests_allocation_mask() | visited_marked_mask()),
-                    prev_page_state
+                    prev_page_state_point
                 );
 
-                if(!get_requests_allocation(prev_page_state) && !get_is_allocated(prev_page_state))
+                if(!get_requests_allocation(prev_page_state_point) && !get_is_allocated(prev_page_state_point))
                 {
                     uint allocation_index;
                     InterlockedAdd(mark_pages_push.vsm_allocation_requests->counter, 1u, allocation_index);
                     if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
                     {
-                        mark_pages_push.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, 0, vsm_point_page_coords.w);
+                        mark_pages_push.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(vsm_point_page_coords.xyz, 0u, point_light_idx, vsm_point_page_coords.w);
                     }
                 }
-                else if(get_is_allocated(prev_page_state) && !get_is_visited_marked(prev_page_state))
+                else if(get_is_allocated(prev_page_state_point) && !get_is_visited_marked(prev_page_state_point))
                 {
                     InterlockedOr(
-                        mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
+                        mark_pages_push.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
                         meta_memory_visited_mask()
                     );
                 }

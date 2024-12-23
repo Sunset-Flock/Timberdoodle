@@ -9,6 +9,7 @@ struct ApplicationState
     CameraController observer_camera_controller = {};
     CinematicCamera cinematic_camera = {};
     RenderEntityId dynamic_ball = {};
+    RenderEntityId root_id = {};
     bool draw_observer = false;
     bool control_observer = false;
     bool use_preset_camera = false;

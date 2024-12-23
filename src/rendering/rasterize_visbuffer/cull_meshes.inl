@@ -17,21 +17,31 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)       // OPTIONAL
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, hip) // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, point_hip) // OPTIONAL
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
 // TODO REMOVE, PUT IN VSM GLOBALS
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_DECL_TASK_HEAD_END
+
+struct ExpandMeshesToMeshletsAttachments
+{
+    ExpandMeshesToMeshletsH::AttachmentShaderBlob attachments;
+}
+DAXA_DECL_BUFFER_PTR(ExpandMeshesToMeshletsAttachments);
 
 struct ExpandMeshesToMeshletsPush
 {
-    ExpandMeshesToMeshletsH::AttachmentShaderBlob attach;
+    daxa_BufferPtr(ExpandMeshesToMeshletsAttachments) attachments;
     daxa::b32 cull_meshes;
     daxa::b32 cull_against_last_frame; /// WARNING: only supported for non vsm path!
     // Only used for vsms:
     daxa::u32 cascade;
     daxa_BufferPtr(GPUMesh) meshes;
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
+    daxa::i32 mip_level;
 };
 
 #if defined(__cplusplus)
@@ -51,16 +61,23 @@ inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/ren
     // only used for vsm cull:
     u32 cascade = {};
     u32 render_time_index = ~0u;
+    bool is_point_light = {};
+    i32 mip_level = {};
+
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
+
+        auto alloc = ti.allocator->allocate(sizeof(ExpandMeshesToMeshletsAttachments));
+        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ExpandMeshesToMeshletsH::AttachmentShaderBlob));
         ExpandMeshesToMeshletsPush push = {
-            .attach = ti.attachment_shader_blob,
+            .attachments = alloc->device_address,
             .cull_meshes = cull_meshes,
             .cull_against_last_frame = cull_against_last_frame,
             .cascade = cascade,
             .meshes = render_context->render_data.scene.meshes,
             .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
+            .mip_level = mip_level,
         };
         ti.recorder.push_constant(push);
         auto total_mesh_draws =
@@ -69,7 +86,14 @@ inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/ren
         total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
-        ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1});
+        if(is_point_light)
+        {
+            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 6, MAX_POINT_LIGHTS});
+        }
+        else 
+        {
+            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1});
+        }
         render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
 };
@@ -83,8 +107,14 @@ struct TaskExpandMeshesToMeshletsInfo
     u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
     // Used for VSM page culling:
     daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
+    // Used for VSM point page culling:
+    daxa::TaskImageView vsm_point_hip = daxa::NullTaskImage;
     daxa::u32 vsm_cascade = {};
+    bool is_point_light = false;
+    daxa::i32 mip_level = {-1};
     daxa::TaskBufferView vsm_clip_projections = daxa::NullTaskBuffer;
+    daxa::TaskBufferView vsm_point_lights = daxa::NullTaskBuffer;
+    daxa::TaskBufferView vsm_globals = daxa::NullTaskBuffer;
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView mesh_instances = {};
@@ -137,15 +167,20 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
             .mesh_instances = info.mesh_instances,
             .hiz = info.hiz,
             .hip = info.vsm_hip,
+            .point_hip = info.vsm_point_hip,
             .opaque_expansion = info.meshlet_expansions[0],
             .masked_expansion = info.meshlet_expansions[1],
             .vsm_clip_projections = info.vsm_clip_projections,
+            .vsm_point_lights = info.vsm_point_lights,
+            .vsm_globals = info.vsm_globals,
         },
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,
         .cull_against_last_frame = info.cull_against_last_frame,
         .cascade = info.vsm_cascade,
         .render_time_index = info.render_time_index,
+        .is_point_light = info.is_point_light,
+        .mip_level = info.mip_level
     });
 }
 
