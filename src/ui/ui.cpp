@@ -189,7 +189,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
 
             ImGui::Checkbox("Enable VSM", &enable);
             ImGui::Checkbox("Force clip level", &force_clip_level);
-            ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, 0);
+            ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, MAX_POINT_LIGHTS - 1);
             ImGui::Checkbox("Enable caching", &enable_caching);
             auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
             ImGui::Checkbox("Use fixed near far", &use_fixed_near_far);

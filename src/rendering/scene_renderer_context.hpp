@@ -127,7 +127,8 @@ namespace RenderTimes
         VSM_ALLOCATE_PAGES,
         VSM_CLEAR_PAGES,
         VSM_GEN_DIRY_BIT_HIZ,
-        VSM_CULL_AND_DRAW_PAGES,
+        VSM_CULL_AND_DRAW_DIRECTIONAL_PAGES,
+        VSM_CULL_AND_DRAW_POINT_PAGES,
         VSM_CLEAR_DIRY_BITS,
         SHADE_OPAQUE,
         SHADE_GBUFFER,
@@ -158,7 +159,8 @@ namespace RenderTimes
         "VSM_ALLOCATE_PAGES",
         "VSM_CLEAR_PAGES",
         "VSM_GEN_DIRY_BIT_HIZ",
-        "VSM_CULL_AND_DRAW_PAGES",
+        "VSM_DRAW_DIRECTIONAL_PAGES",
+        "VSM_DRAW_POINT_PAGES",
         "VSM_CLEAR_DIRY_BITS",
         "SHADE_OPAQUE",
         "SHADE_GBUFFER",
@@ -177,7 +179,8 @@ namespace RenderTimes
         GROUP_SHADE_GBUFFER,
         GROUP_VSM_INVALIDATE_STAGES,
         GROUP_VSM_BOOKKEEPING,
-        GROUP_VSM_CULL_AND_DRAW,
+        GROUP_VSM_CULL_AND_DRAW_DIRECTIONAL,
+        GROUP_VSM_CULL_AND_DRAW_POINT,
         GROUP_COUNT
     };
 
@@ -188,7 +191,8 @@ namespace RenderTimes
         "GROUP_SHADE_GBUFFER",
         "GROUP_VSM_MARK_PAGES",
         "GROUP_VSM_BOOKKEEPING",
-        "GROUP_VSM_CULL_AND_DRAW",
+        "GROUP_VSM_DRAW_DIR",
+        "GROUP_VSM_DRAW_POINT",
     };
 
     static constexpr inline auto to_string(RenderGroupTimesEnum index) -> char const *
@@ -240,8 +244,12 @@ namespace RenderTimes
         VSM_GEN_DIRY_BIT_HIZ,
     };
 
-    static constexpr inline std::array GROUP_VSM_CULL_AND_DRAW_TIMES = std::array{
-        VSM_CULL_AND_DRAW_PAGES,
+    static constexpr inline std::array GROUP_VSM_CULL_AND_DRAW_DIRECTIONAL_TIMES = std::array{
+        VSM_CULL_AND_DRAW_DIRECTIONAL_PAGES,
+    };
+
+    static constexpr inline std::array GROUP_VSM_CULL_AND_DRAW_POINT_TIMES = std::array{
+        VSM_CULL_AND_DRAW_POINT_PAGES,
     };
 
     static constexpr inline std::array<std::span<RenderTimesEnum const>, GROUP_COUNT> GROUP_RENDER_TIMES = {
@@ -251,7 +259,8 @@ namespace RenderTimes
         GROUP_SHADE_GBUFFER_TIMES,
         GROUP_VSM_MARK_PAGES,
         GROUP_VSM_BOOKKEEPING_TIMES,
-        GROUP_VSM_CULL_AND_DRAW_TIMES,
+        GROUP_VSM_CULL_AND_DRAW_DIRECTIONAL_TIMES,
+        GROUP_VSM_CULL_AND_DRAW_POINT_TIMES
     };
 
     struct State

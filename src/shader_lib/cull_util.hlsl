@@ -318,14 +318,13 @@ bool is_ndc_aabb_hiz_depth_occluded(
 }
 
 bool is_ndc_aabb_hiz_opacity_occluded(
-    CameraInfo camera,
     NdcAABB ndc_aabb,
     daxa_ImageViewId hiz,
+    daxa_f32vec2 f_hiz_resolution,
     daxa_u32 array_layer
 )
 {
     const daxa_i32 sample_width = 2;
-    const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
     const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 min_texel_i = clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f);
@@ -482,7 +481,46 @@ bool is_mesh_occluded_vsm(
 
     AABB mesh_aabb = mesh.aabb;
     NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, mesh_ndc_aabb, hiz, cascade);
+    const float2 resolution = camera.screen_size >> 1;
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, resolution, cascade);
+
+    return page_opacity_cull;
+}
+
+bool is_mesh_occluded_point_vsm(
+    CameraInfo camera,
+    MeshInstance mesh_instance,
+    GPUMesh mesh,
+    daxa_BufferPtr(GPUPointLight) point_light,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_ImageViewId hiz,
+    daxa_u32 point_array_index,
+    daxa_f32vec2 hiz_base_resolution,
+)
+{
+    if (mesh.mesh_buffer.value == 0)
+    {
+        return true;
+    }
+
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
+
+    BoundingSphere model_bounding_sphere = mesh.bounding_sphere;
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
+    if(length(ws_bs.center - point_light->position) - ws_bs.radius > point_light.cutoff)
+    {
+        return true;
+    }
+
+    if (is_ws_sphere_out_of_frustum(camera, ws_bs))
+    {
+        return true;
+    }
+
+    AABB mesh_aabb = mesh.aabb;
+    NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, hiz_base_resolution, point_array_index);
 
     return page_opacity_cull;
 }
@@ -533,7 +571,7 @@ bool is_meshlet_occluded_vsm(
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_ImageViewId hiz,
-    daxa_u32 cascade
+    daxa_i32 cascade
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
@@ -555,7 +593,49 @@ bool is_meshlet_occluded_vsm(
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(camera, meshlet_ndc_aabb, hiz, cascade);
+    const float2 resolution = camera.screen_size >> 1;
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, resolution, cascade);
+
+    return page_opacity_cull;
+}
+
+bool is_meshlet_occluded_point_vsm(
+    const CameraInfo camera,
+    const MeshletInstance meshlet_instance,
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
+    daxa_BufferPtr(GPUMesh) meshes,
+    daxa_BufferPtr(GPUPointLight) point_light,
+    daxa_ImageViewId hiz,
+    daxa_u32 point_array_index,
+    daxa_f32vec2 hiz_base_resolution,
+)
+{
+    GPUMesh mesh_data = deref_i(meshes, meshlet_instance.mesh_index);
+    if (mesh_data.mesh_buffer.value == 0)
+    {
+        return true;
+    }
+    if (meshlet_instance.meshlet_index >= mesh_data.meshlet_count)
+    {
+        return true;
+    }
+
+    daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, meshlet_instance.entity_index));
+
+    BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_instance.meshlet_index);
+    BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
+    if(length(ws_bs.center - point_light->position) - ws_bs.radius > point_light.cutoff)
+    {
+        return true;
+    }
+    if (is_ws_sphere_out_of_frustum(camera, ws_bs))
+    {
+        return true;
+    }
+
+    AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_instance.meshlet_index);
+    NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, hiz_base_resolution, point_array_index);
 
     return page_opacity_cull;
 }

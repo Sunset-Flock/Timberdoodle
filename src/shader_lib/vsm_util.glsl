@@ -253,6 +253,38 @@ float3 ray_plane_intersection(float3 ray_direction, float3 ray_origin, float3 pl
     return 0.0f;
 }
 
+struct VSMPointIndirections
+{
+    uint mip_level;
+    uint face_index;
+    uint point_light_index;
+    uint mesh_instance_index;
+};
+
+uint pack_vsm_point_light_indirections(const VSMPointIndirections indirections)
+{
+    uint packed_value = 0;
+    packed_value |= ((indirections.point_light_index   & n_mask(7)) << 25);
+    packed_value |= ((indirections.face_index          & n_mask(4)) << 21);
+    packed_value |= ((indirections.mip_level           & n_mask(4)) << 17);
+    packed_value |= ((indirections.mesh_instance_index & n_mask(17)) << 0);
+    return packed_value;
+}
+
+VSMPointIndirections unpack_vsm_point_light_indirections(uint packed_value)
+{
+    VSMPointIndirections indirections;
+    indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(17));
+    indirections.mip_level            = daxa_i32((packed_value >> 17) & n_mask(4));
+    indirections.face_index           = daxa_i32((packed_value >> 21) & n_mask(4));
+    indirections.point_light_index    = daxa_i32((packed_value >> 25) & n_mask(7));
+    return indirections;
+}
+
+uint get_vsm_point_page_array_idx(int face_idx, int point_light_idx)
+{
+    return point_light_idx * 6 + face_idx;
+}
 
 struct PointMipInfo
 {
@@ -314,7 +346,7 @@ PointMipInfo project_into_point_light(
     }
 
     {
-        const float4x4 point_view_projection = mul(vsm_globals->point_light_projection_matrix, point_lights[point_light_idx].view_matrices[face_idx]);
+        const float4x4 point_view_projection = point_lights[point_light_idx].face_cameras[face_idx].view_proj;
 
         const float4 bottom_right_side_cs = mul(point_view_projection, float4(bottom_right_real_ws, 1.0f));
         const float4 bottom_left_side_cs = mul(point_view_projection, float4(bottom_left_real_ws, 1.0f));
@@ -333,11 +365,12 @@ PointMipInfo project_into_point_light(
         const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
         const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
+        const int clamped_mip_level = clamp(mip_level, 0, 5);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
         const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
         const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << mip_level)));
-        return PointMipInfo(int(mip_level), int(face_idx), texel_coord, middle_uv);
+        return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
     }
 }
 #endif

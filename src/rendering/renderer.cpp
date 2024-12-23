@@ -158,8 +158,10 @@ void Renderer::compile_pipelines()
         {draw_visbuffer_mesh_shader_pipelines[5]},
         {draw_visbuffer_mesh_shader_pipelines[6]},
         {draw_visbuffer_mesh_shader_pipelines[7]},
-        {cull_and_draw_pages_pipelines[0]},
-        {cull_and_draw_pages_pipelines[1]},
+        {cull_and_draw_directional_pages_pipelines[0]},
+        {cull_and_draw_directional_pages_pipelines[1]},
+        {cull_and_draw_point_pages_pipelines[0]},
+        {cull_and_draw_point_pages_pipelines[1]},
         {draw_shader_debug_lines_pipeline_compile_info()},
         {draw_shader_debug_circles_pipeline_compile_info()},
         {draw_shader_debug_rectangles_pipeline_compile_info()},
@@ -207,13 +209,13 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_histogram_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_free_wrapped_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(CullAndDrawPages_WriteCommandTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(vsm_invalidate_pages_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_mark_required_pages_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_find_free_pages_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_allocate_pages_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_clear_pages_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_gen_dirty_bit_hiz_pipeline_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_clear_dirty_bit_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_debug_virtual_page_table_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(vsm_debug_meta_memory_table_pipeline_compile_info())},
@@ -772,6 +774,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_point_page_table_view = vsm_state.point_page_tables.view().view({
+        .base_mip_level = 0,
+        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+        .base_array_layer = 0,
+        .layer_count = 6 * MAX_POINT_LIGHTS,
+    });
     tg.add_task(ShadeOpaqueTask{
         .views = std::array{
             ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
@@ -784,6 +792,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
             ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
             ShadeOpaqueH::AT.vsm_page_view_pos_row | vsm_page_heigh_offsets_view,
+            ShadeOpaqueH::AT.vsm_point_page_table | vsm_point_page_table_view,
             ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
             ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
             ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
@@ -957,20 +966,17 @@ void Renderer::render_frame(
         }
 
         vsm_state.update_vsm_lights(scene->_active_point_lights);
-        CameraInfo tmp = camera_info;
+        CameraInfo real_camera_info = camera_info;
         if(render_context->debug_frustum >= 0) {
-            tmp.position = scene->_active_point_lights.at(0).position;
-            tmp.view = vsm_state.point_lights_cpu.at(0).view_matrices[render_context->debug_frustum];
-            tmp.inv_view = vsm_state.point_lights_cpu.at(0).inverse_view_matrices[render_context->debug_frustum];
-            tmp.proj = vsm_state.globals_cpu.point_light_projection_matrix;
-            tmp.inv_proj = vsm_state.globals_cpu.inverse_point_light_projection_matrix;
-            tmp.view_proj = tmp.proj * tmp.view;
-            tmp.inv_view_proj = glm::inverse(tmp.view_proj);
+            real_camera_info = vsm_state.point_lights_cpu.at(0).face_cameras[render_context->debug_frustum];
+            real_camera_info.screen_size = camera_info.screen_size;
+            real_camera_info.inv_screen_size = camera_info.inv_screen_size;
         }
+
         // Set Render Data.
         render_context->render_data.camera_prev_frame = render_context->render_data.camera;
         render_context->render_data.observer_camera_prev_frame = render_context->render_data.observer_camera;
-        render_context->render_data.camera = tmp;
+        render_context->render_data.camera = real_camera_info;
         render_context->render_data.observer_camera = observer_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
         render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
@@ -1092,7 +1098,7 @@ void Renderer::render_frame(
     vsm_state.update_vsm_lights(scene->_active_point_lights);
     if(render_context->visualize_frustum){
         debug_draw_point_frusti(DebugDrawPointFrusiInfo{
-            .light = &vsm_state.point_lights_cpu.at(0),
+            .light = &vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)),
             .state = &vsm_state,
             .debug_context = &gpu_context->shader_debug_context,
         });

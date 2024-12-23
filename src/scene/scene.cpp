@@ -574,27 +574,41 @@ static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const
 {
     // TODO(msakmary) Hook this into a scene, this sucks!
     scene._active_point_lights.push_back({
-        .position = {-12.133f, 1.38f, 4.0f},
+        .position = {-2.8f, -11.4f, 3.5f},
         .color = {1.0f, 0.55f, 0.15f}, 
-        .intensity = 1.5f,
-        .constant_falloff = 0.0f,
-        .linear_falloff = 10.0f,
-        .quadratic_falloff = 5.0f,
+        .intensity = 5.0f,
         .cutoff = 20.0f,
         .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
     });
 
-    auto const & light = scene._active_point_lights.back();
+    scene._active_point_lights.push_back({
+        .position = {-15.1f, 1.4f, 4.0f},
+        .color = {1.0f, 0.2f, 0.15f}, 
+        .intensity = 4.0f,
+        .cutoff = 10.0f,
+        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + sizeof(GPUPointLight),
+    });
+
+    scene._active_point_lights.push_back({
+        .position = {-5.51f, 16.5f, 3.0f},
+        .color = {0.2f, 0.3f, 0.15f}, 
+        .intensity = 3.5f,
+        .cutoff = 13.0f,
+        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (2 * sizeof(GPUPointLight)),
+    });
+
     auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
-    gpu_point_lights_write_ptr[0] = GPUPointLight{
-        .position = std::bit_cast<daxa_f32vec3>(light.position),
-        .color = std::bit_cast<daxa_f32vec3>(light.color),
-        .intensity = light.intensity,
-        .constant_falloff = light.constant_falloff, 
-        .linear_falloff = light.linear_falloff,
-        .quadratic_falloff = light.quadratic_falloff, 
-        .cutoff = light.cutoff,
-    };
+
+    for(i32 light_idx = 0; light_idx < MAX_POINT_LIGHTS; ++light_idx)
+    {
+        auto const & light = scene._active_point_lights.at(light_idx);
+        gpu_point_lights_write_ptr[light_idx] = GPUPointLight{
+            .position = std::bit_cast<daxa_f32vec3>(light.position),
+            .color = std::bit_cast<daxa_f32vec3>(light.color),
+            .intensity = light.intensity,
+            .cutoff = light.cutoff,
+        };
+    }
 }
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)

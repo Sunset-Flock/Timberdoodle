@@ -114,9 +114,6 @@ struct ActivePointLight
     f32vec3 position;
     f32vec3 color;
     f32 intensity;
-    f32 constant_falloff;
-    f32 linear_falloff;
-    f32 quadratic_falloff;
     f32 cutoff;
     daxa_BufferPtr(GPUPointLight) point_light_ptr;
 };
