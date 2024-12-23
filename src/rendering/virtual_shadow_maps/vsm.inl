@@ -63,11 +63,6 @@ DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
-
-DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPages_WriteCommandH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, meshlet_cull_po2expansion)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, uint64_t, masked_meshlet_cull_po2expansion)
-DAXA_DECL_TASK_HEAD_END
 #endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(FindFreePagesH)
@@ -96,19 +91,16 @@ DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
-#endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearPagesH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, vsm_memory)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
-struct ClearPagesPush
-{
-    DAXA_TH_BLOB(ClearPagesH, attachments)
-};
 
+// TODO: Fix the hardcoded constant 8
 DAXA_DECL_TASK_HEAD_BEGIN(GenDirtyBitHizH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
@@ -121,65 +113,119 @@ struct GenDirtyBitHizPush
     daxa_u32 mip_count;
 };
 
+// TODO: Fix the hardcoded constant 6
+DAXA_DECL_TASK_HEAD_BEGIN(GenPointDirtyBitHizH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_point_page_table)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip1, 5)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip2, 4)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip3, 3)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip4, 2)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip5, 1)
+DAXA_DECL_TASK_HEAD_END
 
-#if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
-    DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion15)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion15)
-    // Draw Attachments:
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
-    // Vsm Attachments:
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
-    DAXA_DECL_TASK_HEAD_END
-    struct CullAndDrawPagesPush
-    {
-        #if !(DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
-            daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
-        #endif
-        daxa_u32 draw_list_type;
-        daxa_u32 bucket_index;
-        daxa_u32 cascade;
-        daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
-    };
+struct GenPointDirtyBitHizPush
+{
+    daxa_BufferPtr(GenPointDirtyBitHizH::AttachmentShaderBlob) attachments;
+};
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion5)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion5)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion6)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion6)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion7)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion7)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion8)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion8)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion9)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion9)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion10)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion10)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion11)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion11)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion12)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion12)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion13)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion13)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion14)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion14)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion15)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion15)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+// Vsm Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
+DAXA_DECL_TASK_HEAD_END
+struct CullAndDrawPagesPush
+{
+    daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
+    daxa_u32 draw_list_type;
+    daxa_u32 cascade;
+    daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
+};
+
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPointPagesH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion_mip5)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion_mip5)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+// Vsm Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(GRAPHICS_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
+// Hpb Attachments:
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip1)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip2)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip3)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip4)
+DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip5)
+DAXA_DECL_TASK_HEAD_END
+
+struct CullAndDrawPointPagesPush
+{
+    daxa_BufferPtr(CullAndDrawPointPagesH::AttachmentShaderBlob) attachments;
+    daxa_u32 draw_list_type;
+    daxa_u32 mip_level;
+    daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
+    daxa::ImageViewId hpb_view;
+};
 #endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
@@ -269,8 +315,9 @@ inline daxa::ComputePipelineCompileInfo vsm_clear_pages_pipeline_compile_info()
 {
     return {
         .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_pages.glsl"}},
-        .push_constant_size = static_cast<u32>(sizeof(ClearPagesPush)),
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_pages.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
+        .push_constant_size = static_cast<u32>(sizeof(ClearPagesH::AttachmentShaderBlob)),
         .name = std::string{ClearPagesH::NAME},
     };
 }
@@ -286,16 +333,27 @@ inline daxa::ComputePipelineCompileInfo vsm_gen_dirty_bit_hiz_pipeline_compile_i
     };
 }
 
-static constexpr inline char const CULL_AND_DRAW_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_pages.hlsl";
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo vsm_gen_point_dirty_bit_hiz_pipeline_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl"},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
+        .push_constant_size = s_cast<u32>(sizeof(GenPointDirtyBitHizPush)),
+        .name = std::string{GenPointDirtyBitHizH::NAME},
+    };
+}
+
+static constexpr inline char const CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_directional_pages.hlsl";
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_base_pipeline_compile_info()
 {
     return {
         .mesh_shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+            .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
         .task_shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+            .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
         .raster = {
@@ -308,41 +366,99 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_com
     };
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_opaque_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_opaque_pipeline_compile_info()
 {
-    auto ret = vsm_cull_and_draw_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "vsm_entry_mesh_opaque";
-    ret.task_shader_info.value().compile_options.entry_point = "vsm_entry_task";
+    auto ret = vsm_cull_and_draw_directional_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "directional_vsm_entry_mesh_opaque";
+    ret.task_shader_info.value().compile_options.entry_point = "directional_vsm_entry_task";
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+        .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
         .compile_options = {
-            .entry_point = "vsm_entry_fragment_opaque",
+            .entry_point = "directional_vsm_entry_fragment_opaque",
             .language = daxa::ShaderLanguage::SLANG,
         },
     };
-    ret.name = "VsmCullAndDrawPagesOpaque";
+    ret.name = "VsmCullAndDrawDirectionalPagesOpaque";
     return ret;
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_masked_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_masked_pipeline_compile_info()
 {
-    auto ret = vsm_cull_and_draw_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "vsm_entry_mesh_masked";
-    ret.task_shader_info.value().compile_options.entry_point = "vsm_entry_task";
+    auto ret = vsm_cull_and_draw_directional_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "directional_vsm_entry_mesh_masked";
+    ret.task_shader_info.value().compile_options.entry_point = "directional_vsm_entry_task";
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
-        .source = daxa::ShaderFile{CULL_AND_DRAW_PAGES_SHADER_PATH},
+        .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
         .compile_options = {
-            .entry_point = "vsm_entry_fragment_masked",
+            .entry_point = "directional_vsm_entry_fragment_masked",
             .language = daxa::ShaderLanguage::SLANG,
         },
     };
-    ret.name = "VsmCullAndDrawPagesMasked";
+    ret.name = "VsmCullAndDrawDirectionalPagesMasked";
     return ret;
 }
 
-inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_pages_pipelines = {
-    vsm_cull_and_draw_pages_opaque_pipeline_compile_info(),
-    vsm_cull_and_draw_pages_masked_pipeline_compile_info()};
+inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_directional_pages_pipelines = {
+    vsm_cull_and_draw_directional_pages_opaque_pipeline_compile_info(),
+    vsm_cull_and_draw_directional_pages_masked_pipeline_compile_info()};
+
+static constexpr inline char const CULL_AND_DRAW_POINT_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_point_pages.hlsl";
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_base_pipeline_compile_info()
+{
+    return {
+        .mesh_shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+        },
+        .task_shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
+            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+        },
+        .raster = {
+            // .depth_clamp_enable = true,
+            // .depth_bias_enable = true,
+            // .depth_bias_constant_factor = 10.0f,
+            // .depth_bias_slope_factor = 2.0f,
+        },
+        .push_constant_size = s_cast<u32>(sizeof(CullAndDrawPointPagesPush)),
+    };
+}
+
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_opaque_pipeline_compile_info()
+{
+    auto ret = vsm_cull_and_draw_point_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "point_vsm_entry_mesh_opaque";
+    ret.task_shader_info.value().compile_options.entry_point = "point_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "point_vsm_entry_fragment_opaque",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "VsmCullAndDrawPointPagesOpaque";
+    return ret;
+}
+
+inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()
+{
+    auto ret = vsm_cull_and_draw_point_pages_base_pipeline_compile_info();
+    ret.mesh_shader_info.value().compile_options.entry_point = "point_vsm_entry_mesh_masked";
+    ret.task_shader_info.value().compile_options.entry_point = "point_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+        .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
+        .compile_options = {
+            .entry_point = "point_vsm_entry_fragment_masked",
+            .language = daxa::ShaderLanguage::SLANG,
+        },
+    };
+    ret.name = "VsmCullAndDrawPointPagesMasked";
+    return ret;
+}
+
+inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_point_pages_pipelines = {
+    vsm_cull_and_draw_point_pages_opaque_pipeline_compile_info(),
+    vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()};
 
 inline daxa::ComputePipelineCompileInfo vsm_clear_dirty_bit_pipeline_compile_info()
 {
@@ -383,12 +499,6 @@ inline daxa::ComputePipelineCompileInfo vsm_debug_meta_memory_table_pipeline_com
         .name = std::string{DebugMetaMemoryTableH::NAME},
     };
 }
-
-using CullAndDrawPages_WriteCommandTask = SimpleComputeTaskPushless<
-    CullAndDrawPages_WriteCommandH::Task,
-    CullAndDrawPages_WriteCommandH::AttachmentShaderBlob,
-    CULL_AND_DRAW_PAGES_SHADER_PATH,
-    "vsm_entry_write_commands">;
 
 struct InvalidatePagesTask : InvalidatePagesH::Task
 {
@@ -440,7 +550,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
         MarkRequiredPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_MARK_REQUIRED_PAGES);
-        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y, .z = 1});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_MARK_REQUIRED_PAGES);
     }
 };
@@ -491,8 +601,7 @@ struct ClearPagesTask : ClearPagesH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_pages_pipeline_compile_info().name));
-        ClearPagesPush push = {};
-        push.attachments = ti.attachment_shader_blob;
+        ClearPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
         ti.recorder.dispatch_indirect({
@@ -524,6 +633,26 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
     }
 };
 
+struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info().name));
+        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
+        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
+
+        auto attachment_alloc = ti.allocator->allocate(sizeof(GenPointDirtyBitHizH::AttachmentShaderBlob)).value();
+        *reinterpret_cast<GenPointDirtyBitHizH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
+        GenPointDirtyBitHizPush push = {.attachments = attachment_alloc.device_address};
+        ti.recorder.push_constant(push);
+        // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
+        ti.recorder.dispatch({dispatch_x, dispatch_y, MAX_POINT_LIGHTS * 6 * 6});
+    }
+};
+
 struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
 {
     AttachmentViews views = {};
@@ -538,7 +667,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .name = "vsm memory daxa integer view",
         });
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_DIRECTIONAL_PAGES);
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
             .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
         });
@@ -576,28 +705,93 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
             {
                 auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
-                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_pages_pipelines[opaque_draw_list_type].name));
-                for (u32 i = 0; i < 1; ++i)
-                {
-                    CullAndDrawPagesPush push = {
-                        .attachments = attachment_alloc.device_address,
-                        .draw_list_type = opaque_draw_list_type,
-                        .bucket_index = i,
-                        .cascade = cascade,
-                        .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
-                    };
-                    render_cmd.push_constant(push);
-                    render_cmd.draw_mesh_tasks_indirect({
-                        .indirect_buffer = buffer,
-                        .offset = sizeof(DispatchIndirectStruct) * i,
-                        .draw_count = 1,
-                        .stride = sizeof(DispatchIndirectStruct),
-                    });
-                }
+                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_directional_pages_pipelines[opaque_draw_list_type].name));
+                CullAndDrawPagesPush push = {
+                    .attachments = attachment_alloc.device_address,
+                    .draw_list_type = opaque_draw_list_type,
+                    .cascade = cascade,
+                    .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
+                };
+                render_cmd.push_constant(push);
+                render_cmd.draw_mesh_tasks_indirect({
+                    .indirect_buffer = buffer,
+                    .offset = 0,
+                    .draw_count = 1,
+                    .stride = sizeof(DispatchIndirectStruct),
+                });
             }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_DIRECTIONAL_PAGES);
+        ti.recorder.destroy_image_view_deferred(memory_block_view);
+    }
+};
+
+struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        auto const memory_block_view = render_context->gpu_context->device.create_image_view({
+            .type = daxa::ImageViewType::REGULAR_2D,
+            .format = daxa::Format::R32_UINT,
+            .image = ti.get(AT.vsm_memory_block).ids[0],
+            .name = "vsm memory daxa integer view",
+        });
+
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_POINT_PAGES);
+        for(i32 mip = 0; mip < 6; ++mip) {
+            const u32 render_resolution = VSM_TEXTURE_RESOLUTION / (1 << mip);
+            auto render_cmd = std::move(ti.recorder).begin_renderpass({
+                .render_area = daxa::Rect2D{.width = render_resolution, .height = render_resolution},
+            });
+
+            render_cmd.set_depth_bias({
+                .constant_factor = render_context->render_data.vsm_settings.constant_bias,
+                .clamp = 0.0,
+                .slope_factor = render_context->render_data.vsm_settings.slope_bias,
+            });
+            auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPagesH::AttachmentShaderBlob)).value();
+            *reinterpret_cast<CullAndDrawPointPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
+
+            daxa::BufferId po2expansion;
+            daxa::BufferId masked_po2expansion;
+            daxa::ImageViewId hpb;
+            switch(mip)
+            {
+                case 0: po2expansion = ti.get(AT.po2expansion_mip0).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip0).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip0).view_ids[0]; break;
+                case 1: po2expansion = ti.get(AT.po2expansion_mip1).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip1).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip1).view_ids[0]; break;
+                case 2: po2expansion = ti.get(AT.po2expansion_mip2).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip2).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip2).view_ids[0]; break;
+                case 3: po2expansion = ti.get(AT.po2expansion_mip3).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip3).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip3).view_ids[0]; break;
+                case 4: po2expansion = ti.get(AT.po2expansion_mip4).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip4).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip4).view_ids[0]; break;
+                case 5: po2expansion = ti.get(AT.po2expansion_mip5).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip5).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip5).view_ids[0]; break;
+            }
+
+            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+            {
+                auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
+                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_point_pages_pipelines[opaque_draw_list_type].name));
+                CullAndDrawPointPagesPush push = {
+                    .attachments = attachment_alloc.device_address,
+                    .draw_list_type = opaque_draw_list_type,
+                    .mip_level = s_cast<u32>(mip),
+                    .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
+                    .hpb_view = hpb
+                };
+                render_cmd.push_constant(push);
+                render_cmd.draw_mesh_tasks_indirect({
+                    .indirect_buffer = buffer,
+                    .offset = 0,
+                    .draw_count = 1,
+                    .stride = sizeof(DispatchIndirectStruct),
+                });
+            }
+
+            ti.recorder = std::move(render_cmd).end_renderpass();
+        }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_POINT_PAGES);
         ti.recorder.destroy_image_view_deferred(memory_block_view);
     }
 };
@@ -729,7 +923,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .base_mip_level = 0,
         .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
-        .layer_count = 6,
+        .layer_count = 6 * MAX_POINT_LIGHTS,
     });
     info.tg->add_task(MarkRequiredPagesTask{
         .views = std::array{
@@ -789,7 +983,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(ClearPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
             daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
             daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
+            daxa::attachment_view(ClearPagesH::AT.vsm_point_page_table, vsm_point_page_table_view),
+            daxa::attachment_view(ClearPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
         },
         .render_context = info.render_context,
     });
@@ -804,7 +999,33 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
-    std::array<std::array<daxa::TaskBufferView, 2>, 16> cascade_meshlet_expansions = {};
+    std::array<daxa::TaskImageView, 6> hpb_mip_views;
+    for(i32 mip = 0; mip < 6; ++mip)
+    {
+        hpb_mip_views.at(mip) = info.vsm_state->point_dirty_pages_hiz_mips.at(mip).view({
+            .base_mip_level = 0,
+            .level_count = s_cast<u32>(6 - mip),
+            .base_array_layer = 0,
+            .layer_count = 6 * MAX_POINT_LIGHTS,
+        });
+    }
+
+    info.tg->add_task(GenPointDirtyBitHizTask{
+        .views = std::array{
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_point_page_table, vsm_point_page_table_view),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip0, hpb_mip_views.at(0)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip1, hpb_mip_views.at(1)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip2, hpb_mip_views.at(2)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip3, hpb_mip_views.at(3)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip4, hpb_mip_views.at(4)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip5, hpb_mip_views.at(5)),
+        },
+        .render_context = info.render_context
+    });
+
+    std::array<std::array<daxa::TaskBufferView, 2>, 16> directional_cascade_meshlet_expansions = {};
     for (u32 cascade = 0; cascade < 16; ++cascade)
     {
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -816,8 +1037,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .globals = info.render_context->tgpu_render_data,
             .mesh_instances = info.mesh_instances,
-            .meshlet_expansions = cascade_meshlet_expansions[cascade],
-            .dispatch_clear = {0,1,1},
+            .meshlet_expansions = directional_cascade_meshlet_expansions[cascade],
             .buffer_name_prefix = std::string("vsm cascade ") + std::to_string(cascade) + ' ',
         });
     }
@@ -825,38 +1045,38 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     info.tg->add_task(CullAndDrawPagesTask{
         .views = std::array{
             daxa::attachment_view(CullAndDrawPagesH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion0, cascade_meshlet_expansions[0][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion0, cascade_meshlet_expansions[0][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion1, cascade_meshlet_expansions[1][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion1, cascade_meshlet_expansions[1][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion2, cascade_meshlet_expansions[2][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion2, cascade_meshlet_expansions[2][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion3, cascade_meshlet_expansions[3][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion3, cascade_meshlet_expansions[3][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion4, cascade_meshlet_expansions[4][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion4, cascade_meshlet_expansions[4][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion5, cascade_meshlet_expansions[5][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion5, cascade_meshlet_expansions[5][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion6, cascade_meshlet_expansions[6][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion6, cascade_meshlet_expansions[6][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion7, cascade_meshlet_expansions[7][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion7, cascade_meshlet_expansions[7][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion8, cascade_meshlet_expansions[8][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion8, cascade_meshlet_expansions[8][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion9, cascade_meshlet_expansions[9][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion9, cascade_meshlet_expansions[9][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion10, cascade_meshlet_expansions[10][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion10, cascade_meshlet_expansions[10][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion11, cascade_meshlet_expansions[11][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion11, cascade_meshlet_expansions[11][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion12, cascade_meshlet_expansions[12][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion12, cascade_meshlet_expansions[12][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion13, cascade_meshlet_expansions[13][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion13, cascade_meshlet_expansions[13][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion14, cascade_meshlet_expansions[14][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion14, cascade_meshlet_expansions[14][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion15, cascade_meshlet_expansions[15][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion15, cascade_meshlet_expansions[15][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion0, directional_cascade_meshlet_expansions[0][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion0, directional_cascade_meshlet_expansions[0][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion1, directional_cascade_meshlet_expansions[1][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion1, directional_cascade_meshlet_expansions[1][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion2, directional_cascade_meshlet_expansions[2][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion2, directional_cascade_meshlet_expansions[2][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion3, directional_cascade_meshlet_expansions[3][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion3, directional_cascade_meshlet_expansions[3][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion4, directional_cascade_meshlet_expansions[4][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion4, directional_cascade_meshlet_expansions[4][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion5, directional_cascade_meshlet_expansions[5][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion5, directional_cascade_meshlet_expansions[5][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion6, directional_cascade_meshlet_expansions[6][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion6, directional_cascade_meshlet_expansions[6][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion7, directional_cascade_meshlet_expansions[7][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion7, directional_cascade_meshlet_expansions[7][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion8, directional_cascade_meshlet_expansions[8][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion8, directional_cascade_meshlet_expansions[8][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion9, directional_cascade_meshlet_expansions[9][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion9, directional_cascade_meshlet_expansions[9][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion10, directional_cascade_meshlet_expansions[10][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion10, directional_cascade_meshlet_expansions[10][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion11, directional_cascade_meshlet_expansions[11][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion11, directional_cascade_meshlet_expansions[11][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion12, directional_cascade_meshlet_expansions[12][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion12, directional_cascade_meshlet_expansions[12][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion13, directional_cascade_meshlet_expansions[13][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion13, directional_cascade_meshlet_expansions[13][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion14, directional_cascade_meshlet_expansions[14][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion14, directional_cascade_meshlet_expansions[14][1]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion15, directional_cascade_meshlet_expansions[15][0]),
+            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion15, directional_cascade_meshlet_expansions[15][1]),
             daxa::attachment_view(CullAndDrawPagesH::AT.meshlet_instances, info.meshlet_instances),
             daxa::attachment_view(CullAndDrawPagesH::AT.mesh_instances, info.mesh_instances),
             daxa::attachment_view(CullAndDrawPagesH::AT.meshes, info.meshes),
@@ -871,25 +1091,53 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
-    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-    info.tg->add_task(DebugVirtualPageTableTask{
-        .views = std::array{
-            daxa::attachment_view(DebugVirtualPageTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
-        },
-        .render_context = info.render_context,
-    });
+    std::array<std::array<daxa::TaskBufferView, 2>, 6> point_meshlet_mip_expansion = {};
+    for(i32 mip = 0; mip < 6; ++mip) {
+        tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
+            .render_context = info.render_context,
+            .tg = *info.tg,
+            .cull_meshes = true,
+            .vsm_hip = daxa::NullTaskImage,
+            .vsm_point_hip = hpb_mip_views.at(mip),
+            .is_point_light = true,
+            .mip_level = mip,
+            .vsm_point_lights = info.vsm_state->vsm_point_lights,
+            .globals = info.render_context->tgpu_render_data,
+            .mesh_instances = info.mesh_instances,
+            .meshlet_expansions = point_meshlet_mip_expansion[mip],
+            .buffer_name_prefix = std::string("vsm point light ") + std::to_string(mip) + ' ',
+        });
+    }
 
-    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-    info.tg->add_task(DebugMetaMemoryTableTask{
+    info.tg->add_task(CullAndDrawPointPagesTask{
         .views = std::array{
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.globals, info.render_context->tgpu_render_data),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip0, point_meshlet_mip_expansion[0][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip0, point_meshlet_mip_expansion[0][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip1, point_meshlet_mip_expansion[1][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip1, point_meshlet_mip_expansion[1][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip2, point_meshlet_mip_expansion[2][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip2, point_meshlet_mip_expansion[2][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip3, point_meshlet_mip_expansion[3][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip3, point_meshlet_mip_expansion[3][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip4, point_meshlet_mip_expansion[4][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip4, point_meshlet_mip_expansion[4][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.po2expansion_mip5, point_meshlet_mip_expansion[5][0]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.masked_po2expansion_mip5, point_meshlet_mip_expansion[5][1]),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.meshlet_instances, info.meshlet_instances),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.mesh_instances, info.mesh_instances),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.meshes, info.meshes),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.material_manifest, info.material_manifest),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_point_page_table, vsm_point_page_table_view),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip0, hpb_mip_views.at(0)),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip1, hpb_mip_views.at(1)),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip2, hpb_mip_views.at(2)),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip3, hpb_mip_views.at(3)),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip4, hpb_mip_views.at(4)),
+            daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip5, hpb_mip_views.at(5)),
         },
         .render_context = info.render_context,
     });
@@ -1093,9 +1341,9 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
 
     auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
 
-    for (i32 cube_face = 0; cube_face < 6; ++cube_face)
+    for (i32 cube_face = 4; cube_face < 5; ++cube_face)
     {
-        auto const inverse_view = info.light->inverse_view_matrices[cube_face];
+        auto const inverse_view = info.light->face_cameras[cube_face].inv_view;
         ShaderDebugBoxDraw box_draw = {};
         box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
         box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face/ 6.0f, 1.0f, 1.0f)));

@@ -893,6 +893,11 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
     }
+    else
+    {
+        vert_texcoord0 = std::vector<glm::vec2>(vert_positions.size());
+    }
+    DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
 /// NOTE: Load vertex normals
