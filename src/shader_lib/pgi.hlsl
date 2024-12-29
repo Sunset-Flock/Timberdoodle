@@ -50,11 +50,11 @@
 //
 // ===== PGI Probe Texture Layouts =====
 
-// Have at least 25% of the probe grid as distance to the next geo surface
-#define PGI_MIN_RELATIVE_SURFACE_DISTANCE 0.45f 
-#define PGI_RELATIVE_REPOSITIONING_STEP 0.1f
+// Distances in In probe space
+#define PGI_DESIRED_RELATIVE_DISTANCE 0.4f 
+#define PGI_RELATIVE_REPOSITIONING_STEP 0.05f
 #define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
-#define PGI_MAX_RELATIVE_REPOSITIONING 0.6f
+#define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
 #define PGI_BACKFACE_DIST_SCALE 10.0f
 
 struct PGIProbeInfo
@@ -95,7 +95,7 @@ float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_in
         f32_round_down_to_multiple(probes_anchor.y, pgi_grid_cell_size.y),
         f32_round_down_to_multiple(probes_anchor.z, pgi_grid_cell_size.z),
     );
-    return (float3(probe_index) - float3(uint3(settings.probe_count) >> 1) + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos;
+    return (float3(probe_index) - float3(uint3(settings.probe_count) >> 1) + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos + settings.fixed_center_position;
 }
 
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.

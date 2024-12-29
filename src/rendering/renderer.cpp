@@ -758,12 +758,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
             .pgi_state = &this->pgi_state,
         });
+        daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
+        tg.copy_image_to_image({pgi_state.probe_info, pgi_probe_info_prev, "copy over probe info prev frame"});
         tg.add_task(PGIUpdateProbesTask{
             .views = std::array{
                 PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
                 PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
                 PGIUpdateProbesTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
+                PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
                 PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
             },
             .render_context = render_context.get(),

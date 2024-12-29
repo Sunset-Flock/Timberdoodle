@@ -23,6 +23,7 @@ struct PGISettings
     daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(6);
     daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(12);
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
+    daxa_b32 probe_repositioning_spring_force TIDO_DEFAULT_VALUE(true);
     // Non photorealistic factor.
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
