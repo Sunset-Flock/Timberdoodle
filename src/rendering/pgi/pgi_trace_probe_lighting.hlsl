@@ -186,21 +186,11 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
 
     float distance = RayTCurrent();
     bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f;
-    if (backface && !((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE))
+    bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
+    if (backface && !double_sided_or_blend)
     {
-        // Intersect the ray again with a virtual wall that is based on the backface position and normal.
-        // float3 backface_wall_plane_origin = hit_point - tri_point.face_normal * 0.1f;
-        // float dst_to_backface_wall = ray_plane_intersection2(WorldRayDirection(), WorldRayOrigin(), -tri_point.face_normal, backface_wall_plane_origin);
-        //distance = max(0.0f, dst_to_backface_wall);
-        //distance = 0.0f;
         distance *= -1.0f;
     }
-
-    //float face_plane_distance = dot(hit_point - tri_point.world_position, backface ? -tri_point.face_normal : tri_point.face_normal);
-    //if (!backface && face_plane_distance < 0.2f) 
-    //{
-    ////    distance *= -1.0f;
-    //}
 
     payload.color_depth.a = distance;
 }

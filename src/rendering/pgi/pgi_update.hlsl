@@ -135,7 +135,7 @@ func entry_update_probe_visibility(
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
         if (cos_weight > 0.0f)
         {
-            float power_cos_weight = pow(cos_weight, 10.0f);
+            float power_cos_weight = pow(cos_weight, 25.0f);
             float trace_depth = push.attach.trace_result.get()[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -222,6 +222,9 @@ func update_free_sphere(inout FreeSphere sphere, float3 point)
     sphere.radius = length(new_sphere_start - new_sphere_end) * 0.5f;
 }
 
+#define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.25)
+#define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
+
 [shader("compute")]
 [numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
 func entry_update_probe(
@@ -262,8 +265,8 @@ func entry_update_probe(
     const float max_probe_distance = settings.max_visibility_distance;
     int s = settings.probe_trace_resolution;
     float trace_res_rcp = rcp(float(settings.probe_trace_resolution));
-    
-    FreeSphere free_sphere = FreeSphere({}, 2.0f);
+
+    float3 average_hit_offset = {};
 
     float closest_backface_dist = SOME_LARGE_VALUE;
     float closest_frontface_dist = SOME_LARGE_VALUE;
@@ -290,17 +293,19 @@ func entry_update_probe(
         float3 probe_space_ray_dir = normalize(ray_dir * settings.probe_spacing_rcp);
 
         // todo: determine an optimal value for the hardcoded 2.0f here!
-        if (probe_space_dist > 2.0f)
+        if (probe_space_dist > 1.0f)
         {
-            probe_space_dist = 2.0f + rand();
+            probe_space_dist = 1.0f + (rand() * 0.0001f);
         }
+
+        average_hit_offset += probe_space_ray_dir * probe_space_dist;
 
         if (is_backface_hit)
         {
             // Only move out probes that are close to a surface.
             // Probes need a lot of room to move when they cross the surface,
             // if they are very deep they have no space to reposition after they cross the surface.
-            if (probe_space_dist > 0.3f)
+            if (probe_space_dist > PGI_BACKFACE_ESCAPE_RANGE)
             {
                 continue;
             }
@@ -313,7 +318,7 @@ func entry_update_probe(
         }
         else
         {
-            if (probe_space_dist > furthest_frontface_dist)
+            if (probe_space_dist > furthest_frontface_dist) 
             {
                 furthest_frontface_dist = probe_space_dist;
                 furthest_frontface_dir = probe_space_ray_dir;
@@ -323,10 +328,11 @@ func entry_update_probe(
                 closest_frontface_dist = probe_space_dist;
                 closest_frontface_dir = probe_space_ray_dir;
                 close_frontface_count += 1;
-                //update_free_sphere(free_sphere, probe_space_hit_position_no_offset);
             }
         }
     }
+
+    average_hit_offset *= rcp(float(s*s));
 
     float3 spring_force = {};
     for (int x = -1; x <= 1; ++x)
@@ -368,7 +374,7 @@ func entry_update_probe(
     }
 
 
-    float validity = probe_info.validity + 0.01f;
+    float validity = probe_info.validity + 0.03f;
     
 
     // Calculate backface attraction
@@ -378,58 +384,70 @@ func entry_update_probe(
         closest_backface_dist = SOME_LARGE_VALUE;
         closest_backface_dir = {};
     }
-    float backface_attract_power = clamp(1.0f - closest_backface_dist, 0.0f, 1.0f);
+    float backface_escape_distance = too_few_backface_hits ? 0.0f : (closest_backface_dist * 1.001f);
 
-    //if (free_sphere.radius < 1.0f)
-    if (false)
-    {
-        ShaderDebugCircleDraw circle = {};
-        circle.color = float3(1,0,0);
-        circle.position = probe_position + free_sphere.center * settings.probe_spacing;
-        circle.radius = free_sphere.radius * settings.probe_spacing.x;
-        debug_draw_circle(push.attach.globals.debug, circle);
-        ShaderDebugLineDraw line = {};
-        line.color = float3(1,0,0);
-        line.start = probe_position;
-        line.end = probe_position + free_sphere.center * settings.probe_spacing;
-        debug_draw_line(push.attach.globals.debug, line);
-    }
-
-    //closest_frontface_dir = normalize(free_sphere.center);
-    //closest_frontface_dist = length(free_sphere.center);
 
     // Calculate frontface attraction and repulsion
-    let closest_frontface_dir_orig = closest_frontface_dir;
+    float3 estimated_freedom_direction = normalize(average_hit_offset); // Average of hit points generally gives a high quality outward vector
     bool too_few_close_front_faces = close_frontface_count < ceil(float(s*s) * 0.01f);
-    bool front_faces_too_far = false;//closest_frontface_dist > PGI_DESIRED_RELATIVE_DISTANCE;
-    if (too_few_close_front_faces || front_faces_too_far)
+    float frontface_repulse_distance = clamp(PGI_DESIRED_RELATIVE_DISTANCE - closest_frontface_dist, 0.0f, PGI_DESIRED_RELATIVE_DISTANCE);
+    float frontface_repulse_power = frontface_repulse_distance * rcp(PGI_DESIRED_RELATIVE_DISTANCE);
+    //frontface_repulse_power = sqrt(frontface_repulse_power * 0.001f);
+    if ((backface_escape_distance > 0.0f))
     {
-        closest_frontface_dist = SOME_LARGE_VALUE;
-        closest_frontface_dir = {};
-        furthest_frontface_dist = {};
-        furthest_frontface_dir = {};
+        frontface_repulse_power = {};
+        frontface_repulse_distance = {};
     }
-    float frontface_repulse_power = clamp(PGI_DESIRED_RELATIVE_DISTANCE - closest_frontface_dist, 0.0f, PGI_DESIRED_RELATIVE_DISTANCE) * rcp(PGI_DESIRED_RELATIVE_DISTANCE) * 20;
+
+
+    {
+        ShaderDebugLineDraw front_face_repulse = {};
+        front_face_repulse.color = float3(1,1,1);
+        front_face_repulse.start = probe_position;
+        front_face_repulse.end = probe_position + average_hit_offset * settings.probe_spacing;
+        //debug_draw_line(push.attach.globals.debug, front_face_repulse);
+    }
+
+
 
     // Calculate probe grid spring attraction and repulsion 
-    float spring_power = min(length(spring_force), 1.0f) * (1.0f - min(backface_attract_power + frontface_repulse_power, 1.0f));
-    if (spring_power > 0.001f)
+    float spring_force_len = length(spring_force);
+    spring_force_len = smoothstep(0.0f, 0.1f, spring_force_len) * spring_force_len;
+    if (backface_escape_distance > 0.0f)
     {
-        spring_force = spring_force - max(0.0f, dot(closest_frontface_dir_orig, spring_force)) * closest_frontface_dir_orig;
-        spring_force = normalize(spring_force + 0.00001f);
+        spring_force_len = {};
+    }
+    spring_force_len *= 1.0f - frontface_repulse_power;
+
+    float3 spring_force_dir = {};
+    if (spring_force_len > 0.001f)
+    {
+        spring_force_dir = normalize(spring_force);
+    }
+
+    // We dont want the spring force to move the probe closer to geometry.
+    // To prevent the spring force pushing probes into geometry,
+    // we calculate the part of the spring force pointing towards geometry,
+    // and stir the spring force away.
+    if (spring_force_len > 0.001f)
+    {
+        float3 towards_geometry_direction = -estimated_freedom_direction;
+        float geometry_dir_projected_spring_force = max(0.0f, dot(towards_geometry_direction, spring_force_dir));
+        spring_force_dir = spring_force_dir - geometry_dir_projected_spring_force * towards_geometry_direction;
+        spring_force_dir = normalize(spring_force_dir);
     }
     if (settings.probe_repositioning_spring_force == 0)
     {
-        spring_power = {};
+        spring_force_len = {};
     }
 
     float3 adjustment_vector = 
-        closest_backface_dir * backface_attract_power +
-        lerp(-closest_frontface_dir, furthest_frontface_dir, 0.5) * frontface_repulse_power +
-        spring_force * spring_power;
+        closest_backface_dir * backface_escape_distance * 0.25 +
+        estimated_freedom_direction * frontface_repulse_distance * PGI_RELATIVE_REPOSITIONING_STEP +
+        spring_force_dir * spring_force_len * PGI_RELATIVE_REPOSITIONING_STEP;
 
-    // Invlidate probes that are either too close to a surface or see backfaces
-    if (closest_backface_dist != SOME_LARGE_VALUE || closest_frontface_dist < PGI_DESIRED_RELATIVE_DISTANCE * 0.5)
+    // Invalidate probes that are either too close to a surface or see backfaces
+    if (closest_backface_dist != SOME_LARGE_VALUE || closest_frontface_dist < PGI_ACCEPTABLE_SURFACE_DISTANCE)
     {
         validity = 0.0f;
     }
@@ -445,14 +463,7 @@ func entry_update_probe(
     {
         float3 curr_offset = probe_info.offset;
         new_offset = curr_offset + adjustment_vector;
-        new_offset = clamp(new_offset, float3(-1,-1,-1) * PGI_RELATIVE_REPOSITIONING_STEP, float3(1,1,1) * PGI_RELATIVE_REPOSITIONING_STEP);
-        float3 offset_weights = 1.0f - abs(new_offset);
-        float offset_weight = offset_weights.x * offset_weights.y * offset_weights.z; // the higher the current offset, the less we allow movement. Helps convergence to a point.
-        adjustment_vector *= PGI_RELATIVE_REPOSITIONING_STEP;
-
-        new_offset = curr_offset + adjustment_vector;
-        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);        
-        //new_offset = float3(0,0,0);
+        new_offset = clamp(new_offset, -(float3)PGI_MAX_RELATIVE_REPOSITIONING, (float3)PGI_MAX_RELATIVE_REPOSITIONING);      
     }
     push.attach.probe_info.get()[probe_index] = float4(new_offset, validity);
 }

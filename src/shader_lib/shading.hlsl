@@ -30,6 +30,7 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     ret.position = tri_point.world_position;
     ret.geometry_normal = tri_point.world_normal;
 
+    ret.emissive = material.emissive_color;
     ret.alpha = 1.0f;
     ret.albedo = material.base_color;
     if (!material.diffuse_texture_id.is_empty())
@@ -67,6 +68,10 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     if (material.alpha_discard_enabled)
     {
         ret.material_flags = ret.material_flags | MATERIAL_FLAG_ALPHA_DISCARD | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
+    if (material.blend_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_BLEND | MATERIAL_FLAG_DOUBLE_SIDED;
     }
     if (material.double_sided_enabled)
     {
@@ -150,8 +155,11 @@ func shade_material(
     // Indirect Diffuse
     {
         float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos);
-        // diffuse_light += global_illumination;
+        diffuse_light += global_illumination;
     }
+
+    // Emissive
+    diffuse_light += material_point.emissive;
 
     return float4(material_point.albedo * diffuse_light, material_point.alpha);
 }

@@ -476,7 +476,7 @@ void entry_main_cs(
         }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion);
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
 
         let shaded_color = albedo.rgb * lighting;
 

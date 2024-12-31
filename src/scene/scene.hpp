@@ -70,10 +70,12 @@ struct MaterialManifestEntry
     u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
     bool double_sided = {};
+    bool blend_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
     // Did we just load alpha texture this frame
     bool alpha_dirty = {};
     f32vec3 base_color = {};
+    f32vec3 emissive_color = {};
     std::string name = {};
 };
 

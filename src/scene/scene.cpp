@@ -316,7 +316,9 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
             .asset_local_index = material_index,
             .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask, // || material.alphaMode == fastgltf::AlphaMode::Blend,
             .double_sided = material.doubleSided,
+            .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
+            .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
             .name = material.name.c_str(),
         });
         scene._new_material_manifest_entries += 1;
@@ -973,7 +975,12 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
         for (i32 i = 0; i < _new_material_manifest_entries; i++)
         {
-            tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(_material_manifest.at(i + material_manifest_offset).base_color);
+            auto const & cpu_material = _material_manifest.at(i + material_manifest_offset);
+            tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(cpu_material.base_color);
+            tmp_materials.at(i).emissive_color = daxa_f32vec3(cpu_material.emissive_color[0], cpu_material.emissive_color[1], cpu_material.emissive_color[2]),
+            tmp_materials.at(i).alpha_discard_enabled = cpu_material.alpha_discard_enabled;
+            tmp_materials.at(i).double_sided_enabled = cpu_material.double_sided;
+            tmp_materials.at(i).blend_enabled = cpu_material.blend_enabled;
         }
         std::memcpy(staging_ptr, tmp_materials.data(), _new_material_manifest_entries * sizeof(GPUMaterial));
 
@@ -1200,6 +1207,8 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
                 auto const & texture_entry = scene._material_texture_manifest.at(material.roughness_metalness_info.value().tex_manifest_index);
                 roughness_metalness_id = texture_entry.runtime_texture.value_or(daxa::ImageId{});
             }
+
+            // WARNING: MUST ALSO WRITE ANY DATA THAT IS ALREADY AVAILABLE IN INITIAL MATERIAL WRITE BEFORE ANY TEXTURE IS LOADED!
             staging_origin_ptr[dirty_materials_index].diffuse_texture_id = diffuse_id.default_view();
             staging_origin_ptr[dirty_materials_index].opacity_texture_id = opacity_id.default_view();
             staging_origin_ptr[dirty_materials_index].normal_texture_id = normal_id.default_view();
@@ -1207,7 +1216,8 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
             staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
             staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
             staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
-            staging_origin_ptr[dirty_materials_index].double_sided_enabled = static_cast<daxa_b32>(material.double_sided);
+            staging_origin_ptr[dirty_materials_index].double_sided_enabled = material.double_sided;
+            staging_origin_ptr[dirty_materials_index].blend_enabled = material.blend_enabled;
 
             daxa::BufferId gpu_material_manifest = scene._gpu_material_manifest.get_state().buffers[0];
             recorder.copy_buffer_to_buffer({

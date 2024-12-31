@@ -629,7 +629,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 
             if (true)
             {
-                if (cull_backfaces && false)
+                if (cull_backfaces)
                 {
                     cull_primitive = is_triangle_backfacing(tri_vert_clip_positions);
                 }

@@ -52,7 +52,7 @@
 
 // Distances in In probe space
 #define PGI_DESIRED_RELATIVE_DISTANCE 0.4f 
-#define PGI_RELATIVE_REPOSITIONING_STEP 0.05f
+#define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
 #define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
 #define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
 #define PGI_BACKFACE_DIST_SCALE 10.0f
@@ -262,7 +262,7 @@ func pgi_sample_irradiance(
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
 
     float3 accum = float3(0,0,0);
-    float weight_accum = 0;
+    float weight_accum = 0.00001f;
     for (uint probe = 0; probe < 8; ++probe)
     {
         int x = int((probe >> 0u) & 0x1u);
@@ -427,6 +427,6 @@ func pgi_sample_irradiance(
     }
     else
     {
-        return square(accum * rcp(weight_accum));
+        return clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f);
     }
 }
