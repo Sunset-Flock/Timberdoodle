@@ -95,7 +95,8 @@ void setup_colors()
 UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * gpu_context)
     : scene_graph(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
       property_viewer(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
-      gpu_context{gpu_context}
+      gpu_context{gpu_context},
+      window{&window}
 {
     auto * imgui_context = ImGui::CreateContext();
     auto * implot_context = ImPlot::CreateContext();
@@ -125,10 +126,14 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state)
+void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
+    
+    // Clear Select Render Data
+    render_context.render_data.hovered_entity_index = ~0u;
+    render_context.render_data.selected_entity_index = ~0u;
 
     ImGuiDockNodeFlags dockspace_flags = ImGuiDockNodeFlags_PassthruCentralNode;
     ImGuiWindowFlags window_flags =
@@ -157,7 +162,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             ImGui::MenuItem("Settings", NULL, &renderer_settings);
             ImGui::MenuItem("Widget Settings", NULL, &widget_settings);
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
-            ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_hierarchy);
+            ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_interface);
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::MenuItem("VSM Debug Menu", NULL, &vsm_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
@@ -502,9 +507,9 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
         }
         ImGui::End();
     }
-    if (widget_scene_hierarchy)
+    if (widget_scene_interface)
     {
-        ui_scenegraph(scene);
+        ui_scene_graph(scene);
     }
     if (renderer_settings)
     {
@@ -512,10 +517,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (widget_property_viewer)
     {
-        property_viewer.render({
-            .sky_settings = &render_context.render_data.sky_settings,
-            .post_settings = &render_context.render_data.postprocess_settings,
-        });
+        property_viewer.render(scene_interface, scene, render_context);
     }
     if (demo_window)
     {
@@ -1075,7 +1077,7 @@ void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::str
     }
 }
 
-void UIEngine::ui_scenegraph(Scene const & scene)
+void UIEngine::ui_scene_graph(Scene const & scene)
 {
     if (scene._gltf_asset_manifest.empty())
     {

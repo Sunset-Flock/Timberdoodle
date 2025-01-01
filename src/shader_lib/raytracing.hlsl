@@ -19,7 +19,7 @@ float3 rt_calc_ray_start(float3 position, float3 geo_normal, float3 view_ray)
     return position + (geo_normal - view_ray * 2) * RAY_MIN_POSITION_OFFSET;
 }
 
-float rt_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max)
+float rayquery_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max)
 {
     RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;
 
@@ -191,7 +191,7 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
         float t_max = 100.0f;
         float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
         float3 dir = sky.sun_direction;
-        float t = rt_free_path(tlas, start, dir, t_max);
+        float t = rayquery_free_path(tlas, start, dir, t_max);
 
         bool path_occluded = t != t_max;
 

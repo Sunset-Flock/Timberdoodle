@@ -14,6 +14,41 @@
 #include "../../shader_lib/raytracing.hlsl"
 #include "../../shader_lib/SH.hlsl"
 
+__generic<let N : uint>
+func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 probe_res, int3 base_index, int2 probe_texel, vector<float, N> value)
+{
+    bool2 on_edge = probe_texel == 0 || probe_texel == (probe_res - 1);
+    int2 mirror_index = probe_texel - probe_res/2;
+    mirror_index += int2(mirror_index >= int2(0,0)) * int2(1,1);
+    bool border_corner = all(on_edge);
+    tex[int3(probe_texel, 0) + base_index] = value;
+    
+    if (border_corner)
+    {
+        // Diagonal Border Texel
+        int2 diag_index = -mirror_index;
+        diag_index += int2(mirror_index >= int2(0,0)) * int2(-1,-1);
+        diag_index += probe_res/2;
+        tex[int3(diag_index,0) + base_index] = value;
+    }
+
+    if (on_edge.x)
+    {
+        int2 edge_index = int2(mirror_index.x + sign(mirror_index.x), -mirror_index.y);
+        edge_index += int2(edge_index >= int2(0,0)) * int2(-1,-1);
+        edge_index += probe_res/2;
+        tex[int3(edge_index,0) + base_index] = value;
+    }
+
+    if (on_edge.y)
+    {
+        int2 edge_index = int2(-mirror_index.x, mirror_index.y + sign(mirror_index.y));
+        edge_index += int2(edge_index >= int2(0,0)) * int2(-1,-1);
+        edge_index += probe_res/2;
+        tex[int3(edge_index,0) + base_index] = value;
+    }
+}
+
 [[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
 [shader("compute")]
@@ -43,13 +78,13 @@ func entry_update_probe_irradiance(
     float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal(probe_texel_uv);
 
-    int3 probe_texture_base_index = pgi_probe_texture_base_offset(settings, probe_texel_res, probe_index);
+    int3 probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, probe_index);
     int3 probe_texture_index = probe_texture_base_index + int3(probe_texel, 0);
 
     int s = settings.probe_trace_resolution;
 
     float4 cosine_convoluted_trace_result = float4(0.0f,0.0f,0.0f, 0.0f);
-    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
+    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     float acc_weight = 0.0f;
     float cos_wrap_around = settings.cos_wrap_around;
@@ -97,7 +132,9 @@ func entry_update_probe_irradiance(
     }
 
     new_radiance = lerp(new_radiance, prev_frame_radiance, hysteresis);
-    push.attach.probe_radiance.get()[probe_texture_index] = float4(new_radiance, hysteresis);
+
+    float4 value = float4(new_radiance, hysteresis);
+    write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_radiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
 [shader("compute")]
@@ -128,13 +165,13 @@ func entry_update_probe_visibility(
     float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal((probe_texel_max_uv + probe_texel_min_uv) * 0.5f);
 
-    int3 probe_texture_base_index = pgi_probe_texture_base_offset(settings, probe_texel_res, probe_index);
+    int3 probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, probe_index);
     
     int3 probe_texture_index = probe_texture_base_index + int3(probe_texel, 0);
 
     float2 relevant_trace_blend = float2(0.0f, 0.0f);
     int valid_trace_count = 0;
-    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
+    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     const float max_depth = settings.max_visibility_distance;
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
@@ -185,31 +222,12 @@ func entry_update_probe_visibility(
         float ray_to_texel_ratio = float(settings.probe_trace_resolution) / float(settings.probe_visibility_resolution);
         update_factor *= ray_to_texel_ratio;
 
-        float2 new_blended_val = lerp(prev_frame_visibility, relevant_trace_blend, update_factor);
-        push.attach.probe_visibility.get()[probe_texture_index] = new_blended_val;
-
-        if (all(probe_texel == int2(0,0)) && false)
-        {
-            float3 trace_direction = pgi_probe_uv_to_probe_normal((probe_texel + 0.5f) * rcp(settings.probe_visibility_resolution));
-            ShaderDebugLineDraw line = {};
-            line.start = probe_position;
-            line.end = probe_position + new_blended_val.x * trace_direction;
-            line.color = float3(1,1,1);
-            debug_draw_line(push.attach.globals.debug, line);
-            ShaderDebugCircleDraw hit = {};
-            hit.position = probe_position + trace_direction * new_blended_val.x;
-            hit.color = float3(0,1,1);
-            hit.radius = 0.1f;
-            debug_draw_circle(push.attach.globals.debug, hit);
-            float std_dev = sqrt(abs(new_blended_val.x*new_blended_val.x - new_blended_val.y));
-            ShaderDebugCircleDraw std_dev_point = {};
-            std_dev_point.position = probe_position + trace_direction * (new_blended_val.x - std_dev);
-            std_dev_point.color = float3(1,0,1);
-            std_dev_point.radius = 0.1f;
-            debug_draw_circle(push.attach.globals.debug, std_dev_point);
-        }
+        float2 value = lerp(prev_frame_visibility, relevant_trace_blend, update_factor);
+        write_probe_texel_with_border(push.attach.probe_visibility.get(), settings.probe_visibility_resolution, probe_texture_base_index, probe_texel, value);
     }
 }
+
+// Y W B B P K#YWBBPK
 
 [[vk::push_constant]] PGIUpdateProbesPush update_probes_push;
 
@@ -237,7 +255,7 @@ func update_free_sphere(inout FreeSphere sphere, float3 point)
 }
 
 #define PGI_DESIRED_RELATIVE_DISTANCE 0.4f 
-#define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
+#define PGI_RELATIVE_REPOSITIONING_STEP 0.1f
 #define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
 #define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
 #define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.125)
@@ -258,7 +276,7 @@ func entry_update_probe(
         return;
     }
 
-    int3 trace_base_texel = pgi_probe_texture_base_offset(settings, settings.probe_trace_resolution, probe_index);
+    int3 trace_base_texel = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
 
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
     PGIProbeInfo probe_info = {}; // The dummy here is intentionally used to query default world space position.
@@ -266,7 +284,6 @@ func entry_update_probe(
     probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
 
-    
     if (settings.debug_draw_repositioning)
     {
         ShaderDebugLineDraw line = {};
@@ -383,7 +400,7 @@ func entry_update_probe(
     }
 
 
-    float validity = probe_info.validity + 0.03f;
+    float validity = probe_info.validity + 0.05f;
     
 
     // Calculate backface attraction
@@ -438,9 +455,9 @@ func entry_update_probe(
     }
 
     float3 adjustment_vector = 
-        closest_backface_dir * backface_escape_distance * PGI_RELATIVE_REPOSITIONING_STEP +
-        estimated_freedom_direction * frontface_repulse_distance * PGI_RELATIVE_REPOSITIONING_STEP +
-        spring_force_dir * spring_force_distance * PGI_RELATIVE_REPOSITIONING_STEP;
+        closest_backface_dir * min(backface_escape_distance, PGI_RELATIVE_REPOSITIONING_STEP) +
+        estimated_freedom_direction * min(frontface_repulse_distance, PGI_RELATIVE_REPOSITIONING_STEP) +
+        spring_force_dir * min(spring_force_distance, PGI_RELATIVE_REPOSITIONING_STEP);
 
 
     if (settings.debug_draw_repositioning_forces)

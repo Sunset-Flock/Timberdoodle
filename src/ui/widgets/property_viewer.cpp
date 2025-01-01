@@ -14,7 +14,7 @@ namespace tido
         {
         }
 
-        void PropertyViewer::render(RenderInfo const & info)
+        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context)
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -71,7 +71,7 @@ namespace tido
             {
                 ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
                 {
-                    auto sun_settings_content = [&info]()
+                    auto sun_settings_content = [&render_context]()
                     {
                         if (ImGui::CollapsingHeader("Sun Settings"))
                         {
@@ -79,9 +79,9 @@ namespace tido
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
 
                             f32vec3 const sun_dir = {
-                                info.sky_settings->sun_direction.x,
-                                info.sky_settings->sun_direction.y,
-                                info.sky_settings->sun_direction.z};
+                                render_context.render_data.sky_settings.sun_direction.x,
+                                render_context.render_data.sky_settings.sun_direction.y,
+                                render_context.render_data.sky_settings.sun_direction.z};
                             f32 const angle_y_rad = glm::acos(sun_dir.z);
                             f32 const angle_x_rad = glm::atan(sun_dir.y / sun_dir.x);
                             f32 offset = 0.0f;
@@ -95,7 +95,7 @@ namespace tido
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 4;
                             better_drag_float({"Angle X", &angle_x_deg, 0.5f, 0.1f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
                             better_drag_float({"Angle Y", &angle_y_deg, 0.5f, 0.1f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
-                            info.sky_settings->sun_direction =
+                            render_context.render_data.sky_settings.sun_direction =
                                 {
                                     daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
                                     daxa_f32(glm::sin(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),
@@ -106,7 +106,7 @@ namespace tido
                         }
                     };
 
-                    auto atmsphere_settings_content = [&info]
+                    auto atmsphere_settings_content = [&render_context]
                     {
                         struct LayerSettingsContentCallable
                         {
@@ -170,7 +170,7 @@ namespace tido
                             ImGui::Indent(4);
                             std::string layer_name = {};
                             DensityProfileLayer * layers = {};
-                            auto layer_settings_content = [&info, &plot_layer, &layer_name, &layers]
+                            auto layer_settings_content = [&render_context, &plot_layer, &layer_name, &layers]
                             {
                                 ImGui::PushID(layer_name.c_str());
                                 if (ImGui::CollapsingHeader(std::format("{} Settings", layer_name).c_str()))
@@ -189,21 +189,21 @@ namespace tido
                             ImGui::Dummy({2, 0});
                             ImGui::SameLine();
                             layer_name = "Rayleigh";
-                            layers = info.sky_settings->rayleigh_density;
+                            layers = render_context.render_data.sky_settings.rayleigh_density;
                             draw_with_bg_rect(layer_settings_content, 12, bg_4);
                             ImGui::Dummy({0, 1});
 
                             ImGui::Dummy({2, 0});
                             ImGui::SameLine();
                             layer_name = "Mie";
-                            layers = info.sky_settings->mie_density;
+                            layers = render_context.render_data.sky_settings.mie_density;
                             draw_with_bg_rect(layer_settings_content, 12, bg_4);
                             ImGui::Dummy({0, 1});
 
                             ImGui::Dummy({2, 0});
                             ImGui::SameLine();
                             layer_name = "Absorption";
-                            layers = info.sky_settings->absorption_density;
+                            layers = render_context.render_data.sky_settings.absorption_density;
                             draw_with_bg_rect(layer_settings_content, 12, bg_4);
                             ImGui::Dummy({0, 1});
 
@@ -232,33 +232,33 @@ namespace tido
             {
                 ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
                 {
-                    auto camera_settings = [&info]()
+                    auto camera_settings = [&render_context]()
                     {
                         if (ImGui::CollapsingHeader("Camera"))
                         {
                             ImGui::Indent(12);
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
-                            auto & post = info.post_settings;
+                            auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
-                            better_drag_float({"exposure bias", &post->exposure_bias, 0.1f, 0.01f, 10.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"sensor sensitivity", &post->sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
-                            better_drag_float({"calibration", &post->calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"adaption speed", &post->luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
+                            better_drag_float({"exposure bias", &post.exposure_bias, 0.1f, 0.01f, 10.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"sensor sensitivity", &post.sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
+                            better_drag_float({"calibration", &post.calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"adaption speed", &post.luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
                     };
-                    auto histogram_settings = [&info]()
+                    auto histogram_settings = [&render_context]()
                     {
                         if (ImGui::CollapsingHeader("Histogram"))
                         {
                             ImGui::Indent(12);
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
-                            auto & post = info.post_settings;
+                            auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
-                            better_drag_float({"min lum log2", &post->min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"max lum log2", &post->max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
-                            post->max_luminance_log2 = glm::max(post->max_luminance_log2, post->min_luminance_log2 + 0.1f);
+                            better_drag_float({"min lum log2", &post.min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"max lum log2", &post.max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            post.max_luminance_log2 = glm::max(post.max_luminance_log2, post.min_luminance_log2 + 0.1f);
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
@@ -281,35 +281,31 @@ namespace tido
             }
             if (selected == 2)
             {
-                ImGui::BeginChild("Rendering Statistics", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
                 {
-                    auto camera_settings = [&info]()
+                    if (scene_interface.picked_entity == render_context.general_readback.hovered_entity)
                     {
-                        if (ImGui::CollapsingHeader("Camera"))
+                        scene_interface.picked_entity = ~0;
+                    }
+                    else
+                    {
+                        scene_interface.picked_entity = render_context.general_readback.hovered_entity;
+                    }
+                }
+                ImGui::BeginChild("Geometry Info", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
+                {
+                    auto camera_settings = [&]()
+                    {
+                        ImGui::SeparatorText("Picked Geometry");
                         {
                             ImGui::Indent(12);
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
-                            auto & post = info.post_settings;
+                            auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
-                            better_drag_float({"exposure bias", &post->exposure_bias, 0.1f, 0.01f, 10.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"sensor sensitivity", &post->sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
-                            better_drag_float({"calibration", &post->calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"adaption speed", &post->luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
-                            ImGui::PopStyleColor();
-                            ImGui::Unindent(12);
-                        }
-                    };
-                    auto histogram_settings = [&info]()
-                    {
-                        if (ImGui::CollapsingHeader("Histogram"))
-                        {
-                            ImGui::Indent(12);
-                            auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
-                            auto & post = info.post_settings;
-                            ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
-                            better_drag_float({"min lum log2", &post->min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
-                            better_drag_float({"max lum log2", &post->max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
-                            post->max_luminance_log2 = glm::max(post->max_luminance_log2, post->min_luminance_log2 + 0.1f);
+
+                            ImGui::Text("Entity Id %i", scene_interface.picked_entity);
+                            ImGui::Text("Interesting Picked Info");
+                            
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
@@ -322,12 +318,13 @@ namespace tido
                     ImGui::SameLine();
                     draw_with_bg_rect(camera_settings, 8, bg_3);
 
-                    ImGui::Dummy({0, 1});
-                    ImGui::Dummy({2, 0});
-                    ImGui::SameLine();
-                    draw_with_bg_rect(histogram_settings, 8, bg_3);
                     ImGui::PopStyleColor(3);
                 }
+
+                // Set Render Data
+                render_context.render_data.hovered_entity_index = render_context.general_readback.hovered_entity;
+                render_context.render_data.selected_entity_index = scene_interface.picked_entity;
+
                 ImGui::EndChild();
             }
             ImGui::PopStyleColor();

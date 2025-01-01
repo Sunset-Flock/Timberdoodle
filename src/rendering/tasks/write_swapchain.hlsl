@@ -130,6 +130,14 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     float4 debug_color = DEBUG;//push.attachments.debug_image.get()[index];
     color.rgb = mix(color.rgb, debug_color.rgb, debug_color.a);
 
+    int crosshair_extent = 16;
+    int crosshair_thickness = 2;
+
+    if ((all(index > (push.size/2-(crosshair_extent/2)) && all(index < (push.size/2+(crosshair_extent/2))))) && (any(index > (push.size/2-(crosshair_thickness/2)) && index < (push.size/2+(crosshair_thickness/2)))))
+    {
+        color.rgb = fract(color.rgb + 0.5);
+    }
+
     float3 gamma_correct = pow(color, float3(1.0/2.2));
 
     push.attachments.swapchain.get()[index] = float4(gamma_correct.rgb, 1);

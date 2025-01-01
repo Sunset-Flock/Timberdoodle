@@ -1489,8 +1489,8 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {
-            static_cast<u32>(settings.probe_count.x * settings.probe_radiance_resolution),
-            static_cast<u32>(settings.probe_count.y * settings.probe_radiance_resolution),
+            static_cast<u32>(settings.probe_count.x * (settings.probe_radiance_resolution + 2)),
+            static_cast<u32>(settings.probe_count.y * (settings.probe_radiance_resolution + 2)),
             1
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z),
@@ -1504,8 +1504,8 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
         .dimensions = 2,
         .format = daxa::Format::R16G16_SFLOAT,
         .size = {
-            static_cast<u32>(settings.probe_count.x * settings.probe_visibility_resolution),
-            static_cast<u32>(settings.probe_count.y * settings.probe_visibility_resolution),
+            static_cast<u32>(settings.probe_count.x * (settings.probe_visibility_resolution + 2)),
+            static_cast<u32>(settings.probe_count.y * (settings.probe_visibility_resolution + 2)),
             1
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z),

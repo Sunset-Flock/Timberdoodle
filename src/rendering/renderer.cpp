@@ -763,8 +763,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(PGIUpdateProbesTask{
             .views = std::array{
                 PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                PGIUpdateProbesTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIUpdateProbesTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
                 PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
                 PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
@@ -970,7 +968,12 @@ void Renderer::render_frame(
             tmp.view_proj = tmp.proj * tmp.view;
             tmp.inv_view_proj = glm::inverse(tmp.view_proj);
         }
+
         // Set Render Data.
+        
+        // Written by ui     render_context->render_data.hovered_entity_index
+        // Written by ui     render_context->render_data.selected_entity_index
+
         render_context->render_data.camera_prev_frame = render_context->render_data.camera;
         render_context->render_data.observer_camera_prev_frame = render_context->render_data.observer_camera;
         render_context->render_data.camera = tmp;

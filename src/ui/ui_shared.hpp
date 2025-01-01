@@ -41,5 +41,10 @@ namespace tido
 
         static inline auto const select_blue_1 = ImVec4(0.05, 0.29, 0.65, 1.0f);
         static inline auto const select_orange_1 = ImVec4(0.75, 0.30, 0.14, 1.0f);
+
+        struct SceneInterfaceState
+        {
+            u32 picked_entity = {};
+        };
     } // namespace ui
 } // namespace tido

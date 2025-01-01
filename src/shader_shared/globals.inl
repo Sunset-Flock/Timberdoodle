@@ -22,6 +22,9 @@ struct GPUScene
 
 struct RenderGlobalData
 {
+    daxa_u32 hovered_entity_index;
+    daxa_u32 selected_entity_index;
+    
     GPUScene scene;
     CameraInfo camera;
     CameraInfo camera_prev_frame;

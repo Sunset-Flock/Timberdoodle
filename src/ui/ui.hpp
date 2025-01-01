@@ -81,7 +81,7 @@ struct UIEngine
         bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
-        bool widget_scene_hierarchy = true;
+        bool widget_scene_interface = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
         bool vsm_debug_menu = true;
@@ -93,10 +93,12 @@ struct UIEngine
         SceneGraph scene_graph = {};
         PropertyViewer property_viewer = {};
         RenderTimesHistory render_times_history = {};
+        Window *window = {};
+        SceneInterfaceState scene_interface = {};
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state);
+        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state);
 
         void tg_resource_debug_ui(RenderContext & render_context);
         void tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key);
@@ -132,6 +134,6 @@ struct UIEngine
         int selected = {};
 
         std::vector<daxa::ImageId> icons = {};
-        void ui_scenegraph(Scene const & scene);
+        void ui_scene_graph(Scene const & scene);
         void ui_renderer_settings(Scene const & scene, RenderGlobalData & render_data, ApplicationState & app_state);
 };

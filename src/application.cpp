@@ -51,9 +51,9 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies3.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube/cube.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "repro\\minimal.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";

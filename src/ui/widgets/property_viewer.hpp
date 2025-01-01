@@ -8,24 +8,18 @@
 #include "../ui_shared.hpp"
 #include "../../timberdoodle.hpp"
 #include "../../scene/scene.hpp"
+#include "../../rendering/scene_renderer_context.hpp"
 
 namespace tido
 {
     namespace ui
     {
-        struct RenderInfo
-        {
-            SkySettings * sky_settings;
-            PostprocessSettings * post_settings;
-        };
         struct PropertyViewer
         {
-          public:
             PropertyViewer() = default;
             PropertyViewer(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
-            void render(RenderInfo const & info);
+            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context);
 
-          private:
             i32 selected = {};
             daxa::ImGuiRenderer * renderer = {};
             daxa::SamplerId linear_sampler = {};

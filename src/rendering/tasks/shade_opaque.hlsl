@@ -321,7 +321,7 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
 
         float t_max = length(light.position - world_position);
         float3 dir = normalize(light.position - world_position);
-        float t = 10000;//rt_free_path(AT.tlas.get(), world_position, dir, t_max);
+        float t = 10000;//rayquery_free_path(AT.tlas.get(), world_position, dir, t_max);
         bool shadowed_rt = t != t_max;
         if (shadowed_rt)
         {
@@ -355,7 +355,8 @@ void entry_main_cs(
         triangle_id = AT.vis_image.get()[index].x;
     }
 
-    if (all(index == AT.globals->settings.render_target_size/2))
+    const bool is_center_pixel = all(index == AT.globals->settings.render_target_size/2);
+    if (is_center_pixel)
     {
         debug_pixel = 1;
     }
@@ -405,6 +406,11 @@ void entry_main_cs(
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
+
+        if (is_center_pixel)
+        {
+            AT.globals.readback.hovered_entity = tri_geo.entity_index;
+        }
 
         world_space_depth = length(tri_point.world_position - camera_position);
 
@@ -474,9 +480,19 @@ void entry_main_cs(
         {
             indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get());
         }
+
+        float3 highlight_lighting = {};
+        if (AT.globals.hovered_entity_index == tri_geo.entity_index)
+        {
+            highlight_lighting = float3(0.2,0.2,0.2);
+        }
+        if (AT.globals.selected_entity_index == tri_geo.entity_index)
+        {
+            highlight_lighting = float3(0.4,0.4,0.4);
+        }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -580,6 +596,10 @@ void entry_main_cs(
     }
     else 
     {
+        if (is_center_pixel)
+        {
+            AT.globals.readback.hovered_entity = ~0u;
+        }
         world_space_depth = VOLUMETRIC_SKY_DEPTH;
 
         const float2 ndc_xy = screen_uv * 2.0 - 1.0;

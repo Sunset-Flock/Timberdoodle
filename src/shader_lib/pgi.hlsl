@@ -94,10 +94,13 @@ float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_in
     return (float3(probe_index) - float3(uint3(settings.probe_count) >> 1) + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos + settings.fixed_center_position;
 }
 
+static const bool HAS_BORDER = true;
+static const bool NO_BORDER = false;
+
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
-uint3 pgi_probe_texture_base_offset(PGISettings settings, int texel_res, int3 probe_index)
+uint3 pgi_probe_texture_base_offset<let HAS_BORDER: bool>(PGISettings settings, int texel_res, int3 probe_index)
 {
-    let probe_texture_base_xy = probe_index.xy * texel_res;
+    let probe_texture_base_xy = probe_index.xy * (texel_res + (HAS_BORDER ? 2 : 0)) + (HAS_BORDER ? 1 : 0);
     let probe_texture_z = probe_index.z;
 
     var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
@@ -169,27 +172,14 @@ func pgi_sample_probe_irradiance(
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
-    float2 probe_local_texel = probe_octa_uv * float(settings.probe_radiance_resolution);
-    // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
-    int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
-    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_radiance_resolution));
-    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_radiance_resolution, probe_index);
+    float2 inv_probe_cnt = rcp(float2(settings.probe_count.xy));
+    float probe_res = float(settings.probe_radiance_resolution);
+    float inv_border_probe_res = rcp(probe_res + 2.0f);
+    float probe_uv_to_border_uv = probe_res * inv_border_probe_res;
 
-    float4 linearly_filtered_samples = float4(0,0,0,0);
-    for (int y = 0; y < 2; ++y)
-    for (int x = 0; x < 2; ++x)
-    {
-        int2 xy_sample_offset = int2(x,y);
-        int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
-        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_radiance_resolution.xx);
-
-        int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
-        float4 sample = probes[sample_texel];
-        float weight = 
-            (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
-            (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
-        linearly_filtered_samples += weight * sample;
-    }
+    float2 base_uv = probe_index.xy * inv_probe_cnt;
+    float2 uv = base_uv + (probe_octa_uv * probe_uv_to_border_uv + inv_border_probe_res) * inv_probe_cnt;
+    float4 linearly_filtered_samples = probes.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, probe_index.z), 0);
     return linearly_filtered_samples;
 }
 
@@ -202,27 +192,16 @@ func pgi_sample_probe_visibility(
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
-    float2 probe_local_texel = probe_octa_uv * float(settings.probe_visibility_resolution);
-    // FLOORING IS REQUIRED HERE AS FLOAT TO INT CONVERSION ALWAYS ROUNDS TO 0, NOT TO THE LOWER NUMBER!
-    int2 probe_local_base_texel = int2(floor(probe_local_texel - 0.5f));
-    float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_visibility_resolution));
-    int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_visibility_resolution, probe_index);
+    
+    float2 inv_probe_cnt = rcp(float2(settings.probe_count.xy));
+    float probe_res = float(settings.probe_visibility_resolution);
+    float inv_border_probe_res = rcp(probe_res + 2.0f);
+    float probe_uv_to_border_uv = probe_res * inv_border_probe_res;
 
-    float2 linearly_filtered_samples = float2(0,0);
-    for (int y = 0; y < 2; ++y)
-    for (int x = 0; x < 2; ++x)
-    {
-        int2 xy_sample_offset = int2(x,y);
-        int2 probe_local_sample_texel = probe_local_base_texel + xy_sample_offset;
-        probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_visibility_resolution.xx);
-        int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
-        float2 sample = probe_visibility[sample_texel].rg;
-        float weight = 
-            (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
-            (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
-        linearly_filtered_samples += weight * sample;
-    }
-    return float2(linearly_filtered_samples.x, linearly_filtered_samples.y);
+    float2 base_uv = probe_index.xy * inv_probe_cnt;
+    float2 uv = base_uv + (probe_octa_uv * probe_uv_to_border_uv + inv_border_probe_res) * inv_probe_cnt;
+    float2 linearly_filtered_samples = probe_visibility.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, probe_index.z), 0);
+    return linearly_filtered_samples;
 }
 
 // Moves the sample position back along view ray and offset by normal based on probe grid density.
@@ -278,13 +257,11 @@ func pgi_sample_irradiance(
             // Trilinear Probe Proximity Weighting
             {
                 float3 cell_probe_weights = float3(
-                    sqrt(x == 0 ? 1.0f - grid_interpolants.x : grid_interpolants.x),
-                    sqrt(y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
-                    sqrt(z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
+                    (x == 0 ? 1.0f - grid_interpolants.x : grid_interpolants.x),
+                    (y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
+                    (z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                float3 probe_weights = cell_probe_weights;
-                probe_weights = smoothstep(float3(0,0,0), float3(1,1,1), probe_weights);
-                probe_weight *= probe_weights.x * probe_weights.y * probe_weights.z;
+                probe_weight *= cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z;
             }
 
             float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
