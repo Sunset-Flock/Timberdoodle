@@ -115,7 +115,8 @@ static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
     false,
     false,
     false,
-    daxa_f32vec3(1,1,1)
+    daxa_f32vec3(1,1,1),
+    daxa_f32vec3(0,0,0)
 );
 #endif
 

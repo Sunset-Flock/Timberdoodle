@@ -10,6 +10,7 @@
 #define PGI_DEBUG_PROBE_DRAW_MODE_TEXEL 4
 #define PGI_DEBUG_PROBE_DRAW_MODE_UV 5
 #define PGI_DEBUG_PROBE_DRAW_MODE_NORMAL 6
+#define PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS 7
 
 struct PGISettings
 {
@@ -19,6 +20,8 @@ struct PGISettings
     daxa_i32 debug_probe_draw_mode TIDO_DEFAULT_VALUE(PGI_DEBUG_PROBE_DRAW_MODE_OFF);
     daxa_b32 debug_probe_influence TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
+    daxa_b32 debug_draw_grid TIDO_DEFAULT_VALUE(false);
+    daxa_b32 debug_draw_repositioning_forces TIDO_DEFAULT_VALUE(false);
     daxa_i32 probe_radiance_resolution TIDO_DEFAULT_VALUE(6);
     daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(6);
     daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(12);

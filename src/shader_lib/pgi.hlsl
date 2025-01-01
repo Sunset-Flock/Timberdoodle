@@ -51,10 +51,6 @@
 // ===== PGI Probe Texture Layouts =====
 
 // Distances in In probe space
-#define PGI_DESIRED_RELATIVE_DISTANCE 0.4f 
-#define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
-#define PGI_RELATIVE_REPOSITIONING_MIN_STEP 0.1f
-#define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
 #define PGI_BACKFACE_DIST_SCALE 10.0f
 
 struct PGIProbeInfo
@@ -169,7 +165,7 @@ func pgi_sample_probe_irradiance(
     PGISettings settings,
     float3 shading_normal,
     Texture2DArray<float4> probes,
-    int3 probe_index) -> float3
+    int3 probe_index) -> float4
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
@@ -179,7 +175,7 @@ func pgi_sample_probe_irradiance(
     float2 xy_base_weights = frac(probe_local_texel - 0.5f + float(settings.probe_radiance_resolution));
     int3 base_offset = pgi_probe_texture_base_offset(settings, settings.probe_radiance_resolution, probe_index);
 
-    float3 linearly_filtered_samples = float3(0,0,0);
+    float4 linearly_filtered_samples = float4(0,0,0,0);
     for (int y = 0; y < 2; ++y)
     for (int x = 0; x < 2; ++x)
     {
@@ -188,7 +184,7 @@ func pgi_sample_probe_irradiance(
         probe_local_sample_texel = octahedtral_texel_wrap(probe_local_sample_texel, settings.probe_radiance_resolution.xx);
 
         int3 sample_texel = base_offset + int3(probe_local_sample_texel, 0);
-        float3 sample = probes[sample_texel].rgb;
+        float4 sample = probes[sample_texel];
         float weight = 
             (x != 0 ? xy_base_weights.x : 1.0f - xy_base_weights.x) *
             (y != 0 ? xy_base_weights.y : 1.0f - xy_base_weights.y);
@@ -233,8 +229,8 @@ func pgi_sample_probe_visibility(
 // Greatly reduces self shadowing for corners.
 func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
 {
-    const float BIAS_FACTOR = 0.15f;
-    const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
+    const float BIAS_FACTOR = 0.25f;
+    const float NORMAL_TO_VIEW_WEIGHT = 0.2f;
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
@@ -252,12 +248,11 @@ func pgi_sample_irradiance(
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, position);
+    float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, visibility_sample_position);
     int3 base_probe = int3(floor(grid_coord));
     float3 grid_interpolants = frac(grid_coord);
     float3 probe_normal = geo_normal;
     
-
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
     float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
 
@@ -282,19 +277,12 @@ func pgi_sample_irradiance(
             
             // Trilinear Probe Proximity Weighting
             {
-                float3 probe_grid_coord = base_probe + float3(x,y,z) + probe_info.offset;
-                float3 grid_coord_distance = abs(probe_grid_coord - grid_coord);
-                float3 distance_probe_weights = float3(
-                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.x)),
-                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.y)),
-                    sqrt(1.0f - clamp(0.1f, 0.9f, grid_coord_distance.z)),
-                );
                 float3 cell_probe_weights = float3(
                     sqrt(x == 0 ? 1.0f - grid_interpolants.x : grid_interpolants.x),
                     sqrt(y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
                     sqrt(z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                float3 probe_weights = cell_probe_weights * distance_probe_weights;
+                float3 probe_weights = cell_probe_weights;
                 probe_weights = smoothstep(float3(0,0,0), float3(1,1,1), probe_weights);
                 probe_weight *= probe_weights.x * probe_weights.y * probe_weights.z;
             }
@@ -333,7 +321,7 @@ func pgi_sample_irradiance(
                 average_distance = max(visibility.x, 0.0f); // Can contain negative values (back face disabling)
                 float average_difference_to_average_distance = visibility.y;
                 average_distance_std_dev = average_difference_to_average_distance; // Wrong but works better :P
-                float variance = square(average_distance_std_dev);
+                float variance = (average_distance_std_dev);
                 if (visibility_distance > average_distance)
                 {
                     visibility_weight = variance / (variance + square(visibility_distance - average_distance));
@@ -414,7 +402,7 @@ func pgi_sample_irradiance(
                 shading_normal,
                 probes,
                 probe_index
-            );
+            ).rgb;
 
             accum += (probe_weight) * sqrt(linearly_filtered_samples.rgb);
             weight_accum += probe_weight;

@@ -1230,10 +1230,13 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
                     "TEXEL", // PGI_DEBUG_PROBE_DRAW_MODE_TEXEL
                     "UV", // PGI_DEBUG_PROBE_DRAW_MODE_UV
                     "NORMAL", // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
+                    "HYSTERESIS", // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
                 ImGui::Combo("Debug Draw Mode", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
                 ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool*>(&render_data.pgi_settings.debug_probe_influence));
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
+                ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
+                ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
                 ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_radiance_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);

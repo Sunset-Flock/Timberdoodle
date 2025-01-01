@@ -1216,6 +1216,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
             staging_origin_ptr[dirty_materials_index].alpha_discard_enabled = material.alpha_discard_enabled;
             staging_origin_ptr[dirty_materials_index].normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
             staging_origin_ptr[dirty_materials_index].base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
+            staging_origin_ptr[dirty_materials_index].emissive_color = std::bit_cast<daxa_f32vec3>(material.emissive_color);
             staging_origin_ptr[dirty_materials_index].double_sided_enabled = material.double_sided;
             staging_origin_ptr[dirty_materials_index].blend_enabled = material.blend_enabled;
 

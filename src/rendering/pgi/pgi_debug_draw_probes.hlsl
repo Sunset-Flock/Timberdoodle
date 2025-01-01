@@ -77,7 +77,9 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     
 
     float3 view_ray = -vertToPix.normal;
-    float3 radiance = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
+    float4 radiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
+    float3 radiance = radiance_hysteresis.rgb;
+    float hysteresis = radiance_hysteresis.a;
     float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), vertToPix.probe_index);
     float mean = abs(visibility.x);
     float mean2 = visibility.y;
@@ -95,6 +97,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
         case PGI_DEBUG_PROBE_DRAW_MODE_TEXEL: draw_color = float3(texel,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = square((hysteresis - 0.7) * (1.0f / (0.7))) * float3(0,1,0); break;
     }
     return DrawDebugProbesFragmentOut(float4(draw_color,1));
 }
