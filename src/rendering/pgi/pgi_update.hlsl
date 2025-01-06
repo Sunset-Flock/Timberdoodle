@@ -233,10 +233,9 @@ func entry_update_probe_visibility(
     static const float MAX_ACCEPTED_COS = acos(pow(MIN_ACCEPTED_POWER_COS, 1.0f / COS_POWER));
 
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
-    for (int i = 0; i < s*s; ++ i)
+    for (int y = 0; y < s; ++y)
+    for (int x = 0; x < s; ++x)
     {
-        int x = int(float(i) * rcp_s);
-        int y = i - x * s;
         float2 trace_tex_uv = (float2(x,y) + trace_texel_noise) * rcp_s;
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = (dot(trace_direction, probe_texel_normal));
