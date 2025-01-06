@@ -74,6 +74,7 @@ Renderer::Renderer(
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
     depth_vistory = daxa::TaskImage{{.name = "depth_history"}};
     f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
+    path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -84,6 +85,7 @@ Renderer::Renderer(
         sky_ibl_cube,
         depth_vistory,
         f32_depth_vistory,
+        path_trace_history,
     };
 
     frame_buffer_images = {
@@ -102,6 +104,14 @@ Renderer::Renderer(
                 .name = "f32_depth_vistory",
             },
             f32_depth_vistory,
+        },
+        {
+            daxa::ImageInfo{
+                .format = daxa::Format::R16G16B16A16_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "path_trace_history",
+            },
+            path_trace_history,
         },
     };
 
@@ -379,10 +389,12 @@ void Renderer::clear_select_buffers()
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
     tg.use_persistent_image(pgi_state.cell_requests);
+    tg.use_persistent_image(path_trace_history);
     tg.clear_image({.view = pgi_state.probe_radiance_view, .name = "clear pgi radiance"});
     tg.clear_image({.view = pgi_state.probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = pgi_state.probe_info_view, .name = "clear pgi info"});
     tg.clear_image({.view = pgi_state.cell_requests_view, .name = "clear pgi cell requests"});
+    tg.clear_image({.view = path_trace_history, .name = "clear pt history"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -694,8 +706,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 ReferencePathTraceH::AT.debug_image | debug_image,
                 ReferencePathTraceH::AT.debug_lens_image | debug_lens_image,
                 ReferencePathTraceH::AT.pt_image | color_image,
+                ReferencePathTraceH::AT.history_image | path_trace_history,
                 ReferencePathTraceH::AT.vis_image | view_camera_visbuffer,
+                ReferencePathTraceH::AT.transmittance | transmittance,
                 ReferencePathTraceH::AT.sky | sky,
+                ReferencePathTraceH::AT.sky_ibl | sky_ibl_view,
                 ReferencePathTraceH::AT.luminance_average | luminance_average,
                 ReferencePathTraceH::AT.material_manifest | scene->_gpu_material_manifest,
                 ReferencePathTraceH::AT.instantiated_meshlets | meshlet_instances,

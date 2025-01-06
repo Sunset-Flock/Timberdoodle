@@ -21,8 +21,11 @@ DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(Re
 DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
 DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, pt_image)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_f32vec4>, history_image)
 DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_u32>, vis_image)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, transmittance)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, CUBE, sky_ibl)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), instantiated_meshlets)
@@ -34,9 +37,14 @@ DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHe
 DAXA_TH_TLAS_ID(RAY_TRACING_SHADER_READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
+struct ReferencePathTraceAttachments
+{
+    ReferencePathTraceH::AttachmentShaderBlob attachments;
+};
+DAXA_DECL_BUFFER_PTR(ReferencePathTraceAttachments)
 struct ReferencePathTracePush
 {
-    ReferencePathTraceH::AttachmentShaderBlob attach;
+    daxa_BufferPtr(ReferencePathTraceAttachments) attachments;
 };
 
 #if defined(__cplusplus)
@@ -66,8 +74,12 @@ inline auto reference_path_trace_rt_pipeline_info() -> daxa::RayTracingPipelineC
         },
         .miss_hit_infos = {
             {
-                .source = daxa::ShaderFile{"./src/rendering/ray_tracing/ray_tracing.hlsl"},
+                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
                 .compile_options = {.entry_point = "miss", .language = daxa::ShaderLanguage::SLANG},
+            },
+            {
+                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
+                .compile_options = {.entry_point = "shadow_miss", .language = daxa::ShaderLanguage::SLANG},
             },
         },
         .shader_groups_infos = {
@@ -80,6 +92,10 @@ inline auto reference_path_trace_rt_pipeline_info() -> daxa::RayTracingPipelineC
             daxa::RayTracingShaderGroupInfo{
                 .type = daxa::ShaderGroup::GENERAL,
                 .general_shader_index = 3,
+            },
+            daxa::RayTracingShaderGroupInfo{
+                .type = daxa::ShaderGroup::GENERAL,
+                .general_shader_index = 4,
             },
             // Hit group
             daxa::RayTracingShaderGroupInfo{
@@ -110,7 +126,9 @@ struct ReferencePathTraceTask : ReferencePathTraceH::Task
         if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
         {
             ReferencePathTracePush push = {};
-            push.attach = ti.attachment_shader_blob;
+            auto alloc = ti.allocator->allocate(sizeof(ReferencePathTraceAttachments));
+            std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ReferencePathTraceH::AttachmentShaderBlob));
+            push.attachments = alloc->device_address;
             auto const & pt_image = ti.device.image_info(ti.get(AT.pt_image).ids[0]).value();
             auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(reference_path_trace_rt_pipeline_info().name);
             ti.recorder.set_pipeline(*rt_pipeline.pipeline);
