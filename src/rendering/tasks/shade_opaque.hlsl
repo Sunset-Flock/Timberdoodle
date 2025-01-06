@@ -478,7 +478,7 @@ void entry_main_cs(
         
         if (AT.globals.pgi_settings.enabled)
         {
-            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get());
+            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), true);
         }
 
         float3 highlight_lighting = {};
@@ -492,7 +492,7 @@ void entry_main_cs(
         }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * smoothstep(0.0f, 1.0f, ambient_occlusion)) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 

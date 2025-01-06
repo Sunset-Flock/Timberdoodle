@@ -20,6 +20,7 @@ struct ReadbackValues
     daxa_u32 sfpm_bitfield_arena_requested;       
     daxa_u32 sfpm_bitfield_arena_allocation_failures_ent_pass;
     daxa_u32 sfpm_bitfield_arena_allocation_failures_mesh_pass;
-    daxa_i32 active_pgi_probes;
+    // Written by pgi probe update
+    daxa_u32 requested_probes;
 };
 DAXA_DECL_BUFFER_PTR(ReadbackValues)

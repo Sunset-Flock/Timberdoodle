@@ -54,20 +54,40 @@ void entry_ray_gen()
 {
     let push = pgi_trace_probe_lighting_push;
     PGISettings settings = push.attach.globals.pgi_settings;
-    const int3 dtid = DispatchRaysIndex().xyz;
-    uint frame_index = push.attach.globals.frame_index;
+    int3 dtid = DispatchRaysIndex().xyz;
 
-    let probe_texel = (dtid.xy % settings.probe_trace_resolution);
-    let probe_index = uint3(dtid.xy / settings.probe_trace_resolution, dtid.z);
+    int3 probe_index = {};
+    int2 probe_texel = {};
+    if (settings.enable_indirect_sparse)
+    {
+        uint indirect_index = dtid.x;
+
+        uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
+        probe_index = int3(
+            (indirect_package >> 0) & ((1u << 10u) - 1),
+            (indirect_package >> 10) & ((1u << 10u) - 1),
+            (indirect_package >> 20) & ((1u << 10u) - 1),
+        );
+
+        probe_texel = int2(dtid.y, dtid.z);
+    }
+    else
+    {
+        probe_texel = (dtid.xy % settings.probe_trace_resolution);
+        probe_index = uint3(dtid.xy / settings.probe_trace_resolution, dtid.z);
+    }
+
+
+
+    uint frame_index = push.attach.globals.frame_index;
 
     // Seed is the same for all threads processing a probe.
     // This is important to be able to efficiently reconstruct data between tracing and probe texel updates.
     float2 in_texel_offset = pgi_probe_trace_noise(probe_index, frame_index);
 
-    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
 
-    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : push.attach.globals.camera.position;
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
 
     uint3 probe_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
@@ -126,6 +146,7 @@ void entry_ray_gen()
             push.attach.probe_radiance.get(), 
             push.attach.probe_visibility.get(), 
             push.attach.probe_info.get(),
+            push.attach.probe_requests.get(),
             push.attach.tlas.get()
         ).rgb;
 

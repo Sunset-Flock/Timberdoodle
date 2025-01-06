@@ -10,6 +10,18 @@
 #include "../../scene/scene.hpp"
 #include"pgi_update.inl"
 
+// PGI Process:
+// - Pre Update All possible probes
+//   - clear new probes
+//   - invalidate timed out probes
+//   - build dispatch indirect structs and indirections for other passes
+// - Trace Probe Rays
+// - Update Probes (analyze rays)
+//   - reposition probes
+//   - update validity
+// - Update Probe Texels
+//   - Using the validity, update probes radiance and visibility texels
+
 struct PGIState
 {
     daxa::BufferId debug_probe_mesh_buffer = {};
@@ -23,6 +35,8 @@ struct PGIState
     daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
     daxa::TaskImage probe_info = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe info texture"});
     daxa::TaskImageView probe_info_view = daxa::NullTaskImage;
+    daxa::TaskImage cell_requests = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi cell requests texture"});
+    daxa::TaskImageView cell_requests_view = daxa::NullTaskImage;
 
     void initialize(daxa::Device& device);
     void recreate_resources(daxa::Device& device, PGISettings const & settings);
@@ -161,29 +175,50 @@ struct PGIUpdateProbeTexelsTask : PGIUpdateProbeTexelsH::Task
     PGIState* pgi_state = {};
     void callback(daxa::TaskInterface ti)
     {
-            PGIUpdateProbeTexelsPush push = {};
-            push.attach = ti.attachment_shader_blob;
+        PGIUpdateProbeTexelsPush push = {};
+        push.attach = ti.attachment_shader_blob;
         {
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info().name));
             ti.recorder.push_constant(push);
-            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_radiance_resolution;
-            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_radiance_resolution;
-            auto const z = render_context->render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+
+            if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+            {
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+                    .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
+                });
+            }
+            else
+            {
+                auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_radiance_resolution;
+                auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_radiance_resolution;
+                auto const z = render_context->render_data.pgi_settings.probe_count.z;
+                auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+                auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+                auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+                ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            }
         }
         {
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info2().name));
             ti.recorder.push_constant(push);
-            auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_visibility_resolution;
-            auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_visibility_resolution;
-            auto const z = render_context->render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+            {
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+                    .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
+                });
+            }
+            else
+            {
+                auto const x = render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_visibility_resolution;
+                auto const y = render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_visibility_resolution;
+                auto const z = render_context->render_data.pgi_settings.probe_count.z;
+                auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+                auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+                auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+                ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            }
         }
     }
 };
@@ -211,13 +246,23 @@ struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info3().name));
         ti.recorder.push_constant(push);
         push.attach = ti.attachment_shader_blob;
-        auto const x = render_context->render_data.pgi_settings.probe_count.x;
-        auto const y = render_context->render_data.pgi_settings.probe_count.y;
-        auto const z = render_context->render_data.pgi_settings.probe_count.z;
-        auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-        auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-        auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-        ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+        if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+        {
+            ti.recorder.dispatch_indirect({
+                .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+                .offset = offsetof(PGIIndirections, probe_update_dispatch),
+            });
+        }
+        else
+        {
+            auto const x = render_context->render_data.pgi_settings.probe_count.x;
+            auto const y = render_context->render_data.pgi_settings.probe_count.y;
+            auto const z = render_context->render_data.pgi_settings.probe_count.z;
+            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+        }
     }
 };
 
@@ -292,10 +337,54 @@ struct PGITraceProbeRaysTask : PGITraceProbeLightingH::Task
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
 
-        u32 const x = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_trace_resolution);
-        u32 const y = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_trace_resolution);
-        u32 const z = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.z);
-        ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
+        if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+        {
+            ti.recorder.trace_rays_indirect({
+                .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
+                .shader_binding_table = pipeline.sbt,
+            });
+        }
+        else
+        {
+            u32 const x = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_trace_resolution);
+            u32 const y = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_trace_resolution);
+            u32 const z = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.z);
+            ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
+        }
+    }
+};
+
+inline auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
+        .entry_point = "entry_pre_update_probes",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIPreUpdateProbesPush)),
+        .name = std::string{"entry_pre_update_probes"},
+    };
+}
+
+struct PGIPreUpdateProbesTask : PGIPreUpdateProbesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    PGIState* pgi_state = {};
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_pre_update_probes_compute_compile_info().name));
+        auto const x = render_context->render_data.pgi_settings.probe_count.x;
+        auto const y = render_context->render_data.pgi_settings.probe_count.y;
+        auto const z = render_context->render_data.pgi_settings.probe_count.z;
+        auto const dispatch_x = round_up_div(x, PGI_PRE_UPDATE_XYZ);
+        auto const dispatch_y = round_up_div(y, PGI_PRE_UPDATE_XYZ);
+        auto const dispatch_z = round_up_div(z, PGI_PRE_UPDATE_XYZ);
+        PGIPreUpdateProbesPush push = {};
+        push.attach = ti.attachment_shader_blob;
+        push.workgroups_finished = reinterpret_cast<u32*>(ti.allocator->allocate_fill(0u).value().device_address);
+        push.total_workgroups = dispatch_x * dispatch_y * dispatch_z;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
     }
 };
 
@@ -325,5 +414,13 @@ inline auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISet
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z),
         .name = "pgi probe info tex prev frame",
+    });
+}
+
+inline auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskBufferView
+{
+    return tg.create_transient_buffer({
+        .size = static_cast<u32>(sizeof(PGIIndirections) + sizeof(daxa_u32) * settings.probe_count.x * settings.probe_count.y * settings.probe_count.z),
+        .name = "pgi indirections",
     });
 }

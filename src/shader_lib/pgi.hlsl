@@ -58,40 +58,48 @@ struct PGIProbeInfo
     float3 offset;
     float validity;
 
-    static func load(Texture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    static func load(PGISettings settings, Texture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
     {
+        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
         PGIProbeInfo ret = {};
-        float4 fetch = probe_info_tex[probe_index];
+        float4 fetch = probe_info_tex[stable_index];
         ret.offset = fetch.xyz;
         ret.validity = fetch.w;
         return ret;
     }
 
-    static func load(RWTexture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    static func load(PGISettings settings, RWTexture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
     {
+        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
         PGIProbeInfo ret = {};
-        float4 fetch = probe_info_tex[probe_index];
+        float4 fetch = probe_info_tex[stable_index];
         ret.offset = fetch.xyz;
         ret.validity = fetch.w;
         return ret;
     }
 }
 
-struct PGIProbeState
+// The base probe of a cell is the probe with the smallest probe index.
+// There are probe-count-1 cells, so any probe except for the last probe in each dimension is a base probe.
+bool pgi_is_cell_base_probe(PGISettings settings, int3 probe_index)
 {
-    float3 position_update_vector;
-    float d;
-};
+    return all(probe_index >= 0) && all(probe_index < (settings.probe_count-1));
+}
 
-float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, float3 probes_anchor, uint3 probe_index)
+int3 pgi_probe_index_to_prev_frame(PGISettings settings, int3 probe_index)
 {
-    float3 pgi_grid_cell_size = settings.probe_spacing;
-    float3 center_grid_cell_min_probe_pos = float3(
-        f32_round_down_to_multiple(probes_anchor.x, pgi_grid_cell_size.x),
-        f32_round_down_to_multiple(probes_anchor.y, pgi_grid_cell_size.y),
-        f32_round_down_to_multiple(probes_anchor.z, pgi_grid_cell_size.z),
-    );
-    return (float3(probe_index) - float3(uint3(settings.probe_count) >> 1) + probe_info.offset) * pgi_grid_cell_size + center_grid_cell_min_probe_pos + settings.fixed_center_position;
+    // As the window moves, the probe indices are going the opposite direction
+    return probe_index + settings.window_movement_frame_to_frame;
+}
+
+float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, int3 probe_index)
+{
+    return (float3(probe_index) + probe_info.offset) * settings.probe_spacing + settings.window_base_position;
+}
+
+int3 pgi_probe_to_stable_index(PGISettings settings, int3 probe_index)
+{
+    return (probe_index + settings.window_to_stable_index_offset) & (settings.probe_count-1);
 }
 
 static const bool HAS_BORDER = true;
@@ -100,8 +108,9 @@ static const bool NO_BORDER = false;
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
 uint3 pgi_probe_texture_base_offset<let HAS_BORDER: bool>(PGISettings settings, int texel_res, int3 probe_index)
 {
-    let probe_texture_base_xy = probe_index.xy * (texel_res + (HAS_BORDER ? 2 : 0)) + (HAS_BORDER ? 1 : 0);
-    let probe_texture_z = probe_index.z;
+    int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
+    let probe_texture_base_xy = stable_index.xy * (texel_res + (HAS_BORDER ? 2 : 0)) + (HAS_BORDER ? 1 : 0);
+    let probe_texture_z = stable_index.z;
 
     var probe_texture_index = uint3(probe_texture_base_xy, probe_texture_z);
     return probe_texture_index;
@@ -119,28 +128,10 @@ float3 pgi_probe_uv_to_probe_normal(float2 uv)
 
 float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
 {
-    //return float2(0.5f,0.5f);
     const uint seed = (probe_index.x * 1823754 + probe_index.y * 5232 + probe_index.z * 21 + frame_index);
     rand_seed(seed);
     float2 in_texel_offset = { rand(), rand() };
     return in_texel_offset;
-}
-
-// Grid space starts at 0,0,0 at the min probe and ends at settings.probe_count
-// floor(grid_space_pos) is the base probe of the position
-// frac(grid_space_pos) are the interpolators for the probes around that position
-func pgi_world_space_to_grid_coordinate(
-    RenderGlobalData* globals,
-    PGISettings settings,
-    float3 position
-) -> float3
-{
-    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
-    PGIProbeInfo info_dummy = {};
-    float3 min_probe_world_position = pgi_probe_index_to_worldspace(settings, info_dummy, probe_anchor, uint3(0,0,0)); 
-    float3 min_probe_relative_position = position - min_probe_world_position;
-    float3 grid_space_coordinate = min_probe_relative_position * rcp(settings.probe_range) * settings.probe_count;
-    return grid_space_coordinate;
 }
 
 static uint debug_pixel = 0;
@@ -168,7 +159,7 @@ func pgi_sample_probe_irradiance(
     PGISettings settings,
     float3 shading_normal,
     Texture2DArray<float4> probes,
-    int3 probe_index) -> float4
+    int3 stable_index) -> float4
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
@@ -177,9 +168,9 @@ func pgi_sample_probe_irradiance(
     float inv_border_probe_res = rcp(probe_res + 2.0f);
     float probe_uv_to_border_uv = probe_res * inv_border_probe_res;
 
-    float2 base_uv = probe_index.xy * inv_probe_cnt;
+    float2 base_uv = stable_index.xy * inv_probe_cnt;
     float2 uv = base_uv + (probe_octa_uv * probe_uv_to_border_uv + inv_border_probe_res) * inv_probe_cnt;
-    float4 linearly_filtered_samples = probes.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, probe_index.z), 0);
+    float4 linearly_filtered_samples = probes.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, stable_index.z), 0);
     return linearly_filtered_samples;
 }
 
@@ -188,7 +179,7 @@ func pgi_sample_probe_visibility(
     PGISettings settings,
     float3 shading_normal,
     Texture2DArray<float2> probe_visibility,
-    int3 probe_index) -> float2 // returns visibility (x) and certainty (y)
+    int3 stable_index) -> float2 // returns visibility (x) and certainty (y)
 {
     // Based on the texture index we linearly subsample the probes image with a 2x2 kernel.
     float2 probe_octa_uv = map_octahedral(shading_normal);
@@ -198,9 +189,9 @@ func pgi_sample_probe_visibility(
     float inv_border_probe_res = rcp(probe_res + 2.0f);
     float probe_uv_to_border_uv = probe_res * inv_border_probe_res;
 
-    float2 base_uv = probe_index.xy * inv_probe_cnt;
+    float2 base_uv = stable_index.xy * inv_probe_cnt;
     float2 uv = base_uv + (probe_octa_uv * probe_uv_to_border_uv + inv_border_probe_res) * inv_probe_cnt;
-    float2 linearly_filtered_samples = probe_visibility.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, probe_index.z), 0);
+    float2 linearly_filtered_samples = probe_visibility.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, stable_index.z), 0);
     return linearly_filtered_samples;
 }
 
@@ -223,17 +214,30 @@ func pgi_sample_irradiance(
     RaytracingAccelerationStructure tlas,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
-    Texture2DArray<float4> probe_infos
+    Texture2DArray<float4> probe_infos,
+    RWTexture2DArray<uint> probe_requests,
+    bool request_probes
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    float3 grid_coord = pgi_world_space_to_grid_coordinate(globals, settings, visibility_sample_position);
+    float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp;
     int3 base_probe = int3(floor(grid_coord));
+
+    // Request Probe Cell (Base Probe responsible for cell)
+    if (request_probes && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
+    {
+        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, base_probe);
+        uint request_timer = probe_requests[base_probe_stable_index];
+        if (request_timer < 64) // As a wise man once said: "Rca econdition. Dont care"
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF);
+        }
+    }
+
     float3 grid_interpolants = frac(grid_coord);
     float3 probe_normal = geo_normal;
     
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
-    float3 probe_anchor = settings.fixed_center ? settings.fixed_center_position : globals.camera.position;
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0.00001f;
@@ -243,13 +247,14 @@ func pgi_sample_irradiance(
         int y = int((probe >> 1u) & 0x1u);
         int z = int((probe >> 2u) & 0x1u);
         int3 probe_index = base_probe + int3(x,y,z);
+        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
 
         if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
         {
             float probe_weight = 1.0f;
 
-            PGIProbeInfo probe_info = PGIProbeInfo::load(probe_infos, probe_index);
-            if (probe_info.validity < 1.0f)
+            PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
+            if (probe_info.validity < 0.8f)
             {
                 probe_weight = 0.0f;
             }
@@ -264,7 +269,7 @@ func pgi_sample_irradiance(
                 probe_weight *= cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z;
             }
 
-            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_anchor, probe_index);
+            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
             float3 shading_to_probe_direction = normalize(probe_position - position);
 
             // Backface influence
@@ -292,7 +297,7 @@ func pgi_sample_irradiance(
                     settings,
                     -visibility_to_probe_direction,
                     probe_visibility,
-                    probe_index
+                    stable_index
                 );
 
                 average_distance = max(visibility.x, 0.0f); // Can contain negative values (back face disabling)
@@ -378,7 +383,7 @@ func pgi_sample_irradiance(
                 settings,
                 shading_normal,
                 probes,
-                probe_index
+                stable_index
             ).rgb;
 
             accum += (probe_weight) * sqrt(linearly_filtered_samples.rgb);

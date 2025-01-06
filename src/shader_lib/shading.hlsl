@@ -121,6 +121,7 @@ func shade_material(
     Texture2DArray<float4> probe_irradiance,
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
+    RWTexture2DArray<uint> probe_requests,
     RaytracingAccelerationStructure tlas,
 ) -> float4
 {
@@ -154,7 +155,7 @@ func shade_material(
 
     // Indirect Diffuse
     {
-        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos);
+        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos, probe_requests, true);
         diffuse_light += global_illumination;
     }
 

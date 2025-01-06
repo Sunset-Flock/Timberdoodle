@@ -61,12 +61,16 @@ BarycentricDeriv calc_bary_and_deriv(daxa_f32vec4 pt0, daxa_f32vec4 pt1, daxa_f3
     ret.m_ddy *= (2.0f/winSize.y);
     ddxSum    *= (2.0f/winSize.x);
     ddySum    *= (2.0f/winSize.y);  
-    ret.m_ddy *= -1.0f;
     ddySum    *= -1.0f; 
+    ret.m_ddy *= -1;
     float interpW_ddx = 1.0f / (interpInvW + ddxSum);
     float interpW_ddy = 1.0f / (interpInvW + ddySum);   
     ret.m_ddx = interpW_ddx*(ret.m_lambda*interpInvW + ret.m_ddx) - ret.m_lambda;
     ret.m_ddy = interpW_ddy*(ret.m_lambda*interpInvW + ret.m_ddy) - ret.m_lambda;   
+    
+    // Modification by Ipotrick. Prevents broken barycentrics for shallow angles caused by floating point imprecision
+    ret.m_lambda = ret.m_lambda * rcp(ret.m_lambda.x + ret.m_lambda.y + ret.m_lambda.z + 0.00001f);
+
     return ret;
 }
 // Credit: http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/

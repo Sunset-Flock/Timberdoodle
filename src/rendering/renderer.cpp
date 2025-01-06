@@ -185,6 +185,7 @@ void Renderer::compile_pipelines()
         {pgi_update_probes_compute_compile_info()},
         {pgi_update_probes_compute_compile_info2()},
         {pgi_update_probes_compute_compile_info3()},
+        {pgi_pre_update_probes_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -377,9 +378,11 @@ void Renderer::clear_select_buffers()
     tg.use_persistent_image(pgi_state.probe_radiance);
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
+    tg.use_persistent_image(pgi_state.cell_requests);
     tg.clear_image({.view = pgi_state.probe_radiance_view, .name = "clear pgi radiance"});
     tg.clear_image({.view = pgi_state.probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = pgi_state.probe_info_view, .name = "clear pgi info"});
+    tg.clear_image({.view = pgi_state.cell_requests_view, .name = "clear pgi cell requests"});
     tg.submit({});
     tg.complete({});
     tg.execute({});
@@ -539,6 +542,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(pgi_state.probe_radiance);
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
+    tg.use_persistent_image(pgi_state.cell_requests);
 
     tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
 
@@ -731,13 +735,27 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     if (render_context->render_data.pgi_settings.enabled)
     {
+        daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
+        tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
+        tg.add_task(PGIPreUpdateProbesTask{
+            .views = std::array{
+                PGIPreUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+                PGIPreUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
+                PGIPreUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
+                PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+            },
+            .render_context = render_context.get(),
+            .pgi_state = &this->pgi_state,
+        });
         daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
         tg.add_task(PGITraceProbeRaysTask{
             .views = std::array{
                 PGITraceProbeRaysTask::AT.globals | render_context->tgpu_render_data,
+                PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
                 PGITraceProbeRaysTask::AT.probe_radiance | pgi_state.probe_radiance_view,
                 PGITraceProbeRaysTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGITraceProbeRaysTask::AT.probe_info | pgi_state.probe_info_view,
+                PGITraceProbeRaysTask::AT.probe_requests | pgi_state.cell_requests_view,
                 PGITraceProbeRaysTask::AT.tlas | scene->_scene_tlas,
                 PGITraceProbeRaysTask::AT.sky_transmittance | transmittance,
                 PGITraceProbeRaysTask::AT.sky | sky,
@@ -747,25 +765,28 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
             .pgi_state = &this->pgi_state,
         });
-        tg.add_task(PGIUpdateProbeTexelsTask{
+        daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
+        tg.copy_image_to_image({pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
+        tg.add_task(PGIUpdateProbesTask{
             .views = std::array{
-                PGIUpdateProbeTexelsTask::AT.globals | render_context->tgpu_render_data,
-                PGIUpdateProbeTexelsTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
-                PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
-                PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
+                PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+                PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+                PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
+                PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
+                PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+                PGIUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
             },
             .render_context = render_context.get(),
             .pgi_state = &this->pgi_state,
         });
-        daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
-        tg.copy_image_to_image({pgi_state.probe_info, pgi_probe_info_prev, "copy over probe info prev frame"});
-        tg.add_task(PGIUpdateProbesTask{
+        tg.add_task(PGIUpdateProbeTexelsTask{
             .views = std::array{
-                PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
-                PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
-                PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+                PGIUpdateProbeTexelsTask::AT.globals | render_context->tgpu_render_data,
+                PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
+                PGIUpdateProbeTexelsTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
+                PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
+                PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
             },
             .render_context = render_context.get(),
             .pgi_state = &this->pgi_state,
@@ -804,6 +825,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
             ShadeOpaqueH::AT.pgi_probe_visibility | pgi_state.probe_visibility_view,
             ShadeOpaqueH::AT.pgi_probe_info | pgi_state.probe_info_view,
+            ShadeOpaqueH::AT.pgi_probe_requests | pgi_state.cell_requests_view,
         },
         .render_context = render_context.get(),
     });
@@ -842,6 +864,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
                 PGIDrawDebugProbesH::AT.probe_visibility | pgi_state.probe_visibility_view,
                 PGIDrawDebugProbesH::AT.probe_info | pgi_state.probe_info_view,
+                PGIDrawDebugProbesH::AT.probe_requests | pgi_state.cell_requests_view,
                 PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
             },
             .render_context = render_context.get(),
@@ -890,6 +913,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             const u32 index = render_context->render_data.frame_index % 4;
 
             render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
+            ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
         },
         .name = "general readback",
     });
@@ -986,13 +1010,17 @@ void Renderer::render_frame(
     }
 
     // PGI Settings Resolve
-    render_context->render_data.pgi_settings.probe_count.x = std::max(1, render_context->render_data.pgi_settings.probe_count.x);
-    render_context->render_data.pgi_settings.probe_count.y = std::max(1, render_context->render_data.pgi_settings.probe_count.y);
-    render_context->render_data.pgi_settings.probe_count.z = std::max(1, render_context->render_data.pgi_settings.probe_count.z);
+    render_context->render_data.pgi_settings.probe_count.x = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.x));
+    render_context->render_data.pgi_settings.probe_count.y = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.y));
+    render_context->render_data.pgi_settings.probe_count.z = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.z));
+    render_context->render_data.pgi_settings.probe_count_log2.x = msb_index(render_context->render_data.pgi_settings.probe_count.x); // As the probe count is a po2, msb gives the exact log2.
+    render_context->render_data.pgi_settings.probe_count_log2.y = msb_index(render_context->render_data.pgi_settings.probe_count.y); // As the probe count is a po2, msb gives the exact log2.
+    render_context->render_data.pgi_settings.probe_count_log2.z = msb_index(render_context->render_data.pgi_settings.probe_count.z); // As the probe count is a po2, msb gives the exact log2.
+
     render_context->render_data.pgi_settings.probe_spacing = {
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.x) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.x),
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.y) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.y),
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.z) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.z),
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.x) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.x - 1),
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.y) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.y - 1),
+        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.z) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.z - 1),
     };    
     render_context->render_data.pgi_settings.probe_spacing_rcp = {
         1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_spacing.x),
@@ -1004,6 +1032,21 @@ void Renderer::render_frame(
         render_context->render_data.pgi_settings.probe_spacing.y,
         render_context->render_data.pgi_settings.probe_spacing.z,
     }) * 1.01f;
+    render_context->render_data.pgi_settings.window_to_stable_index_offset = {
+        static_cast<i32>(std::floor(render_context->render_data.camera.position.x * render_context->render_data.pgi_settings.probe_spacing_rcp.x)),
+        static_cast<i32>(std::floor(render_context->render_data.camera.position.y * render_context->render_data.pgi_settings.probe_spacing_rcp.y)),
+        static_cast<i32>(std::floor(render_context->render_data.camera.position.z * render_context->render_data.pgi_settings.probe_spacing_rcp.z)),
+    };
+    render_context->render_data.pgi_settings.window_base_position = {
+        (render_context->render_data.pgi_settings.window_to_stable_index_offset.x - (render_context->render_data.pgi_settings.probe_count.x / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.x,
+        (render_context->render_data.pgi_settings.window_to_stable_index_offset.y - (render_context->render_data.pgi_settings.probe_count.y / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.y,
+        (render_context->render_data.pgi_settings.window_to_stable_index_offset.z - (render_context->render_data.pgi_settings.probe_count.z / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.z,
+    };
+    render_context->render_data.pgi_settings.window_movement_frame_to_frame = {
+        render_context->render_data.pgi_settings.window_to_stable_index_offset.x - render_context->prev_pgi_settings.window_to_stable_index_offset.x,
+        render_context->render_data.pgi_settings.window_to_stable_index_offset.y - render_context->prev_pgi_settings.window_to_stable_index_offset.y,
+        render_context->render_data.pgi_settings.window_to_stable_index_offset.z - render_context->prev_pgi_settings.window_to_stable_index_offset.z,
+    };
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const pgi_settings_changed = 

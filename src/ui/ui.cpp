@@ -513,7 +513,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (renderer_settings)
     {
-        ui_renderer_settings(scene, render_context.render_data, app_state);
+        ui_renderer_settings(scene, render_context, app_state);
     }
     if (widget_property_viewer)
     {
@@ -1163,8 +1163,9 @@ void UIEngine::ui_scene_graph(Scene const & scene)
     scene_graph.end(began);
 }
 
-void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & render_data, ApplicationState & app_state)
+void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
 {
+    RenderGlobalData & render_data = render_context.render_data;
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
@@ -1219,7 +1220,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderGlobalData & rend
             ImGui::SeparatorText("Features");
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
+                u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z;
+                ImGui::Text("Requested Probes %i / %i = %f %%", render_context.general_readback.requested_probes, total_probes, float(render_context.general_readback.requested_probes) / float(total_probes) * 100.0f);
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
+                ImGui::Checkbox("Enable Indirect Sparse", reinterpret_cast<bool *>(&render_data.pgi_settings.enable_indirect_sparse));
                 ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
                 ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
                 ImGui::InputFloat3("Fixed Probe Center Position", &render_data.pgi_settings.fixed_center_position.x);

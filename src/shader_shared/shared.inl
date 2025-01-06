@@ -376,6 +376,30 @@ SHARED_FUNCTION daxa_u32 div_btsft(daxa_u32 value, daxa_u32 log2_div)
     return value >> log2_div;
 }
 
+SHARED_FUNCTION daxa_u32 msb_index(daxa_u32 value)
+{
+    daxa_u32 v = 0u;
+    #if DAXA_LANGUAGE == DAXA_LANGUAGE_CPP
+        v = 31u - std::countl_zero(value | 0x1u);
+    #elif DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
+        v = firstbithigh(value);
+    #endif
+    return v;
+}
+
+SHARED_FUNCTION daxa_u32 round_up_to_po2(daxa_u32 value)
+{
+    // Value - 1 here prevents values that are already a po2 from beeing pushed to the next po2.
+    daxa_u32 value_m1 = 0u;
+    #if DAXA_LANGUAGE == DAXA_LANGUAGE_CPP
+        value_m1 = std::max(1u, value) - 1u;
+    #elif DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
+        value_m1 = max(1u, value) - 1u;
+    #endif
+
+    return 1u << (msb_index(value_m1) + 1u);
+}
+
 struct DrawIndexedIndirectStruct
 {
     daxa_u32 index_count;

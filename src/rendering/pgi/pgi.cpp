@@ -1484,6 +1484,10 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
     {
         device.destroy_image(this->probe_info.get_state().images[0]);
     }
+    if (!this->cell_requests.get_state().images.empty() && !this->cell_requests.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->cell_requests.get_state().images[0]);
+    }
 
     daxa::ImageId probe_radiance_image = device.create_image({
         .dimensions = 2,
@@ -1530,6 +1534,21 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = "pgi probe info tex",
     });
+    daxa::ImageId cell_requests_image = device.create_image({
+        .dimensions = 2,
+        .format = daxa::Format::R32_UINT,
+        .size = {
+            static_cast<u32>(settings.probe_count.x),
+            static_cast<u32>(settings.probe_count.y),
+            1
+        },
+        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
+                daxa::ImageUsageFlagBits::TRANSFER_SRC | 
+                daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                daxa::ImageUsageFlagBits::SHADER_SAMPLED,
+        .name = "pgi cell requests tex",
+    });
 
     this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
         .initial_images = daxa::TrackedImages{.images = std::array{ probe_radiance_image }},
@@ -1543,10 +1562,15 @@ void PGIState::recreate_resources(daxa::Device& device, PGISettings const & sett
         .initial_images = daxa::TrackedImages{.images = std::array{ probe_info_image }},
         .name = "pgi probe info tex",
     });
+    this->cell_requests = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ cell_requests_image }},
+        .name = "pgi cell requests tex",
+    });
 
     probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
     probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
     probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
+    cell_requests_view = this->cell_requests.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
 }
 
 void PGIState::cleanup(daxa::Device& device)

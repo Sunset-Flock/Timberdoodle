@@ -39,11 +39,10 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     uint probe_y = (instance_index - probe_z * probes_per_z_slice) / probes_per_y_row;
     uint probe_x = (instance_index - probe_z * probes_per_z_slice - probe_y * probes_per_y_row);
 
-    float3 probe_anchor = push.attach.globals.pgi_settings.fixed_center ? push.attach.globals.pgi_settings.fixed_center_position : push.attach.globals.camera.position;
     uint3 probe_index = uint3(probe_x, probe_y, probe_z);
 
-    PGIProbeInfo probe_info = PGIProbeInfo::load(push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_anchor, probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
     position += probe_position;
 
     float4x4* viewproj = {};
@@ -54,6 +53,14 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     else
     {
         viewproj = &push.attach.globals.camera.view_proj;
+    }
+
+    
+
+    if (probe_info.validity < 0.1)
+    {
+        DrawDebugProbesVertexToPixel ret = {};
+        return ret;
     }
 
     DrawDebugProbesVertexToPixel ret = {};
@@ -74,13 +81,14 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 {
     let push = draw_debug_probe_p;
     PGISettings settings = push.attach.globals.pgi_settings;
+    int3 stable_index = pgi_probe_to_stable_index(settings, vertToPix.probe_index);
     
 
     float3 view_ray = -vertToPix.normal;
-    float4 radiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), vertToPix.probe_index);
+    float4 radiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
     float3 radiance = radiance_hysteresis.rgb;
     float hysteresis = radiance_hysteresis.a;
-    float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), vertToPix.probe_index);
+    float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), stable_index);
     float mean = abs(visibility.x);
     float mean2 = visibility.y;
 
