@@ -251,6 +251,7 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
             float alpha = 1.0;
             if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
+                // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
                 alpha = Texture2D<float4>::get(material.diffuse_texture_id)
                     .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
             }

@@ -159,8 +159,8 @@ func rt_get_triangle_geo_point(
         vertex_uvs[1],
         vertex_uvs[2]
     );
-    ret.uv_ddx = float2(0.1,0.1);
-    ret.uv_ddy = float2(0.1,0.1);
+    ret.uv_ddx = float2(0.1, 0.0);
+    ret.uv_ddy = float2(0.0, 0.1);
 
     // Calculate Face Normal
     ret.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));

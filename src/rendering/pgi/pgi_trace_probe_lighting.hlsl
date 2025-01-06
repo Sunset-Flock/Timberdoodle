@@ -199,15 +199,20 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
         return;
     }
 
-    const bool has_opacity_texture = !material.opacity_texture_id.is_empty();
-    const bool alpha_discard_enabled = material.alpha_discard_enabled;
-    if(has_opacity_texture && alpha_discard_enabled)
+    float alpha = 1.0;
+    if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
     {
-        let oppacity_tex = Texture2D<float>::get(material.opacity_texture_id);
-        let oppacity = oppacity_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 2).r;
-        if(oppacity < 0.5) {
-            IgnoreHit();
-        }
+        // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
+        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
+            .Sample( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv).a; 
+    }
+    else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+    {
+        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
+            .Sample( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv).a; 
+    }
+    if(alpha < 0.5) {
+        IgnoreHit();
     }
 }
 
