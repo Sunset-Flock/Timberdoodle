@@ -1,6 +1,8 @@
 #ifndef HASH_HLSL
 #define HASH_HLSL
 
+#include "math_const.hlsl"
+
 // Jenkins hash function. TODO: check if we need something better.
 uint hash1(uint x) {
 	x += (x << 10u);

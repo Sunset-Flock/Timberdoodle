@@ -12,6 +12,7 @@
 
 #include "ray_tracing/ray_tracing.inl"
 #include "path_trace/path_trace.inl"
+#include "path_trace/kajiya/brdf_fg.inl"
 
 #include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
@@ -234,6 +235,7 @@ void Renderer::compile_pipelines()
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
+        {brdf_fg_compute_pipeline_info()},
     };
     for (auto const & info : computes)
     {
@@ -700,6 +702,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
+        // TODO: Precompute once, and save
+        auto brdf_fg_lut = tg.create_transient_image({
+            .format = daxa::Format::R16G16B16A16_SFLOAT,
+            .size = {64, 64, 1},
+            .name = "brdf_fg_lut",
+        });
+        tg.add_task(BrdfFgTask{
+            .views = std::array{
+                BrdfFgH::AT.globals | render_context->tgpu_render_data,
+                BrdfFgH::AT.output_tex | brdf_fg_lut,
+            },
+            .render_context = render_context.get(),
+        });
+
         tg.add_task(ReferencePathTraceTask{
             .views = std::array{
                 ReferencePathTraceH::AT.globals | render_context->tgpu_render_data,
@@ -711,6 +727,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 ReferencePathTraceH::AT.transmittance | transmittance,
                 ReferencePathTraceH::AT.sky | sky,
                 ReferencePathTraceH::AT.sky_ibl | sky_ibl_view,
+                ReferencePathTraceH::AT.brdf_lut | brdf_fg_lut,
                 ReferencePathTraceH::AT.luminance_average | luminance_average,
                 ReferencePathTraceH::AT.material_manifest | scene->_gpu_material_manifest,
                 ReferencePathTraceH::AT.instantiated_meshlets | meshlet_instances,
