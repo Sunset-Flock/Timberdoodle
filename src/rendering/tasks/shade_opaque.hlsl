@@ -24,7 +24,7 @@ float compute_exposure(float average_luminance)
 {
     const float exposure_bias = AT.globals->postprocess_settings.exposure_bias;
     const float calibration = AT.globals->postprocess_settings.calibration;
-    const float sensor_sensitivity = AT.globals->postprocess_settings.exposure_bias;
+    const float sensor_sensitivity = AT.globals->postprocess_settings.sensor_sensitivity;
     const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
 	const float exposure = 1.0 / (1.2 * exp2(ev100));
 	return exposure;

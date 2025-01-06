@@ -11,6 +11,7 @@
 #include "pgi/pgi_update.inl"
 
 #include "ray_tracing/ray_tracing.inl"
+#include "path_trace/path_trace.inl"
 
 #include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
@@ -87,8 +88,7 @@ Renderer::Renderer(
 
     frame_buffer_images = {
         {
-            daxa::ImageInfo
-            {
+            daxa::ImageInfo{
                 .format = daxa::Format::D32_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "depth_history",
@@ -96,8 +96,7 @@ Renderer::Renderer(
             depth_vistory,
         },
         {
-            daxa::ImageInfo
-            {
+            daxa::ImageInfo{
                 .format = daxa::Format::R32_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "f32_depth_vistory",
@@ -244,6 +243,7 @@ void Renderer::compile_pipelines()
     std::vector<daxa::RayTracingPipelineCompileInfo> ray_tracing = {
         {ray_trace_ao_rt_pipeline_info()},
         {pgi_trace_probe_lighting_pipeline_compile_info()},
+        {reference_path_trace_rt_pipeline_info()},
     };
     for (auto const & info : ray_tracing)
     {
@@ -373,8 +373,8 @@ void Renderer::clear_select_buffers()
     });
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
-    //tg.use_persistent_buffer(luminance_average);
-    //tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
+    // tg.use_persistent_buffer(luminance_average);
+    // tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
     tg.use_persistent_image(pgi_state.probe_radiance);
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
@@ -582,9 +582,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskImageView main_camera_geo_normal_image = tg.create_transient_image({
         .format = GBUFFER_GEO_NORMAL_FORMAT,
-        .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1 },
+        .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "main_camera_geo_normal_image",
-    }); 
+    });
     daxa::TaskImageView view_camera_geo_normal_image = main_camera_geo_normal_image;
     tg.add_task(GenGbufferTask{
         .views = std::array{
@@ -607,9 +607,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         view_camera_geo_normal_image = tg.create_transient_image({
             .format = GBUFFER_GEO_NORMAL_FORMAT,
-            .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1 },
+            .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_geo_normal_image",
-        }); 
+        });
         tg.add_task(GenGbufferTask{
             .views = std::array{
                 GenGbufferTask::AT.globals | render_context->tgpu_render_data,
@@ -685,151 +685,178 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "color_image",
     });
-    daxa::TaskImageView ao_image = daxa::NullTaskImage;
-    if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
-    {
-        auto ao_image_info = daxa::TaskTransientImageInfo{
-            .format = daxa::Format::R16_SFLOAT,
-            .size = {
-                render_context->render_data.settings.render_target_size.x,
-                render_context->render_data.settings.render_target_size.y,
-                1,
-            },
-            .name = "ao_image_raw",
-        };
-        ao_image = tg.create_transient_image(ao_image_info);
-        ao_image_info.name = "ao_image";
-        auto ao_image_raw = tg.create_transient_image(ao_image_info);
-        tg.clear_image({ao_image_raw, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(RayTraceAmbientOcclusionTask{
-            .views = std::array{
-                RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
-                RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
-                RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
-                RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
-                RayTraceAmbientOcclusionH::AT.vis_image | view_camera_visbuffer,
-                RayTraceAmbientOcclusionH::AT.sky | sky,
-                RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
-                RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
-                RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
-                RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
-                RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-                RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
-                RayTraceAmbientOcclusionH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
-                RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
-            },
-            .gpu_context = gpu_context,
-            .render_context = render_context.get(),
-        });
-        tg.add_task(RTAODeoinserTask{
-            .views = std::array{
-                RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
-                RTAODeoinserTask::AT.depth | view_camera_depth,
-                RTAODeoinserTask::AT.src | ao_image_raw,
-                RTAODeoinserTask::AT.dst | ao_image,
-            },
-            .gpu_context = gpu_context,
-            .render_context = render_context.get(),
-        });
-    }
-    if (render_context->render_data.pgi_settings.enabled)
-    {
-        daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
-        tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
-        tg.add_task(PGIPreUpdateProbesTask{
-            .views = std::array{
-                PGIPreUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                PGIPreUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
-                PGIPreUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
-                PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
-            },
-            .render_context = render_context.get(),
-            .pgi_state = &this->pgi_state,
-        });
-        daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
-        tg.add_task(PGITraceProbeRaysTask{
-            .views = std::array{
-                PGITraceProbeRaysTask::AT.globals | render_context->tgpu_render_data,
-                PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
-                PGITraceProbeRaysTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGITraceProbeRaysTask::AT.probe_visibility | pgi_state.probe_visibility_view,
-                PGITraceProbeRaysTask::AT.probe_info | pgi_state.probe_info_view,
-                PGITraceProbeRaysTask::AT.probe_requests | pgi_state.cell_requests_view,
-                PGITraceProbeRaysTask::AT.tlas | scene->_scene_tlas,
-                PGITraceProbeRaysTask::AT.sky_transmittance | transmittance,
-                PGITraceProbeRaysTask::AT.sky | sky,
-                PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
-                PGITraceProbeRaysTask::AT.mesh_instances | scene->mesh_instances_buffer,
-            },
-            .render_context = render_context.get(),
-            .pgi_state = &this->pgi_state,
-        });
-        daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
-        tg.copy_image_to_image({pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
-        tg.add_task(PGIUpdateProbesTask{
-            .views = std::array{
-                PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
-                PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
-                PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
-                PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
-                PGIUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
-            },
-            .render_context = render_context.get(),
-            .pgi_state = &this->pgi_state,
-        });
-        tg.add_task(PGIUpdateProbeTexelsTask{
-            .views = std::array{
-                PGIUpdateProbeTexelsTask::AT.globals | render_context->tgpu_render_data,
-                PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
-                PGIUpdateProbeTexelsTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
-                PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
-                PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
-            },
-            .render_context = render_context.get(),
-            .pgi_state = &this->pgi_state,
-        });
-    }
-    auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-    auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-    tg.add_task(ShadeOpaqueTask{
-        .views = std::array{
-            ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
-            ShadeOpaqueH::AT.ao_image | ao_image,
-            ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
-            ShadeOpaqueH::AT.color_image | color_image,
-            ShadeOpaqueH::AT.vis_image | view_camera_visbuffer,
-            ShadeOpaqueH::AT.transmittance | transmittance,
-            ShadeOpaqueH::AT.sky | sky,
-            ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
-            ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
-            ShadeOpaqueH::AT.vsm_page_view_pos_row | vsm_page_heigh_offsets_view,
-            ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
-            ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
-            ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
-            ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-            ShadeOpaqueH::AT.luminance_average | luminance_average,
-            ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
-            ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
-            ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
-            ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
-            ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
-            ShadeOpaqueH::AT.debug_image | debug_image,
-            ShadeOpaqueH::AT.overdraw_image | overdraw_image,
-            ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
-            ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
-            ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
-            ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
-            ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
-            ShadeOpaqueH::AT.pgi_probe_visibility | pgi_state.probe_visibility_view,
-            ShadeOpaqueH::AT.pgi_probe_info | pgi_state.probe_info_view,
-            ShadeOpaqueH::AT.pgi_probe_requests | pgi_state.cell_requests_view,
-        },
-        .render_context = render_context.get(),
-    });
 
+    if (render_context->render_data.settings.enable_reference_path_trace)
+    {
+        tg.add_task(ReferencePathTraceTask{
+            .views = std::array{
+                ReferencePathTraceH::AT.globals | render_context->tgpu_render_data,
+                ReferencePathTraceH::AT.debug_image | debug_image,
+                ReferencePathTraceH::AT.debug_lens_image | debug_lens_image,
+                ReferencePathTraceH::AT.pt_image | color_image,
+                ReferencePathTraceH::AT.vis_image | view_camera_visbuffer,
+                ReferencePathTraceH::AT.sky | sky,
+                ReferencePathTraceH::AT.luminance_average | luminance_average,
+                ReferencePathTraceH::AT.material_manifest | scene->_gpu_material_manifest,
+                ReferencePathTraceH::AT.instantiated_meshlets | meshlet_instances,
+                ReferencePathTraceH::AT.meshes | scene->_gpu_mesh_manifest,
+                ReferencePathTraceH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
+                ReferencePathTraceH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+                ReferencePathTraceH::AT.tlas | scene->_scene_tlas,
+                ReferencePathTraceH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
+                ReferencePathTraceH::AT.mesh_instances | scene->mesh_instances_buffer,
+            },
+            .gpu_context = gpu_context,
+            .render_context = render_context.get(),
+        });
+    }
+    else
+    {
+        daxa::TaskImageView ao_image = daxa::NullTaskImage;
+        if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
+        {
+            auto ao_image_info = daxa::TaskTransientImageInfo{
+                .format = daxa::Format::R16_SFLOAT,
+                .size = {
+                    render_context->render_data.settings.render_target_size.x,
+                    render_context->render_data.settings.render_target_size.y,
+                    1,
+                },
+                .name = "ao_image_raw",
+            };
+            ao_image = tg.create_transient_image(ao_image_info);
+            ao_image_info.name = "ao_image";
+            auto ao_image_raw = tg.create_transient_image(ao_image_info);
+            tg.clear_image({ao_image_raw, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.add_task(RayTraceAmbientOcclusionTask{
+                .views = std::array{
+                    RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
+                    RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
+                    RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
+                    RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
+                    RayTraceAmbientOcclusionH::AT.vis_image | view_camera_visbuffer,
+                    RayTraceAmbientOcclusionH::AT.sky | sky,
+                    RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
+                    RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
+                    RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
+                    RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
+                    RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+                    RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
+                    RayTraceAmbientOcclusionH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
+                    RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
+                },
+                .gpu_context = gpu_context,
+                .render_context = render_context.get(),
+            });
+            tg.add_task(RTAODeoinserTask{
+                .views = std::array{
+                    RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
+                    RTAODeoinserTask::AT.depth | view_camera_depth,
+                    RTAODeoinserTask::AT.src | ao_image_raw,
+                    RTAODeoinserTask::AT.dst | ao_image,
+                },
+                .gpu_context = gpu_context,
+                .render_context = render_context.get(),
+            });
+        }
+        if (render_context->render_data.pgi_settings.enabled)
+        {
+            daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
+            tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
+            tg.add_task(PGIPreUpdateProbesTask{
+                .views = std::array{
+                    PGIPreUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+                    PGIPreUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
+                    PGIPreUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
+                    PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+                },
+                .render_context = render_context.get(),
+                .pgi_state = &this->pgi_state,
+            });
+            daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
+            tg.add_task(PGITraceProbeRaysTask{
+                .views = std::array{
+                    PGITraceProbeRaysTask::AT.globals | render_context->tgpu_render_data,
+                    PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
+                    PGITraceProbeRaysTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                    PGITraceProbeRaysTask::AT.probe_visibility | pgi_state.probe_visibility_view,
+                    PGITraceProbeRaysTask::AT.probe_info | pgi_state.probe_info_view,
+                    PGITraceProbeRaysTask::AT.probe_requests | pgi_state.cell_requests_view,
+                    PGITraceProbeRaysTask::AT.tlas | scene->_scene_tlas,
+                    PGITraceProbeRaysTask::AT.sky_transmittance | transmittance,
+                    PGITraceProbeRaysTask::AT.sky | sky,
+                    PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
+                    PGITraceProbeRaysTask::AT.mesh_instances | scene->mesh_instances_buffer,
+                },
+                .render_context = render_context.get(),
+                .pgi_state = &this->pgi_state,
+            });
+            daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
+            tg.copy_image_to_image({pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
+            tg.add_task(PGIUpdateProbesTask{
+                .views = std::array{
+                    PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
+                    PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+                    PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
+                    PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
+                    PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+                    PGIUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
+                },
+                .render_context = render_context.get(),
+                .pgi_state = &this->pgi_state,
+            });
+            tg.add_task(PGIUpdateProbeTexelsTask{
+                .views = std::array{
+                    PGIUpdateProbeTexelsTask::AT.globals | render_context->tgpu_render_data,
+                    PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
+                    PGIUpdateProbeTexelsTask::AT.probe_radiance | pgi_state.probe_radiance_view,
+                    PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
+                    PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
+                    PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
+                },
+                .render_context = render_context.get(),
+                .pgi_state = &this->pgi_state,
+            });
+        }
+        auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+        auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+        tg.add_task(ShadeOpaqueTask{
+            .views = std::array{
+                ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
+                ShadeOpaqueH::AT.ao_image | ao_image,
+                ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
+                ShadeOpaqueH::AT.color_image | color_image,
+                ShadeOpaqueH::AT.vis_image | view_camera_visbuffer,
+                ShadeOpaqueH::AT.transmittance | transmittance,
+                ShadeOpaqueH::AT.sky | sky,
+                ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
+                ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
+                ShadeOpaqueH::AT.vsm_page_view_pos_row | vsm_page_heigh_offsets_view,
+                ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
+                ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
+                ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
+                ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+                ShadeOpaqueH::AT.luminance_average | luminance_average,
+                ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
+                ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
+                ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
+                ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
+                ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
+                ShadeOpaqueH::AT.debug_image | debug_image,
+                ShadeOpaqueH::AT.overdraw_image | overdraw_image,
+                ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
+                ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
+                ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
+                ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
+                ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
+                ShadeOpaqueH::AT.pgi_probe_visibility | pgi_state.probe_visibility_view,
+                ShadeOpaqueH::AT.pgi_probe_info | pgi_state.probe_info_view,
+                ShadeOpaqueH::AT.pgi_probe_requests | pgi_state.cell_requests_view,
+            },
+            .render_context = render_context.get(),
+        });
+    }
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
     tg.add_task(GenLuminanceHistogramTask{
         .views = std::array{
@@ -850,7 +877,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     daxa::TaskImageView debug_draw_depth = tg.create_transient_image({
         .format = daxa::Format::D32_SFLOAT,
-        .size = { render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
+        .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
@@ -910,7 +937,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .task = [=, this](daxa::TaskInterface ti)
         {
-            const u32 index = render_context->render_data.frame_index % 4;
+            u32 const index = render_context->render_data.frame_index % 4;
 
             render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
             ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
@@ -983,7 +1010,8 @@ void Renderer::render_frame(
 
         vsm_state.update_vsm_lights(scene->_active_point_lights);
         CameraInfo tmp = camera_info;
-        if(render_context->debug_frustum >= 0) {
+        if (render_context->debug_frustum >= 0)
+        {
             tmp.position = scene->_active_point_lights.at(0).position;
             tmp.view = vsm_state.point_lights_cpu.at(0).view_matrices[render_context->debug_frustum];
             tmp.inv_view = vsm_state.point_lights_cpu.at(0).inverse_view_matrices[render_context->debug_frustum];
@@ -994,7 +1022,7 @@ void Renderer::render_frame(
         }
 
         // Set Render Data.
-        
+
         // Written by ui     render_context->render_data.hovered_entity_index
         // Written by ui     render_context->render_data.selected_entity_index
 

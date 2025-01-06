@@ -187,6 +187,7 @@ struct Settings
     daxa_u32vec2 next_lower_po2_render_target_size;
     daxa_f32vec2 next_lower_po2_render_target_size_inv;
     daxa_u32vec2 window_size;
+    daxa_u32 enable_reference_path_trace;
     daxa_u32 draw_from_observer;
     daxa_b32 observer_draw_first_pass;
     daxa_b32 observer_draw_second_pass;
@@ -220,6 +221,7 @@ struct Settings
           next_lower_po2_render_target_size{render_target_size.x, render_target_size.y},
           next_lower_po2_render_target_size_inv{1.0f / this->render_target_size.x, 1.0f / this->render_target_size.y},
           window_size{16, 16},
+          enable_reference_path_trace{0},
           draw_from_observer{0},
           observer_draw_first_pass{1},
           observer_draw_second_pass{1},
@@ -256,7 +258,7 @@ struct PostprocessSettings
     daxa_f32 inv_luminance_log2_range;
 #if defined(__cplusplus)
     PostprocessSettings()
-        : min_luminance_log2{std::log2(4.0f)},
+        : min_luminance_log2{std::log2(1.0f / 4096.0f)},
           max_luminance_log2{std::log2(4096.0f)},
           luminance_adaption_tau{1.0f},
           exposure_bias{1.0f},

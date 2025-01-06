@@ -97,6 +97,13 @@ float3 agx_tonemapping(float3 exposed_color)
     agx_eotf(exposed_color);
     return exposed_color;
 }
+float sRGB_OETF(float a) {
+    return select(.0031308f >= a, 12.92f * a, 1.055f * pow(a, .4166666666666667f) - .055f);
+}
+
+float3 sRGB_OETF(float3 a) {
+    return float3(sRGB_OETF(a.r), sRGB_OETF(a.g), sRGB_OETF(a.b));
+}
 
 [[vk::push_constant]] WriteSwapchainPush push;
 [numthreads(WRITE_SWAPCHAIN_WG_X,WRITE_SWAPCHAIN_WG_Y,1)]
@@ -138,7 +145,7 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
         color.rgb = fract(color.rgb + 0.5);
     }
 
-    float3 gamma_correct = pow(color, float3(1.0/2.2));
+    float3 gamma_correct = sRGB_OETF(color);
 
     push.attachments.swapchain.get()[index] = float4(gamma_correct.rgb, 1);
 }
