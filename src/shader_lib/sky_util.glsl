@@ -5,7 +5,7 @@
 #include "../shader_shared/globals.inl"
 
 #define PLANET_RADIUS_OFFSET 0.01
-#define BASE_HEIGHT_OFFSET 3.0
+#define BASE_HEIGHT_OFFSET 1000.0
 #define PI 3.1415926535897932384626433832795
 #define M_TO_KM_SCALE 0.001
 #define sun_color (daxa_f32vec4(255.0, 240.0, 233.0, 255.0)/255.0)

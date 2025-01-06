@@ -104,7 +104,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context) -> RenderEntityId;
-static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context);
+static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info);
 
 auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {
@@ -113,6 +113,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         auto load_result = get_load_manifest_data_from_gltf(*this, info);
         if (std::holds_alternative<LoadManifestErrorCode>(load_result))
         {
+            update_lights_from_gltf(*this, info);
             return std::get<LoadManifestErrorCode>(load_result);
         }
         LoadManifestFromFileContext load_ctx = std::get<LoadManifestFromFileContext>(std::move(load_result));
@@ -120,7 +121,7 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_material_manifest_from_gltf(*this, info, load_ctx);
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
         root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
-        update_lights_from_gltf(*this, info, load_ctx);
+        update_lights_from_gltf(*this, info);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
             .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(load_ctx.asset)),
@@ -570,7 +571,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
     return root_r_ent_id;
 }
 
-static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info)
 {
     // TODO(msakmary) Hook this into a scene, this sucks!
     scene._active_point_lights.push_back({

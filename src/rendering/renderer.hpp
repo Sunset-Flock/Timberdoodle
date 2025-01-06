@@ -15,6 +15,7 @@
 #include "scene_renderer_context.hpp"
 #include "virtual_shadow_maps/vsm_state.hpp"
 #include "pgi/pgi.hpp"
+#include "asteroids/draw_asteroids.hpp"
 
 
 // Renderer struct.
@@ -34,6 +35,7 @@ struct Renderer
     void render_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
+        std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids,
         f32 const delta_time);
     void readback_statistics(daxa::TaskGraph & tg);
 
@@ -62,6 +64,7 @@ struct Renderer
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};
 
     VSMState vsm_state = {};
+    AsteroidsState asteroid_state = {};
     PGIState pgi_state = {};
 
     std::unique_ptr<RenderContext> render_context = {};

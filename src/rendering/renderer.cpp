@@ -10,6 +10,8 @@
 #include "virtual_shadow_maps/vsm.inl"
 #include "pgi/pgi_update.inl"
 
+#include "asteroids/draw_asteroids.hpp"
+
 #include "ray_tracing/ray_tracing.inl"
 
 #include "tasks/memset.inl"
@@ -75,6 +77,7 @@ Renderer::Renderer(
     f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
+    asteroid_state.initialize_persistent_state(gpu_context->device);
     pgi_state.initialize(gpu_context->device);
 
     images = {
@@ -168,6 +171,7 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_aabb_pipeline_compile_info()},
         {draw_shader_debug_box_pipeline_compile_info()},
         {pgi_draw_debug_probes_compile_info()},
+        {debug_draw_asteroids_compile_info()}
     };
     for (auto info : rasters)
     {
@@ -650,6 +654,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .gpu_context = gpu_context,
     });
 
+    auto color_image = tg.create_transient_image({
+        .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
+        .size = {
+            render_context->render_data.settings.render_target_size.x,
+            render_context->render_data.settings.render_target_size.y,
+            1,
+        },
+        .name = "color_image",
+    });
+
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -674,15 +688,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.submit({});
 
-    auto color_image = tg.create_transient_image({
-        .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
-        .size = {
-            render_context->render_data.settings.render_target_size.x,
-            render_context->render_data.settings.render_target_size.y,
-            1,
-        },
-        .name = "color_image",
-    });
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
     if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
     {
@@ -840,6 +845,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
+
+    asteroid_state.initalize_transient_state(tg);
+    task_draw_asteroids(TaskDrawAsteroidsInfo{
+        .render_context = render_context.get(),
+        .asteroids_state = &asteroid_state,
+        .tg = &tg,
+        .depth = main_camera_depth,
+        .color = color_image,
+    });
     if (render_context->render_data.pgi_settings.enabled && (render_context->render_data.pgi_settings.debug_probe_draw_mode != PGI_DEBUG_PROBE_DRAW_MODE_OFF))
     {
         tg.add_task(PGIDrawDebugProbesTask{
@@ -911,6 +925,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 void Renderer::render_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
+    std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids,
     f32 const delta_time)
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
@@ -1084,6 +1099,14 @@ void Renderer::render_frame(
         .debug_context = &gpu_context->shader_debug_context,
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
+
+    asteroid_state.update_cpu_data(asteroids);
+    ShaderDebugAABBDraw aabb_draw;
+    aabb_draw.position = daxa_f32vec3{0.0f, 0.0f, 0.0f};
+    aabb_draw.size = daxa_f32vec3{2.0f * DOMAIN_BOUNDS, 2.0f * DOMAIN_BOUNDS, 2.0f * DOMAIN_BOUNDS};
+    aabb_draw.color = daxa_f32vec3{1.0f, 1.0f, 1.0f};
+    aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    render_context->gpu_context->shader_debug_context.aabb_draws.cpu_draws.push_back(aabb_draw);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {

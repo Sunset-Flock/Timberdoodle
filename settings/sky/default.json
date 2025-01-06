@@ -2,17 +2,17 @@
     "_version": 1,
     "absorption_density": [
         {
-            "const_term": 0.0,
-            "exp_scale": 0.2,
-            "exp_term": 0.00182376393,
-            "layer_width": 35.0,
+            "const_term": 0.1,
+            "exp_scale": -0.067,
+            "exp_term": 0.5,
+            "layer_width": 1000,
             "lin_term": 0.0
         },
         {
             "const_term": 0.0,
             "exp_scale": -0.06666666666,
             "exp_term": 20.6245170027,
-            "layer_width": 65.0,
+            "layer_width": 0.0,
             "lin_term": 0.0
         }
     ],
@@ -21,8 +21,8 @@
         "y": 0.00154036,
         "z": 0.0
     },
-    "atmosphere_bottom": 6360.0,
-    "atmosphere_top": 6460.0,
+    "atmosphere_bottom": 1360.0,
+    "atmosphere_top": 2460.0,
     "mie_density": [
         {
             "const_term": 0.0,
@@ -59,9 +59,9 @@
     "rayleigh_density": [
         {
             "const_term": 0.0,
-            "exp_scale": -0.125,
+            "exp_scale": -0.025,
             "exp_term": 1.0,
-            "layer_width": 100.0,
+            "layer_width": 1000.0,
             "lin_term": 0.0
         },
         {
@@ -72,20 +72,20 @@
             "lin_term": 0.0
         }
     ],
-    "rayleigh_scale_height": 8.696,
+    "rayleigh_scale_height": 80.696,
     "rayleigh_scattering": {
         "x": 0.006604931,
         "y": 0.012344918,
         "z": 0.029412623
     },
     "sky_dimensions": {
-        "x": 256,
-        "y": 192
+        "x": 512,
+        "y": 384
     },
     "sky_step_count": 50,
     "sun_angle": {
-        "x": 94.85399627685547,
-        "y": 28.986000061035156
+        "x": 94.9,
+        "y": 126.5
     },
     "transmittance_dimensions": {
         "x": 256,

@@ -2,9 +2,11 @@
 
 #include "camera.hpp"
 #include "scene/scene.hpp"
+#include "asteroids/asteroids.hpp"
 
 struct ApplicationState
 {
+    AsteroidSimulation simulation = {};
     CameraController camera_controller = {};
     CameraController observer_camera_controller = {};
     CinematicCamera cinematic_camera = {};
