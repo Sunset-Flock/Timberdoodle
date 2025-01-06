@@ -148,7 +148,11 @@ func entry_update_probe_irradiance(
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
         float prev_frame_max = max3(prev_frame_radiance.x, prev_frame_radiance.y, prev_frame_radiance.z) + 0.01f;
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
-        hysteresis += 0.02 * factor;
+        if (factor > 0.0f)
+        {
+            factor *= 0.1f;
+        }
+        hysteresis += 0.1 * factor;
         hysteresis = clamp(hysteresis, 0.9f, 0.99f);
     }
     if (probe_info.validity == 0.0f)
@@ -668,8 +672,9 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         }
 
         int every_eightth = ((probe_index.x & 0x1) + (probe_index.y & 0x1) * 2 + (probe_index.z & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
+        int every_64th = ((probe_index.x & 0x3) + (probe_index.y & 0x3) * 4 + (probe_index.z & 0x3) * 16) == (push.attach.globals.frame_index & 0x3F);
         int checker_board = (probe_index.x & 0x1) ^ (probe_index.y & 0x1) ^ (probe_index.z & 0x1) ^ (push.attach.globals.frame_index & 0x1);
-        choosen = requested && checker_board;
+        choosen = requested && every_eightth;
 
         if (choosen)
         {
@@ -761,7 +766,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let visibility_texel_update_workgroups_x = round_up_div(visibility_texel_update_threads_x, 8);
 
             push.attach.probe_indirections.probe_update_dispatch = DispatchIndirectStruct(probe_update_workgroups_x,1,1);
-            push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count, settings.probe_trace_resolution, settings.probe_trace_resolution);
+            push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * settings.probe_trace_resolution * settings.probe_trace_resolution, 1, 1);
             push.attach.probe_indirections.probe_radiance_update_dispatch = DispatchIndirectStruct(radiance_texel_update_workgroups_x, texel_update_workgroups_y, 1);
             push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(visibility_texel_update_workgroups_x, texel_update_workgroups_y, 1);
         }

@@ -60,7 +60,10 @@ void entry_ray_gen()
     int2 probe_texel = {};
     if (settings.enable_indirect_sparse)
     {
-        uint indirect_index = dtid.x;
+        uint indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
+        uint local_index = (dtid.x - indirect_index * (settings.probe_trace_resolution * settings.probe_trace_resolution));
+        probe_texel.y = local_index / settings.probe_trace_resolution;
+        probe_texel.x = local_index - settings.probe_trace_resolution * probe_texel.y;
 
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
         probe_index = int3(
@@ -68,8 +71,6 @@ void entry_ray_gen()
             (indirect_package >> 10) & ((1u << 10u) - 1),
             (indirect_package >> 20) & ((1u << 10u) - 1),
         );
-
-        probe_texel = int2(dtid.y, dtid.z);
     }
     else
     {
@@ -200,16 +201,17 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
     }
 
     float alpha = 1.0;
+    static const float HARDCODED_MIP = 4.0f;
     if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
     {
         // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
         alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .Sample( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv).a; 
+            .SampleLevel( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, HARDCODED_MIP).a; 
     }
     else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
     {
         alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .Sample( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv).a; 
+            .SampleLevel( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, HARDCODED_MIP).a; 
     }
     if(alpha < 0.5) {
         IgnoreHit();
