@@ -188,7 +188,7 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
     {
         let sky = globals->sky_settings;
 
-        float t_max = 100.0f;
+        float t_max = 10000.0f;
         float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
         float3 dir = sky.sun_direction;
         float t = rayquery_free_path(tlas, start, dir, t_max);

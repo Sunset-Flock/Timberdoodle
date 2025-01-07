@@ -108,6 +108,7 @@ void entry_ray_gen()
 
     TraceRay(push.attach.tlas.get(), {}, ~0, 0, 0, 0, ray, payload);
 
+
     float4 color_depth = {};
     if (payload.hit)
     {

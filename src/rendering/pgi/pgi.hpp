@@ -137,10 +137,22 @@ struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
             .id = pgi_state->debug_probe_mesh_buffer,
         }); 
 
-        render_cmd.draw_indexed({
-            .index_count = pgi_state->debug_probe_mesh_triangles * 3,
-            .instance_count = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_count.z),
-        });
+        if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+        {
+            render_cmd.draw_indirect({
+                .draw_command_buffer = ti.get(AT.probe_indirections).ids[0],
+                .indirect_buffer_offset = offsetof(PGIIndirections, probe_debug_draw_dispatch),
+                .draw_count = 1,
+                .is_indexed = true,
+            });
+        }
+        else
+        {
+            render_cmd.draw_indexed({
+                .index_count = pgi_state->debug_probe_mesh_triangles * 3,
+                .instance_count = static_cast<u32>(render_context->render_data.pgi_settings.probe_count.x * render_context->render_data.pgi_settings.probe_count.y * render_context->render_data.pgi_settings.probe_count.z),
+            });
+        }
 
         ti.recorder = std::move(render_cmd).end_renderpass();
     }
@@ -241,27 +253,30 @@ struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
     PGIState* pgi_state = {};
     void callback(daxa::TaskInterface ti)
     {
-        PGIUpdateProbesPush push = {};
-        push.attach = ti.attachment_shader_blob;
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info3().name));
-        ti.recorder.push_constant(push);
-        push.attach = ti.attachment_shader_blob;
-        if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+        if ((render_context->render_data.pgi_settings.enable_indirect_sparse != 0) || (render_context->render_data.pgi_settings.debug_probe_draw_mode != 0))
         {
-            ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-                .offset = offsetof(PGIIndirections, probe_update_dispatch),
-            });
-        }
-        else
-        {
-            auto const x = render_context->render_data.pgi_settings.probe_count.x;
-            auto const y = render_context->render_data.pgi_settings.probe_count.y;
-            auto const z = render_context->render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            PGIUpdateProbesPush push = {};
+            push.attach = ti.attachment_shader_blob;
+            ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(pgi_update_probes_compute_compile_info3().name));
+            ti.recorder.push_constant(push);
+            push.attach = ti.attachment_shader_blob;
+            if (render_context->render_data.pgi_settings.enable_indirect_sparse)
+            {
+                ti.recorder.dispatch_indirect({
+                    .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+                    .offset = offsetof(PGIIndirections, probe_update_dispatch),
+                });
+            }
+            else
+            {
+                auto const x = render_context->render_data.pgi_settings.probe_count.x;
+                auto const y = render_context->render_data.pgi_settings.probe_count.y;
+                auto const z = render_context->render_data.pgi_settings.probe_count.z;
+                auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
+                auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
+                auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
+                ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+            }
         }
     }
 };
@@ -420,7 +435,7 @@ inline auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISet
 inline auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskBufferView
 {
     return tg.create_transient_buffer({
-        .size = static_cast<u32>(sizeof(PGIIndirections) + sizeof(daxa_u32) * settings.probe_count.x * settings.probe_count.y * settings.probe_count.z),
+        .size = static_cast<u32>(sizeof(PGIIndirections) + 2 * sizeof(daxa_u32) * settings.probe_count.x * settings.probe_count.y * settings.probe_count.z),
         .name = "pgi indirections",
     });
 }

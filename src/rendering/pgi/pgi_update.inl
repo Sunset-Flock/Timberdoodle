@@ -12,11 +12,14 @@ struct PGIIndirections
     DispatchIndirectStruct probe_trace_dispatch;
     DispatchIndirectStruct probe_radiance_update_dispatch;
     DispatchIndirectStruct probe_visibility_update_dispatch;
-    daxa_u32 indirect_probes;
+    DrawIndexedIndirectStruct probe_debug_draw_dispatch;
+    daxa_u32 detailed_probe_count;
+    daxa_u32 probe_update_count;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)

@@ -24,7 +24,7 @@ struct CPUDebugDraws
 
 struct ShaderDebugDrawContext
 {
-    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 256'000, .vertices = 2 };
+    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 2'560'000, .vertices = 2 };
     CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = { .max_draws = 256'000, .vertices = 64 };
     CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 256'000, .vertices = 5 };
     CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 64'000, .vertices = 24 };

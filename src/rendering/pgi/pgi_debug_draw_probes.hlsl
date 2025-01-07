@@ -29,17 +29,35 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
 {
     let push = draw_debug_probe_p;
     PGISettings settings = push.attach.globals.pgi_settings;
+    
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
     position *= 0.03f * settings.max_visibility_distance;
 
-    uint probes_per_z_slice = (push.attach.globals.pgi_settings.probe_count.x * push.attach.globals.pgi_settings.probe_count.y);
-    uint probe_z = instance_index / probes_per_z_slice;
-    uint probes_per_y_row = push.attach.globals.pgi_settings.probe_count.x;
-    uint probe_y = (instance_index - probe_z * probes_per_z_slice) / probes_per_y_row;
-    uint probe_x = (instance_index - probe_z * probes_per_z_slice - probe_y * probes_per_y_row);
+    int3 probe_index = {};
+    if (settings.enable_indirect_sparse)
+    {
+        uint indirect_index = instance_index;
+        // We want to draw all active probes, not only the updated probes
+        uint active_probes_offset = settings.probe_count.x * settings.probe_count.y * settings.probe_count.z;
+        uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + active_probes_offset];
+        probe_index = int3(
+            (indirect_package >> 0) & ((1u << 10u) - 1),
+            (indirect_package >> 10) & ((1u << 10u) - 1),
+            (indirect_package >> 20) & ((1u << 10u) - 1),
+        );
+    }
+    else
+    {
+        uint probes_per_z_slice = (push.attach.globals.pgi_settings.probe_count.x * push.attach.globals.pgi_settings.probe_count.y);
+        uint probe_z = instance_index / probes_per_z_slice;
+        uint probes_per_y_row = push.attach.globals.pgi_settings.probe_count.x;
+        uint probe_y = (instance_index - probe_z * probes_per_z_slice) / probes_per_y_row;
+        uint probe_x = (instance_index - probe_z * probes_per_z_slice - probe_y * probes_per_y_row);
 
-    uint3 probe_index = uint3(probe_x, probe_y, probe_z);
+        probe_index = uint3(probe_x, probe_y, probe_z);
+    }
+
 
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
@@ -54,8 +72,6 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     {
         viewproj = &push.attach.globals.camera.view_proj;
     }
-
-    
 
     if (probe_info.validity < 0.1)
     {

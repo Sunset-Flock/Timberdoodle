@@ -1456,7 +1456,7 @@ void PGIState::initialize(daxa::Device& device)
     auto const probe_vertex_mem_size = this->debug_probe_mesh_vertices * sizeof(daxa_f32vec3);
 
     this->debug_probe_mesh_buffer = device.create_buffer({
-        .size = probe_triangles_mem_size * probe_vertex_mem_size,
+        .size = probe_triangles_mem_size + probe_vertex_mem_size,
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "pgi probe debug mesh buffer",
     });

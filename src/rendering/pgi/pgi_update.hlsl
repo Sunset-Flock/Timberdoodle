@@ -69,7 +69,7 @@ func entry_update_probe_irradiance(
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_radiance_resolution)));
         uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_radiance_resolution)));
         uint indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
-        let is_overhang = indirect_index >= push.attach.probe_indirections.indirect_probes;
+        let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
         {
             return;
@@ -153,7 +153,7 @@ func entry_update_probe_irradiance(
             factor *= 0.1f;
         }
         hysteresis += 0.1 * factor;
-        hysteresis = clamp(hysteresis, 0.9f, 0.99f);
+        hysteresis = clamp(hysteresis, 0.8f, 0.99f);
     }
     if (probe_info.validity == 0.0f)
     {
@@ -184,7 +184,7 @@ func entry_update_probe_visibility(
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_visibility_resolution)));
         uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_visibility_resolution)));
         uint indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
-        let is_overhang = indirect_index >= push.attach.probe_indirections.indirect_probes;
+        let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
         {
             return;
@@ -322,9 +322,9 @@ func update_free_sphere(inout FreeSphere sphere, float3 point)
 #define PGI_DESIRED_RELATIVE_DISTANCE 0.3f 
 #define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
 #define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
-#define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.25)
+#define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.3)
 #define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
-#define PGI_PROBE_VIEW_DISTANCE 1.5
+#define PGI_PROBE_VIEW_DISTANCE 1.0
 
 [shader("compute")]
 [numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
@@ -340,7 +340,7 @@ func entry_update_probe(
     if (settings.enable_indirect_sparse)
     {
         uint indirect_index = group_id * 64 + group_index;
-        let overhang = indirect_index >= push.attach.probe_indirections.indirect_probes;
+        let overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (overhang)
         {
             return;
@@ -520,8 +520,8 @@ func entry_update_probe(
 
     float3 adjustment_vector = 
         closest_backface_dir * min(backface_escape_distance, PGI_RELATIVE_REPOSITIONING_STEP) +
-        estimated_freedom_direction * min(frontface_repulse_distance, PGI_RELATIVE_REPOSITIONING_STEP) +
-        spring_force_dir * min(spring_force_distance, PGI_RELATIVE_REPOSITIONING_STEP);
+        estimated_freedom_direction * min(frontface_repulse_distance * PGI_RELATIVE_REPOSITIONING_STEP, PGI_RELATIVE_REPOSITIONING_STEP) +
+        spring_force_dir * min(spring_force_distance * PGI_RELATIVE_REPOSITIONING_STEP, PGI_RELATIVE_REPOSITIONING_STEP);
 
 
     if (settings.debug_draw_repositioning_forces)
@@ -646,8 +646,9 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     // Each probe is a vertex in up to 8 cells.
     // Check each cells base probes request counter to determine if probe is requested.
     bool requested = false;
-    bool choosen = false;
+    bool update = false;
     uint request_index = ~0u;
+    uint update_index = ~0u;
     if (!is_new_probe)
     {
         // Each Probe is part of up to 8 cells (8 Probes form the vertices of a cell)
@@ -671,21 +672,47 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             requested = requested || (request != 0);
         }
 
-        int every_eightth = ((probe_index.x & 0x1) + (probe_index.y & 0x1) * 2 + (probe_index.z & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
-        int every_64th = ((probe_index.x & 0x3) + (probe_index.y & 0x3) * 4 + (probe_index.z & 0x3) * 16) == (push.attach.globals.frame_index & 0x3F);
-        int checker_board = (probe_index.x & 0x1) ^ (probe_index.y & 0x1) ^ (probe_index.z & 0x1) ^ (push.attach.globals.frame_index & 0x1);
-        choosen = requested && every_eightth;
-
-        if (choosen)
+        if (requested)
         {
-            InterlockedAdd(push.attach.probe_indirections.indirect_probes, 1, request_index);
+            InterlockedAdd(push.attach.probe_indirections.detailed_probe_count, 1, request_index);
+        }
+
+        switch(settings.update_rate)
+        {
+        case PGI_UPDATE_RATE_FULL:
+            update = requested;
+            break;
+        case PGI_UPDATE_RATE_1_OF_2:
+            int checker_board = (probe_index.x & 0x1) ^ (probe_index.y & 0x1) ^ (probe_index.z & 0x1) ^ (push.attach.globals.frame_index & 0x1);
+            update = requested && (checker_board != 0);
+            break;
+        case PGI_UPDATE_RATE_1_OF_8:
+            int every_eightth = ((probe_index.x & 0x1) + (probe_index.y & 0x1) * 2 + (probe_index.z & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
+            update = requested && (every_eightth != 0);
+            break;
+        case PGI_UPDATE_RATE_1_OF_64:
+            int every_64th = ((probe_index.x/4 & 0x3) + (probe_index.y/4 & 0x3) * 16 + (probe_index.z/4 & 0x3) * 4) == ((push.attach.globals.frame_index) & 0x3F);
+            update = requested && (every_64th != 0);
+            break;
+        }
+
+        if (update)
+        {
+            InterlockedAdd(push.attach.probe_indirections.probe_update_count, 1, update_index);
         }
     }
 
-    if (choosen)
+    if (update)
+    {
+        // We need a list of all updated probes 
+        ((uint*)(push.attach.probe_indirections + 1))[update_index] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
+    }
+
+    if (requested)
     {
         // We need a list of all active probes 
-        ((uint*)(push.attach.probe_indirections + 1))[request_index] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
+        uint active_probes_offset = settings.probe_count.x * settings.probe_count.y * settings.probe_count.z;
+        ((uint*)(push.attach.probe_indirections + 1))[request_index + active_probes_offset] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
     }
 
     PGIProbeInfo probe_info = {};
@@ -726,7 +753,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         }
     }
 
-    if (settings.debug_draw_repositioning)
+    if (settings.debug_draw_repositioning && (probe_info.validity != 0.0f))
     {
         ShaderDebugLineDraw line = {};
         line.start = probe_position;
@@ -745,7 +772,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         let last_to_finish = finished_workgroups == push.total_workgroups;
         if (last_to_finish)
         {
-            let probe_update_count = push.attach.probe_indirections.indirect_probes;
+            let probe_update_count = push.attach.probe_indirections.probe_update_count;
+            let detailed_probe_count = push.attach.probe_indirections.detailed_probe_count;
             let probe_update_workgroups_x = round_up_div(probe_update_count, 64);
 
             push.attach.globals.readback.requested_probes = probe_update_count;
@@ -769,6 +797,11 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * settings.probe_trace_resolution * settings.probe_trace_resolution, 1, 1);
             push.attach.probe_indirections.probe_radiance_update_dispatch = DispatchIndirectStruct(radiance_texel_update_workgroups_x, texel_update_workgroups_y, 1);
             push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(visibility_texel_update_workgroups_x, texel_update_workgroups_y, 1);
+            push.attach.probe_indirections.probe_debug_draw_dispatch = DrawIndexedIndirectStruct(
+                960*3,
+                (settings.debug_probe_draw_mode != 0) ? detailed_probe_count : 0,
+                0,0,0
+            );
         }
     }
 }

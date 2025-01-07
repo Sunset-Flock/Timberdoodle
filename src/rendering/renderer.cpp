@@ -700,6 +700,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "color_image",
     });
 
+    daxa::TaskBufferView pgi_indirections = {};
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
         // TODO: Precompute once, and save
@@ -794,7 +795,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         }
         if (render_context->render_data.pgi_settings.enabled)
         {
-            daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
+            pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
             tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
             tg.add_task(PGIPreUpdateProbesTask{
                 .views = std::array{
@@ -913,11 +914,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
-    if (render_context->render_data.pgi_settings.enabled && (render_context->render_data.pgi_settings.debug_probe_draw_mode != PGI_DEBUG_PROBE_DRAW_MODE_OFF))
+    if (render_context->render_data.pgi_settings.enabled)
     {
         tg.add_task(PGIDrawDebugProbesTask{
             .views = std::array{
                 PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
+                PGIDrawDebugProbesH::AT.probe_indirections | pgi_indirections,
                 PGIDrawDebugProbesH::AT.color_image | color_image,
                 PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
                 PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
@@ -1110,7 +1112,6 @@ void Renderer::render_frame(
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const pgi_settings_changed = 
-        render_context->render_data.pgi_settings.debug_probe_draw_mode != render_context->prev_pgi_settings.debug_probe_draw_mode ||
         render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
         render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
         render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||

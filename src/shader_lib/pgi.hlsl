@@ -204,6 +204,8 @@ func pgi_calc_biased_sample_position(PGISettings settings, float3 position, floa
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
+static float PGI_PROBES_VISIBLE;
+
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
@@ -390,6 +392,8 @@ func pgi_sample_irradiance(
             weight_accum += probe_weight;
         }
     }
+
+    PGI_PROBES_VISIBLE = weight_accum * 8.0f;
 
     if (weight_accum == 0)
     {

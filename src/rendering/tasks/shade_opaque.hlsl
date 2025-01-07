@@ -575,7 +575,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_GI:
             {
-                output_value.rgb = indirect_lighting.rgb;
+                output_value.rgb = PGI_PROBES_VISIBLE.xxx;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:
