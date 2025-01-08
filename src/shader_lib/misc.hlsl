@@ -231,4 +231,9 @@ float3 square(float3 x)
     return x * x;
 }
 
+float4 square(float4 x)
+{
+    return x * x;
+}
+
 /// ===== =====

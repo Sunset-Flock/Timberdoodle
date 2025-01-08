@@ -149,7 +149,7 @@ void entry_rt_ao(
 
 struct RayPayload
 {
-    bool hit;
+    bool miss;
 }
 
 [shader("raygeneration")]
@@ -207,6 +207,11 @@ void ray_gen()
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
         float3 normal = tri_point.world_normal;
+
+        const float2 ndc_xy = (float2(index) * push.attach.globals.settings.render_target_size_inv) * 2.0f - 1.0f;
+        const float4 unprojected_pos = mul(push.attach.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
+        const float3 pixel_ray = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
+        normal = flip_normal_to_incoming(normal, pixel_ray);
         
         const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
 
@@ -223,9 +228,10 @@ void ray_gen()
         RayPayload payload = {};
         for (uint ray_i = 0; ray_i < AO_RAY_COUNT; ++ray_i)
         {
-            ray.Direction = rand_hemi_dir(normal);
-            TraceRay(tlas, {}, ~0, 0, 0, 0, ray, payload);
-            hit_count += payload.hit ? 1 : 0;
+            float3 sample_dir = rand_hemi_dir(normal);
+            ray.Direction = rand_hemi_dir(sample_dir);
+            TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
+            hit_count += payload.miss ? 0 : 1;
         }
 
         let ao_value = 1.0f - float(hit_count) * rcp(AO_RAY_COUNT);
@@ -270,7 +276,7 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     if(has_opacity_texture && alpha_discard_enabled)
     {
         let oppacity_tex = Texture2D<float>::get(material.opacity_texture_id);
-        let oppacity = oppacity_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 2).r;
+        let oppacity = oppacity_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 4).r;
         if(oppacity < 0.5) {
             IgnoreHit();
         }
@@ -280,17 +286,17 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
 [shader("closesthit")]
 void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    payload.hit = true;
+    payload.miss = false;
 }
 
 [shader("miss")]
 void miss(inout RayPayload payload)
 {
-    payload.hit = false;
+    payload.miss = true;
 }
 
 
-#define DENOISER_TAP_WIDTH 3
+#define DENOISER_TAP_WIDTH 1
 [[vk::push_constant]] RTAODenoiserPush denoiser_push;
 [shader("compute")]
 [numthreads(RTAO_DENOISER_X, RTAO_DENOISER_Y, 1)]

@@ -122,7 +122,7 @@ func entry_update_probe_irradiance(
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = max(0.0f, (cos_wrap_around + dot(trace_direction, probe_texel_normal)) * cos_wrap_around_rcp);
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
-        if (cos_weight > 0.01f)
+        if (cos_weight > 0.001f)
         {
             float4 sample = push.attach.trace_result.get()[sample_texture_index].rgba;
             cosine_convoluted_trace_result += sample * cos_weight;
@@ -150,17 +150,18 @@ func entry_update_probe_irradiance(
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
         if (factor > 0.0f)
         {
-            factor *= 0.1f;
+            factor *= 0.2f;
         }
-        hysteresis += 0.1 * factor;
-        hysteresis = clamp(hysteresis, 0.8f, 0.99f);
+        hysteresis += 0.025 * factor;
+        hysteresis = clamp(hysteresis, 0.8f, 0.98f);
     }
     if (probe_info.validity == 0.0f)
     {
         hysteresis = 0.0f;
     }
 
-    new_radiance = lerp(new_radiance, prev_frame_radiance, hysteresis);
+    // Avoid super bright radiance to add splodges.
+    new_radiance = lerp(new_radiance, prev_frame_radiance, prev_frame_texel.a);
 
     float4 value = float4(new_radiance, hysteresis);
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_radiance_resolution, probe_texture_base_index, probe_texel, value);

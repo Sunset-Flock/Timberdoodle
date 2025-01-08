@@ -126,6 +126,9 @@ func shade_material(
 ) -> float4
 {
     // TODO: material_point.normal is busted only in ray tracing for some reason
+    // Flipping normal if backface (in case of double sided triangles)
+    material_point.normal = flip_normal_to_incoming(material_point.normal, incoming_ray);
+    material_point.geometry_normal = flip_normal_to_incoming(material_point.geometry_normal, incoming_ray);
 
     float3 diffuse_light = float3(0,0,0);
 

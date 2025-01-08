@@ -20,7 +20,7 @@
 struct PGISettings
 {
     daxa_b32 enabled TIDO_DEFAULT_VALUE(false);
-    daxa_b32 enable_indirect_sparse TIDO_DEFAULT_VALUE(false);
+    daxa_b32 enable_indirect_sparse TIDO_DEFAULT_VALUE(true);
     daxa_i32 update_rate TIDO_DEFAULT_VALUE(PGI_UPDATE_RATE_1_OF_8);
     daxa_b32 fixed_center TIDO_DEFAULT_VALUE(false);
     daxa_f32vec3 fixed_center_position TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 8);

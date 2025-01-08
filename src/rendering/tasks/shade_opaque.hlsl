@@ -454,7 +454,10 @@ void entry_main_cs(
             }
             const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
             normal = mul(tbn, normal_map_value);
+            
         }
+        
+        normal = flip_normal_to_incoming(normal, primary_ray);
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
