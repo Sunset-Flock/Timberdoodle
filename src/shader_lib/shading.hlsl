@@ -29,6 +29,7 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     MaterialPointData ret = {};
     ret.position = tri_point.world_position;
     ret.geometry_normal = tri_point.world_normal;
+    ret.face_normal = tri_point.face_normal;
 
     ret.emissive = material.emissive_color;
     ret.alpha = 1.0f;
@@ -127,8 +128,8 @@ func shade_material(
 {
     // TODO: material_point.normal is busted only in ray tracing for some reason
     // Flipping normal if backface (in case of double sided triangles)
-    material_point.normal = flip_normal_to_incoming(material_point.normal, incoming_ray);
-    material_point.geometry_normal = flip_normal_to_incoming(material_point.geometry_normal, incoming_ray);
+    material_point.normal = flip_normal_to_incoming(material_point.face_normal, material_point.normal, incoming_ray);
+    material_point.geometry_normal = flip_normal_to_incoming(material_point.face_normal, material_point.geometry_normal, incoming_ray);
 
     float3 diffuse_light = float3(0,0,0);
 

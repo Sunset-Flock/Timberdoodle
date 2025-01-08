@@ -8,6 +8,7 @@
 
 #include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/misc.hlsl"
+#include "shader_lib/transform.hlsl"
 
 #define PI 3.1415926535897932384626433832795
 
@@ -208,10 +209,9 @@ void ray_gen()
         uint meshlet_index = visbuf_tri.meshlet_index;
         float3 normal = tri_point.world_normal;
 
-        const float2 ndc_xy = (float2(index) * push.attach.globals.settings.render_target_size_inv) * 2.0f - 1.0f;
-        const float4 unprojected_pos = mul(push.attach.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
-        const float3 pixel_ray = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
-        normal = flip_normal_to_incoming(normal, pixel_ray);
+        CameraInfo camera = push.attach.globals.camera;
+        const float3 pixel_ray = pixel_index_to_ray_direction(camera, index);
+        normal = flip_normal_to_incoming(tri_point.face_normal, normal, pixel_ray);
         
         const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
 

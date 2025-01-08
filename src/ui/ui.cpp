@@ -1205,20 +1205,23 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization overdraw scale", &render_data.settings.debug_overdraw_scale);
-            ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
-            ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
-            ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
-            ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&render_data.settings.enable_atomic_visbuffer));
-            ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&render_data.settings.enable_rt_pipeline_for_ao));
-            ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
-            ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
-            ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
             ImGui::InputInt("override_lod", &render_data.settings.lod_override);
             ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
             ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
             ImGui::SeparatorText("Misc");
             ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
             ImGui::SeparatorText("Features");
+            if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
+            {
+                ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
+                ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
+                ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
+                ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&render_data.settings.enable_atomic_visbuffer));
+                ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&render_data.settings.enable_rt_pipeline_for_ao));
+                ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
+                ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
+                ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
+            }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
                 u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z;
@@ -1234,8 +1237,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), update_rates.size());
                 ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
                 ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
-                ImGui::InputFloat3("Fixed Probe Center Position", &render_data.pgi_settings.fixed_center_position.x);
-                ImGui::Checkbox("Fix Probe Center", reinterpret_cast<bool *>(&render_data.pgi_settings.fixed_center));
                 auto debug_daw_modes = std::array{
                     "OFF", // PGI_DEBUG_PROBE_DRAW_MODE_OFF
                     "IRRADIANCE", // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE

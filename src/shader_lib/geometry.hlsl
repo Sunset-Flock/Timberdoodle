@@ -39,6 +39,7 @@ struct MaterialPointData
     float alpha;
     float3 normal;
     float3 geometry_normal;
+    float3 face_normal;
     float3 position;
     uint material_flags;
 };
@@ -49,7 +50,7 @@ interface LightVisibilityTesterI
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index);
 };
 
-float3 flip_normal_to_incoming(float3 normal, float3 incoming_ray)
+float3 flip_normal_to_incoming(float3 face_normal, float3 normal, float3 incoming_ray)
 {
-    return -sign(dot(normal, incoming_ray)) * normal;
+    return -sign(dot(face_normal, incoming_ray)) * normal;
 }

@@ -799,7 +799,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             push.attach.probe_indirections.probe_radiance_update_dispatch = DispatchIndirectStruct(radiance_texel_update_workgroups_x, texel_update_workgroups_y, 1);
             push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(visibility_texel_update_workgroups_x, texel_update_workgroups_y, 1);
             push.attach.probe_indirections.probe_debug_draw_dispatch = DrawIndexedIndirectStruct(
-                960*3,
+                PGI_DEBUG_PROBE_MESH_INDICES * 3,
                 (settings.debug_probe_draw_mode != 0) ? detailed_probe_count : 0,
                 0,0,0
             );

@@ -388,7 +388,7 @@ func pgi_sample_irradiance(
                 stable_index
             ).rgb;
 
-            accum += (probe_weight) * sqrt(linearly_filtered_samples.rgb);
+            accum += (probe_weight) * linearly_filtered_samples.rgb;
             weight_accum += probe_weight;
         }
     }
@@ -401,6 +401,6 @@ func pgi_sample_irradiance(
     }
     else
     {
-        return clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f);
+        return clamp(accum * rcp(weight_accum), float3(0,0,0), float3(1,1,1) * 100000.0f);
     }
 }

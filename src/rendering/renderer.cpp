@@ -192,9 +192,9 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
-        {pgi_update_probes_compute_compile_info()},
-        {pgi_update_probes_compute_compile_info2()},
-        {pgi_update_probes_compute_compile_info3()},
+        {pgi_update_probe_irradiance_pipeline_compile_info()},
+        {pgi_update_probes_visibility_pipeline_compile_info()},
+        {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
@@ -349,7 +349,6 @@ void Renderer::recreate_framebuffer()
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
     }
-    this->pgi_state.recreate_resources(gpu_context->device, render_context->render_data.pgi_settings);
 }
 
 void Renderer::clear_select_buffers()
@@ -387,15 +386,7 @@ void Renderer::clear_select_buffers()
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     // tg.use_persistent_buffer(luminance_average);
     // tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
-    tg.use_persistent_image(pgi_state.probe_radiance);
-    tg.use_persistent_image(pgi_state.probe_visibility);
-    tg.use_persistent_image(pgi_state.probe_info);
-    tg.use_persistent_image(pgi_state.cell_requests);
     tg.use_persistent_image(path_trace_history);
-    tg.clear_image({.view = pgi_state.probe_radiance_view, .name = "clear pgi radiance"});
-    tg.clear_image({.view = pgi_state.probe_visibility_view, .name = "clear pgi visibility"});
-    tg.clear_image({.view = pgi_state.probe_info_view, .name = "clear pgi info"});
-    tg.clear_image({.view = pgi_state.cell_requests_view, .name = "clear pgi cell requests"});
     tg.clear_image({.view = path_trace_history, .name = "clear pt history"});
     tg.submit({});
     tg.complete({});
@@ -1069,61 +1060,32 @@ void Renderer::render_frame(
         render_context->render_data.delta_time = delta_time;
 
         render_context->render_data.cull_data = fill_cull_data(*render_context);
+
+        pgi_resolve_settings(render_context->prev_pgi_settings, render_context->render_data);
     }
 
-    // PGI Settings Resolve
-    render_context->render_data.pgi_settings.probe_count.x = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.x));
-    render_context->render_data.pgi_settings.probe_count.y = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.y));
-    render_context->render_data.pgi_settings.probe_count.z = std::max(1u, round_up_to_po2(render_context->render_data.pgi_settings.probe_count.z));
-    render_context->render_data.pgi_settings.probe_count_log2.x = msb_index(render_context->render_data.pgi_settings.probe_count.x); // As the probe count is a po2, msb gives the exact log2.
-    render_context->render_data.pgi_settings.probe_count_log2.y = msb_index(render_context->render_data.pgi_settings.probe_count.y); // As the probe count is a po2, msb gives the exact log2.
-    render_context->render_data.pgi_settings.probe_count_log2.z = msb_index(render_context->render_data.pgi_settings.probe_count.z); // As the probe count is a po2, msb gives the exact log2.
 
-    render_context->render_data.pgi_settings.probe_spacing = {
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.x) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.x - 1),
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.y) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.y - 1),
-        static_cast<f32>(render_context->render_data.pgi_settings.probe_range.z) / static_cast<f32>(render_context->render_data.pgi_settings.probe_count.z - 1),
-    };    
-    render_context->render_data.pgi_settings.probe_spacing_rcp = {
-        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_spacing.x),
-        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_spacing.y),
-        1.0f / static_cast<f32>(render_context->render_data.pgi_settings.probe_spacing.z),
-    };
-    render_context->render_data.pgi_settings.max_visibility_distance = glm::length(glm::vec3{
-        render_context->render_data.pgi_settings.probe_spacing.x,
-        render_context->render_data.pgi_settings.probe_spacing.y,
-        render_context->render_data.pgi_settings.probe_spacing.z,
-    }) * 1.01f;
-    render_context->render_data.pgi_settings.window_to_stable_index_offset = {
-        static_cast<i32>(std::floor(render_context->render_data.camera.position.x * render_context->render_data.pgi_settings.probe_spacing_rcp.x)),
-        static_cast<i32>(std::floor(render_context->render_data.camera.position.y * render_context->render_data.pgi_settings.probe_spacing_rcp.y)),
-        static_cast<i32>(std::floor(render_context->render_data.camera.position.z * render_context->render_data.pgi_settings.probe_spacing_rcp.z)),
-    };
-    render_context->render_data.pgi_settings.window_base_position = {
-        (render_context->render_data.pgi_settings.window_to_stable_index_offset.x - (render_context->render_data.pgi_settings.probe_count.x / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.x,
-        (render_context->render_data.pgi_settings.window_to_stable_index_offset.y - (render_context->render_data.pgi_settings.probe_count.y / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.y,
-        (render_context->render_data.pgi_settings.window_to_stable_index_offset.z - (render_context->render_data.pgi_settings.probe_count.z / 2) + 1) * render_context->render_data.pgi_settings.probe_spacing.z,
-    };
-    render_context->render_data.pgi_settings.window_movement_frame_to_frame = {
-        render_context->render_data.pgi_settings.window_to_stable_index_offset.x - render_context->prev_pgi_settings.window_to_stable_index_offset.x,
-        render_context->render_data.pgi_settings.window_to_stable_index_offset.y - render_context->prev_pgi_settings.window_to_stable_index_offset.y,
-        render_context->render_data.pgi_settings.window_to_stable_index_offset.z - render_context->prev_pgi_settings.window_to_stable_index_offset.z,
-    };
+    ///
+    /// SETTING RESOLVE END
+    ///
+    /// GRAPH RECORD START
+    ///
+
+    if (render_context->render_data.frame_index == 0) { 
+        pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
+        clear_select_buffers();
+    }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
-    bool const pgi_settings_changed = 
-        render_context->render_data.pgi_settings.probe_count.x != render_context->prev_pgi_settings.probe_count.x ||
-        render_context->render_data.pgi_settings.probe_count.y != render_context->prev_pgi_settings.probe_count.y ||
-        render_context->render_data.pgi_settings.probe_count.z != render_context->prev_pgi_settings.probe_count.z ||
-        render_context->render_data.pgi_settings.probe_radiance_resolution != render_context->prev_pgi_settings.probe_radiance_resolution ||
-        render_context->render_data.pgi_settings.probe_trace_resolution != render_context->prev_pgi_settings.probe_trace_resolution ||
-        render_context->render_data.pgi_settings.probe_visibility_resolution != render_context->prev_pgi_settings.probe_visibility_resolution ||
-        render_context->render_data.pgi_settings.enabled != render_context->prev_pgi_settings.enabled;
+    bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
     bool const vsm_settings_changed =
         render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
-    // Sky is transient of main task graph
+    if (pgi_settings_changed)
+    {
+        pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
+    }
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed)
     {
         recreate_framebuffer();
@@ -1220,8 +1182,6 @@ void Renderer::render_frame(
     if (new_swapchain_image.is_empty()) { return; }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
     meshlet_instances.swap_buffers(meshlet_instances_last_frame);
-
-    if (static_cast<daxa_u32>(gpu_context->swapchain.current_cpu_timeline_value()) == 0) { clear_select_buffers(); }
 
     render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 

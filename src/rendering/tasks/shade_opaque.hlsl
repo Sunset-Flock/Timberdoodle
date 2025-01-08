@@ -14,6 +14,7 @@
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/pgi.hlsl"
 #include "shader_lib/SH.hlsl"
+#include "shader_lib/transform.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -430,6 +431,8 @@ void entry_main_cs(
                 tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
             ).rgb;
         }
+        
+        normal = flip_normal_to_incoming(tri_point.face_normal, normal, primary_ray);
 
         if(material.normal_texture_id.value != 0)
         {
@@ -456,8 +459,6 @@ void entry_main_cs(
             normal = mul(tbn, normal_map_value);
             
         }
-        
-        normal = flip_normal_to_incoming(normal, primary_ray);
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
