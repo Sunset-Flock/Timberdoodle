@@ -539,7 +539,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
-    tg.use_persistent_tlas(scene->_scene_tlas);
+    // tg.use_persistent_tlas(scene->_scene_tlas);
 
     // TODO: Move into an if and create persistent state only if necessary.
     tg.use_persistent_image(pgi_state.probe_radiance);
@@ -689,6 +689,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.submit({});
 
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
+#if 0
     if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
     {
         auto ao_image_info = daxa::TaskTransientImageInfo{
@@ -777,6 +778,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .pgi_state = &this->pgi_state,
         });
     }
+#endif
     auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_point_page_table_view = vsm_state.point_page_tables.view().view({
@@ -810,7 +812,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
             ShadeOpaqueH::AT.debug_image | debug_image,
             ShadeOpaqueH::AT.overdraw_image | overdraw_image,
-            ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
+            ShadeOpaqueH::AT.tlas | daxa::NullTaskTlas,
             ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
             ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
             ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,

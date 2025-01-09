@@ -245,7 +245,7 @@ struct GPUContext
     daxa::Device device = {};
     daxa::Swapchain swapchain = {};
     daxa::PipelineManager pipeline_manager = {};
-    daxa::TlasId dummy_tlas_id = {};
+    // daxa::TlasId dummy_tlas_id = {};
 
     ShaderDebugDrawContext shader_debug_context = {};
 

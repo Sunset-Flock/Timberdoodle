@@ -139,7 +139,8 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
     void callback(daxa::TaskInterface ti)
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
-        if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
+        // if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
+        if (false)
         {
             RayTraceAmbientOcclusionPush push = { };
             push.attach = ti.attachment_shader_blob;

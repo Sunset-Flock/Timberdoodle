@@ -34,14 +34,14 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
     _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
     mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
-    _scene_tlas = daxa::TaskTlas{
-        {
-            .initial_tlas = {
-                .tlas = std::array{gpu_context->dummy_tlas_id},
-            },
-            .name = "scene tlas",
-        },
-    };
+    // _scene_tlas = daxa::TaskTlas{
+    //     {
+    //         .initial_tlas = {
+    //             .tlas = std::array{gpu_context->dummy_tlas_id},
+    //         },
+    //         .name = "scene tlas",
+    //     },
+    // };
     _scene_as_indirections = tido::make_task_buffer(_device, _indirections_count, "_scene_as_indirections", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
 }
 
@@ -1322,6 +1322,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instances) -> daxa::ExecutableCommandList
 {
     auto recorder = _device.create_command_recorder({});
+#if 0
 
     std::vector<daxa_BlasInstanceData> blas_instances = {};
     for (u32 mesh_inst_i = 0; mesh_inst_i < mesh_instances.mesh_instances.size(); ++mesh_inst_i)
@@ -1408,6 +1409,7 @@ auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instanc
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
 
+#endif
     return recorder.complete_current_commands();
 }
 
