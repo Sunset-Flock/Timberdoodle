@@ -250,23 +250,23 @@ void Renderer::compile_pipelines()
         {ray_trace_ao_rt_pipeline_info()},
         {pgi_trace_probe_lighting_pipeline_compile_info()},
     };
-    for (auto const & info : ray_tracing)
-    {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline(info);
-        if (compilation_result.value()->is_valid())
-        {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
-        }
-        else
-        {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                compilation_result.message()));
-        }
-        this->gpu_context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
-        auto sbt_info = gpu_context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
-        this->gpu_context->ray_tracing_pipelines[info.name].sbt = sbt_info.table;
-        this->gpu_context->ray_tracing_pipelines[info.name].sbt_buffer_id = sbt_info.buffer;
-    }
+    // for (auto const & info : ray_tracing)
+    // {
+    //     auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline(info);
+    //     if (compilation_result.value()->is_valid())
+    //     {
+    //         DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
+    //     }
+    //     else
+    //     {
+    //         DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
+    //             compilation_result.message()));
+    //     }
+    //     this->gpu_context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
+    //     auto sbt_info = gpu_context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
+    //     this->gpu_context->ray_tracing_pipelines[info.name].sbt = sbt_info.table;
+    //     this->gpu_context->ray_tracing_pipelines[info.name].sbt_buffer_id = sbt_info.buffer;
+    // }
 
     while (!gpu_context->pipeline_manager.all_pipelines_valid())
     {

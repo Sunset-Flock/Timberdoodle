@@ -1,3 +1,7 @@
 [submodule "deps/daxa"]
 	path = deps/daxa
 	url = https://github.com/Ipotrick/Daxa.git
+
+[submodule "deps/timberdoodle_assets"]
+    path = deps/timberdoodle_assets
+    url = https://github.com/Sunset-Flock/Timberdoodle-assets.git

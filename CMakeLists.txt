@@ -19,9 +19,9 @@ if(NOT EXISTS "${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets")
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
         COMMAND_ERROR_IS_FATAL ANY)
 else()
-    execute_process(COMMAND ${GIT_EXECUTABLE} pull
-        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets
-        COMMAND_ERROR_IS_FATAL ANY)
+    # execute_process(COMMAND ${GIT_EXECUTABLE} pull
+    #     WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets
+    #     COMMAND_ERROR_IS_FATAL ANY)
 endif()
 
 add_executable(${PROJECT_NAME} 
