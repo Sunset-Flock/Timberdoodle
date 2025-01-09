@@ -365,11 +365,11 @@ PointMipInfo project_into_point_light(
         const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
         const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-        const int clamped_mip_level = clamp(mip_level, 0, 5);
+        const int clamped_mip_level = clamp(mip_level, 0, 0);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
         const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
-        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << mip_level)));
+        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
         return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
     }
 }

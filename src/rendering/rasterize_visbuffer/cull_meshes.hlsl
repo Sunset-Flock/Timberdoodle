@@ -88,7 +88,8 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             push.meshes,
             AT.point_hip,
             point_page_array_index,
-            base_resolution
+            base_resolution,
+            AT.globals
             ))
         {
             return;

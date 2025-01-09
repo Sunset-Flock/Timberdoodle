@@ -155,7 +155,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
 
             float2 ndc_min = min(min(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
             float2 ndc_max = max(max(tri_vert_ndc_positions[0].xy, tri_vert_ndc_positions[1].xy), tri_vert_ndc_positions[2].xy);
-            let cull_micro_poly_invisible = is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(render_target_size));
+            let cull_micro_poly_invisible = false; //is_triangle_invisible_micro_triangle( ndc_min, ndc_max, float2(render_target_size));
             cull_primitive = cull_micro_poly_invisible;
         }
         #endif
@@ -176,7 +176,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
                 array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
                 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
             }
-            cull_primitive = is_ndc_aabb_hiz_opacity_occluded(tri_aabb, hiz, base_resolution, array_index);
+            // cull_primitive = is_ndc_aabb_hiz_opacity_occluded(tri_aabb, hiz, base_resolution, array_index);
         }
 
         primitive.set_vsm_meta_info(vsm_meta_info);

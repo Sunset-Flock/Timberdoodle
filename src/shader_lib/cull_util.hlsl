@@ -321,7 +321,9 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     NdcAABB ndc_aabb,
     daxa_ImageViewId hiz,
     daxa_f32vec2 f_hiz_resolution,
-    daxa_u32 array_layer
+    daxa_u32 array_layer,
+    daxa_BufferPtr(RenderGlobalData) globals,
+    float4x4 inv_proj_view,
 )
 {
     const daxa_i32 sample_width = 4;
@@ -353,6 +355,52 @@ bool is_ndc_aabb_hiz_opacity_occluded(
                 valid_page = valid_page || (fetch != 0);
             }
         }
+    }
+
+    if (array_layer == 16)
+    {
+        // HIZ TEXEL (WHITE):
+        {
+            ShaderDebugRectangleDraw used_hiz_tex_rect;
+            const daxa_f32vec2 min_r = quad_corner_texel << imip;
+            const daxa_f32vec2 max_r = (quad_corner_texel + sample_width) << imip;
+            const daxa_f32vec2 min_r_uv = min_r / f_hiz_resolution;
+            const daxa_f32vec2 max_r_uv = max_r / f_hiz_resolution;
+            const daxa_f32vec2 min_r_ndc = min_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec2 max_r_ndc = max_r_uv * 2.0f - 1.0f;
+            const daxa_f32vec2 rec_size = max_r_ndc.xy - min_r_ndc;
+            float4 positions[4] = float4[4](
+                float4(max_r_ndc.xy, ndc_aabb.ndc_max.z, 1.0f),
+                float4(max_r_ndc.x, min_r_ndc.y, ndc_aabb.ndc_max.z, 1.0f),
+                float4(min_r_ndc.xy, ndc_aabb.ndc_max.z, 1.0f),
+                float4(min_r_ndc.x, max_r_ndc.y, ndc_aabb.ndc_max.z, 1.0f),
+            );
+
+            for(int i = 0; i < 4; ++i)
+            {
+                let unproj_position = mul(inv_proj_view, positions[i]);
+                positions[i] = float4(unproj_position.xyz / unproj_position.w, 1.0f);
+            }
+
+            ShaderDebugLineDraw draw_line;
+            draw_line.color = float3(1.0f, 0.0f, 0.0f);
+            draw_line.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            draw_line.start = positions[0].xyz;
+            draw_line.end = positions[1].xyz;
+            debug_draw_line(globals->debug, draw_line);
+
+            draw_line.start = positions[1].xyz;
+            draw_line.end = positions[2].xyz;
+            debug_draw_line(globals->debug, draw_line);
+
+            draw_line.start = positions[2].xyz;
+            draw_line.end = positions[3].xyz;
+            debug_draw_line(globals->debug, draw_line);
+            
+            draw_line.start = positions[3].xyz;
+            draw_line.end = positions[0].xyz;
+            debug_draw_line(globals->debug, draw_line);
+        } 
     }
     return !valid_page;
 }
@@ -482,7 +530,7 @@ bool is_mesh_occluded_vsm(
     AABB mesh_aabb = mesh.aabb;
     NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
     const float2 resolution = camera.screen_size >> 1;
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, resolution, cascade);
+    const bool page_opacity_cull = false; //is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, resolution, cascade);
 
     return page_opacity_cull;
 }
@@ -497,6 +545,7 @@ bool is_mesh_occluded_point_vsm(
     daxa_ImageViewId hiz,
     daxa_u32 point_array_index,
     daxa_f32vec2 hiz_base_resolution,
+    daxa_BufferPtr(RenderGlobalData) globals,
 )
 {
     if (mesh.mesh_buffer.value == 0)
@@ -520,7 +569,18 @@ bool is_mesh_occluded_point_vsm(
 
     AABB mesh_aabb = mesh.aabb;
     NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, hiz_base_resolution, point_array_index);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, hiz_base_resolution, point_array_index, globals, camera.inv_view_proj);
+
+    if(page_opacity_cull && point_array_index == 16)
+    {
+        ShaderDebugAABBDraw draw = ShaderDebugAABBDraw(
+            mul(model_matrix, float4(mesh_aabb.center, 1.0f)).xyz,
+            mul(model_matrix, float4(mesh_aabb.size, 0.0f)).xyz,
+            float3(1.0f, 1.0f, 1.0f),
+            DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+        );
+        debug_draw_aabb(globals->debug, draw);
+    }
 
     return page_opacity_cull;
 }
@@ -594,7 +654,7 @@ bool is_meshlet_occluded_vsm(
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_inst.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
     const float2 resolution = camera.screen_size >> 1;
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, resolution, cascade);
+    const bool page_opacity_cull = false;//is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, resolution, cascade);
 
     return page_opacity_cull;
 }
@@ -632,10 +692,11 @@ bool is_meshlet_occluded_point_vsm(
     {
         return true;
     }
+    return false;
 
     AABB meshlet_aabb = deref_i(mesh_data.meshlet_aabbs, meshlet_instance.meshlet_index);
     NdcAABB meshlet_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, meshlet_aabb);
-    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, hiz_base_resolution, point_array_index);
+    const bool page_opacity_cull = false; //is_ndc_aabb_hiz_opacity_occluded(meshlet_ndc_aabb, hiz, hiz_base_resolution, point_array_index);
 
     return page_opacity_cull;
 }

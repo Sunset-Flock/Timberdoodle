@@ -415,7 +415,7 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_base_pipeli
             .compile_options = {.language = daxa::ShaderLanguage::SLANG},
         },
         .raster = {
-            .depth_clamp_enable = true,
+            // .depth_clamp_enable = true,
             // .depth_bias_enable = true,
             // .depth_bias_constant_factor = 10.0f,
             // .depth_bias_slope_factor = 2.0f,
@@ -1138,29 +1138,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip3, hpb_mip_views.at(3)),
             daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip4, hpb_mip_views.at(4)),
             daxa::attachment_view(CullAndDrawPointPagesH::AT.vsm_dirty_bit_hiz_mip5, hpb_mip_views.at(5)),
-        },
-        .render_context = info.render_context,
-    });
-
-    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-    info.tg->add_task(DebugVirtualPageTableTask{
-        .views = std::array{
-            daxa::attachment_view(DebugVirtualPageTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
-        },
-        .render_context = info.render_context,
-    });
-
-    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-    info.tg->add_task(DebugMetaMemoryTableTask{
-        .views = std::array{
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
         },
         .render_context = info.render_context,
     });

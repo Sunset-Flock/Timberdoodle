@@ -856,7 +856,31 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .render_context = render_context.get(),
         });
+
+        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.add_task(DebugVirtualPageTableTask{
+            .views = std::array{
+                daxa::attachment_view(DebugVirtualPageTableH::AT.globals, render_context->tgpu_render_data),
+                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, vsm_state.globals),
+                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
+                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
+            },
+            .render_context = render_context.get(),
+        });
+
+        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.add_task(DebugMetaMemoryTableTask{
+            .views = std::array{
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, render_context->tgpu_render_data),
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, vsm_state.meta_memory_table),
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
+            },
+            .render_context = render_context.get(),
+        });
     }
+
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
     tg.add_task(GenLuminanceHistogramTask{
         .views = std::array{
@@ -1014,7 +1038,7 @@ void Renderer::render_frame(
         vsm_state.update_vsm_lights(scene->_active_point_lights);
         CameraInfo real_camera_info = camera_info;
         if(render_context->debug_frustum >= 0) {
-            real_camera_info = vsm_state.point_lights_cpu.at(0).face_cameras[render_context->debug_frustum];
+            real_camera_info = vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)).face_cameras[render_context->debug_frustum];
             real_camera_info.screen_size = camera_info.screen_size;
             real_camera_info.inv_screen_size = camera_info.inv_screen_size;
         }
