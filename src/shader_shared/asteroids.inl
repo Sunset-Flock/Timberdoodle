@@ -2,8 +2,8 @@
 
 #include <daxa/daxa.inl>
 
-#define MAX_ASTEROID_COUNT 10000
-#define DOMAIN_BOUNDS 100
+#define MAX_ASTEROID_COUNT 1000
+#define DOMAIN_BOUNDS 20
 
 struct GPUAsteroid
 {
