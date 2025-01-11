@@ -31,6 +31,7 @@ add_executable(${PROJECT_NAME}
     "src/application.cpp"
     "src/gpu_context.cpp"
     "src/asteroids/asteroids.cpp"
+    "src/asteroids/solver.cpp"
     "src/ui/ui.cpp"
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"

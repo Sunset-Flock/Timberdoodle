@@ -15,7 +15,7 @@ struct DrawDebugAsteroidVertexToPixel
 
 [[vk::push_constant]] DebugDrawAsteroidsPush debug_draw_asteroids_push;
 
-#define DEBUG_ASTEROID_SCALE 0.1
+#define DEBUG_ASTEROID_SCALE 3.0f
 
 [shader("vertex")]
 func entry_vertex_debug_draw_asteroids(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> DrawDebugAsteroidVertexToPixel
@@ -24,7 +24,7 @@ func entry_vertex_debug_draw_asteroids(uint vertex_index : SV_VertexID, uint ins
     var position = push.asteroid_mesh_positions[vertex_index] * DEBUG_ASTEROID_SCALE;
     var normal = normalize(position);
 
-    float3 asteroid_position = push.attach.asteroids[instance_index].position;
+    float3 asteroid_position = push.attach.asteroids[instance_index].position * 0.001;
     position += asteroid_position;
 
     float4x4* viewproj = {};

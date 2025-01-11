@@ -1105,7 +1105,7 @@ void Renderer::render_frame(
     asteroid_state.update_cpu_data(asteroids);
     ShaderDebugAABBDraw aabb_draw;
     aabb_draw.position = daxa_f32vec3{0.0f, 0.0f, 0.0f};
-    aabb_draw.size = daxa_f32vec3{2.0f * DOMAIN_BOUNDS, 2.0f * DOMAIN_BOUNDS, 2.0f * DOMAIN_BOUNDS};
+    aabb_draw.size = daxa_f32vec3{2.0f * DOMAIN_BOUNDS * 0.001, 2.0f * DOMAIN_BOUNDS * 0.001, 2.0f * DOMAIN_BOUNDS * 0.001};
     aabb_draw.color = daxa_f32vec3{1.0f, 1.0f, 1.0f};
     aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
     render_context->gpu_context->shader_debug_context.aabb_draws.cpu_draws.push_back(aabb_draw);

@@ -2,14 +2,10 @@
 
 #include "../timberdoodle.hpp"
 #include "../shader_shared/asteroids.inl"
+#include "asteroids_shared.hpp"
+#include "solver.hpp"
 
 using namespace tido::types;
-
-struct Asteroid
-{
-    f32vec3 position;
-    f32vec3 velocity;
-};
 
 struct AsteroidSimulation
 {
@@ -21,4 +17,8 @@ struct AsteroidSimulation
     private:
         f32 speed_multiplier = 1.0f;
         std::array<Asteroid, MAX_ASTEROID_COUNT> asteroids = {};
+        Solver solver = {};
+
+        void explicit_euler_step();
+        void integrate_derivatives();
 };
