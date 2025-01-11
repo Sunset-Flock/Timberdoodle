@@ -37,7 +37,7 @@ static const bool SHOW_ALBEDO = !true;
 static const bool USE_LIGHTS = true;
 static const bool USE_EMISSIVE = true;
 static const bool RESET_ACCUMULATION = !true;
-static const bool ROLLING_ACCUMULATION = true;
+static const bool ROLLING_ACCUMULATION = false;
 
 static const float DEFAULT_ROUGHNESS = 0.99;
 static const float DEFAULT_METALNESS = 0.0;
@@ -525,45 +525,14 @@ void ray_gen()
 [shader("anyhit")]
 void any_hit(inout GbufferRayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const uint primitive_index = PrimitiveIndex() * 3;
-    GPUMesh *mesh = {};
-    const uint mesh_instance_index = InstanceID();
-    MeshInstance* mesh_instance = AT.mesh_instances.instances + mesh_instance_index;
-    mesh = AT.globals.scene.meshes + mesh_instance->mesh_index;
-
-    const int primitive_indices[3] = {
-        mesh.primitive_indices[primitive_index],
-        mesh.primitive_indices[primitive_index + 1],
-        mesh.primitive_indices[primitive_index + 2],
-    };
-
-    const float2 uvs[3] = {
-        mesh.vertex_uvs[primitive_indices[0]],
-        mesh.vertex_uvs[primitive_indices[1]],
-        mesh.vertex_uvs[primitive_indices[2]],
-    };
-    const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y * (uvs[2] - uvs[0]);
-    const GPUMaterial *material = &AT.globals.scene.materials[mesh.material_index];
-    
-    if (mesh.material_index == INVALID_MANIFEST_INDEX)
+    let push = ref_pt_push;
+    if (!rt_is_alpha_hit(
+        push.attachments.attachments.globals,
+        push.attachments.attachments.mesh_instances,
+        push.attachments.attachments.meshes,
+        push.attachments.attachments.material_manifest,
+        attr.barycentrics))
     {
-        return;
-    }
-
-    float alpha = 1.0;
-    if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
-    {
-        // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
-        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .Sample( SamplerState::get(AT.globals->samplers.linear_repeat), interp_uv).a; 
-    }
-    else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
-    {
-        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .Sample( SamplerState::get(AT.globals->samplers.linear_repeat), interp_uv).a; 
-    }
-    if(alpha < 0.5) {
         IgnoreHit();
     }
 }

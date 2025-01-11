@@ -170,11 +170,13 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_VSM_POINT_LEVEL 10
 #define DEBUG_DRAW_MODE_DEPTH 11
 #define DEBUG_DRAW_MODE_ALBEDO 12
-#define DEBUG_DRAW_MODE_NORMAL 13
-#define DEBUG_DRAW_MODE_LIGHT 14
-#define DEBUG_DRAW_MODE_AO 15
-#define DEBUG_DRAW_MODE_GI 16
-#define DEBUG_DRAW_MODE_LOD 17
+#define DEBUG_DRAW_MODE_FACE_NORMAL 13
+#define DEBUG_DRAW_MODE_SMOOTH_NORMAL 14
+#define DEBUG_DRAW_MODE_MAPPED_NORMAL 15
+#define DEBUG_DRAW_MODE_LIGHT 16
+#define DEBUG_DRAW_MODE_AO 17
+#define DEBUG_DRAW_MODE_GI 18
+#define DEBUG_DRAW_MODE_LOD 19
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -200,7 +202,6 @@ struct Settings
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
     daxa_b32 enable_atomic_visbuffer;
-    daxa_b32 enable_rt_pipeline_for_ao;
     daxa_b32 enable_visbuffer_two_pass_culling;
     daxa_b32 enable_separate_compute_meshlet_culling;
     daxa_b32 enable_prefix_sum_work_expansion;
@@ -234,7 +235,6 @@ struct Settings
           enable_meshlet_cull{1},
           enable_triangle_cull{1},
           enable_atomic_visbuffer{0},
-          enable_rt_pipeline_for_ao{1},
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},

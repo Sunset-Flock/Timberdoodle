@@ -11,7 +11,7 @@
 #include "shader_shared/geometry.inl"
 #include "shader_shared/globals.inl"
 
-static const float RAY_MIN_POSITION_OFFSET = 0.001f;
+static const float RAY_MIN_POSITION_OFFSET = 0.01f;
 
 float3 rt_calc_ray_start(float3 position, float3 geo_normal, float3 view_ray)
 {
@@ -147,18 +147,22 @@ func rt_get_triangle_geo_point(
         worldspace_vertex_normals[2].xyz
     ));    
     
-    const daxa_f32vec2[3] vertex_uvs = daxa_f32vec2[3](
-        deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.x),
-        deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.y),
-        deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.z)
-    );
+    daxa_f32vec2[3] vertex_uvs = {};
+    if (mesh.vertex_uvs != {})
+    {
+        vertex_uvs = daxa_f32vec2[3](
+            deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.x),
+            deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.y),
+            deref_i(mesh.vertex_uvs, surf_geo.vertex_indices.z)
+        );
 
-    ret.uv = interpolate_vec2(
-        surf_geo.barycentrics, 
-        vertex_uvs[0],
-        vertex_uvs[1],
-        vertex_uvs[2]
-    );
+        ret.uv = interpolate_vec2(
+            surf_geo.barycentrics, 
+            vertex_uvs[0],
+            vertex_uvs[1],
+            vertex_uvs[2]
+        );
+    }
     ret.uv_ddx = float2(0.1, 0.0);
     ret.uv_ddy = float2(0.0, 0.1);
 
@@ -166,6 +170,7 @@ func rt_get_triangle_geo_point(
     ret.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));
 
     // Calculate Tangent.
+    if (mesh.vertex_uvs != {})
     {
         float3 d_p1 = world_vertex_positions[1].xyz - world_vertex_positions[1].xyz;
         float3 d_p2 = world_vertex_positions[2].xyz - world_vertex_positions[1].xyz;
@@ -174,6 +179,10 @@ func rt_get_triangle_geo_point(
         float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y);
 
         ret.world_tangent = normalize(r * ( d_uv2.y * d_p1 - d_uv1.y * d_p2 ));
+    }
+    else // When no uvs are available we still want a tangent to construct a tbn even if its not aligned to anything
+    {
+        ret.world_tangent = normalize(cross(ret.world_normal, float3(0,0,1) + 0.0001 * (world_vertex_positions[2].xyz - world_vertex_positions[0].xyz)));
     }
 
     return ret;
@@ -201,4 +210,48 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
     {
         return 0.0f;
     }
+}
+
+func rt_is_alpha_hit(
+    RenderGlobalData* globals,
+    MeshInstancesBufferHead* mesh_instances,
+    GPUMesh* meshes,
+    GPUMaterial* materials,
+    float2 barycentrics
+    ) -> bool
+{
+    const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+    const uint primitive_index = PrimitiveIndex();
+    GPUMesh *mesh = {};
+    
+    const uint mesh_instance_index = InstanceID();
+    MeshInstance* mesh_instance = mesh_instances.instances + mesh_instance_index;
+    mesh = meshes + mesh_instance->mesh_index;
+    if ((mesh.vertex_uvs == {}) || mesh.material_index == INVALID_MANIFEST_INDEX)
+    {
+        return true;
+    }
+
+    const GPUMaterial *material = materials + mesh.material_index;
+    if (!material.alpha_discard_enabled || material.opacity_texture_id.is_empty())
+    {
+        return true;
+    }
+
+    const int primitive_indices[3] = {
+        mesh.primitive_indices[3 * primitive_index],
+        mesh.primitive_indices[3 * primitive_index + 1],
+        mesh.primitive_indices[3 * primitive_index + 2],
+    };
+
+    const float2 uvs[3] = {
+        mesh.vertex_uvs[primitive_indices[0]],
+        mesh.vertex_uvs[primitive_indices[1]],
+        mesh.vertex_uvs[primitive_indices[2]],
+    };
+    const float2 interp_uv = uvs[0] + barycentrics.x * (uvs[1] - uvs[0]) + barycentrics.y* (uvs[2] - uvs[0]);
+
+    let oppacity_tex = Texture2D<float>::get(material.opacity_texture_id);
+    let oppacity = oppacity_tex.SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).r;
+    return oppacity > 0.5;
 }

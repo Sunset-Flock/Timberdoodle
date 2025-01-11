@@ -30,7 +30,7 @@ struct PGISettings
     daxa_b32 debug_draw_grid TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning_forces TIDO_DEFAULT_VALUE(false);
     daxa_i32 probe_radiance_resolution TIDO_DEFAULT_VALUE(6);
-    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(8);
+    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(16);
     daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(16);
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
     daxa_b32 probe_repositioning_spring_force TIDO_DEFAULT_VALUE(true);

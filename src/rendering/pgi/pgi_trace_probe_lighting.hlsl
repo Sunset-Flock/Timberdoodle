@@ -175,46 +175,13 @@ void entry_ray_gen()
 void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     let push = pgi_trace_probe_lighting_push;
-    const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const uint primitive_index = PrimitiveIndex() * 3;
-    GPUMesh *mesh = {};
-    const uint mesh_instance_index = InstanceID();
-    MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
-    mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
-
-    const int primitive_indices[3] = {
-        mesh.primitive_indices[primitive_index],
-        mesh.primitive_indices[primitive_index + 1],
-        mesh.primitive_indices[primitive_index + 2],
-    };
-
-    const float2 uvs[3] = {
-        mesh.vertex_uvs[primitive_indices[0]],
-        mesh.vertex_uvs[primitive_indices[1]],
-        mesh.vertex_uvs[primitive_indices[2]],
-    };
-    const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y * (uvs[2] - uvs[0]);
-    const GPUMaterial *material = &push.attach.globals.scene.materials[mesh.material_index];
-    
-    if (mesh.material_index == INVALID_MANIFEST_INDEX)
+    if (!rt_is_alpha_hit(
+        push.attach.globals,
+        push.attach.mesh_instances,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.materials,
+        attr.barycentrics))
     {
-        return;
-    }
-
-    float alpha = 1.0;
-    static const float HARDCODED_MIP = 4.0f;
-    if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
-    {
-        // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
-        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .SampleLevel( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, HARDCODED_MIP).a; 
-    }
-    else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
-    {
-        alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-            .SampleLevel( SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, HARDCODED_MIP).a; 
-    }
-    if(alpha < 0.5) {
         IgnoreHit();
     }
 }

@@ -50,7 +50,7 @@ struct CinematicCamera
     glm::fquat forward = {};
     f32vec3 position = {};
     f32 fov = 70.0f;
-    f32 near = 0.1f;
+    f32 near = 0.01f;
     bool override_keyframe = {};
 
     f32 current_keyframe_time = 0.0f;

@@ -603,6 +603,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
 
     // The last probe in each dimension is never a base probe.
     // We clear these probes request counter to 0.
+    uint probe_base_request = 0;
     let is_base_probe = pgi_is_cell_base_probe(settings, probe_index);
     if (is_base_probe)
     {
@@ -611,34 +612,13 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         let is_prev_base_probe = pgi_is_cell_base_probe(settings, prev_frame_probe_index);
 
         // Each base probe is responsible for maintaining the cells request counter.
-        uint probe_base_request = 0;
         if (is_prev_base_probe)
         {
             probe_base_request = push.attach.requests.get()[stable_index];
             probe_base_request = max(1,probe_base_request) - 1;
         }
-        #if 0
-        else
-        {
-            ShaderDebugAABBDraw aabb = {};
-            aabb.position = pgi_probe_index_to_worldspace(settings, PGIProbeInfo(), probe_index) + settings.probe_spacing * 0.5f;
-            aabb.size = settings.probe_spacing;
-            aabb.color = float3(0,1,0);
-            debug_draw_aabb(push.attach.globals.debug, aabb);
-
-            ShaderDebugAABBDraw aabb_prev = {};
-            aabb_prev.position = pgi_probe_index_to_worldspace(settings, PGIProbeInfo(), prev_frame_probe_index) + settings.probe_spacing * 0.5f;
-            aabb_prev.size = settings.probe_spacing;
-            aabb_prev.color = float3(1,0,0);
-            debug_draw_aabb(push.attach.globals.debug, aabb_prev);
-        }
-        #endif
-        push.attach.requests.get()[stable_index] = probe_base_request;
     }
-    else
-    {
-        push.attach.requests.get()[stable_index] = 0;
-    }
+    push.attach.requests.get()[stable_index] = probe_base_request;
 
     // New probes are those that came into existence due to the window moving to a new location.
     // Any probes that occupy space that was not taken in the prior frame are new.

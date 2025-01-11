@@ -873,12 +873,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 /// NOTE: Load vertex UVs
 #pragma region UVS
     auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
-    bool has_uv = true;
-    if (texcoord0_attrib_iter == gltf_prim.attributes.end())
-    {
-        has_uv = false;
-        // return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_TEXCOORD_0;
-    }
+    bool has_uv = texcoord0_attrib_iter != gltf_prim.attributes.end();
     fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
     
     bool const gltf_vertex_texcoord0_accessor_valid =
@@ -888,7 +883,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_GLTF_VERTEX_TEXCOORD_0;
     }
-    std::vector<glm::vec2> vert_texcoord0;
+    std::vector<glm::vec2> vert_texcoord0 = {};
     if (has_uv)
     {
         auto vertex_texcoord0_pos_result = load_accessor_data_from_file<glm::vec2, false>(std::filesystem::path{info.asset_path}.remove_filename(), gltf_asset, gltf_vertex_texcoord0_accessor);
@@ -898,11 +893,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         vert_texcoord0 = std::get<std::vector<glm::vec2>>(std::move(vertex_texcoord0_pos_result));
     }
-    else
-    {
-        vert_texcoord0 = std::vector<glm::vec2>(vert_positions.size());
-    }
-    DBG_ASSERT_TRUE_M(vert_texcoord0.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
 /// NOTE: Load vertex normals
@@ -1046,13 +1036,13 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         std::vector<glm::vec2> remapped_vert_texcoord0 = {};
         remapped_vert_positions.resize(unique_vertices);
         remapped_vert_normals.resize(unique_vertices);
-        remapped_vert_texcoord0.resize(unique_vertices);
+        if (has_uv) { remapped_vert_texcoord0.resize(unique_vertices); }
 
         meshopt_remapIndexBuffer(remapped_index_buffer.data(), index_buffer->data(), index_buffer->size(), vertex_remap.data());
         index_buffer = &remapped_index_buffer;
         meshopt_remapVertexBuffer(remapped_vert_positions.data(), &vert_positions[0].x, vert_positions.size(), sizeof(glm::vec3), vertex_remap.data());
         meshopt_remapVertexBuffer(remapped_vert_normals.data(), &vert_normals[0].x, vert_normals.size(), sizeof(glm::vec3), vertex_remap.data());
-        meshopt_remapVertexBuffer(remapped_vert_texcoord0.data(), &vert_texcoord0[0].x, vert_texcoord0.size(), sizeof(glm::vec2), vertex_remap.data());
+        if (has_uv) { meshopt_remapVertexBuffer(remapped_vert_texcoord0.data(), &vert_texcoord0[0].x, vert_texcoord0.size(), sizeof(glm::vec2), vertex_remap.data()); }
 
         std::vector<u32> optimized_indices = {};
         optimized_indices.resize(index_buffer->size());
@@ -1215,12 +1205,15 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             optimized_vert_positions.size() * sizeof(daxa_f32vec3));
         accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_positions.size();
         // ---
-        mesh.vertex_uvs = mesh_bda + accumulated_offset;
-        std::memcpy(
-            staging_ptr + accumulated_offset,
-            optimized_vert_texcoord0.data(),
-            optimized_vert_texcoord0.size() * sizeof(daxa_f32vec2));
-        accumulated_offset += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
+        if (has_uv)
+        {
+            mesh.vertex_uvs = mesh_bda + accumulated_offset;
+            std::memcpy(
+                staging_ptr + accumulated_offset,
+                optimized_vert_texcoord0.data(),
+                optimized_vert_texcoord0.size() * sizeof(daxa_f32vec2));
+            accumulated_offset += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
+        }
         // ---
         mesh.vertex_normals = mesh_bda + accumulated_offset;
         std::memcpy(

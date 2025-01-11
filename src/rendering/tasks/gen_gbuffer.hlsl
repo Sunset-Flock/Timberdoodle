@@ -50,15 +50,18 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
         float4x4 view_proj;
+        float4x4 view_proj_prev;
         float3 camera_position;
         if(push.attachments.globals->settings.draw_from_observer == 1)
         {
             view_proj = push.attachments.globals->observer_camera.view_proj;
+            view_proj_prev = push.attachments.globals->observer_camera_prev_frame.view_proj;
             camera_position = push.attachments.globals->observer_camera.position;
         }
         else 
         {
             view_proj = push.attachments.globals->camera.view_proj;
+            view_proj_prev = push.attachments.globals->camera_prev_frame.view_proj;
             camera_position = push.attachments.globals->camera.position;
         }
 
@@ -74,7 +77,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
             instantiated_meshlets,
             meshes,
             combined_transforms
-        );   
+        );     
         TriangleGeometry tri_geo = visbuf_tri.tri_geo;
         TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
         float depth = visbuf_tri.depth;
@@ -84,7 +87,10 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
 
         packed_geometric_normal = compress_normal_octahedral_32(tri_point.world_normal);
 
-        //push.attachments.debug_image.get()[dtid].xyz = tri_data.world_normal * 0.5f + 0.5f;
+        float4 ndc_prev = mul(view_proj_prev, float4(visbuf_tri.tri_geo_point.world_position, 1.0f));
+        ndc_prev.xyz /= ndc_prev.w;
+        float2 pixel_prev = (ndc_prev.xy * 0.5f + 0.5f) * float2(push.attachments.globals.camera.screen_size);
+        //push.attachments.debug_image.get()[dtid].xy = float2(dtid.xy) - pixel_prev;
 
         push.attachments.geo_normal_image.get()[dtid] = packed_geometric_normal;
     }

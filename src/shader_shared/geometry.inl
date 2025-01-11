@@ -79,7 +79,7 @@ struct GPUMesh
     daxa_BufferPtr(daxa_u32) indirect_vertices;     // Lists of unique vertices per meshlet, indexes vertex arrays. 
     daxa_BufferPtr(daxa_u32) primitive_indices;     // List of triangles, every three uints form a triangle, each value is a vertex index.
     daxa_BufferPtr(daxa_f32vec3) vertex_positions;
-    daxa_BufferPtr(daxa_f32vec2) vertex_uvs;
+    daxa_BufferPtr(daxa_f32vec2) vertex_uvs;        // NOTE: Possibly nullptr
     daxa_BufferPtr(daxa_f32vec3) vertex_normals;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(GPUMesh, 8)

@@ -169,9 +169,9 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             var mvertex = reinterpret<VSMMeshShaderMaskVertex>(vertex);
             mvertex.uv = float2(0,0);
             mvertex.object_space_position = vertex_position.xyz;
-            if (as_address(mesh.vertex_uvs) != 0)
+            if (mesh.vertex_uvs != {})
             {
-                mvertex.uv = deref_i(mesh.vertex_uvs, in_mesh_vertex_index);
+                mvertex.uv = mesh.vertex_uvs[in_mesh_vertex_index];
             }
             vertex = reinterpret<V>(mvertex);
         }

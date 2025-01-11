@@ -82,7 +82,7 @@ struct PGIProbeInfo
 // The base probe of a cell is the probe with the smallest probe index.
 // There are probe-count-1 cells, so any probe except for the last probe in each dimension is a base probe.
 bool pgi_is_cell_base_probe(PGISettings settings, int3 probe_index)
-{
+{ 
     return all(probe_index >= 0) && all(probe_index < (settings.probe_count-1));
 }
 
@@ -99,6 +99,7 @@ float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_in
 
 int3 pgi_probe_to_stable_index(PGISettings settings, int3 probe_index)
 {
+    // This bitmasking for modulo works only due to the probe count always beeing a power of two.
     return (probe_index + settings.window_to_stable_index_offset) & (settings.probe_count-1);
 }
 
@@ -204,8 +205,6 @@ func pgi_calc_biased_sample_position(PGISettings settings, float3 position, floa
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
-static float PGI_PROBES_VISIBLE;
-
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
@@ -218,7 +217,7 @@ func pgi_sample_irradiance(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    bool request_probes
+    int probe_request_mode
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
@@ -226,18 +225,25 @@ func pgi_sample_irradiance(
     int3 base_probe = int3(floor(grid_coord));
 
     // Request Probe Cell (Base Probe responsible for cell)
-    if (request_probes && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
+    if ((probe_request_mode != 0) && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
     {
         int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, base_probe);
         uint request_timer = probe_requests[base_probe_stable_index];
-        if (request_timer < 64) // As a wise man once said: "Rca econdition. Dont care"
+
+        uint main_view_request_timer = request_timer & 0xFF;
+        uint indirect_request_timer = (request_timer >> 16) & 0xFF;
+
+        if ((probe_request_mode == 1) && (main_view_request_timer < 64))
         {
             InterlockedOr(probe_requests[base_probe_stable_index], 0xFF);
+        }
+        if ((probe_request_mode == 2) && (indirect_request_timer < 64))
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 16);
         }
     }
 
     float3 grid_interpolants = frac(grid_coord);
-    float3 probe_normal = geo_normal;
     
     float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
 
@@ -313,7 +319,7 @@ func pgi_sample_irradiance(
                     visibility_weight = max(min_visibility, visibility_weight * visibility_weight * visibility_weight);
 
                     // Crushing tiny weights reduces leaking BUT does not reduce image blending smoothness.
-                    const float crushThreshold = 0.2f;
+                    const float crushThreshold = 0.05f;
                     if (visibility_weight < crushThreshold)
                     {
                         visibility_weight *= (visibility_weight * visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold * crushThreshold));
@@ -388,12 +394,10 @@ func pgi_sample_irradiance(
                 stable_index
             ).rgb;
 
-            accum += (probe_weight) * linearly_filtered_samples.rgb;
+            accum += probe_weight * sqrt(sqrt(linearly_filtered_samples.rgb));
             weight_accum += probe_weight;
         }
     }
-
-    PGI_PROBES_VISIBLE = weight_accum * 8.0f;
 
     if (weight_accum == 0)
     {
@@ -401,6 +405,6 @@ func pgi_sample_irradiance(
     }
     else
     {
-        return clamp(accum * rcp(weight_accum), float3(0,0,0), float3(1,1,1) * 100000.0f);
+        return clamp(square(square(accum * rcp(weight_accum))), float3(0,0,0), float3(1,1,1) * 100000.0f);
     }
 }

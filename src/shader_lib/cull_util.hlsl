@@ -324,7 +324,7 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     daxa_u32 array_layer
 )
 {
-    const daxa_i32 sample_width = 2;
+    const daxa_i32 sample_width = 4;
     const daxa_f32vec2 f_hiz_resolution = daxa_f32vec2(camera.screen_size >> 1 /*hiz is half res*/);
     const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
     const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;

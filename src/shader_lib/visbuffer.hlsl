@@ -210,50 +210,62 @@ VisbufferTriangleGeometry visgeo_triangle_data(
         worldspace_vertex_normals[2].xyz
     ));
 
-    const daxa_f32vec2[3] vertex_uvs = daxa_f32vec2[3](
-        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.x),
-        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.y),
-        deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.z)
-    );
 
-    ret.tri_geo_point.uv = interpolate_vec2(
-        bari_deriv.m_lambda, 
-        vertex_uvs[0],
-        vertex_uvs[1],
-        vertex_uvs[2]
-    );
+    ret.tri_geo_point.uv = {};
+    ret.tri_geo_point.uv_ddx = {};
+    ret.tri_geo_point.uv_ddy = {};
+    daxa_f32vec2[3] vertex_uvs = {};
+    if (mesh.vertex_uvs != {})
+    {
+        vertex_uvs = daxa_f32vec2[3](
+            deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.x),
+            deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.y),
+            deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.z)
+        );
 
-    ret.tri_geo_point.uv_ddx = interpolate_vec2(
-        bari_deriv.m_ddx, 
-        vertex_uvs[0],
-        vertex_uvs[1],
-        vertex_uvs[2]
-    );
+        ret.tri_geo_point.uv = interpolate_vec2(
+            bari_deriv.m_lambda, 
+            vertex_uvs[0],
+            vertex_uvs[1],
+            vertex_uvs[2]
+        );
 
-    ret.tri_geo_point.uv_ddy = interpolate_vec2(
-        bari_deriv.m_ddy, 
-        vertex_uvs[0],
-        vertex_uvs[1],
-        vertex_uvs[2]
-    );
+        ret.tri_geo_point.uv_ddx = interpolate_vec2(
+            bari_deriv.m_ddx, 
+            vertex_uvs[0],
+            vertex_uvs[1],
+            vertex_uvs[2]
+        );
+
+        ret.tri_geo_point.uv_ddy = interpolate_vec2(
+            bari_deriv.m_ddy, 
+            vertex_uvs[0],
+            vertex_uvs[1],
+            vertex_uvs[2]
+        );
+    }
 
     // Calculate Face Normal
     ret.tri_geo_point.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));
 
     // Calculae Tangent.
+    if (mesh.vertex_uvs != {} && all(ret.tri_geo_point.world_normal != float3(0,0,0)))
     {
         float3 d_p1 = world_vertex_positions[1].xyz - world_vertex_positions[0].xyz;
         float3 d_p2 = world_vertex_positions[2].xyz - world_vertex_positions[0].xyz;
         float2 d_uv1 = vertex_uvs[1] - vertex_uvs[0];
         float2 d_uv2 = vertex_uvs[2] - vertex_uvs[0];
-        float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y);
-        float3 t = normalize(r * ( d_uv2.y * d_p1 - d_uv1.y * d_p2 ));
+        float3 t = normalize( d_uv1.y * d_p1 - d_uv2.y * d_p2 );
 
         float3 x = cross(ret.tri_geo_point.world_normal, t);
         t = cross(x, ret.tri_geo_point.world_normal);
         t = normalize(t);
 
         ret.tri_geo_point.world_tangent = t;
+    }
+    else // When no uvs are available we still want a tangent to construct a tbn even if its not aligned to anything
+    {
+        ret.tri_geo_point.world_tangent = normalize(cross(ret.tri_geo_point.world_normal, float3(0,0,1) + 0.0001 * (world_vertex_positions[2].xyz - world_vertex_positions[0].xyz + world_vertex_positions[1].xyz - world_vertex_positions[0].xyz)));
     }
 
     return ret;

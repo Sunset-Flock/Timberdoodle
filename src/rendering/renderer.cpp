@@ -10,7 +10,7 @@
 #include "virtual_shadow_maps/vsm.inl"
 #include "pgi/pgi_update.inl"
 
-#include "ray_tracing/ray_tracing.inl"
+#include "rtao/rtao.inl"
 #include "path_trace/path_trace.inl"
 #include "path_trace/kajiya/brdf_fg.inl"
 
@@ -76,6 +76,7 @@ Renderer::Renderer(
     depth_vistory = daxa::TaskImage{{.name = "depth_history"}};
     f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
     path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
+    rtao_history = daxa::TaskImage{{.name = "rtao_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -113,6 +114,14 @@ Renderer::Renderer(
                 .name = "path_trace_history",
             },
             path_trace_history,
+        },
+        {
+            daxa::ImageInfo{
+                .format = daxa::Format::R16G16_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "rtao_history",
+            },
+            rtao_history,
         },
     };
 
@@ -231,7 +240,6 @@ void Renderer::compile_pipelines()
         {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
-        {tido::upgrade_compute_pipeline_compile_info(ray_trace_ao_compute_pipeline_info())},
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
@@ -542,6 +550,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
     tg.use_persistent_tlas(scene->_scene_tlas);
+    tg.use_persistent_image(rtao_history);
 
     // TODO: Move into an if and create persistent state only if necessary.
     tg.use_persistent_image(pgi_state.probe_radiance);
@@ -740,7 +749,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
         {
             auto ao_image_info = daxa::TaskTransientImageInfo{
-                .format = daxa::Format::R16_SFLOAT,
+                .format = daxa::Format::R16G16_SFLOAT,
                 .size = {
                     render_context->render_data.settings.render_target_size.x,
                     render_context->render_data.settings.render_target_size.y,
@@ -776,6 +785,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             tg.add_task(RTAODeoinserTask{
                 .views = std::array{
                     RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
+                    RTAODeoinserTask::AT.debug_image | debug_image,
+                    RTAODeoinserTask::AT.history | rtao_history,
                     RTAODeoinserTask::AT.depth | view_camera_depth,
                     RTAODeoinserTask::AT.src | ao_image_raw,
                     RTAODeoinserTask::AT.dst | ao_image,
@@ -783,6 +794,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
             });
+            tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name="copy new ao to ao history"});
         }
         if (render_context->render_data.pgi_settings.enabled)
         {

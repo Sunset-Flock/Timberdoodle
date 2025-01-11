@@ -1197,7 +1197,9 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
                 "DEPTH", // DEBUG_DRAW_MODE_DEPTH
                 "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
-                "NORMAL", // DEBUG_DRAW_MODE_NORMAL
+                "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
+                "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
                 "LIGHT", // DEBUG_DRAW_MODE_LIGHT
                 "AO", // DEBUG_DRAW_MODE_AO
                 "GI", // DEBUG_DRAW_MODE_GI
@@ -1217,7 +1219,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
                 ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
                 ImGui::Checkbox("enable_atomic_visbuffer", reinterpret_cast<bool *>(&render_data.settings.enable_atomic_visbuffer));
-                ImGui::Checkbox("enable_rt_pipeline_for_ao", reinterpret_cast<bool *>(&render_data.settings.enable_rt_pipeline_for_ao));
                 ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));

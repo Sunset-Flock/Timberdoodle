@@ -415,7 +415,7 @@ void entry_main_cs(
 
         world_space_depth = length(tri_point.world_position - camera_position);
 
-        float3 normal = tri_point.world_normal;
+        float3 mapped_normal = tri_point.world_normal;
         GPUMaterial material = GPU_MATERIAL_FALLBACK;
         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
@@ -432,7 +432,7 @@ void entry_main_cs(
             ).rgb;
         }
         
-        normal = flip_normal_to_incoming(tri_point.face_normal, normal, primary_ray);
+        mapped_normal = flip_normal_to_incoming(tri_point.face_normal, mapped_normal, primary_ray);
 
         if(material.normal_texture_id.value != 0)
         {
@@ -456,22 +456,22 @@ void entry_main_cs(
                 normal_map_value = raw * 2.0f - 1.0f;
             }
             const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
-            normal = mul(tbn, normal_map_value);
+            mapped_normal = mul(tbn, normal_map_value);
             
         }
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(normal, sun_direction), 0.0, 1.0);
+        const float sun_norm_dot = clamp(dot(mapped_normal, sun_direction), 0.0, 1.0);
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
         const float3 view_direction = get_view_direction(pixel_ndc.xy);
-        float3 point_lights_direct = point_lights_contribution(normal, tri_point.world_position, view_direction, AT.point_lights);
+        float3 point_lights_direct = point_lights_contribution(mapped_normal, tri_point.world_position, view_direction, AT.point_lights);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
             sun_direction, atmo_position);
-        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), normal, 0);
+        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), mapped_normal, 0);
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled)
@@ -482,7 +482,7 @@ void entry_main_cs(
         
         if (AT.globals.pgi_settings.enabled)
         {
-            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), true);
+            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, mapped_normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), 1);
         }
 
         float3 highlight_lighting = {};
@@ -496,7 +496,7 @@ void entry_main_cs(
         }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * smoothstep(0.0f, 1.0f, ambient_occlusion)) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -561,9 +561,21 @@ void entry_main_cs(
                 output_value.rgb = albedo;
                 break;
             }
-            case DEBUG_DRAW_MODE_NORMAL:
+            case DEBUG_DRAW_MODE_FACE_NORMAL:
             {
-                let color = (normal * 0.5 + 0.5f);
+                let color = tri_point.face_normal * 0.5 + 0.5f;
+                output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_SMOOTH_NORMAL:
+            {
+                let color = tri_point.world_normal * 0.5 + 0.5f;
+                output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_MAPPED_NORMAL:
+            {
+                let color = mapped_normal * 0.5 + 0.5f;
                 output_value.rgb = color;
                 break;
             }
@@ -574,12 +586,12 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_AO:
             {
-                output_value.rgb = ambient_occlusion;
+                output_value.rgb = ambient_occlusion.xxx;
                 break;
             }
             case DEBUG_DRAW_MODE_GI:
             {
-                output_value.rgb = PGI_PROBES_VISIBLE.xxx;
+                output_value.rgb = indirect_lighting.xxx;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:
