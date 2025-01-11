@@ -1,6 +1,8 @@
 #include "asteroids.hpp"
 #include "../shader_shared/asteroids.inl"
 
+#include <imgui.h>
+
 #include <random>
 #include <algorithm>
 
@@ -98,13 +100,18 @@ void AsteroidSimulation::update_asteroids(float const dt)
         f32vec3 acceleration = asteroid.force / asteroid.density;
         asteroid.velocity += acceleration * dt;
 
-        asteroid.position += asteroid.velocity * dt;
+        asteroid.position += asteroid.velocity * dt * speed_multiplier;
         if(!asteroid_in_bounds(asteroid))
         {
             asteroid.position = glm::clamp(asteroid.position, f32vec3(-DOMAIN_BOUNDS), f32vec3(DOMAIN_BOUNDS));
             asteroid.velocity = -asteroid.velocity;
         }
     }
+}
+
+void AsteroidSimulation::draw_imgui()
+{
+    ImGui::SliderFloat("speed multiplier", &speed_multiplier, 0.0f, 2.0f);
 }
 
 auto AsteroidSimulation::get_asteroids() const -> std::array<Asteroid, MAX_ASTEROID_COUNT> const &

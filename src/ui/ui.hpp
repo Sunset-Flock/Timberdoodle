@@ -86,6 +86,7 @@ struct UIEngine
         bool demo_window = false;
         bool vsm_debug_menu = true;
         bool tg_debug_ui = false;
+        bool asteroid_menu = true;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 debug_f32vec4_drag_speed = 0.05f;

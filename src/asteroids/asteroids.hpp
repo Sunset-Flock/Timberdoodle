@@ -20,13 +20,16 @@ struct AsteroidSimulation
     AsteroidSimulation();
     void update_asteroids(float const dt);
     auto get_asteroids() const -> std::array<Asteroid, MAX_ASTEROID_COUNT> const &;
+    void draw_imgui();
     
     private:
         void calculateDensityAndPressure(Asteroid & asteroid);
         void calculateForce(Asteroid & asteroid);
         void calculateSPH(Asteroid & asteroid);
         void setConstants();
+
     private:
+        f32 speed_multiplier = 1.0f;
         std::array<Asteroid, MAX_ASTEROID_COUNT> asteroids = {};
 
         f32 poly6;

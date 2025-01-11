@@ -240,6 +240,14 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
         }
         ImGui::End();
     }
+    if (asteroid_menu)
+    {
+        if(ImGui::Begin("Asteroids ui", nullptr, ImGuiWindowFlags_NoCollapse))
+        {
+            app_state.simulation.draw_imgui();
+        }
+        ImGui::End();
+    }
     if (widget_renderer_statistics)
     {
         static float t = 0;
