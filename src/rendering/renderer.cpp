@@ -599,13 +599,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "main_camera_geo_normal_image",
     });
+    daxa::TaskImageView main_camera_detail_normal_image = tg.create_transient_image({
+        .format = GBUFFER_GEO_NORMAL_FORMAT,
+        .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
+        .name = "main_camera_detail_normal_image",
+    });
     daxa::TaskImageView view_camera_geo_normal_image = main_camera_geo_normal_image;
+    daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
     tg.add_task(GenGbufferTask{
         .views = std::array{
             GenGbufferTask::AT.globals | render_context->tgpu_render_data,
             GenGbufferTask::AT.debug_image | debug_image,
             GenGbufferTask::AT.vis_image | main_camera_visbuffer,
             GenGbufferTask::AT.geo_normal_image | main_camera_geo_normal_image,
+            GenGbufferTask::AT.detail_normal_image | main_camera_detail_normal_image,
             GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
             GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
             GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
@@ -624,12 +631,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_geo_normal_image",
         });
+        view_camera_detail_normal_image = tg.create_transient_image({
+            .format = GBUFFER_GEO_NORMAL_FORMAT,
+            .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
+            .name = "view_camera_detail_normal_image",
+        });
         tg.add_task(GenGbufferTask{
             .views = std::array{
                 GenGbufferTask::AT.globals | render_context->tgpu_render_data,
                 GenGbufferTask::AT.debug_image | debug_image,
                 GenGbufferTask::AT.vis_image | view_camera_visbuffer,
                 GenGbufferTask::AT.geo_normal_image | view_camera_geo_normal_image,
+                GenGbufferTask::AT.detail_normal_image | view_camera_detail_normal_image,
                 GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
                 GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
                 GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
@@ -768,7 +781,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
                     RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
                     RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
-                    RayTraceAmbientOcclusionH::AT.vis_image | view_camera_visbuffer,
+                    RayTraceAmbientOcclusionH::AT.view_cam_visbuffer | view_camera_visbuffer,
+                    RayTraceAmbientOcclusionH::AT.view_cam_depth | view_camera_depth,
+                    RayTraceAmbientOcclusionH::AT.view_cam_detail_normals | view_camera_detail_normal_image,
                     RayTraceAmbientOcclusionH::AT.sky | sky,
                     RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
                     RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,

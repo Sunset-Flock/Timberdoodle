@@ -11,6 +11,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/depth_util.glsl"
+#include "shader_lib/transform.hlsl"
 
 #define PI 3.1415926535897932384626433832795
 
@@ -57,7 +58,7 @@ void ray_gen()
     uint triangle_id;
     if(all(lessThan(index, push.attach.globals->settings.render_target_size)))
     {
-        triangle_id = push.attach.vis_image.get()[index].x;
+        triangle_id = push.attach.view_cam_visbuffer.get()[index].x;
     } else {
         triangle_id = INVALID_TRIANGLE_ID;
     }
@@ -101,8 +102,9 @@ void ray_gen()
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
+        const float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
         const float3 primary_ray = normalize(tri_point.world_position - push.attach.globals.camera.position);
-        const float3 corrected_face_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.face_normal, primary_ray);
+        const float3 corrected_face_normal = flip_normal_to_incoming(detail_normal, detail_normal, primary_ray);
         const float3 sample_pos = rt_calc_ray_start(tri_point.world_position, corrected_face_normal, primary_ray);
         const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, corrected_face_normal), corrected_face_normal));
             
