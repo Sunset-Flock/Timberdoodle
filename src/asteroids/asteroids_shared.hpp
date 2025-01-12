@@ -12,22 +12,22 @@ using namespace tido::types;
 
 struct Asteroid
 {
-    f32vec3 position;
-    f32vec3 velocity;
-    f32vec3 velocity_derivative;
-    f32 velocity_divergence;
+    f64vec3 position;
+    f64vec3 velocity;
+    f64vec3 velocity_derivative;
+    f64 velocity_divergence;
 
-    f32 smoothing_radius;
-    f32 mass;
+    f64 smoothing_radius;
+    f64 mass;
 
-    f32 density;
-    f32 density_derivative;
+    f64 density;
+    f64 density_derivative;
 
-    f32 energy;
-    f32 energy_derivative;
+    f64 energy;
+    f64 energy_derivative;
 
-    f32 pressure;
+    f64 pressure;
 
-    f32 speed_of_sound;
-    f32vec3 gradient;
+    f64 speed_of_sound;
+    f64vec3 gradient;
 };

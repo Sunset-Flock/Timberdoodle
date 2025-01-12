@@ -927,7 +927,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 void Renderer::render_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
-    std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids,
+    std::vector<Asteroid> const & asteroids,
     f32 const delta_time)
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }

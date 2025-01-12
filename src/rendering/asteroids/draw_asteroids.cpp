@@ -1479,12 +1479,24 @@ void AsteroidsState::initalize_transient_state(daxa::TaskGraph & tg)
     });
 }
 
-void AsteroidsState::update_cpu_data(std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids)
+void AsteroidsState::update_cpu_data(std::vector<Asteroid> const & asteroids)
 {
-    for(i32 asteroid_index = 0; asteroid_index < MAX_ASTEROID_COUNT; ++asteroid_index)
+    DBG_ASSERT_TRUE_M(asteroids.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
+    for(i32 asteroid_index = 0; asteroid_index < asteroids.size(); ++asteroid_index)
     {
-        cpu_asteroids.at(asteroid_index).position = std::bit_cast<daxa_f32vec3>(asteroids.at(asteroid_index).position);
+        cpu_asteroids.at(asteroid_index).position = daxa_f32vec3(
+            asteroids.at(asteroid_index).position.x,
+            asteroids.at(asteroid_index).position.y,
+            asteroids.at(asteroid_index).position.z
+        );
+        cpu_asteroids.at(asteroid_index).velocity = daxa_f32vec3(
+            asteroids.at(asteroid_index).velocity.x,
+            asteroids.at(asteroid_index).velocity.y,
+            asteroids.at(asteroid_index).velocity.z
+        );
     }
+
+    asteroids_count = asteroids.size();
 }
 
 void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)

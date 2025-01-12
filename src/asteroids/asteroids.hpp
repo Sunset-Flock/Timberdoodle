@@ -5,20 +5,31 @@
 #include "asteroids_shared.hpp"
 #include "solver.hpp"
 
+#include <mutex>
+
 using namespace tido::types;
 
 struct AsteroidSimulation
 {
+    std::atomic_bool should_run = true;
+    std::mutex data_exchange_mutex;
+
     AsteroidSimulation();
-    void update_asteroids(float const dt);
-    auto get_asteroids() const -> std::array<Asteroid, MAX_ASTEROID_COUNT> const &;
+    ~AsteroidSimulation();
+
+    void run();
+    auto get_asteroids() -> std::vector<Asteroid>;
     void draw_imgui();
     
     private:
         f32 speed_multiplier = 1.0f;
-        std::array<Asteroid, MAX_ASTEROID_COUNT> asteroids = {};
+        std::vector<Asteroid> asteroids = {};
+        std::vector<Asteroid> last_update_asteroids = {};
         Solver solver = {};
 
+        std::thread run_thread;
+
         void explicit_euler_step();
+        void update_asteroids(f64 const dt);
         void integrate_derivatives();
 };

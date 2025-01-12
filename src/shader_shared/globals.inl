@@ -37,6 +37,7 @@ struct RenderGlobalData
     SkySettings sky_settings;
     VSMSettings vsm_settings;
     VolumetricSettings volumetric_settings;
+    AsteroidSettings asteroid_settings;
     PostprocessSettings postprocess_settings;
     PGISettings pgi_settings;
     daxa_BufferPtr(SkySettings) sky_settings_ptr;

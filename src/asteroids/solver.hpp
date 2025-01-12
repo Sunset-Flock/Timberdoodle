@@ -8,13 +8,13 @@ using namespace tido::types;
 
 struct Kernel
 {
-    f32 value(float const dist) const;
-    f32 grad_value(float const dist) const;
+    f64 value(f64 const dist) const;
+    f64 grad_value(f64 const dist) const;
 
-    f32 smoothing_radius;
+    f64 smoothing_radius;
 
     private:
-        static constexpr f32 NORMALIZATION = 1.0f / PI;
+        static constexpr f64 NORMALIZATION = 1.0f / PI;
 };
 
 struct Material
@@ -22,21 +22,21 @@ struct Material
     Material();
     struct EvaluateRet
     {
-        float pressure;
-        float speed_of_sound;
+        f64 pressure;
+        f64 speed_of_sound;
     };
-    auto evaluate(f32 const density, f32 const energy) -> EvaluateRet;
+    auto evaluate(f64 const density, f64 const energy) -> EvaluateRet;
 
     private:
-        float start_density;
-        float A;
-        float c;
-        float c_p;
+        f64 start_density;
+        f64 A;
+        f64 c;
+        f64 c_p;
 };
 
 struct Solver
 {
-    void integrate(std::array<Asteroid, MAX_ASTEROID_COUNT> & asteroids, f32 const dt);
+    void integrate(std::vector<Asteroid> & asteroids, f64 const dt);
 
     private:
         Material material = {};

@@ -244,6 +244,11 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     {
         if(ImGui::Begin("Asteroids ui", nullptr, ImGuiWindowFlags_NoCollapse))
         {
+            auto modes = std::array{
+                "NONE",
+                "VELOCITY",
+            };
+            ImGui::Combo("debug visualization", &render_context.render_data.asteroid_settings.debug_draw_mode, modes.data(), modes.size());
             app_state.simulation.draw_imgui();
         }
         ImGui::End();

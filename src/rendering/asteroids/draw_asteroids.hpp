@@ -16,9 +16,11 @@ struct AsteroidsState
     daxa_f32vec3* debug_asteroid_mesh_vertex_positions_addr = {};
     std::array<GPUAsteroid, MAX_ASTEROID_COUNT> cpu_asteroids = {};
 
+    u32 asteroids_count = {};
+
     void initialize_persistent_state(daxa::Device& device);
     void initalize_transient_state(daxa::TaskGraph & tg);
-    void update_cpu_data(std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids);
+    void update_cpu_data(std::vector<Asteroid> const & asteroids);
     void cleanup(daxa::Device & device);
 };
 
@@ -116,7 +118,7 @@ struct DebugDrawAsteroidsTask : DebugDrawAsteroidsH::Task
 
         render_cmd.draw_indexed({
             .index_count = asteroid_state->debug_probe_mesh_triangles * 3,
-            .instance_count = MAX_ASTEROID_COUNT,
+            .instance_count = asteroid_state->asteroids_count,
         });
 
         ti.recorder = std::move(render_cmd).end_renderpass();

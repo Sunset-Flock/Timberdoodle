@@ -108,7 +108,6 @@ auto Application::run() -> i32
         app_state.last_time_point = new_time_point;
         _window->update(app_state.delta_time);
         app_state.keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
-        app_state.simulation.update_asteroids(app_state.delta_time);
         i32vec2 new_window_size;
         glfwGetWindowSize(this->_window->glfw_handle, &new_window_size.x, &new_window_size.y);
         if (this->_window->size.x != new_window_size.x || _window->size.y != new_window_size.y)

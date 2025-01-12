@@ -35,7 +35,7 @@ struct Renderer
     void render_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
-        std::array<Asteroid, MAX_ASTEROID_COUNT> const & asteroids,
+        std::vector<Asteroid> const & asteroids,
         f32 const delta_time);
     void readback_statistics(daxa::TaskGraph & tg);
 
