@@ -15,9 +15,10 @@ explicit goals of this project:
 We will try to keep the engine very well maintainable. This will include many partial rewrites.
 
 # Screenshots
-![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/battle_scene_main.png)
-![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/night_bistro.png)
-![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/day_bistro.png)
+
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/Showcase0_Bistro.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/Showcase1_Sponza.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/Showcase2_Battle.png)
 
 ## Features
 ### Virtual Shadow Maps (Matěj Sakmary)

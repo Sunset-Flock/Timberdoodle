@@ -255,7 +255,7 @@ VisbufferTriangleGeometry visgeo_triangle_data(
         float3 d_p2 = world_vertex_positions[2].xyz - world_vertex_positions[0].xyz;
         float2 d_uv1 = vertex_uvs[1] - vertex_uvs[0];
         float2 d_uv2 = vertex_uvs[2] - vertex_uvs[0];
-        float3 t = normalize( d_uv1.y * d_p1 - d_uv2.y * d_p2 );
+        float3 t = normalize( d_uv1.y * d_p2 - d_uv2.y * d_p1 );
 
         float3 x = cross(ret.tri_geo_point.world_normal, t);
         t = cross(x, ret.tri_geo_point.world_normal);
