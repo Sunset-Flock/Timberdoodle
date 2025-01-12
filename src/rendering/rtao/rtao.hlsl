@@ -201,39 +201,61 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         float4x4 view_proj_prev = push.attach.globals->camera_prev_frame.view_proj;
         float3 camera_position = push.attach.globals->camera.position;
         float non_linear_depth = push.attach.depth.get()[index];
-        float depth = linearise_depth(non_linear_depth, push.attach.globals.camera.near_plane);
-        float3 primary_ray = pixel_index_to_near_plane(push.attach.globals.camera, index);
-        float3 pixel_world_position = push.attach.globals.camera.position + primary_ray * depth;
+        float3 pixel_world_position = pixel_index_to_world_space(push.attach.globals.camera, index, non_linear_depth);
+
         prev_frame_ndc = mul(view_proj_prev, float4(pixel_world_position, 1.0f));
         prev_frame_ndc.xyz /= prev_frame_ndc.w;
     }
 
     float accepted_history_ao = {};
+    float acceptance = 0.0f;
     {
         float2 pixel_prev_uv = (prev_frame_ndc.xy * 0.5f + 0.5f);
         float2 pixel_prev_index = pixel_prev_uv * float2(push.attach.globals.camera.screen_size);
-
         float2 base_texel = max(float2(0,0), floor(pixel_prev_index - 0.5f)); 
-
         float2 interpolants = clamp((pixel_prev_index - (base_texel + 0.5f)), float2(0,0), float2(1,1));
-        float2 gatherUV = (base_texel + 1.0f) / float2(push.attach.globals.camera.screen_size);
-        float4 history_ao = push.attach.history.get().GatherRed(push.attach.globals.samplers.linear_clamp.get(), gatherUV).wzxy;
-        history_ao = max(history_ao, 0.0f);
+        float2 gather_uv = (base_texel + 1.0f) / float2(push.attach.globals.camera.screen_size);
+        
+        float4 history_ao = push.attach.history.get().GatherRed(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
+        float4 history_depth = push.attach.history.get().GatherGreen(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
+        //history_ao = max(history_ao, 0.0f);
         float4 sample_linear_weights = float4(
             (1.0f - interpolants.x) * (1.0f - interpolants.y),
-            (1.0f - interpolants.x) * interpolants.y,
             interpolants.x * (1.0f - interpolants.y),
+            (1.0f - interpolants.x) * interpolants.y,
             interpolants.x * interpolants.y
         );
+
+        float linear_prev_depth = linearise_depth(prev_frame_ndc.z, push.attach.globals.camera.near_plane);
+        float interpolated_ao = 0.0f;
+        float interpolated_ao_weight_sum = 0.0f;
         for (int i = 0; i < 4; ++i)
         {
-            accepted_history_ao += sample_linear_weights[i] * history_ao[i];
+            float depth = history_depth[i];
+            float linear_depth = linearise_depth(depth, push.attach.globals.camera.near_plane);
+            float depth_diff = abs(linear_prev_depth - linear_depth);
+            float acceptable_diff = 0.05f;
+
+            if (depth_diff < acceptable_diff)
+            {
+                interpolated_ao_weight_sum += sample_linear_weights[i];
+                interpolated_ao += history_ao[i] * sample_linear_weights[i];
+            }
         }
-        accepted_history_ao = push.attach.history.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), pixel_prev_uv, 0.0f).x;
-        push.attach.debug_image.get()[index].xy = index - pixel_prev_index + 0.5f;
+        if (interpolated_ao_weight_sum > 0.01f)
+        {
+            acceptance = 1.0f;
+            accepted_history_ao = interpolated_ao * rcp(interpolated_ao_weight_sum);
+        }
+        if (any(base_texel < 0.0f || (base_texel + 1.0f >= float2(push.attach.globals.camera.screen_size))))
+        {
+            acceptance = 0.0f;
+        }
+        //accepted_history_ao = push.attach.history.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), pixel_prev_uv, 0.0f).x;
+        push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
-    float exp_average = 0.01f;
+    float exp_average = lerp(1.0f, 0.02f, acceptance);
 
     float new_ao = lerp(accepted_history_ao, blurred_new_ao, exp_average);
     float new_depth = push.attach.depth.get()[index];
