@@ -28,7 +28,7 @@ f64 Kernel::grad_value(f64 const dist) const
     else if (q < 2.0) {
         return (1.0 / q) * NORMALIZATION * (-0.75 * std::pow(2.0 - q, 2.0));
     }
-    return 0.0;
+   return 0.0;
 }
 
 Material::Material()
@@ -44,6 +44,7 @@ auto Material::evaluate(f64 const density, f64 const energy) -> EvaluateRet
     const f64 mu = density / start_density - 1.0f;
     const f64 pressure = c * density * energy + A * mu;
     const f64 speed_of_sound = std::sqrt(A / start_density);
+
     return {
         .pressure = pressure,
         .speed_of_sound = speed_of_sound
@@ -53,17 +54,24 @@ auto Material::evaluate(f64 const density, f64 const energy) -> EvaluateRet
 
 void Solver::integrate(std::vector<Asteroid> & asteroids, f64 const dt)
 {
+    // Zero out derivatives from last frame.
     for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
     {
         auto & asteroid = asteroids.at(asteroid_idx);
-        auto const & ret = material.evaluate(asteroid.density, asteroid.energy);
-        asteroid.density_derivative = 0.0f;
-        asteroid.velocity_divergence = 0.0f;
         asteroid.energy_derivative = 0.0f;
+        asteroid.density_derivative = 0.0f;
+        asteroid.velocity_derivative = f32vec3(0.0f);
+        asteroid.velocity_divergence *= 0.7f;
 
+        auto const & ret = material.evaluate(asteroid.density, asteroid.energy);
         asteroid.pressure = ret.pressure;
         asteroid.speed_of_sound = ret.speed_of_sound;
+    }
 
+
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
+    {
+        auto & asteroid = asteroids.at(asteroid_idx);
         for(i32 neighbor_asteroid_idx = 0; neighbor_asteroid_idx < asteroids.size(); ++neighbor_asteroid_idx)
         {
             auto const & neighbor_asteroid = asteroids.at(neighbor_asteroid_idx);
@@ -72,7 +80,7 @@ void Solver::integrate(std::vector<Asteroid> & asteroids, f64 const dt)
             f64 const asteroid_distance = glm::length(asteroid.position - neighbor_asteroid.position);
 
             bool const asteroids_same = neighbor_asteroid_idx == asteroid_idx;
-            bool const asteroids_too_far = asteroid_distance > kernel.smoothing_radius;
+            bool const asteroids_too_far = asteroid_distance > (kernel.smoothing_radius * 2.0f);
 
             if(asteroids_same || asteroids_too_far) { continue; }
 
@@ -93,11 +101,11 @@ void Solver::integrate(std::vector<Asteroid> & asteroids, f64 const dt)
                 asteroid.velocity_divergence += neighbor_asteroid.mass / asteroid.density * dv;
             }
         }
+    }
 
-        if(asteroid.velocity_derivative != f64vec3(0.0f))
-        {
-            int i = 0;
-        }
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
+    {
+        auto & asteroid = asteroids.at(asteroid_idx);
         // Calculate continuity equation
         asteroid.density_derivative += -asteroid.density * asteroid.velocity_divergence;
         // Calculate pressure force

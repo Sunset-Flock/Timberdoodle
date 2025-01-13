@@ -104,7 +104,7 @@ AsteroidSimulation::AsteroidSimulation()
     std::vector<f64vec4> asteroid_positions = distribute_asteroids_in_sphere({
         .center = f64vec3(0.0f),
         .radius = PLANET_RADIUS,
-        .asteroid_count = 900,
+        .asteroid_count = 5000,
     });
 
     f64 const planet_sphere_volume = 1.33333333333f * PI * std::pow(PLANET_RADIUS, 3.0f);
@@ -112,9 +112,9 @@ AsteroidSimulation::AsteroidSimulation()
     std::vector<f64> asteroid_masses = get_asteroid_masses(asteroid_positions, planet_total_mass);
 
     std::vector<f64vec4> collider_positions = distribute_asteroids_in_sphere({
-        .center = f64vec3(50'500) / f64vec3(std::sqrt(3)),
+        .center = f64vec3(75'000) / f64vec3(std::sqrt(3)),
         .radius = ASTEROID_RADIUS,
-        .asteroid_count = 100,
+        .asteroid_count = 2000,
     });
 
     f64 const collider_sphere_volume = 1.33333333333f * PI * std::pow(ASTEROID_RADIUS, 3.0f);
@@ -132,7 +132,8 @@ AsteroidSimulation::AsteroidSimulation()
             .smoothing_radius = use_planet_params ? asteroid_positions.at(real_index).w : collider_positions.at(real_index).w,
             .mass = use_planet_params ? asteroid_masses.at(real_index) : collider_masses.at(real_index),
             .density = INITAL_DENSITY,
-            .energy = 0.0f
+            .energy = 0.0f,
+            .particle_scale = use_planet_params ? 2.5f : 0.8f
         });
     }
     last_update_asteroids.resize(asteroids.size());
@@ -150,7 +151,17 @@ void AsteroidSimulation::run()
 {
     while(should_run)
     {
-        update_asteroids(0.001);
+        update_asteroids(dt);
+        // dt = 0.01;
+        // for(auto const & asteroid : asteroids)
+        // {
+        //     f64 const factor = 0.001;
+        //     if(asteroid.velocity_divergence > 10e-13)
+        //     {
+        //         dt = std::min(dt, factor / asteroid.velocity_divergence);
+        //     }
+        // }
+        // dt = std::max(dt, 0.001);
         {
             std::lock_guard<std::mutex> guard(data_exchange_mutex);
             std::memcpy(last_update_asteroids.data(), asteroids.data(), sizeof(Asteroid) * asteroids.size());
@@ -162,11 +173,14 @@ void AsteroidSimulation::run()
 
 void AsteroidSimulation::update_asteroids(f64 const dt)
 {
-    solver.integrate(asteroids, 0.0005);
+    solver.integrate(asteroids, dt);
 }
 
 void AsteroidSimulation::draw_imgui()
 {
+    f32 tmp = dt;
+    ImGui::SliderFloat("dt", &tmp, 0.001, 0.01);
+    dt = tmp;
 }
 
 auto AsteroidSimulation::get_asteroids() -> std::vector<Asteroid>

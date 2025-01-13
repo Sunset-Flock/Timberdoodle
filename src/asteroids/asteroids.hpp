@@ -26,6 +26,7 @@ struct AsteroidSimulation
         std::vector<Asteroid> asteroids = {};
         std::vector<Asteroid> last_update_asteroids = {};
         Solver solver = {};
+        f64 dt = 0.0000001;
 
         std::thread run_thread;
 

@@ -1484,16 +1484,22 @@ void AsteroidsState::update_cpu_data(std::vector<Asteroid> const & asteroids)
     DBG_ASSERT_TRUE_M(asteroids.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
     for(i32 asteroid_index = 0; asteroid_index < asteroids.size(); ++asteroid_index)
     {
+        auto const & asteroid = asteroids.at(asteroid_index);
         cpu_asteroids.at(asteroid_index).position = daxa_f32vec3(
-            asteroids.at(asteroid_index).position.x,
-            asteroids.at(asteroid_index).position.y,
-            asteroids.at(asteroid_index).position.z
+            asteroid.position.x, asteroid.position.y, asteroid.position.z
         );
         cpu_asteroids.at(asteroid_index).velocity = daxa_f32vec3(
-            asteroids.at(asteroid_index).velocity.x,
-            asteroids.at(asteroid_index).velocity.y,
-            asteroids.at(asteroid_index).velocity.z
+            asteroid.velocity.x, asteroid.velocity.y, asteroid.velocity.z
         );
+        cpu_asteroids.at(asteroid_index).acceleration = daxa_f32vec3(
+            asteroid.velocity_derivative.x, 
+            asteroid.velocity_derivative.y, 
+            asteroid.velocity_derivative.z
+        );
+        cpu_asteroids.at(asteroid_index).velocity_divergence = asteroid.velocity_divergence;
+        cpu_asteroids.at(asteroid_index).pressure = asteroid.pressure;
+        cpu_asteroids.at(asteroid_index).density = asteroid.density;
+        cpu_asteroids.at(asteroid_index).particle_scale = asteroid.particle_scale;
     }
 
     asteroids_count = asteroids.size();

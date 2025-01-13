@@ -124,7 +124,7 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
         const float4 exposed_color = push.attachments.color_image.get()[index];
         const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
     
-        color = tonemapped_color;
+        color = exposed_color.xyz;
     }
 
     float4 debug_color = DEBUG;//push.attachments.debug_image.get()[index];
