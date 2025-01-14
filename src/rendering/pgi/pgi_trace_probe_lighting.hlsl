@@ -47,6 +47,41 @@ struct RayPayload
     uint primitive_index;
     uint geometry_index;
     uint instance_id;
+    float4 color_depth;
+}
+
+struct PGILightVisibilityTester : LightVisibilityTesterI
+{
+    RaytracingAccelerationStructure tlas;
+    RenderGlobalData* globals;
+    float3 origin;
+    float sun_light(MaterialPointData material_point, float3 incoming_ray)
+    {
+        let sky = globals->sky_settings;
+
+        float t_max = 10000.0f;
+        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
+        float3 dir = sky.sun_direction;
+        
+        
+        RayDesc ray = {};
+        ray.Direction = dir;
+        ray.Origin = start;
+        ray.TMax = t_max;
+        ray.TMin = 0.0f;
+
+        RayPayload payload;
+        payload.hit = true; // Only runs miss shader. Miss shader writes false.
+        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 0, 0, ray, payload);
+
+        bool path_occluded = payload.hit;
+
+        return path_occluded ? 0.0f : 1.0f;
+    }
+    float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
+    {
+        return 0.0f;
+    }
 }
 
 [shader("raygeneration")]
@@ -108,7 +143,7 @@ void entry_ray_gen()
 
     TraceRay(push.attach.tlas.get(), {}, ~0, 0, 0, 0, ray, payload);
 
-
+    #if 0
     float4 color_depth = {};
     if (payload.hit)
     {
@@ -119,24 +154,24 @@ void entry_ray_gen()
             payload.instance_id,
             payload.geometry_index,
             payload.primitive_index,
-            push.attach.globals.scene.meshes,
-            push.attach.globals.scene.entity_to_meshgroup,
-            push.attach.globals.scene.mesh_groups,
+            push.scene.meshes,
+            push.scene.entity_to_meshgroup,
+            push.scene.mesh_groups,
             mi
         );
         TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
             tri_geo,
-            push.attach.globals.scene.meshes,
-            push.attach.globals.scene.entity_to_meshgroup,
-            push.attach.globals.scene.mesh_groups,
-            push.attach.globals.scene.entity_combined_transforms
+            push.scene.meshes,
+            push.scene.entity_to_meshgroup,
+            push.scene.mesh_groups,
+            push.scene.entity_combined_transforms
         );
         MaterialPointData material_point = evaluate_material(
             push.attach.globals,
             tri_geo,
             tri_point
         );
-        RTLightVisibilityTester light_vis_tester = RTLightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
+        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
         light_vis_tester.origin = probe_position;
         color_depth.rgb = shade_material(
             push.attach.globals, 
@@ -167,8 +202,9 @@ void entry_ray_gen()
         color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, probe_normal);
         color_depth.a = 1000.0f;
     }
+    #endif
 
-    push.attach.trace_result.get()[trace_result_texture_index] = color_depth;//payload.color_depth;
+    push.attach.trace_result.get()[trace_result_texture_index] = payload.color_depth;
 }
 
 [shader("anyhit")]
@@ -178,8 +214,8 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
     if (!rt_is_alpha_hit(
         push.attach.globals,
         push.attach.mesh_instances,
-        push.attach.globals.scene.meshes,
-        push.attach.globals.scene.materials,
+        push.scene.meshes,
+        push.scene.materials,
         attr.barycentrics))
     {
         IgnoreHit();
@@ -189,16 +225,73 @@ void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttri
 [shader("closesthit")]
 void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
+    let push = pgi_trace_probe_lighting_push;
+
     payload.hit = true;
     payload.t = RayTCurrent();
     payload.barycentrics = attr.barycentrics;
     payload.primitive_index = PrimitiveIndex();
     payload.instance_id = InstanceID();
     payload.geometry_index = GeometryIndex();
+
+    float3 hit_point = WorldRayOrigin() + WorldRayDirection() * payload.t;
+    MeshInstance* mi = push.attach.mesh_instances.instances;
+    TriangleGeometry tri_geo = rt_get_triangle_geo(
+        payload.barycentrics,
+        payload.instance_id,
+        payload.geometry_index,
+        payload.primitive_index,
+        push.scene.meshes,
+        push.scene.entity_to_meshgroup,
+        push.scene.mesh_groups,
+        mi
+    );
+    TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
+        tri_geo,
+        push.scene.meshes,
+        push.scene.entity_to_meshgroup,
+        push.scene.mesh_groups,
+        push.scene.entity_combined_transforms
+    );
+    MaterialPointData material_point = evaluate_material(
+        push.attach.globals,
+        tri_geo,
+        tri_point
+    );
+    PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
+    light_vis_tester.origin = WorldRayOrigin();
+    payload.color_depth.rgb = shade_material(
+        push.attach.globals, 
+        push.attach.sky_transmittance,
+        push.attach.sky,
+        material_point, 
+        WorldRayDirection(), 
+        light_vis_tester, 
+        push.attach.probe_radiance.get(), 
+        push.attach.probe_visibility.get(), 
+        push.attach.probe_info.get(),
+        push.attach.probe_requests.get(),
+        push.attach.tlas.get()
+    ).rgb;
+
+    float distance = payload.t;
+    bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f;
+    bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
+    if (backface && !double_sided_or_blend)
+    {
+        distance *= -1.0f;
+    }
+
+    payload.color_depth.a = distance;
 }
 
 [shader("miss")]
 void entry_miss(inout RayPayload payload)
 {
+    let push = pgi_trace_probe_lighting_push;
+
     payload.hit = false;
+
+    payload.color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
+    payload.color_depth.a = 1000.0f;
 }

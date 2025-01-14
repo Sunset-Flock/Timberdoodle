@@ -65,13 +65,13 @@ func entry_alloc_ent_bitfield_lists(uint dtid : SV_DispatchThreadID)
         return;
     }
 
-    const uint mesh_group_index = push.attach.entity_mesh_groups[mesh_instance.entity_index];
+    const uint mesh_group_index = push.attach.globals.scene.entity_to_meshgroup[mesh_instance.entity_index];
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         return;
     }
     
-    GPUMeshGroup mesh_group = push.attach.mesh_groups[mesh_group_index];
+    GPUMeshGroup mesh_group = push.attach.globals.scene.mesh_groups[mesh_group_index];
     if (mesh_group.mesh_lod_group_count == 0)
     {
         printf(GPU_ASSERT_STRING"entity index (%u) has mesh group (%u) with 0 mesh_lod_group_count!\n", mesh_instance.entity_index, mesh_group.mesh_lod_group_count);

@@ -92,6 +92,17 @@ struct DrawDebugProbesFragmentOut
     float4 color : SV_Target;
 };
 
+// TODO: Precalculate and move to RenderGlobalData 
+float compute_exposure(PostprocessSettings post_settings, float average_luminance) 
+{
+    const float exposure_bias = post_settings.exposure_bias;
+    const float calibration = post_settings.calibration;
+    const float sensor_sensitivity = post_settings.sensor_sensitivity;
+    const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
+	const float exposure = 1.0 / (1.2 * exp2(ev100));
+	return exposure;
+}
+
 [shader("fragment")]
 func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) -> DrawDebugProbesFragmentOut
 {
@@ -101,9 +112,9 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     
 
     float3 view_ray = -vertToPix.normal;
-    float4 radiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
-    float3 radiance = radiance_hysteresis.rgb;
-    float hysteresis = radiance_hysteresis.a;
+    float4 irradiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
+    float3 irradiance = irradiance_hysteresis.rgb;
+    float hysteresis = irradiance_hysteresis.a;
     float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), stable_index);
     float mean = abs(visibility.x);
     float mean2 = visibility.y;
@@ -111,11 +122,15 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
     float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
 
+    float exposure = compute_exposure(push.attach.globals.postprocess_settings, deref(push.attach.luminance_average));
+    irradiance *= exposure;
+    visibility *= exposure;
+
     float3 draw_color = (float3)0;
     switch(settings.debug_probe_draw_mode)
     {
         case PGI_DEBUG_PROBE_DRAW_MODE_OFF: break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = radiance; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = irradiance; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE: draw_color = visibility.xxx; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY: draw_color = visibility.yyy; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_TEXEL: draw_color = float3(texel,1); break;

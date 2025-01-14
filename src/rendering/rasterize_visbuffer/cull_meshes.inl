@@ -15,13 +15,6 @@
 DAXA_DECL_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMaterial), materials)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUEntityMetaData), entity_meta)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), entity_meshgroup_indices)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(GPUMeshGroup), meshgroups)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_transforms)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz) // OPTIONAL
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hip) // OPTIONAL
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
@@ -37,6 +30,8 @@ struct ExpandMeshesToMeshletsPush
     daxa::b32 cull_against_last_frame;  /// WARNING: only supported for non vsm path!
     // Only used for vsms:
     daxa::u32 cascade;
+    daxa_BufferPtr(GPUMesh) meshes;
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
 };
 
 #if defined(__cplusplus)
@@ -77,6 +72,8 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
             .cull_meshes = cull_meshes,
             .cull_against_last_frame = cull_against_last_frame,
             .cascade = cascade,
+            .meshes = render_context->render_data.scene.meshes,
+            .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
         };
         ti.recorder.push_constant(push);
         auto total_mesh_draws =
@@ -104,13 +101,6 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
     daxa::TaskBufferView mesh_instances = {};
-    daxa::TaskBufferView meshes = {};
-    daxa::TaskBufferView materials = {};
-    daxa::TaskBufferView entity_meta = {};
-    daxa::TaskBufferView entity_meshgroup_indices = {};
-    daxa::TaskBufferView meshgroups = {};
-    daxa::TaskBufferView entity_transforms = {};
-    daxa::TaskBufferView entity_combined_transforms = {};
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> & meshlet_expansions;
     DispatchIndirectStruct dispatch_clear = {0, 1, 1};
     std::string buffer_name_prefix = "";
@@ -162,13 +152,6 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         .views = std::array{
             ExpandMeshesToMeshletsH::AT.globals | info.globals,
             ExpandMeshesToMeshletsH::AT.mesh_instances | info.mesh_instances,
-            ExpandMeshesToMeshletsH::AT.meshes | info.meshes,
-            ExpandMeshesToMeshletsH::AT.materials | info.materials,
-            ExpandMeshesToMeshletsH::AT.entity_meta | info.entity_meta,
-            ExpandMeshesToMeshletsH::AT.entity_meshgroup_indices | info.entity_meshgroup_indices,
-            ExpandMeshesToMeshletsH::AT.meshgroups | info.meshgroups,
-            ExpandMeshesToMeshletsH::AT.entity_transforms | info.entity_transforms,
-            ExpandMeshesToMeshletsH::AT.entity_combined_transforms | info.entity_combined_transforms,
             ExpandMeshesToMeshletsH::AT.opaque_expansion | info.meshlet_expansions[0],
             ExpandMeshesToMeshletsH::AT.masked_expansion | info.meshlet_expansions[1],
             ExpandMeshesToMeshletsH::AT.hiz | info.hiz,

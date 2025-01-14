@@ -9,7 +9,7 @@
 
 float3 integrate_transmittance(const float3 world_position, const float3 world_direction, const uint step_count)
 {
-    const SkySettings * settings = transmittance_push.globals.sky_settings_ptr;
+    const SkySettings * settings = &transmittance_push.globals.sky_settings;
     // The integration length is the distance in which the starting ray intersects top of the atmosphere.
     // This gives us ray sphere intersection, where the sphere is placed in the origin of the coordinate system
     // and has radius of the top atmosphere boundary.
@@ -41,7 +41,7 @@ void compute_transmittance_lut(
     uint3 svdtid : SV_DispatchThreadID
 )
 {
-    const SkySettings * settings = transmittance_push.globals.sky_settings_ptr;
+    const SkySettings * settings = &transmittance_push.globals.sky_settings;
     if(all(lessThan(svdtid.xy, settings->transmittance_dimensions.xy)))
     {
         // Convert uv coordinates of the texture into starting height and angle in which we will raymarch
@@ -257,7 +257,7 @@ void compute_multiscattering_lut(
     const float SPHERE_SAMPLES = MULTISCATTERING_Z;
     const float GOLDEN_RATIO = 1.6180339f;
 
-    const SkySettings * settings = multiscattering_push.globals.sky_settings_ptr;
+    const SkySettings * settings = &multiscattering_push.globals.sky_settings;
     float2 uv = (float2(svdtid.xy) + float2(0.5f)) / settings->multiscattering_dimensions.xy;
     uv = float2(from_subuv_to_unit(uv.x, settings->multiscattering_dimensions.x),
                 from_subuv_to_unit(uv.y, settings->multiscattering_dimensions.y));
@@ -324,7 +324,7 @@ void compute_sky_lut(
     uint3 svdtid : SV_DispatchThreadID,
 )
 {
-    const SkySettings * settings = sky_push.globals.sky_settings_ptr;
+    const SkySettings * settings = &sky_push.globals.sky_settings;
     if(all(lessThan(svdtid.xy, settings->sky_dimensions.xy)))
     {
         // In game height is in meters, atmosphere uses kilometers so we need to traslate.

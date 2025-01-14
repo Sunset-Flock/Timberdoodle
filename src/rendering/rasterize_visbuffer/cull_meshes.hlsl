@@ -24,7 +24,7 @@ void main(uint thread_id : SV_DispatchThreadID)
     uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
     //if (draw_list_type == PREPASS_DRAW_LIST_MASKED) return;
 
-    GPUMesh mesh = deref_i(push.attach.meshes, mesh_index);
+    GPUMesh mesh = deref_i(push.meshes, mesh_index);
     if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
     {
         return;
@@ -39,8 +39,8 @@ void main(uint thread_id : SV_DispatchThreadID)
             cull_camera,
             mesh_instance,
             mesh,
-            push.attach.entity_combined_transforms,
-            push.attach.meshes,
+            push.entity_combined_transforms,
+            push.meshes,
             push.attach.globals.cull_data,
             push.attach.hiz))
         {
@@ -54,8 +54,8 @@ void main(uint thread_id : SV_DispatchThreadID)
             push.attach.vsm_clip_projections[push.cascade].camera,
             mesh_instance,
             mesh,
-            push.attach.entity_combined_transforms,
-            push.attach.meshes,
+            push.entity_combined_transforms,
+            push.meshes,
             push.attach.hip,
             push.cascade))
         {

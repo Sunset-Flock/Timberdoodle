@@ -34,9 +34,6 @@ DAXA_TH_BUFFER(READ, draw_commands)
 // Used by observer to cull:
 DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
 DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -55,9 +52,6 @@ DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_are
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
 DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image) // Optional
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image) // Optional
@@ -89,6 +83,9 @@ struct DrawVisbufferPush
 {
     DrawVisbufferH::AttachmentShaderBlob attach;
     DrawVisbufferDrawData draw_data;
+    daxa_BufferPtr(GPUMesh) meshes;
+    daxa_BufferPtr(GPUMaterial) materials;
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
 };
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
@@ -96,6 +93,9 @@ struct CullMeshletsDrawVisbufferPush
 {
     CullMeshletsDrawVisbufferH::AttachmentShaderBlob attach;
     DrawVisbufferDrawData draw_data;
+    daxa_BufferPtr(GPUMesh) meshes;
+    daxa_BufferPtr(GPUMaterial) materials;
+    daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
 };
 #endif
 
@@ -246,6 +246,9 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                         .draw_list_section_index = opaque_draw_list_type,
                         .observer = observer,
                     },
+                    .meshes = render_context->render_data.scene.meshes,
+                    .materials = render_context->render_data.scene.materials,
+                    .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
                 };
                 ti.recorder.push_constant(push);
                 ti.recorder.dispatch_indirect({
@@ -374,6 +377,9 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                     .draw_list_section_index = opaque_draw_list_type,
                     .observer = false,
                 },
+                .meshes = render_context->render_data.scene.meshes,
+                .materials = render_context->render_data.scene.materials,
+                .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
             };
             render_cmd.push_constant(push);
             render_cmd.draw_mesh_tasks_indirect({
@@ -433,12 +439,6 @@ struct TaskCullAndDrawVisbufferInfo
     bool first_pass = {};
     bool clear_render_targets = {};
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
-    daxa::TaskBufferView entity_meta_data = {};
-    daxa::TaskBufferView entity_meshgroups = {};
-    daxa::TaskBufferView entity_combined_transforms = {};
-    daxa::TaskBufferView mesh_groups = {};
-    daxa::TaskBufferView meshes = {};
-    daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
     daxa::TaskBufferView meshlet_instances = {};
@@ -471,9 +471,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
                 CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
                 CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
-                CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
-                CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
-                CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
                 CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
                 CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
                 CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
@@ -505,9 +502,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
                 DrawVisbufferH::AT.draw_commands | draw_commands_array,
                 DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-                DrawVisbufferH::AT.meshes | info.meshes,
-                DrawVisbufferH::AT.material_manifest | info.material_manifest,
-                DrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
                 DrawVisbufferH::AT.vis_image | info.vis_image,
                 DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
                 DrawVisbufferH::AT.depth_image | info.depth_image,
@@ -531,9 +525,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
                 CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
                 CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
-                CullMeshletsDrawVisbufferH::AT.meshes | info.meshes,
-                CullMeshletsDrawVisbufferH::AT.entity_combined_transforms | info.entity_combined_transforms,
-                CullMeshletsDrawVisbufferH::AT.material_manifest | info.material_manifest,
                 CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
                 CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
                 CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
@@ -601,9 +592,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
             DrawVisbufferH::AT.draw_commands | draw_commands_array,
             DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-            DrawVisbufferH::AT.meshes | info.meshes,
-            DrawVisbufferH::AT.material_manifest | info.material_manifest,
-            DrawVisbufferH::AT.entity_combined_transforms | info.combined_transforms,
             DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
             DrawVisbufferH::AT.vis_image | info.vis_image,
             DrawVisbufferH::AT.depth_image | info.depth_image,

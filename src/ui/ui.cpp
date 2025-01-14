@@ -1200,9 +1200,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
                 "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
                 "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                "LIGHT", // DEBUG_DRAW_MODE_LIGHT
-                "AO", // DEBUG_DRAW_MODE_AO
-                "GI", // DEBUG_DRAW_MODE_GI
+                "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                "AMBIENT_OCCLUSION", // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
+                "INDIRECT_DIFFUSE_AO", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
                 "LOD", // DEBUG_DRAW_MODE_LOD
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());

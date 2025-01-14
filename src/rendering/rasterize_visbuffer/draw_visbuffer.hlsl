@@ -341,13 +341,13 @@ func generic_mesh_compute_raster(
     in bool cull_backfaces,
     in bool cull_hiz_occluded)
 {
-    const GPUMesh mesh = deref_i(push.attach.meshes, meshlet_instance.mesh_index);
+    const GPUMesh mesh = deref_i(push.meshes, meshlet_instance.mesh_index);
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         return;
     }
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
-    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.attach.meshes, meshlet_instance.mesh_index).micro_indices;
+    daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = push.draw_data.observer;
     const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
     cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
@@ -361,7 +361,7 @@ func generic_mesh_compute_raster(
         printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_instance_index, MAX_MESHLET_INSTANCES);
     }
 
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     {
         const uint in_meshlet_vertex_index = meshlet_thread_index;
@@ -507,7 +507,7 @@ func entry_mesh_opaque_compute_raster(
     bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
-        GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
+        GPUMaterial material = draw_p.materials[meshlet_instance.material_index];
         cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
     }
 
@@ -516,7 +516,7 @@ func entry_mesh_opaque_compute_raster(
     // Because of this we simply dont hiz cull tris in first pass ever.
     let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
 
-    const GPUMesh mesh = draw_p.attach.meshes[meshlet_instance.mesh_index];
+    const GPUMesh mesh = draw_p.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         return;
@@ -545,7 +545,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         deref(push.attach.globals).observer_camera.view_proj : 
         deref(push.attach.globals).camera.view_proj;
 
-    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.attach.entity_combined_transforms, meshlet_instance.entity_index);
+    const daxa_f32mat4x3 model_mat4x3 = deref_i(push.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
     let mvp = mul(view_proj, model_mat);
 
@@ -709,7 +709,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     bool cull_backfaces = !GPU_MATERIAL_FALLBACK.alpha_discard_enabled;
     if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
     {
-        GPUMaterial material = draw_p.attach.material_manifest[meshlet_instance.material_index];
+        GPUMaterial material = draw_p.materials[meshlet_instance.material_index];
         cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
     }
 
@@ -718,7 +718,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // Because of this we simply dont hiz cull tris in first pass ever.
     let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
    
-    const GPUMesh mesh = draw_p.attach.meshes[meshlet_instance.mesh_index];
+    const GPUMesh mesh = draw_p.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         SetMeshOutputCounts(0,0);
@@ -788,7 +788,7 @@ FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMas
         draw_p.attach.overdraw_image,
         FragmentMaskedData(
             prim.material_index,
-            draw_p.attach.material_manifest,
+            draw_p.materials,
             draw_p.attach.globals->samplers.linear_repeat,
             // draw_p.attach.globals->samplers.nearest_repeat,
             vert.uv
@@ -868,7 +868,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
     
     if (draw_meshlet)
     {
-        GPUMesh mesh_data = deref_i(push.attach.meshes, meshle_instance.mesh_index);
+        GPUMesh mesh_data = deref_i(push.meshes, meshle_instance.mesh_index);
         draw_meshlet = draw_meshlet && mesh_data.mesh_buffer.value != 0; // Check if mesh is loaded.
         draw_meshlet = draw_meshlet && (meshle_instance.meshlet_index < mesh_data.meshlet_count);
     }
@@ -884,8 +884,8 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
             push.attach.globals.debug,
             cull_camera,
             meshle_instance,
-            push.attach.entity_combined_transforms,
-            push.attach.meshes,
+            push.entity_combined_transforms,
+            push.meshes,
             push.attach.globals.cull_data,
             push.attach.hiz);
     }
@@ -1006,7 +1006,7 @@ func entry_compute_meshlet_cull(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attach.mesh_instances,
-        push.attach.meshes,
+        push.meshes,
         svtid.x,
         meshlet_instance
     );
@@ -1061,7 +1061,7 @@ func entry_task_meshlet_cull(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attach.mesh_instances,
-        push.attach.meshes,
+        push.meshes,
         svtid.x,
         meshlet_instance
     );
@@ -1080,7 +1080,7 @@ func entry_task_meshlet_cull(
     {
         if (meshlet_instance.material_index != INVALID_MANIFEST_INDEX)
         {
-            GPUMaterial material = push.attach.material_manifest[meshlet_instance.material_index];
+            GPUMaterial material = push.materials[meshlet_instance.material_index];
             cull_backfaces = !material.alpha_discard_enabled && !material.double_sided_enabled;
         }
     }
@@ -1140,7 +1140,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         push.attach.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attach.mesh_instances,
-        push.attach.meshes,
+        push.meshes,
         meshlet_cull_arg_index,
         meshlet_instance
     );
@@ -1149,13 +1149,13 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     fake_draw_p.draw_data = push.draw_data; // Can only be the second pass.
     fake_draw_p.attach.globals = push.attach.globals;
     fake_draw_p.attach.meshlet_instances = push.attach.meshlet_instances;
-    fake_draw_p.attach.meshes = push.attach.meshes;
-    fake_draw_p.attach.entity_combined_transforms = push.attach.entity_combined_transforms;
-    fake_draw_p.attach.material_manifest = push.attach.material_manifest;
+    fake_draw_p.meshes = push.meshes;
+    fake_draw_p.entity_combined_transforms = push.entity_combined_transforms;
+    fake_draw_p.materials = push.materials;
     fake_draw_p.attach.atomic_visbuffer = push.attach.atomic_visbuffer;
     
     let cull_backfaces = (payload.cull_backfaces_mask & task_shader_local_bit) != 0;
-    const GPUMesh mesh = push.attach.meshes[meshlet_instance.mesh_index];
+    const GPUMesh mesh = push.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
         SetMeshOutputCounts(0,0);
@@ -1218,8 +1218,8 @@ FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in 
         cull_meshlets_draw_visbuffer_push.attach.overdraw_image,
         FragmentMaskedData(
             prim.material_index,
-            cull_meshlets_draw_visbuffer_push.attach.material_manifest,
-            cull_meshlets_draw_visbuffer_push.attach.globals->samplers.linear_repeat,
+            cull_meshlets_draw_visbuffer_push.materials,
+            cull_meshlets_draw_visbuffer_push.attach.globals.samplers.linear_repeat,
             vert.uv
         ),
         daxa::ImageViewId(0),
@@ -1262,7 +1262,7 @@ void entry_fragment_masked_atomicvis(in MeshShaderMaskVertex vert, in MeshShader
         draw_p.attach.overdraw_image,
         FragmentMaskedData(
             prim.material_index,
-            draw_p.attach.material_manifest,
+            draw_p.materials,
             draw_p.attach.globals->samplers.linear_repeat,
             vert.uv
         ),
@@ -1297,7 +1297,7 @@ void entry_fragment_meshlet_cull_masked_atomicvis(in MeshShaderMaskVertex vert, 
         cull_meshlets_draw_visbuffer_push.attach.overdraw_image,
         FragmentMaskedData(
             prim.material_index,
-            cull_meshlets_draw_visbuffer_push.attach.material_manifest,
+            cull_meshlets_draw_visbuffer_push.materials,
             cull_meshlets_draw_visbuffer_push.attach.globals->samplers.linear_repeat,
             vert.uv
         ),

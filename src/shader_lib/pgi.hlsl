@@ -274,7 +274,8 @@ func pgi_sample_irradiance(
                     (y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
                     (z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                probe_weight *= cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z;
+                static const float INTERPOL_SOFTENER = 0.925f; // reduces banding between probes
+                probe_weight *= pow(cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z, INTERPOL_SOFTENER);
             }
 
             float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
@@ -284,7 +285,7 @@ func pgi_sample_irradiance(
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
             float smooth_backface_term = (1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f;
-            probe_weight *= square(smooth_backface_term);
+            probe_weight *= square(smooth_backface_term) + 0.2f;
 
             // visibility (Chebyshev)
             // ===== Shadow Map Visibility Test =====
@@ -319,10 +320,10 @@ func pgi_sample_irradiance(
                     visibility_weight = max(min_visibility, visibility_weight * visibility_weight * visibility_weight);
 
                     // Crushing tiny weights reduces leaking BUT does not reduce image blending smoothness.
-                    const float crushThreshold = 0.05f;
+                    const float crushThreshold = 0.02f;
                     if (visibility_weight < crushThreshold)
                     {
-                        visibility_weight *= (visibility_weight * visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold * crushThreshold));
+                        visibility_weight *= (visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold));
                     }
                 }
             }
@@ -394,7 +395,7 @@ func pgi_sample_irradiance(
                 stable_index
             ).rgb;
 
-            accum += probe_weight * sqrt(sqrt(linearly_filtered_samples.rgb));
+            accum += probe_weight * sqrt(linearly_filtered_samples.rgb);
             weight_accum += probe_weight;
         }
     }
@@ -405,6 +406,195 @@ func pgi_sample_irradiance(
     }
     else
     {
-        return clamp(square(square(accum * rcp(weight_accum))), float3(0,0,0), float3(1,1,1) * 100000.0f);
+        return clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f);
+    }
+}
+
+
+func pgi_sample_irradiance_nearest(
+    RenderGlobalData* globals,
+    PGISettings settings,
+    float3 position,
+    float3 geo_normal,
+    float3 shading_normal,
+    float3 view_direction,
+    RaytracingAccelerationStructure tlas,
+    Texture2DArray<float4> probes,
+    Texture2DArray<float2> probe_visibility,
+    Texture2DArray<float4> probe_infos,
+    RWTexture2DArray<uint> probe_requests,
+    int probe_request_mode
+) -> float3 {
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
+
+    float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp + 0.5f;
+    int3 base_probe = int3(floor(grid_coord));
+
+    // Request Probe Cell (Base Probe responsible for cell)
+    if ((probe_request_mode != 0) && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
+    {
+        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, base_probe);
+        uint request_timer = probe_requests[base_probe_stable_index];
+
+        uint main_view_request_timer = request_timer & 0xFF;
+        uint indirect_request_timer = (request_timer >> 16) & 0xFF;
+
+        if ((probe_request_mode == 1) && (main_view_request_timer < 64))
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF);
+        }
+        if ((probe_request_mode == 2) && (indirect_request_timer < 64))
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 16);
+        }
+    }
+
+    float3 grid_interpolants = frac(grid_coord);
+    
+    float3 cell_size = float3(settings.probe_range) / float3(settings.probe_count);
+
+    float3 accum = float3(0,0,0);
+    float weight_accum = 0.00001f;
+    for (uint probe = 0; probe < 1; ++probe)
+    {
+        int x = int((probe >> 0u) & 0x1u);
+        int y = int((probe >> 1u) & 0x1u);
+        int z = int((probe >> 2u) & 0x1u);
+        int3 probe_index = base_probe + int3(x,y,z);
+        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
+
+        if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
+        {
+            float probe_weight = 1.0f;
+
+            PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
+            if (probe_info.validity < 0.8f)
+            {
+                probe_weight = 0.0f;
+            }
+
+            float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
+            float3 shading_to_probe_direction = normalize(probe_position - position);
+
+            // visibility (Chebyshev)
+            // ===== Shadow Map Visibility Test =====
+            // - Shadowmap channel r contains average ray length
+            // - Shadowmap channel g contains average *difference to average* of raylength
+            // - Original DDGI stores distance^2 in g channel
+            //   - I noticed that this leads to very bad results for certain exponential averaging values
+            //   - Using the average difference to average raylength is much more stable and "close enough" to the std dev
+            //   - Leads to better results in my testing
+            float visibility_distance = length(probe_position - visibility_sample_position) + RAY_MIN_POSITION_OFFSET;
+            float3 visibility_to_probe_direction = normalize(probe_position - visibility_sample_position);
+            float average_distance = 0.0f;
+            float average_distance_std_dev = 0.0f;
+            float visibility_weight = 1.0f;
+            {
+                float2 visibility = pgi_sample_probe_visibility(
+                    globals,
+                    settings,
+                    -visibility_to_probe_direction,
+                    probe_visibility,
+                    stable_index
+                );
+
+                average_distance = max(visibility.x, 0.0f); // Can contain negative values (back face disabling)
+                float average_difference_to_average_distance = visibility.y;
+                average_distance_std_dev = average_difference_to_average_distance; // Wrong but works better :P
+                float variance = (average_distance_std_dev);
+                if (visibility_distance > average_distance)
+                {
+                    visibility_weight = variance / (variance + square(visibility_distance - average_distance));
+                    const float min_visibility = 0.00001f; // Bias. If all probes are occluded we want to fallback to leaking.
+                    visibility_weight = max(min_visibility, visibility_weight * visibility_weight * visibility_weight);
+
+                    // Crushing tiny weights reduces leaking BUT does not reduce image blending smoothness.
+                    const float crushThreshold = 0.02f;
+                    if (visibility_weight < crushThreshold)
+                    {
+                        visibility_weight *= (visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold));
+                    }
+                }
+            }
+            probe_weight *= visibility_weight;
+            // ===== Shadow Map Visibility Test =====
+
+            if (debug_pixel && settings.debug_probe_influence)
+            {
+                ShaderDebugLineDraw white_line = {};
+                white_line.start = probe_position;
+                white_line.end = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                white_line.color = visibility_weight.rrr;
+                debug_draw_line(globals.debug, white_line);
+
+                ShaderDebugLineDraw green_line = {};
+                green_line.start = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                green_line.end = probe_position - visibility_to_probe_direction * (average_distance);
+                green_line.color = visibility_weight.rrr * float3(0,1,0);
+                debug_draw_line(globals.debug, green_line);
+
+                ShaderDebugLineDraw blue_line = {};
+                blue_line.start = probe_position - visibility_to_probe_direction * (average_distance);
+                blue_line.end = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                blue_line.color = visibility_weight.rrr * float3(0,0,1);
+                debug_draw_line(globals.debug, blue_line);
+
+                if (probe_weight < 0.001f)
+                {
+                    ShaderDebugLineDraw black_line = {};
+                    black_line.start = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                    black_line.end = visibility_sample_position;
+                    black_line.color = float3(1,0.02,0.02) * 0.01;
+                    debug_draw_line(globals.debug, black_line);
+                }
+
+                ShaderDebugCircleDraw start = {};
+                start.position = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);
+                start.color = float3(0,1,0) * visibility_weight;
+                start.radius = 0.01f;
+                debug_draw_circle(globals.debug, start);
+                ShaderDebugCircleDraw end = {};
+                end.position = probe_position - visibility_to_probe_direction * (average_distance + average_distance_std_dev);
+                end.color = float3(0,0,1) * visibility_weight;
+                end.radius = 0.01f;
+                debug_draw_circle(globals.debug, end);
+
+                ShaderDebugLineDraw bias_offset_line = {};
+                bias_offset_line.start = visibility_sample_position;
+                bias_offset_line.end = position;
+                bias_offset_line.color = float3(1,1,0);
+                debug_draw_line(globals.debug, bias_offset_line);
+                ShaderDebugCircleDraw sample_pos = {};
+                sample_pos.position = position;
+                sample_pos.color = float3(1,1,0);
+                sample_pos.radius = 0.04f;
+                debug_draw_circle(globals.debug, sample_pos);
+                ShaderDebugCircleDraw sample_pos_offset = {};
+                sample_pos_offset.position = visibility_sample_position;
+                sample_pos_offset.color = float3(1,1,0);
+                sample_pos_offset.radius = 0.01f;
+                debug_draw_circle(globals.debug, sample_pos_offset);
+            }
+
+            float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
+                globals,
+                settings,
+                shading_normal,
+                probes,
+                stable_index
+            ).rgb;
+
+            accum += probe_weight * linearly_filtered_samples.rgb;
+            weight_accum += probe_weight;
+        }
+    }
+
+    if (weight_accum == 0)
+    {
+        return float3(0,0,0);
+    }
+    else
+    {
+        return clamp(accum * rcp(weight_accum), float3(0,0,0), float3(1,1,1) * 100000.0f);
     }
 }

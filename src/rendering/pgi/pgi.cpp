@@ -1768,6 +1768,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
 
     PGITraceProbeLightingPush push = {};
     push.attach = ti.attachment_shader_blob;
+    push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
     if (render_data.pgi_settings.enable_indirect_sparse)

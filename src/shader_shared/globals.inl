@@ -25,7 +25,9 @@ struct RenderGlobalData
     daxa_u32 hovered_entity_index;
     daxa_u32 selected_entity_index;
     
-    GPUScene scene;
+    // please pass these fields to push constants directly
+    // indirection via globals is slow
+    GPUScene scene; 
     CameraInfo camera;
     CameraInfo camera_prev_frame;
     CameraInfo observer_camera;
@@ -42,7 +44,6 @@ struct RenderGlobalData
     VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;
     PGISettings pgi_settings;
-    daxa_BufferPtr(SkySettings) sky_settings_ptr;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
     daxa_RWBufferPtr(ReadbackValues) readback;

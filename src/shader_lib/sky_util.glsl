@@ -443,7 +443,7 @@ daxa_f32vec3 get_atmo_position(daxa_BufferPtr(RenderGlobalData) globals)
 }
 
 daxa_f32vec3 get_atmosphere_illuminance_along_ray(
-    daxa_BufferPtr(SkySettings) settings,
+    SkySettings settings,
     daxa_ImageViewId transmittance,
     daxa_ImageViewId sky,
     daxa_SamplerId lin_sampler,
@@ -454,7 +454,7 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
     const daxa_f32 height = length(atmo_position);
     const daxa_f32mat3x3 basis = build_orthonormal_basis(atmo_position / height);
     ray = mul(ray, basis);
-    const daxa_f32vec3 sun_direction = mul(deref(settings).sun_direction, basis);
+    const daxa_f32vec3 sun_direction = mul(settings.sun_direction, basis);
 
     const daxa_f32vec3 world_up = daxa_f32vec3(0.0, 0.0, 1.0);
     const daxa_f32 view_zenith_angle = acos(dot(ray, world_up));
@@ -468,14 +468,14 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
         daxa_f32vec3(0.0, 0.0, height),
         ray,
         daxa_f32vec3(0.0),
-        deref(settings).atmosphere_bottom
+        settings.atmosphere_bottom
     );
 
     const daxa_f32 top_atmosphere_intersection_distance = ray_sphere_intersect_nearest(
         daxa_f32vec3(0.0, 0.0, height),
         ray,
         daxa_f32vec3(0.0),
-        deref(settings).atmosphere_top
+        settings.atmosphere_top
     );
 
     const bool intersects_ground = bottom_atmosphere_intersection_distance >= 0.0;
@@ -489,9 +489,9 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
         daxa_f32vec2 sky_uv = skyview_lut_params_to_uv(
             intersects_ground,
             SkyviewParams(view_zenith_angle, light_view_angle),
-            deref(settings).atmosphere_bottom,
-            deref(settings).atmosphere_top,
-            daxa_f32vec2(deref(settings).sky_dimensions),
+            settings.atmosphere_bottom,
+            settings.atmosphere_top,
+            daxa_f32vec2(settings.sky_dimensions),
             height
         );
 
@@ -502,13 +502,13 @@ daxa_f32vec3 get_atmosphere_illuminance_along_ray(
 #endif
         const daxa_f32vec3 unitless_atmosphere_illuminance = unitless_atmosphere_illuminance_mult.rgb * unitless_atmosphere_illuminance_mult.a;
         const daxa_f32vec3 sun_color_weighed_atmosphere_illuminance = sun_color.rgb * unitless_atmosphere_illuminance;
-        atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * deref(settings).sun_brightness;
+        atmosphere_scattering_illuminance = sun_color_weighed_atmosphere_illuminance * settings.sun_brightness;
 
         TransmittanceParams transmittance_lut_params = TransmittanceParams(height, dot(ray, world_up));
         daxa_f32vec2 transmittance_texture_uv = transmittance_lut_to_uv(
             transmittance_lut_params,
-            deref(settings).atmosphere_bottom,
-            deref(settings).atmosphere_top
+            settings.atmosphere_bottom,
+            settings.atmosphere_top
         );
 
 #if (DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG)

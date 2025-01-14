@@ -85,7 +85,7 @@ float3 sample_environment_light(float3 dir) {
     }
 
     const float3 atmosphere_direct_illuminnace = get_atmosphere_illuminance_along_ray(
-        AT.globals->sky_settings_ptr,
+        AT.globals->sky_settings,
         AT.transmittance,
         AT.sky,
         AT.globals->samplers.linear_clamp,
@@ -199,9 +199,9 @@ void ray_gen()
                     uint triangle_id = AT.vis_image.get()[px].x;
                     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
                     if (triangle_id_valid) {
-                        daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT.instantiated_meshlets;
-                        daxa_BufferPtr(GPUMesh) meshes = AT.meshes;
-                        daxa_BufferPtr(daxa_f32mat4x3) combined_transforms = AT.combined_transforms;
+                        daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT.meshlet_instances;
+                        daxa_BufferPtr(GPUMesh) meshes = AT.globals.scene.meshes;
+                        daxa_BufferPtr(daxa_f32mat4x3) combined_transforms = AT.globals.scene.entity_combined_transforms;
                         VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
                             triangle_id,
                             float2(px),
@@ -223,7 +223,7 @@ void ray_gen()
                         GPUMaterial material = GPU_MATERIAL_FALLBACK;
                         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
                         {
-                            material = AT.material_manifest[tri_geo.material_index];
+                            material = AT.globals.scene.materials[tri_geo.material_index];
                         }
 
                         float3 albedo = float3(material.base_color);
@@ -529,8 +529,8 @@ void any_hit(inout GbufferRayPayload payload, in BuiltInTriangleIntersectionAttr
     if (!rt_is_alpha_hit(
         push.attachments.attachments.globals,
         push.attachments.attachments.mesh_instances,
-        push.attachments.attachments.meshes,
-        push.attachments.attachments.material_manifest,
+        push.attachments.attachments.globals.scene.meshes,
+        push.attachments.attachments.globals.scene.materials,
         attr.barycentrics))
     {
         IgnoreHit();

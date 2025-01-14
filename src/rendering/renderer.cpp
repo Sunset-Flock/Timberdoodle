@@ -437,11 +437,6 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
                 render_context->render_data.sky_settings,
                 ti.get(render_context->tgpu_render_data),
                 offsetof(RenderGlobalData, sky_settings));
-            allocate_fill_copy(
-                ti,
-                render_context->render_data.sky_settings_ptr,
-                ti.get(render_context->tgpu_render_data),
-                offsetof(RenderGlobalData, sky_settings_ptr));
         },
         .name = "update sky settings globals",
     });
@@ -743,14 +738,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 ReferencePathTraceH::AT.sky_ibl | sky_ibl_view,
                 ReferencePathTraceH::AT.brdf_lut | brdf_fg_lut,
                 ReferencePathTraceH::AT.luminance_average | luminance_average,
-                ReferencePathTraceH::AT.material_manifest | scene->_gpu_material_manifest,
-                ReferencePathTraceH::AT.instantiated_meshlets | meshlet_instances,
-                ReferencePathTraceH::AT.meshes | scene->_gpu_mesh_manifest,
-                ReferencePathTraceH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
-                ReferencePathTraceH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
                 ReferencePathTraceH::AT.tlas | scene->_scene_tlas,
-                ReferencePathTraceH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
                 ReferencePathTraceH::AT.mesh_instances | scene->mesh_instances_buffer,
+                ReferencePathTraceH::AT.meshlet_instances | meshlet_instances,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
@@ -785,14 +775,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     RayTraceAmbientOcclusionH::AT.view_cam_depth | view_camera_depth,
                     RayTraceAmbientOcclusionH::AT.view_cam_detail_normals | view_camera_detail_normal_image,
                     RayTraceAmbientOcclusionH::AT.sky | sky,
-                    RayTraceAmbientOcclusionH::AT.material_manifest | scene->_gpu_material_manifest,
-                    RayTraceAmbientOcclusionH::AT.instantiated_meshlets | meshlet_instances,
-                    RayTraceAmbientOcclusionH::AT.meshes | scene->_gpu_mesh_manifest,
-                    RayTraceAmbientOcclusionH::AT.mesh_groups | scene->_gpu_mesh_group_manifest,
-                    RayTraceAmbientOcclusionH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
                     RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
-                    RayTraceAmbientOcclusionH::AT.entity_to_meshgroup | scene->_gpu_entity_mesh_groups,
                     RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
+                    RayTraceAmbientOcclusionH::AT.meshlet_instances | meshlet_instances,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
@@ -937,6 +922,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(PGIDrawDebugProbesTask{
             .views = std::array{
                 PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
+                PGIDrawDebugProbesH::AT.luminance_average | luminance_average,
                 PGIDrawDebugProbesH::AT.probe_indirections | pgi_indirections,
                 PGIDrawDebugProbesH::AT.color_image | color_image,
                 PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
@@ -1134,8 +1120,6 @@ void Renderer::render_frame(
         }
         // Whenever the settings change we need to recalculate the transmittance and multiscattering look up textures
         auto const sky_settings_offset = offsetof(RenderGlobalData, sky_settings);
-        render_context->render_data.sky_settings_ptr = render_data_device_address + sky_settings_offset;
-
         auto const mie_density_offset = sky_settings_offset + offsetof(SkySettings, mie_density);
         render_context->render_data.sky_settings.mie_density_ptr = render_data_device_address + mie_density_offset;
         auto const rayleigh_density_offset = sky_settings_offset + offsetof(SkySettings, rayleigh_density);

@@ -159,7 +159,7 @@ func shade_material(
 
     // Indirect Diffuse
     {
-        float3 global_illumination = pgi_sample_irradiance(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos, probe_requests, 2);
+        float3 global_illumination = pgi_sample_irradiance_nearest(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos, probe_requests, 2);
         diffuse_light += global_illumination;
     }
 
@@ -179,7 +179,7 @@ func shade_sky(
     float3 atmo_position = get_atmo_position(globals);
 
     const float3 atmosphere_direct_illuminnace = get_atmosphere_illuminance_along_ray(
-        globals->sky_settings_ptr,
+        globals->sky_settings,
         sky_transmittance,
         sky,
         globals->samplers.linear_clamp,

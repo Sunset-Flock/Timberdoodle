@@ -69,14 +69,15 @@ void main() {
     uint face = gl_WorkGroupID.z;
     vec2 uv = (vec2(sg_pix_pos) + vec2(0.5)) / IBL_CUBE_RES;
 
+    SkySettings sky_settings = deref(push.globals).sky_settings;
+
     vec3 output_dir = normalize(CUBE_MAP_FACE_ROTATION(face) * vec3(uv * 2 - 1, -1.0));
     const mat3 basis = build_orthonormal_basis(output_dir);
 
-    daxa_BufferPtr(SkySettings) sky_settings_ptr = deref(push.globals).sky_settings_ptr;
     // Because the atmosphere is using km as it's default units and we want one unit in world
     // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
     const vec3 camera_position = deref(push.globals).camera.position * M_TO_KM_SCALE;
-    vec3 world_camera_position = camera_position + vec3(0.0, 0.0, deref(sky_settings_ptr).atmosphere_bottom + BASE_HEIGHT_OFFSET);
+    vec3 world_camera_position = camera_position + vec3(0.0, 0.0, sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const float height = length(world_camera_position);
 
     vec3 accumulated_result = vec3(0);
@@ -94,7 +95,7 @@ void main() {
         // TODO: Now that we sample the atmosphere directly, computing this IBL is really slow.
         // We should cache the IBL cubemap, and only re-render it when necessary.
         const vec3 result = get_atmosphere_illuminance_along_ray(
-            sky_settings_ptr,
+            sky_settings,
             push.transmittance,
             push.sky,
             deref(push.globals).samplers.linear_clamp,

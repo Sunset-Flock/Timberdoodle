@@ -496,7 +496,7 @@ void entry_main_cs(
         }
         
         // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * pow(ambient_occlusion, 1.5f)) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * pow(ambient_occlusion, 1.25f)) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -579,19 +579,29 @@ void entry_main_cs(
                 output_value.rgb = color;
                 break;
             }
-            case DEBUG_DRAW_MODE_LIGHT:
+            case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
             {
-                output_value.rgb = lighting;
+                output_value.rgb = directional_light_direct;
                 break;
             }
-            case DEBUG_DRAW_MODE_AO:
+            case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
             {
-                output_value.rgb = ambient_occlusion.xxx;
+                output_value.rgb = indirect_lighting;
                 break;
             }
-            case DEBUG_DRAW_MODE_GI:
+            case DEBUG_DRAW_MODE_AMBIENT_OCCLUSION:
             {
-                output_value.rgb = indirect_lighting.xxx;
+                output_value.rgb = ambient_occlusion;
+                break;
+            }
+            case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO:
+            {
+                output_value.rgb = indirect_lighting * ambient_occlusion;
+                break;
+            }
+            case DEBUG_DRAW_MODE_ALL_DIFFUSE:
+            {
+                output_value.rgb = directional_light_direct + indirect_lighting * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:
@@ -621,7 +631,7 @@ void entry_main_cs(
         const float2 ndc_xy = screen_uv * 2.0 - 1.0;
         const float3 view_direction = get_view_direction(ndc_xy);
         const float3 atmosphere_direct_illuminnace = get_atmosphere_illuminance_along_ray(
-            AT.globals->sky_settings_ptr,
+            AT.globals->sky_settings,
             AT.transmittance,
             AT.sky,
             AT.globals->samplers.linear_clamp,

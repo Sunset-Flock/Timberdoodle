@@ -39,7 +39,7 @@ void main()
     MeshInstance mesh_instance = deref_i(deref(push.attach.mesh_instances).instances, mesh_instance_index);
     uint opaque_draw_list_index = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
 
-    const uint mesh_group_index = deref(push.attach.entity_mesh_groups[mesh_instance.entity_index]);
+    const uint mesh_group_index = deref(deref(push.attach.globals).scene.entity_to_meshgroup[mesh_instance.entity_index]);
     if (mesh_group_index == INVALID_MANIFEST_INDEX)
     {
         // Entity has no mesh group.
@@ -52,7 +52,7 @@ void main()
         return;
     }
     
-    GPUMeshGroup mesh_group = deref(push.attach.mesh_groups[mesh_group_index]);
+    GPUMeshGroup mesh_group = deref(deref(push.attach.globals).scene.mesh_groups[mesh_group_index]);
     if (mesh_group.mesh_lod_group_count == 0)
     {
         // Broken mesh group
@@ -155,7 +155,7 @@ void main()
         return;
     }
 
-    GPUMesh mesh = deref(push.attach.meshes[mesh_index]);
+    GPUMesh mesh = deref(deref(push.attach.globals).scene.meshes[mesh_index]);
     if (mesh.mesh_buffer.value == 0)
     {
         // Unloaded Mesh
@@ -241,7 +241,7 @@ void main()
             uint opaque_draw_list_type_index = PREPASS_DRAW_LIST_OPAQUE;
             if (prev_frame_vis_meshlet.material_index != INVALID_MANIFEST_INDEX)
             {
-                GPUMaterial material = deref(push.attach.materials[prev_frame_vis_meshlet.material_index]);
+                GPUMaterial material = deref(deref(push.attach.globals).scene.materials[prev_frame_vis_meshlet.material_index]);
                 opaque_draw_list_type_index = material.alpha_discard_enabled ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
             }
             // Scalarize appends to the draw lists.

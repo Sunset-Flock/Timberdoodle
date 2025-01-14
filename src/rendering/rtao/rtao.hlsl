@@ -83,9 +83,9 @@ void ray_gen()
             camera_position = push.attach.globals->camera.position;
         }
 
-        MeshletInstancesBufferHead* instantiated_meshlets = push.attach.instantiated_meshlets;
-        GPUMesh* meshes = push.attach.meshes;
-        daxa_f32mat4x3* combined_transforms = push.attach.combined_transforms;
+        MeshletInstancesBufferHead* instantiated_meshlets = push.attach.meshlet_instances;
+        GPUMesh* meshes = push.attach.globals.scene.meshes;
+        daxa_f32mat4x3* combined_transforms = push.attach.globals.scene.entity_combined_transforms;
         VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id,
             float2(index),
@@ -143,8 +143,8 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     if (!rt_is_alpha_hit(
         push.attach.globals,
         push.attach.mesh_instances,
-        push.attach.meshes,
-        push.attach.material_manifest,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.materials,
         attr.barycentrics))
     {
         IgnoreHit();

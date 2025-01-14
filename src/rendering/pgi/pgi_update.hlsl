@@ -247,7 +247,7 @@ func entry_update_probe_visibility(
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
         if (cos_weight > MAX_ACCEPTED_COS)
         {
-            float power_cos_weight = pow(cos_weight, 50.0f);
+            float power_cos_weight = pow(cos_weight, 25.0f);
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -668,7 +668,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             update = requested && (checker_board != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_8:
-            int every_eightth = ((probe_index.x & 0x1) + (probe_index.y & 0x1) * 2 + (probe_index.z & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
+            int every_eightth = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
             update = requested && (every_eightth != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_64:
