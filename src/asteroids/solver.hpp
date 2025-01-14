@@ -3,6 +3,7 @@
 #include "../timberdoodle.hpp"
 #include "../shader_shared/asteroids.inl"
 #include "asteroids_shared.hpp"
+#include "../multithreading/thread_pool.hpp"
 
 using namespace tido::types;
 
@@ -36,7 +37,7 @@ struct Material
 
 struct Solver
 {
-    void integrate(std::vector<Asteroid> & asteroids, f64 const dt);
+    void integrate(AsteroidsWrapper & asteroids, f64 const dt/*, ThreadPool & threadpool*/);
 
     private:
         Material material = {};

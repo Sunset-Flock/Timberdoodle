@@ -18,13 +18,13 @@ struct AsteroidSimulation
     ~AsteroidSimulation();
 
     void run();
-    auto get_asteroids() -> std::vector<Asteroid>;
+    auto get_asteroids() -> AsteroidsWrapper;
     void draw_imgui();
     
     private:
         f32 speed_multiplier = 1.0f;
-        std::vector<Asteroid> asteroids = {};
-        std::vector<Asteroid> last_update_asteroids = {};
+        AsteroidsWrapper asteroids = {};
+        AsteroidsWrapper last_update_asteroids = {};
         Solver solver = {};
         f64 dt = 0.0000001;
 

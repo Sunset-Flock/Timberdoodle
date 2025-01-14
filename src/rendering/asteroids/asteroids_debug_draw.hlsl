@@ -121,7 +121,7 @@ func entry_fragment_debug_draw_asteroids(DrawDebugAsteroidVertexToPixel vertex_t
         }
         int lower_color_idx = clamp(floor(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
         int upper_color_idx = clamp(ceil(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
-        float interp = fract(rescaled_value);
+        float interp = fract(rescaled_value * float(COLOR_COUNT -1));
         color *= ACCRETION_PALETTE[lower_color_idx] * (1.0f - interp) + ACCRETION_PALETTE[upper_color_idx] * interp;
     }
 

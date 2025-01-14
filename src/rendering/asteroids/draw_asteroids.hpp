@@ -20,7 +20,7 @@ struct AsteroidsState
 
     void initialize_persistent_state(daxa::Device& device);
     void initalize_transient_state(daxa::TaskGraph & tg);
-    void update_cpu_data(std::vector<Asteroid> const & asteroids);
+    void update_cpu_data(AsteroidsWrapper const & asteroids);
     void cleanup(daxa::Device & device);
 };
 

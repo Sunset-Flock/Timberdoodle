@@ -121,22 +121,29 @@ AsteroidSimulation::AsteroidSimulation()
     f64 const collider_total_mass = collider_sphere_volume * INITAL_DENSITY;
     std::vector<f64> collider_masses = get_asteroid_masses(asteroid_positions, collider_total_mass);
 
-    u32 real_pos = asteroid_positions.size() + collider_positions.size();
-    for(i32 asteroid_index = 0; asteroid_index < asteroid_positions.size() + collider_positions.size(); ++asteroid_index)
+    u32 const total_positions_count = asteroid_positions.size() + collider_positions.size();
+
+    last_update_asteroids.resize(total_positions_count);
+    asteroids.resize(total_positions_count);
+
+    asteroids.max_smoothing_radius = std::numeric_limits<f64>::min();
+
+    for(i32 asteroid_index = 0; asteroid_index < total_positions_count; ++asteroid_index)
     {
         bool const use_planet_params = asteroid_index < asteroid_positions.size();
         i32 const real_index = use_planet_params ? asteroid_index : asteroid_index - asteroid_positions.size();
-        asteroids.push_back({
-            .position = use_planet_params ? asteroid_positions.at(real_index) : collider_positions.at(real_index),
-            .velocity = use_planet_params ? f64vec3(0.0) : 5000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 3000.0)),
-            .smoothing_radius = use_planet_params ? asteroid_positions.at(real_index).w : collider_positions.at(real_index).w,
-            .mass = use_planet_params ? asteroid_masses.at(real_index) : collider_masses.at(real_index),
-            .density = INITAL_DENSITY,
-            .energy = 0.0f,
-            .particle_scale = use_planet_params ? 2.5f : 0.8f
-        });
+        asteroids.positions.at(asteroid_index) = (use_planet_params ? asteroid_positions.at(real_index) : collider_positions.at(real_index));
+        // asteroids.velocities.push_back(use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0)));
+        asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000));
+        asteroids.smoothing_radii.at(asteroid_index) = use_planet_params ? asteroid_positions.at(real_index).w : collider_positions.at(real_index).w;
+        asteroids.masses.at(asteroid_index) = use_planet_params ? asteroid_masses.at(real_index) : collider_masses.at(real_index);
+        asteroids.particle_scales.at(asteroid_index) = use_planet_params ? 2.5f : 1.0f;
+
+        asteroids.max_smoothing_radius = std::max(asteroids.max_smoothing_radius, asteroids.smoothing_radii.at(asteroid_index));
     }
-    last_update_asteroids.resize(asteroids.size());
+    std::fill(asteroids.densities.begin(), asteroids.densities.end(), INITAL_DENSITY);
+    std::fill(asteroids.energies.begin(), asteroids.energies.end(), 0.0);
+    std::fill(asteroids.pressures.begin(), asteroids.pressures.end(), 0.0);
 
     run_thread = std::thread([=, this]() {AsteroidSimulation::run(); });
 }
@@ -164,7 +171,7 @@ void AsteroidSimulation::run()
         // dt = std::max(dt, 0.001);
         {
             std::lock_guard<std::mutex> guard(data_exchange_mutex);
-            std::memcpy(last_update_asteroids.data(), asteroids.data(), sizeof(Asteroid) * asteroids.size());
+            AsteroidsWrapper::copy(last_update_asteroids, asteroids);
         }
     }
 
@@ -183,7 +190,7 @@ void AsteroidSimulation::draw_imgui()
     dt = tmp;
 }
 
-auto AsteroidSimulation::get_asteroids() -> std::vector<Asteroid>
+auto AsteroidSimulation::get_asteroids() -> AsteroidsWrapper
 {
     std::lock_guard<std::mutex> guard(data_exchange_mutex);
     return last_update_asteroids;

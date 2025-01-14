@@ -1,4 +1,5 @@
 #include "solver.hpp"
+#include "spatial_grid.hpp"
 
 f64 Kernel::value(f64 const dist) const
 {
@@ -52,71 +53,119 @@ auto Material::evaluate(f64 const density, f64 const energy) -> EvaluateRet
 }
 
 
-void Solver::integrate(std::vector<Asteroid> & asteroids, f64 const dt)
+void Solver::integrate(AsteroidsWrapper & asteroids, f64 const dt/*, ThreadPool & threadpool*/)
 {
-    // Zero out derivatives from last frame.
-    for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
-    {
-        auto & asteroid = asteroids.at(asteroid_idx);
-        asteroid.energy_derivative = 0.0f;
-        asteroid.density_derivative = 0.0f;
-        asteroid.velocity_derivative = f32vec3(0.0f);
-        asteroid.velocity_divergence *= 0.7f;
+    const u32 asteroids_size = asteroids.positions.size();
 
-        auto const & ret = material.evaluate(asteroid.density, asteroid.energy);
-        asteroid.pressure = ret.pressure;
-        asteroid.speed_of_sound = ret.speed_of_sound;
+    std::fill(asteroids.energy_derivatives.begin(), asteroids.energy_derivatives.end(), 0.0);
+    std::fill(asteroids.density_derivatives.begin(), asteroids.density_derivatives.end(), 0.0);
+    std::fill(asteroids.velocity_derivatives.begin(), asteroids.velocity_derivatives.end(), f32vec3(0.0));
+    std::fill(asteroids.velocity_divergences.begin(), asteroids.velocity_divergences.end(), 0.0);
+    // Zero out derivatives from last frame.
+
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        auto const & ret = material.evaluate(asteroids.densities.at(asteroid_idx), asteroids.energies.at(asteroid_idx));
+        asteroids.pressures.at(asteroid_idx) = ret.pressure;
     }
 
+    // struct DerivativesTask : Task
+    // {
+    //     AsteroidsWrapper * wrapper;
 
-    for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
+    //     void callback(u32 chunk_index, u32 thread_index) override
+    //     {
+    //         u32 const start = chunk_size * chunk_index;
+    //         u32 const end = start + chunk_size;
+
+    //         for(i32 asteroid_idx = start; asteroid_idx < end; ++asteroid_idx)
+    //         {
+
+    //         }
+    //     }
+    // };
+
+    SpatialGrid grid = SpatialGrid(asteroids.positions, 3000.0f);
+
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
     {
-        auto & asteroid = asteroids.at(asteroid_idx);
-        for(i32 neighbor_asteroid_idx = 0; neighbor_asteroid_idx < asteroids.size(); ++neighbor_asteroid_idx)
+        std::vector<f64vec3> grad_values;
+        std::vector<u16> potential_neighbors = grid.get_neighbor_candidate_indices(asteroids.positions.at(asteroid_idx), asteroids.max_smoothing_radius);
+        std::vector<u16> actual_neighbors = {};
+
+        for(i32 potential_neighbors_vector_idx = 0; potential_neighbors_vector_idx < potential_neighbors.size(); ++potential_neighbors_vector_idx)
         {
-            auto const & neighbor_asteroid = asteroids.at(neighbor_asteroid_idx);
-            kernel.smoothing_radius = 0.5f * (asteroid.smoothing_radius + neighbor_asteroid.smoothing_radius);
+            u16 const potential_neighbor_index = potential_neighbors.at(potential_neighbors_vector_idx);
 
-            f64 const asteroid_distance = glm::length(asteroid.position - neighbor_asteroid.position);
+            kernel.smoothing_radius = 0.5f * (asteroids.smoothing_radii.at(asteroid_idx) + asteroids.smoothing_radii.at(potential_neighbor_index));
+            f64 const asteroid_distance = glm::length(asteroids.positions.at(asteroid_idx) - asteroids.positions.at(potential_neighbor_index));
 
-            bool const asteroids_same = neighbor_asteroid_idx == asteroid_idx;
+            bool const asteroids_same = potential_neighbor_index == asteroid_idx;
             bool const asteroids_too_far = asteroid_distance > (kernel.smoothing_radius * 2.0f);
+            if(!(asteroids_same || asteroids_too_far))
+            {
+                actual_neighbors.push_back(potential_neighbor_index);
+            }
+        }
 
-            if(asteroids_same || asteroids_too_far) { continue; }
 
-            f64vec3 const asteroid_to_neighbor = asteroid.position - neighbor_asteroid.position;
-            asteroid.gradient = asteroid_to_neighbor * std::pow(1.0f / kernel.smoothing_radius, 5.0f) * kernel.grad_value(asteroid_distance);
+        for(i32 neighbor_asteroid_vector_idx = 0; neighbor_asteroid_vector_idx < actual_neighbors.size(); ++neighbor_asteroid_vector_idx)
+        {
+            u16 const neighbor_asteroid_idx = actual_neighbors.at(neighbor_asteroid_vector_idx);
+
+            kernel.smoothing_radius = 0.5f * (asteroids.smoothing_radii.at(asteroid_idx) + asteroids.smoothing_radii.at(neighbor_asteroid_idx));
+
+            f64 const asteroid_distance = glm::length(asteroids.positions.at(asteroid_idx) - asteroids.positions.at(neighbor_asteroid_idx));
+
+            f64vec3 const asteroid_to_neighbor = asteroids.positions.at(asteroid_idx) - asteroids.positions.at(neighbor_asteroid_idx);
+            // grad_values.at(neighbor_asteroid_idx) = 
+            f64vec3 const to_neighbor_gradient = asteroid_to_neighbor * std::pow(1.0f / kernel.smoothing_radius, 5.0f) * kernel.grad_value(asteroid_distance);
 
             // Velocity derivative
-            {
-                f64vec3 const force = (
-                    (asteroid.pressure / std::pow(asteroid.density, 2.0)) + 
-                    (neighbor_asteroid.pressure / std::pow(neighbor_asteroid.density, 2.0))) * asteroid.gradient * -1.0;
+            f64vec3 const force = (
+                (asteroids.pressures.at(asteroid_idx) / std::pow(asteroids.densities.at(asteroid_idx), 2.0)) + 
+                (asteroids.pressures.at(neighbor_asteroid_idx) / std::pow(asteroids.densities.at(neighbor_asteroid_idx), 2.0)))
+                 * to_neighbor_gradient * -1.0;
             
-                asteroid.velocity_derivative += neighbor_asteroid.mass * force;
-            }
+            asteroids.velocity_derivatives.at(asteroid_idx) += asteroids.masses.at(neighbor_asteroid_idx) * force;
+
             // Velocity divergence
-            {
-                f64 dv = glm::dot(neighbor_asteroid.velocity - asteroid.velocity, asteroid.gradient);
-                asteroid.velocity_divergence += neighbor_asteroid.mass / asteroid.density * dv;
-            }
+            f64 dv = glm::dot(asteroids.velocities.at(neighbor_asteroid_idx) - asteroids.velocities.at(asteroid_idx), to_neighbor_gradient);
+            asteroids.velocity_divergences.at(asteroid_idx) += asteroids.masses.at(neighbor_asteroid_idx) / asteroids.densities.at(asteroid_idx) * dv;
         }
     }
 
-    for(i32 asteroid_idx = 0; asteroid_idx < asteroids.size(); ++asteroid_idx)
+    // Calculate continuity equation
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
     {
-        auto & asteroid = asteroids.at(asteroid_idx);
-        // Calculate continuity equation
-        asteroid.density_derivative += -asteroid.density * asteroid.velocity_divergence;
-        // Calculate pressure force
-        asteroid.energy_derivative -= asteroid.pressure / asteroid.density * asteroid.velocity_divergence;
+        asteroids.density_derivatives.at(asteroid_idx) += -asteroids.densities.at(asteroid_idx) * asteroids.velocity_divergences.at(asteroid_idx);
+    }
 
-        // Second order step
-        asteroid.velocity += asteroid.velocity_derivative * dt;
-        asteroid.position += asteroid.velocity * dt;
+    // Calculate pressure force
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        asteroids.energy_derivatives.at(asteroid_idx) -= 
+            asteroids.pressures.at(asteroid_idx) / asteroids.densities.at(asteroid_idx) * asteroids.velocity_divergences.at(asteroid_idx);
+    }
 
-        // First order step
-        asteroid.density += asteroid.density_derivative * dt;
-        asteroid.energy += asteroid.energy_derivative * dt;
+    // Second order velocity step
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        asteroids.velocities.at(asteroid_idx) += asteroids.velocity_derivatives.at(asteroid_idx) * dt;
+    }
+    // Second order position step
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        asteroids.positions.at(asteroid_idx) += asteroids.velocities.at(asteroid_idx) * dt;
+    }
+
+    // First order step
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        asteroids.densities.at(asteroid_idx) += asteroids.density_derivatives.at(asteroid_idx) * dt;
+    }
+    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
+    {
+        asteroids.energies.at(asteroid_idx) += asteroids.energy_derivatives.at(asteroid_idx) * dt;
     }
 }

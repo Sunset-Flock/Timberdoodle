@@ -26,6 +26,7 @@ struct Task
     virtual void callback(u32 chunk_index, u32 thread_index) = 0;
 
     u32 chunk_count = {};
+    u32 chunk_size = {};
     u32 not_finished = {};
     u32 started = {};
 };

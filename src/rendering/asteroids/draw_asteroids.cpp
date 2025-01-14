@@ -1479,30 +1479,30 @@ void AsteroidsState::initalize_transient_state(daxa::TaskGraph & tg)
     });
 }
 
-void AsteroidsState::update_cpu_data(std::vector<Asteroid> const & asteroids)
+void AsteroidsState::update_cpu_data(AsteroidsWrapper const & asteroids)
 {
-    DBG_ASSERT_TRUE_M(asteroids.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
-    for(i32 asteroid_index = 0; asteroid_index < asteroids.size(); ++asteroid_index)
+    DBG_ASSERT_TRUE_M(asteroids.positions.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
+    for(i32 asteroid_index = 0; asteroid_index < asteroids.positions.size(); ++asteroid_index)
     {
-        auto const & asteroid = asteroids.at(asteroid_index);
+        auto const & position = asteroids.positions.at(asteroid_index);
         cpu_asteroids.at(asteroid_index).position = daxa_f32vec3(
-            asteroid.position.x, asteroid.position.y, asteroid.position.z
+            position.x, position.y, position.z
         );
+        auto const & velocity = asteroids.velocities.at(asteroid_index);
         cpu_asteroids.at(asteroid_index).velocity = daxa_f32vec3(
-            asteroid.velocity.x, asteroid.velocity.y, asteroid.velocity.z
+            velocity.x, velocity.y, velocity.z
         );
+        auto const & velocity_derivative = asteroids.velocity_derivatives.at(asteroid_index);
         cpu_asteroids.at(asteroid_index).acceleration = daxa_f32vec3(
-            asteroid.velocity_derivative.x, 
-            asteroid.velocity_derivative.y, 
-            asteroid.velocity_derivative.z
+            velocity_derivative.x, velocity_derivative.y, velocity_derivative.z
         );
-        cpu_asteroids.at(asteroid_index).velocity_divergence = asteroid.velocity_divergence;
-        cpu_asteroids.at(asteroid_index).pressure = asteroid.pressure;
-        cpu_asteroids.at(asteroid_index).density = asteroid.density;
-        cpu_asteroids.at(asteroid_index).particle_scale = asteroid.particle_scale;
+        cpu_asteroids.at(asteroid_index).velocity_divergence = asteroids.velocity_divergences.at(asteroid_index);
+        cpu_asteroids.at(asteroid_index).pressure = asteroids.pressures.at(asteroid_index);
+        cpu_asteroids.at(asteroid_index).density = asteroids.densities.at(asteroid_index);
+        cpu_asteroids.at(asteroid_index).particle_scale = asteroids.particle_scales.at(asteroid_index);
     }
 
-    asteroids_count = asteroids.size();
+    asteroids_count = asteroids.positions.size();
 }
 
 void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
