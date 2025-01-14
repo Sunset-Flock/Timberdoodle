@@ -37,7 +37,7 @@ struct Material
 
 struct Solver
 {
-    void integrate(AsteroidsWrapper & asteroids, f64 const dt/*, ThreadPool & threadpool*/);
+    void integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & threadpool);
 
     private:
         Material material = {};

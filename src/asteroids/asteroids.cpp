@@ -99,7 +99,7 @@ auto get_asteroid_masses(std::vector<f64vec4> const & positions, const f64 total
     return masses;
 }
 
-AsteroidSimulation::AsteroidSimulation()
+AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool(the_threadpool)
 {
     std::vector<f64vec4> asteroid_positions = distribute_asteroids_in_sphere({
         .center = f64vec3(0.0f),
@@ -132,9 +132,9 @@ AsteroidSimulation::AsteroidSimulation()
     {
         bool const use_planet_params = asteroid_index < asteroid_positions.size();
         i32 const real_index = use_planet_params ? asteroid_index : asteroid_index - asteroid_positions.size();
-        asteroids.positions.at(asteroid_index) = (use_planet_params ? asteroid_positions.at(real_index) : collider_positions.at(real_index));
-        // asteroids.velocities.push_back(use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0)));
-        asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000));
+        asteroids.positions.at(asteroid_index) = use_planet_params ? asteroid_positions.at(real_index) : collider_positions.at(real_index);
+        asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0));
+        // asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000));
         asteroids.smoothing_radii.at(asteroid_index) = use_planet_params ? asteroid_positions.at(real_index).w : collider_positions.at(real_index).w;
         asteroids.masses.at(asteroid_index) = use_planet_params ? asteroid_masses.at(real_index) : collider_masses.at(real_index);
         asteroids.particle_scales.at(asteroid_index) = use_planet_params ? 2.5f : 1.0f;
@@ -180,7 +180,7 @@ void AsteroidSimulation::run()
 
 void AsteroidSimulation::update_asteroids(f64 const dt)
 {
-    solver.integrate(asteroids, dt);
+    solver.integrate(asteroids, dt, *threadpool);
 }
 
 void AsteroidSimulation::draw_imgui()

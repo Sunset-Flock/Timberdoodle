@@ -14,7 +14,7 @@ struct AsteroidSimulation
     std::atomic_bool should_run = true;
     std::mutex data_exchange_mutex;
 
-    AsteroidSimulation();
+    AsteroidSimulation(ThreadPool * the_threadpool);
     ~AsteroidSimulation();
 
     void run();
@@ -22,6 +22,7 @@ struct AsteroidSimulation
     void draw_imgui();
     
     private:
+        ThreadPool * threadpool;
         f32 speed_multiplier = 1.0f;
         AsteroidsWrapper asteroids = {};
         AsteroidsWrapper last_update_asteroids = {};

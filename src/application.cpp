@@ -96,6 +96,7 @@ Application::Application()
 
     app_state.last_time_point = std::chrono::steady_clock::now();
     _renderer->render_context->render_times.enable_render_times = true;
+    _simulation = std::make_unique<AsteroidSimulation>(_threadpool.get());
 }
 using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
 
@@ -125,7 +126,7 @@ auto Application::run() -> i32
             _renderer->render_frame(
                 camera_info,
                 app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
-                app_state.simulation.get_asteroids(),
+                _simulation->get_asteroids(),
                 app_state.delta_time);
         }
         _gpu_context->device.collect_garbage();
@@ -231,7 +232,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state);
+    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state, *_simulation);
     if (app_state.use_preset_camera)
     {
         app_state.cinematic_camera.process_input(*_window, app_state.delta_time);

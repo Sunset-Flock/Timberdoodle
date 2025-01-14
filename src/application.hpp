@@ -47,5 +47,6 @@ private:
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
     std::unique_ptr<ThreadPool> _threadpool = {};
+    std::unique_ptr<AsteroidSimulation> _simulation;
     ApplicationState app_state = {};
 };

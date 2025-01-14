@@ -125,7 +125,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state)
+void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene const & scene, ApplicationState & app_state, AsteroidSimulation & simulation)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -253,7 +253,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 "DENSITY",
             };
             ImGui::Combo("debug visualization", &render_context.render_data.asteroid_settings.debug_draw_mode, modes.data(), modes.size());
-            app_state.simulation.draw_imgui();
+            simulation.draw_imgui();
         }
         ImGui::End();
     }
