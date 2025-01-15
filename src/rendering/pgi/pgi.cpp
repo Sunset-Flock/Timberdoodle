@@ -2027,11 +2027,11 @@ auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings,
     return tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = { 
-            static_cast<u32>(settings.probe_count.x * settings.probe_trace_resolution),
-            static_cast<u32>(settings.probe_count.y * settings.probe_trace_resolution),
+            static_cast<u32>(settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
+            static_cast<u32>(settings.probe_trace_resolution * (PGI_MAX_UPDATES_PER_FRAME / PGI_TRACE_TEX_PROBES_X)),
             1,
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = 1,
         .name = "pgi traced probe lighting and depth",
     });
 }

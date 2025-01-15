@@ -79,6 +79,16 @@ struct PGIProbeInfo
     }
 }
 
+uint2 pgi_indirect_index_to_trace_tex_offset(PGISettings settings, uint indirect_index)
+{
+    uint row = indirect_index / PGI_TRACE_TEX_PROBES_X;
+    uint col = indirect_index - (row * PGI_TRACE_TEX_PROBES_X);
+    return uint2(
+        settings.probe_trace_resolution * col,
+        settings.probe_trace_resolution * row
+    );
+}
+
 // The base probe of a cell is the probe with the smallest probe index.
 // There are probe-count-1 cells, so any probe except for the last probe in each dimension is a base probe.
 bool pgi_is_cell_base_probe(PGISettings settings, int3 probe_index)
@@ -409,7 +419,6 @@ func pgi_sample_irradiance(
         return clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f);
     }
 }
-
 
 func pgi_sample_irradiance_nearest(
     RenderGlobalData* globals,

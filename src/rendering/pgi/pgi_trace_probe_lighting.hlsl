@@ -84,6 +84,8 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     }
 }
 
+#define RAYGEN_SHADING 0
+
 [shader("raygeneration")]
 void entry_ray_gen()
 {
@@ -91,11 +93,12 @@ void entry_ray_gen()
     PGISettings settings = push.attach.globals.pgi_settings;
     int3 dtid = DispatchRaysIndex().xyz;
 
+    uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
     if (settings.enable_indirect_sparse)
     {
-        uint indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
+        indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
         uint local_index = (dtid.x - indirect_index * (settings.probe_trace_resolution * settings.probe_trace_resolution));
         probe_texel.y = local_index / settings.probe_trace_resolution;
         probe_texel.x = local_index - settings.probe_trace_resolution * probe_texel.y;
@@ -125,7 +128,7 @@ void entry_ray_gen()
 
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
 
-    uint3 probe_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
+    uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
     uint3 trace_result_texture_index = probe_texture_index;
 
@@ -143,7 +146,9 @@ void entry_ray_gen()
 
     TraceRay(push.attach.tlas.get(), {}, ~0, 0, 0, 0, ray, payload);
 
-    #if 0
+    RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
+
+    #if RAYGEN_SHADING
     float4 color_depth = {};
     if (payload.hit)
     {
@@ -202,9 +207,10 @@ void entry_ray_gen()
         color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, probe_normal);
         color_depth.a = 1000.0f;
     }
+    trace_result_tex[trace_result_texture_index] = color_depth;
+    #else
+    trace_result_tex[trace_result_texture_index] = payload.color_depth;
     #endif
-
-    push.attach.trace_result.get()[trace_result_texture_index] = payload.color_depth;
 }
 
 [shader("anyhit")]
@@ -234,6 +240,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     payload.instance_id = InstanceID();
     payload.geometry_index = GeometryIndex();
 
+#if RAYGEN_SHADING == 0
     float3 hit_point = WorldRayOrigin() + WorldRayDirection() * payload.t;
     MeshInstance* mi = push.attach.mesh_instances.instances;
     TriangleGeometry tri_geo = rt_get_triangle_geo(
@@ -283,6 +290,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     }
 
     payload.color_depth.a = distance;
+    #endif
 }
 
 [shader("miss")]
@@ -292,6 +300,8 @@ void entry_miss(inout RayPayload payload)
 
     payload.hit = false;
 
+    #if RAYGEN_SHADING == 0
     payload.color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
     payload.color_depth.a = 1000.0f;
+    #endif
 }

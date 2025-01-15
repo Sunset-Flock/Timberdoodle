@@ -61,6 +61,7 @@ func entry_update_probe_irradiance(
     PGISettings settings = push.attach.globals.pgi_settings;
     let probe_texel_res = settings.probe_radiance_resolution;
 
+    uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
     if (settings.enable_indirect_sparse)
@@ -68,7 +69,7 @@ func entry_update_probe_irradiance(
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_radiance_resolution)));
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_radiance_resolution)));
         uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_radiance_resolution)));
-        uint indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
+        indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
         let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
         {
@@ -109,12 +110,13 @@ func entry_update_probe_irradiance(
     int s = settings.probe_trace_resolution;
 
     float4 cosine_convoluted_trace_result = float4(0.0f,0.0f,0.0f, 0.0f);
-    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
+    uint3 trace_result_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     float acc_weight = 0.0f;
     float cos_wrap_around = settings.cos_wrap_around;
     float cos_wrap_around_rcp = rcp(cos_wrap_around + 1.0f);
     float rcp_s = rcp(s);
+    Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
@@ -124,7 +126,7 @@ func entry_update_probe_irradiance(
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
         if (cos_weight > 0.001f)
         {
-            float4 sample = push.attach.trace_result.get()[sample_texture_index].rgba;
+            float4 sample = trace_result_tex[sample_texture_index].rgba;
             cosine_convoluted_trace_result += sample * cos_weight;
             acc_weight += cos_weight;
         }
@@ -150,7 +152,7 @@ func entry_update_probe_irradiance(
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
         if (factor > 0.0f)
         {
-            factor *= 0.2f;
+            factor *= 0.5f;
         }
         hysteresis += 0.025 * factor;
         hysteresis = clamp(hysteresis, 0.8f, 0.98f);
@@ -160,7 +162,18 @@ func entry_update_probe_irradiance(
         hysteresis = 0.0f;
     }
 
-    // Avoid super bright radiance to add splodges.
+    // Slam down large luminance changes to make convergence faster
+    {
+        float prev_luma = length(prev_frame_radiance + 0.0001f);
+        float new_luma = length(new_radiance + 0.0001f);
+
+        if (new_luma > prev_luma)
+        {
+            new_luma = sqrt(new_luma - prev_luma + 1) - 1 + prev_luma;
+            new_radiance = normalize(new_radiance + 0.0001f) * new_luma;
+        }
+    }
+    //new_radiance = min(new_radiance, prev_frame_radiance * 3.0f);
     new_radiance = lerp(new_radiance, prev_frame_radiance, prev_frame_texel.a);
 
     float4 value = float4(new_radiance, hysteresis);
@@ -177,6 +190,7 @@ func entry_update_probe_visibility(
     PGISettings settings = push.attach.globals.pgi_settings;
     let probe_texel_res = settings.probe_visibility_resolution;
 
+    uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
     if (settings.enable_indirect_sparse)
@@ -184,7 +198,7 @@ func entry_update_probe_visibility(
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_visibility_resolution)));
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_visibility_resolution)));
         uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_visibility_resolution)));
-        uint indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
+        indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
         let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
         {
@@ -224,7 +238,7 @@ func entry_update_probe_visibility(
 
     float2 relevant_trace_blend = float2(0.0f, 0.0f);
     int valid_trace_count = 0;
-    int3 trace_result_texture_base_index = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
+    uint3 trace_result_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     const float max_depth = settings.max_visibility_distance;
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
@@ -337,10 +351,11 @@ func entry_update_probe(
     let push = update_probes_push;
     PGISettings settings = push.attach.globals.pgi_settings;
 
+    uint indirect_index = {};
     int3 probe_index = dtid;
     if (settings.enable_indirect_sparse)
     {
-        uint indirect_index = group_id * 64 + group_index;
+        indirect_index = group_id * 64 + group_index;
         let overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (overhang)
         {
@@ -362,7 +377,7 @@ func entry_update_probe(
         return;
     }
 
-    int3 trace_base_texel = pgi_probe_texture_base_offset<NO_BORDER>(settings, settings.probe_trace_resolution, probe_index);
+    uint3 trace_base_texel = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
 
     PGIProbeInfo probe_info = {}; // The dummy here is intentionally used to query default world space position.
     float3 original_probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
@@ -753,14 +768,14 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         let last_to_finish = finished_workgroups == push.total_workgroups;
         if (last_to_finish)
         {
-            let probe_update_count = push.attach.probe_indirections.probe_update_count;
+            let probe_update_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count);
             let detailed_probe_count = push.attach.probe_indirections.detailed_probe_count;
             let probe_update_workgroups_x = round_up_div(probe_update_count, 64);
 
             push.attach.globals.readback.requested_probes = probe_update_count;
 
             // Allows for full thread utilization for relevant texel resolutions:
-            // 4x4, 6x6, 8x8, 12x12, 16x16, 24x24
+            // 1x1, 2x2, 4x4, 6x6, 8x8, 12x12, 16x16, 24x24, 48x48
             let texel_update_threads_y = 48;
             let texel_update_workgroups_y = 6; // 48/WG_Y = 48/8 = 6
 
