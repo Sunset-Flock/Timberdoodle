@@ -5,9 +5,12 @@
 
 #include <algorithm>
 #include <random>
+#include <chrono>
 
 #include "../ui/widgets/helpers.hpp"
 #include <imgui_stdlib.h>
+
+using namespace std::chrono_literals;
 
 struct DistributeAsteroidsInfo
 {
@@ -156,10 +159,16 @@ void AsteroidSimulation::run()
             }
             solver.integrate(asteroids, dt, *threadpool);
         }
+
         if(simulation_started.load(std::memory_order_relaxed) && !simulation_paused.load(std::memory_order_relaxed))
         {
             std::lock_guard<std::mutex> guard(data_exchange_mutex);
             AsteroidsWrapper::copy(last_update_asteroids, asteroids);
+        }
+
+        if(simulation_paused.load(std::memory_order_relaxed))
+        {
+            simulation_paused_ackowledged.store(true, std::memory_order_relaxed);
         }
     }
 
@@ -168,6 +177,15 @@ void AsteroidSimulation::run()
 
 void AsteroidSimulation::initialize_simulation()
 {
+    asteroids.positions.clear();
+    asteroids.velocities.clear();
+    asteroids.particle_scales.clear();
+    asteroids.densities.clear();
+    asteroids.energies.clear();
+    asteroids.pressures.clear();
+    asteroids.masses.clear();
+    asteroids.smoothing_radii.clear();
+
     for(auto const & simulation_body : asteroids.simulation_bodies)
     {
         i32 const generated_particles_count = distribute_particles_in_sphere({
@@ -231,7 +249,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         if(ImGui::Button("Add sim body"))
         {
             asteroids.simulation_bodies.push_back({
-                .name = "New sim body"
+                .name = "new sim body"
             });
             settings.selected_setup_asteroid = asteroids.simulation_bodies.size() - 1;
         }
@@ -253,7 +271,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         ImGui::BeginDisabled(body_not_selected);
         {
             ImGui::InputText("Name", &selected_simulation_body.name);
-            ImGui::SliderFloat3("Position", s_cast<f32*>(&selected_simulation_body.position.x), -1'000'000.0f, 1'000'000.0f);
+            ImGui::SliderFloat3("Position", s_cast<f32*>(&selected_simulation_body.position.x), -500'000.0f, 500'000.0f);
             ImGui::InputFloat("Radius", &selected_simulation_body.radius);
             ImGui::InputInt("Particle count", &selected_simulation_body.particle_count, 100, 1000);
             ImGui::InputFloat("Visual particle size", &selected_simulation_body.particle_size);
@@ -293,7 +311,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
     dt = tmp;
     ImGui::EndDisabled();
 
-    std::string_view button_text = simulation_paused ? "Start" : "Pause";
+    std::string_view button_text = simulation_paused ? "Start simulation" : "Pause simulation";
     if(ImGui::Button(button_text.data()))
     {
         if(simulation_paused)
@@ -307,6 +325,19 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
             settings.selected_setup_asteroid = -1;
         }
         simulation_paused.store(!simulation_paused, std::memory_order_relaxed);
+    }
+    ImGui::SameLine();
+    if(ImGui::Button("Reset simulation"))
+    {
+        simulation_paused_ackowledged.store(false, std::memory_order_relaxed);
+        simulation_paused.store(true, std::memory_order_relaxed);
+        while(!simulation_paused_ackowledged.load())
+        {
+            std::this_thread::sleep_for(7ms);
+        }
+        simulation_started.store(false, std::memory_order_relaxed);
+        asteroids.simulation_started = false;
+        last_update_asteroids.simulation_started = false;
     }
 }
 

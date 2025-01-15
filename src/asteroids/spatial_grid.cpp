@@ -1,6 +1,7 @@
 #include "spatial_grid.hpp"
 
 #include <algorithm>
+#include <execution>
 
 auto SpatialGrid::position_to_cell_coordinates(f32vec3 const & position) const -> i32vec3
 {
@@ -36,7 +37,7 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
         };
     }
 
-    std::sort(spatial_lookup.begin(), spatial_lookup.end(), 
+    std::sort(std::execution::par, spatial_lookup.begin(), spatial_lookup.end(), 
         [](SpatialEntry const & first, SpatialEntry const & second) -> bool
         {
             return first.cell_key < second.cell_key;

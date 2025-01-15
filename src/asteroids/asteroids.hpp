@@ -35,6 +35,8 @@ struct AsteroidSimulation
         std::atomic_bool deduce_timestep = true;
         std::atomic_bool simulation_started = false;
 
+        std::atomic_bool simulation_paused_ackowledged = false;
+
 
         std::thread run_thread;
 
