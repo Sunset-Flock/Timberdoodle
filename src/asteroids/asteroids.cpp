@@ -11,13 +11,14 @@ struct DistributeAsteroidsInfo
     f64vec3 center;
     f64 radius;
     i32 asteroid_count;
+    std::vector<f64vec3> * positions;
+    std::vector<f64> * smoothing_radii;
+    std::vector<f64> * masses;
 };
 
-auto distribute_asteroids_in_sphere(DistributeAsteroidsInfo const & info) -> std::vector<f64vec4>
+auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 {
-    std::vector<f64vec4> positions = {};
-    positions.reserve(info.asteroid_count);
-
+    info.positions->reserve(info.asteroid_count);
     f64 const sphere_volume = 1.33333333333f * PI * std::pow(info.radius, 3.0f);
     f64 const h = std::cbrt(sphere_volume / info.asteroid_count);
 
@@ -55,6 +56,7 @@ auto distribute_asteroids_in_sphere(DistributeAsteroidsInfo const & info) -> std
         );
     };
 
+    i32 actually_generated = 0;
     f64 phi = 0.0f;
     for(f64 r = h; r <= info.radius; r += h, ++shell_index)
     {
@@ -71,79 +73,51 @@ auto distribute_asteroids_in_sphere(DistributeAsteroidsInfo const & info) -> std
             f64vec3 const pos = info.center + rotator * spherical_to_cartesian(r, theta, phi);
             if(length(pos - info.center) <= info.radius)
             {
-                positions.push_back(f64vec4(pos, h));
+                info.positions->push_back(f64vec3(pos));
+                info.smoothing_radii->push_back(h);
+                actually_generated += 1;
             }
         }
     }
 
-    return positions;
-}
+    info.masses->reserve(actually_generated);
 
-auto get_asteroid_masses(std::vector<f64vec4> const & positions, const f64 total_mass) -> std::vector<f64>
-{
-    std::vector<f64> masses = {};
-    masses.reserve(positions.size());
+    f64 const total_mass = sphere_volume * INITAL_DENSITY;
 
     f64 prelim_mass = 0.0f;
-    for(i32 i = 0; i < positions.size(); ++i)
+    i32 const start = info.positions->size() - actually_generated;
+    for(i32 i = start; i < info.positions->size(); ++i)
     {
-        masses.push_back(std::pow(positions.at(i)[3], 3.0f));
-        prelim_mass += masses.back();
+        info.masses->push_back(std::pow(info.smoothing_radii->at(i), 3.0f));
+        prelim_mass += info.masses->back();
     }
 
     f64 const normalization = total_mass / prelim_mass;
-    for (i32 i = 0; i < positions.size(); ++i)
+    for (i32 i = start; i < info.positions->size(); ++i)
     {
-        masses.at(i) *= normalization;
+        info.masses->at(i) *= normalization;
     }
-    return masses;
+
+    return actually_generated;
 }
 
 AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool(the_threadpool)
 {
-    std::vector<f64vec4> asteroid_positions = distribute_asteroids_in_sphere({
-        .center = f64vec3(0.0f),
+    simulation_bodies.push_back({
+        .position = f64vec3(0.0),
+        .velocity = f64vec3(0.0),
         .radius = PLANET_RADIUS,
-        .asteroid_count = 5000,
+        .particle_count = 5000,
+        .particle_size = 2.5f,
     });
 
-    f64 const planet_sphere_volume = 1.33333333333f * PI * std::pow(PLANET_RADIUS, 3.0f);
-    f64 const planet_total_mass = planet_sphere_volume * INITAL_DENSITY;
-    std::vector<f64> asteroid_masses = get_asteroid_masses(asteroid_positions, planet_total_mass);
-
-    std::vector<f64vec4> collider_positions = distribute_asteroids_in_sphere({
-        .center = f64vec3(75'000) / f64vec3(std::sqrt(3)),
+    simulation_bodies.push_back({
+        .position = f64vec3(75'000) / f64vec3(std::sqrt(3)),
+        .velocity = 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0)),
         .radius = ASTEROID_RADIUS,
-        .asteroid_count = 2000,
+        .particle_count = 2000,
+        .particle_size = 1.0f,
     });
-
-    f64 const collider_sphere_volume = 1.33333333333f * PI * std::pow(ASTEROID_RADIUS, 3.0f);
-    f64 const collider_total_mass = collider_sphere_volume * INITAL_DENSITY;
-    std::vector<f64> collider_masses = get_asteroid_masses(asteroid_positions, collider_total_mass);
-
-    u32 const total_positions_count = asteroid_positions.size() + collider_positions.size();
-
-    last_update_asteroids.resize(total_positions_count);
-    asteroids.resize(total_positions_count);
-
-    asteroids.max_smoothing_radius = std::numeric_limits<f64>::min();
-
-    for(i32 asteroid_index = 0; asteroid_index < total_positions_count; ++asteroid_index)
-    {
-        bool const use_planet_params = asteroid_index < asteroid_positions.size();
-        i32 const real_index = use_planet_params ? asteroid_index : asteroid_index - asteroid_positions.size();
-        asteroids.positions.at(asteroid_index) = use_planet_params ? asteroid_positions.at(real_index) : collider_positions.at(real_index);
-        asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0));
-        // asteroids.velocities.at(asteroid_index) = use_planet_params ? f64vec3(0.0) : 3000.0 * normalize(f64vec3(-5000));
-        asteroids.smoothing_radii.at(asteroid_index) = use_planet_params ? asteroid_positions.at(real_index).w : collider_positions.at(real_index).w;
-        asteroids.masses.at(asteroid_index) = use_planet_params ? asteroid_masses.at(real_index) : collider_masses.at(real_index);
-        asteroids.particle_scales.at(asteroid_index) = use_planet_params ? 2.5f : 1.0f;
-
-        asteroids.max_smoothing_radius = std::max(asteroids.max_smoothing_radius, asteroids.smoothing_radii.at(asteroid_index));
-    }
-    std::fill(asteroids.densities.begin(), asteroids.densities.end(), INITAL_DENSITY);
-    std::fill(asteroids.energies.begin(), asteroids.energies.end(), 0.0);
-    std::fill(asteroids.pressures.begin(), asteroids.pressures.end(), 0.0);
 
     run_thread = std::thread([=, this]() {AsteroidSimulation::run(); });
 }
@@ -158,17 +132,23 @@ void AsteroidSimulation::run()
 {
     while(should_run)
     {
-        update_asteroids(dt);
-        // dt = 0.01;
-        // for(auto const & asteroid : asteroids)
-        // {
-        //     f64 const factor = 0.001;
-        //     if(asteroid.velocity_divergence > 10e-13)
-        //     {
-        //         dt = std::min(dt, factor / asteroid.velocity_divergence);
-        //     }
-        // }
-        // dt = std::max(dt, 0.001);
+        if(!simulation_paused.load(std::memory_order_relaxed))
+        {
+            if(deduce_timestep.load(std::memory_order_relaxed))
+            {
+                dt = 0.01;
+                for(auto const & velocity_divergence : asteroids.velocity_divergences)
+                {
+                    f64 const factor = 0.001;
+                    if(velocity_divergence > 10e-13)
+                    {
+                        dt = std::min(dt, factor / velocity_divergence);
+                    }
+                }
+            }
+            solver.integrate(asteroids, dt, *threadpool);
+        }
+        if(simulation_started.load(std::memory_order_relaxed) && !simulation_paused.load(std::memory_order_relaxed))
         {
             std::lock_guard<std::mutex> guard(data_exchange_mutex);
             AsteroidsWrapper::copy(last_update_asteroids, asteroids);
@@ -178,16 +158,69 @@ void AsteroidSimulation::run()
     return;
 }
 
-void AsteroidSimulation::update_asteroids(f64 const dt)
+void AsteroidSimulation::initialize_simulation()
 {
-    solver.integrate(asteroids, dt, *threadpool);
+    for(auto const & simulation_body : simulation_bodies)
+    {
+        i32 const generated_particles_count = distribute_particles_in_sphere({
+            .center = simulation_body.position,
+            .radius = simulation_body.radius,
+            .asteroid_count = simulation_body.particle_count,
+            .positions = &asteroids.positions,
+            .smoothing_radii = &asteroids.smoothing_radii,
+            .masses = &asteroids.masses,
+        });
+        asteroids.velocities.resize(asteroids.velocities.size() + generated_particles_count);
+        std::fill(asteroids.velocities.end() - generated_particles_count, asteroids.velocities.end(), simulation_body.velocity);
+
+        asteroids.particle_scales.resize(asteroids.particle_scales.size() + generated_particles_count);
+        std::fill(asteroids.particle_scales.end() - generated_particles_count, asteroids.particle_scales.end(), simulation_body.particle_size);
+
+        asteroids.densities.resize(asteroids.densities.size() + generated_particles_count);
+        std::fill(asteroids.densities.end() - generated_particles_count, asteroids.densities.end(), INITAL_DENSITY);
+
+        asteroids.energies.resize(asteroids.energies.size() + generated_particles_count);
+        std::fill(asteroids.energies.end() - generated_particles_count, asteroids.energies.end(), 0.0);
+
+        asteroids.pressures.resize(asteroids.pressures.size() + generated_particles_count);
+        std::fill(asteroids.pressures.end() - generated_particles_count, asteroids.pressures.end(), 0.0);
+    }
+
+    asteroids.max_smoothing_radius = std::numeric_limits<f64>::min();
+    for(auto const & smoothing_radius : asteroids.smoothing_radii)
+    {
+        asteroids.max_smoothing_radius = std::max(asteroids.max_smoothing_radius, smoothing_radius);
+    }
+
+    last_update_asteroids.resize(asteroids.positions.size());
+    asteroids.resize(asteroids.positions.size());
 }
 
 void AsteroidSimulation::draw_imgui()
 {
+    bool deduce_timestep_tmp = deduce_timestep;
+    ImGui::Checkbox("Deduce timestep", &deduce_timestep_tmp);
+    deduce_timestep.store(deduce_timestep_tmp, std::memory_order_relaxed);
+
+    ImGui::BeginDisabled(deduce_timestep_tmp);
     f32 tmp = dt;
-    ImGui::SliderFloat("dt", &tmp, 0.001, 0.01);
+    ImGui::SliderFloat("Manual timestep", &tmp, 0.001, 0.01);
     dt = tmp;
+    ImGui::EndDisabled();
+
+    std::string_view button_text = simulation_paused ? "Start" : "Pause";
+    if(ImGui::Button(button_text.data()))
+    {
+        if(simulation_paused)
+        {
+            if(!simulation_started)
+            {
+                initialize_simulation();
+            }
+            simulation_started.store(true, std::memory_order_relaxed);
+        }
+        simulation_paused.store(!simulation_paused, std::memory_order_relaxed);
+    }
 }
 
 auto AsteroidSimulation::get_asteroids() -> AsteroidsWrapper

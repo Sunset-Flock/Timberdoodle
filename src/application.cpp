@@ -291,6 +291,7 @@ void Application::update()
 
 Application::~Application()
 {
+    _simulation.reset();
     _threadpool.reset();
     auto asset_data_upload_info = _asset_manager->record_gpu_load_processing_commands();
     auto manifest_update_commands = _scene->record_gpu_manifest_update({

@@ -9,17 +9,26 @@
 
 using namespace tido::types;
 
+struct SimulationBodyInfo
+{
+    f32vec3 position;
+    f32vec3 velocity;
+    f32 radius;
+    i32 particle_count;
+    f32 particle_size;
+};
+
 struct AsteroidSimulation
 {
-    std::atomic_bool should_run = true;
     std::mutex data_exchange_mutex;
 
     AsteroidSimulation(ThreadPool * the_threadpool);
     ~AsteroidSimulation();
 
-    void run();
     auto get_asteroids() -> AsteroidsWrapper;
     void draw_imgui();
+
+    void add_simulation_body(SimulationBodyInfo const & info);
     
     private:
         ThreadPool * threadpool;
@@ -29,9 +38,15 @@ struct AsteroidSimulation
         Solver solver = {};
         f64 dt = 0.0000001;
 
+        std::atomic_bool should_run = true;
+        std::atomic_bool simulation_paused = true;
+        std::atomic_bool deduce_timestep = true;
+        std::atomic_bool simulation_started = false;
+
+        std::vector<SimulationBodyInfo> simulation_bodies = {};
+
         std::thread run_thread;
 
-        void explicit_euler_step();
-        void update_asteroids(f64 const dt);
-        void integrate_derivatives();
+        void initialize_simulation();
+        void run();
 };
