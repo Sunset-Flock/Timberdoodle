@@ -2,21 +2,13 @@
 
 #include "../timberdoodle.hpp"
 #include "../shader_shared/asteroids.inl"
+#include "../shader_shared/shared.inl"
 #include "asteroids_shared.hpp"
 #include "solver.hpp"
 
 #include <mutex>
 
 using namespace tido::types;
-
-struct SimulationBodyInfo
-{
-    f32vec3 position;
-    f32vec3 velocity;
-    f32 radius;
-    i32 particle_count;
-    f32 particle_size;
-};
 
 struct AsteroidSimulation
 {
@@ -26,7 +18,7 @@ struct AsteroidSimulation
     ~AsteroidSimulation();
 
     auto get_asteroids() -> AsteroidsWrapper;
-    void draw_imgui();
+    void draw_imgui(AsteroidSettings & settings);
 
     void add_simulation_body(SimulationBodyInfo const & info);
     
@@ -43,7 +35,6 @@ struct AsteroidSimulation
         std::atomic_bool deduce_timestep = true;
         std::atomic_bool simulation_started = false;
 
-        std::vector<SimulationBodyInfo> simulation_bodies = {};
 
         std::thread run_thread;
 

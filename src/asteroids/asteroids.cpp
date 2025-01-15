@@ -6,6 +6,9 @@
 #include <algorithm>
 #include <random>
 
+#include "../ui/widgets/helpers.hpp"
+#include <imgui_stdlib.h>
+
 struct DistributeAsteroidsInfo
 {
     f64vec3 center;
@@ -103,22 +106,27 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 
 AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool(the_threadpool)
 {
-    simulation_bodies.push_back({
+    asteroids.simulation_bodies.push_back({
         .position = f64vec3(0.0),
-        .velocity = f64vec3(0.0),
+        .velocity_vector = f64vec3(0.0),
+        .velocity_magnitude = f64(0.0),
         .radius = PLANET_RADIUS,
         .particle_count = 5000,
         .particle_size = 2.5f,
+        .name = "large static asteroid"
     });
 
-    simulation_bodies.push_back({
+    asteroids.simulation_bodies.push_back({
         .position = f64vec3(75'000) / f64vec3(std::sqrt(3)),
-        .velocity = 3000.0 * normalize(f64vec3(-5000) + f64vec3(0.0, 0.0, 5000.0)),
+        .velocity_vector = normalize(f64vec3(-1.0, -1.0, 0.0)),
+        .velocity_magnitude = 3000.0,
         .radius = ASTEROID_RADIUS,
         .particle_count = 2000,
         .particle_size = 1.0f,
+        .name = "small dynamic asteroid"
     });
 
+    last_update_asteroids.simulation_bodies = asteroids.simulation_bodies;
     run_thread = std::thread([=, this]() {AsteroidSimulation::run(); });
 }
 
@@ -160,7 +168,7 @@ void AsteroidSimulation::run()
 
 void AsteroidSimulation::initialize_simulation()
 {
-    for(auto const & simulation_body : simulation_bodies)
+    for(auto const & simulation_body : asteroids.simulation_bodies)
     {
         i32 const generated_particles_count = distribute_particles_in_sphere({
             .center = simulation_body.position,
@@ -171,7 +179,7 @@ void AsteroidSimulation::initialize_simulation()
             .masses = &asteroids.masses,
         });
         asteroids.velocities.resize(asteroids.velocities.size() + generated_particles_count);
-        std::fill(asteroids.velocities.end() - generated_particles_count, asteroids.velocities.end(), simulation_body.velocity);
+        std::fill(asteroids.velocities.end() - generated_particles_count, asteroids.velocities.end(), simulation_body.velocity_vector * simulation_body.velocity_magnitude);
 
         asteroids.particle_scales.resize(asteroids.particle_scales.size() + generated_particles_count);
         std::fill(asteroids.particle_scales.end() - generated_particles_count, asteroids.particle_scales.end(), simulation_body.particle_size);
@@ -196,8 +204,85 @@ void AsteroidSimulation::initialize_simulation()
     asteroids.resize(asteroids.positions.size());
 }
 
-void AsteroidSimulation::draw_imgui()
+void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
 {
+    ImGui::BeginDisabled(simulation_started);
+    ImGui::SeparatorText("Simulation Setup");
+    {
+        ImGui::Indent(20.0f);
+        ImGui::SeparatorText("Simulation bodies");
+        if(ImGui::BeginTable("Bodies table", 1, ImGuiTableFlags_Borders))
+        {
+            for(i32 simulation_body_index = 0; simulation_body_index < asteroids.simulation_bodies.size(); ++simulation_body_index)
+            {
+                auto const & simulation_body = asteroids.simulation_bodies.at(simulation_body_index);
+                std::string name = fmt::format("{}##{}", simulation_body.name, simulation_body_index);
+                ImGui::TableNextColumn();
+                if(ImGui::Selectable(name.c_str(), settings.selected_setup_asteroid == simulation_body_index))
+                {
+                    settings.selected_setup_asteroid = simulation_body_index;
+                }
+            }
+            ImGui::EndTable();
+        }
+
+        bool body_not_selected = settings.selected_setup_asteroid == -1;
+
+        if(ImGui::Button("Add sim body"))
+        {
+            asteroids.simulation_bodies.push_back({
+                .name = "New sim body"
+            });
+            settings.selected_setup_asteroid = asteroids.simulation_bodies.size() - 1;
+        }
+        ImGui::SameLine();
+        ImGui::BeginDisabled(body_not_selected);
+        if(ImGui::Button("Remove selected body"))
+        {
+            asteroids.simulation_bodies.erase(asteroids.simulation_bodies.begin() + settings.selected_setup_asteroid);
+            settings.selected_setup_asteroid = -1;
+            body_not_selected = true;
+        }
+        ImGui::EndDisabled();
+
+        SimulationBodyInfo default_sim_body = {};
+        auto & selected_simulation_body = body_not_selected ? default_sim_body : asteroids.simulation_bodies.at(settings.selected_setup_asteroid);
+
+
+        ImGui::SeparatorText("Selected body properties");
+        ImGui::BeginDisabled(body_not_selected);
+        {
+            ImGui::InputText("Name", &selected_simulation_body.name);
+            ImGui::SliderFloat3("Position", s_cast<f32*>(&selected_simulation_body.position.x), -1'000'000.0f, 1'000'000.0f);
+            ImGui::InputFloat("Radius", &selected_simulation_body.radius);
+            ImGui::InputInt("Particle count", &selected_simulation_body.particle_count, 100, 1000);
+            ImGui::InputFloat("Visual particle size", &selected_simulation_body.particle_size);
+
+            ImGui::SliderFloat3("Velocity vector", s_cast<f32*>(&selected_simulation_body.velocity_vector.x), -1.0f, 1.0f);
+            ImGui::InputFloat("Velocity magnitude", &selected_simulation_body.velocity_magnitude);
+            selected_simulation_body.velocity_vector = glm::length(selected_simulation_body.velocity_vector) ? 
+                glm::normalize(selected_simulation_body.velocity_vector) : 
+                selected_simulation_body.velocity_vector;
+            f32 magnitude = selected_simulation_body.velocity_magnitude;
+        }
+        ImGui::EndDisabled();
+
+        last_update_asteroids.simulation_bodies = asteroids.simulation_bodies;
+        ImGui::Unindent(20.0f);
+    }
+    ImGui::EndDisabled();
+
+
+    ImGui::SeparatorText("Simulation run settings");
+    auto modes = std::array{
+        "NONE",
+        "VELOCITY",
+        "ACCELERATION",
+        "VELOCITY DIVERGENCE",
+        "PRESSURE",
+        "DENSITY",
+    };
+    ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
     bool deduce_timestep_tmp = deduce_timestep;
     ImGui::Checkbox("Deduce timestep", &deduce_timestep_tmp);
     deduce_timestep.store(deduce_timestep_tmp, std::memory_order_relaxed);
@@ -218,6 +303,8 @@ void AsteroidSimulation::draw_imgui()
                 initialize_simulation();
             }
             simulation_started.store(true, std::memory_order_relaxed);
+            asteroids.simulation_started = true;
+            settings.selected_setup_asteroid = -1;
         }
         simulation_paused.store(!simulation_paused, std::memory_order_relaxed);
     }

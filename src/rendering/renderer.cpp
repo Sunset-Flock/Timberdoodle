@@ -1102,7 +1102,7 @@ void Renderer::render_frame(
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
 
-    asteroid_state.update_cpu_data(asteroids);
+    asteroid_state.update_cpu_data(asteroids, gpu_context->shader_debug_context);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {

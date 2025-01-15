@@ -166,6 +166,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 struct AsteroidSettings
 {
     daxa_i32 debug_draw_mode TIDO_DEFAULT_VALUE(ASTEROID_DEBUG_DRAW_MODE_NONE);
+    daxa_i32 selected_setup_asteroid TIDO_DEFAULT_VALUE(-1);
 };
 
 #define DEBUG_DRAW_MODE_NONE 0

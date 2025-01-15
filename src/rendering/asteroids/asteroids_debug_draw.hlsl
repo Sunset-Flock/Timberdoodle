@@ -33,7 +33,7 @@ func entry_vertex_debug_draw_asteroids(uint vertex_index : SV_VertexID, uint ins
     var position = push.asteroid_mesh_positions[vertex_index] * push.attach.asteroids[instance_index].particle_scale;
     var normal = normalize(position);
 
-    float3 asteroid_position = push.attach.asteroids[instance_index].position * 0.001;
+    float3 asteroid_position = push.attach.asteroids[instance_index].position * POSITION_SCALING_FACTOR;
     position += asteroid_position;
 
     float4x4* viewproj = {};
@@ -123,6 +123,10 @@ func entry_fragment_debug_draw_asteroids(DrawDebugAsteroidVertexToPixel vertex_t
         int upper_color_idx = clamp(ceil(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
         float interp = fract(rescaled_value * float(COLOR_COUNT -1));
         color *= ACCRETION_PALETTE[lower_color_idx] * (1.0f - interp) + ACCRETION_PALETTE[upper_color_idx] * interp;
+    }
+    if(push.attach.globals.asteroid_settings.selected_setup_asteroid == vertex_to_pixel.asteroid_index)
+    {
+        color = float3(1.0f, 1.0f, 0.0f);
     }
 
     return DrawDebugAsteroidFragmentOut(float4(pow(color, 2.2), 1.0f));

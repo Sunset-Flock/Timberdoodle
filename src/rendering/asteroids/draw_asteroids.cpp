@@ -1479,30 +1479,51 @@ void AsteroidsState::initalize_transient_state(daxa::TaskGraph & tg)
     });
 }
 
-void AsteroidsState::update_cpu_data(AsteroidsWrapper const & asteroids)
+void AsteroidsState::update_cpu_data(AsteroidsWrapper const & asteroids, ShaderDebugDrawContext & debug_context)
 {
-    DBG_ASSERT_TRUE_M(asteroids.positions.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
-    for(i32 asteroid_index = 0; asteroid_index < asteroids.positions.size(); ++asteroid_index)
+    if(asteroids.simulation_started)
     {
-        auto const & position = asteroids.positions.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).position = daxa_f32vec3(
-            position.x, position.y, position.z
-        );
-        auto const & velocity = asteroids.velocities.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).velocity = daxa_f32vec3(
-            velocity.x, velocity.y, velocity.z
-        );
-        auto const & velocity_derivative = asteroids.velocity_derivatives.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).acceleration = daxa_f32vec3(
-            velocity_derivative.x, velocity_derivative.y, velocity_derivative.z
-        );
-        cpu_asteroids.at(asteroid_index).velocity_divergence = asteroids.velocity_divergences.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).pressure = asteroids.pressures.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).density = asteroids.densities.at(asteroid_index);
-        cpu_asteroids.at(asteroid_index).particle_scale = asteroids.particle_scales.at(asteroid_index);
+        DBG_ASSERT_TRUE_M(asteroids.positions.size() <= MAX_ASTEROID_COUNT, "Asteroids must fit into GPU buffer");
+        for(i32 asteroid_index = 0; asteroid_index < asteroids.positions.size(); ++asteroid_index)
+        {
+            auto const & position = asteroids.positions.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).position = daxa_f32vec3(
+                position.x, position.y, position.z
+            );
+            auto const & velocity = asteroids.velocities.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).velocity = daxa_f32vec3(
+                velocity.x, velocity.y, velocity.z
+            );
+            auto const & velocity_derivative = asteroids.velocity_derivatives.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).acceleration = daxa_f32vec3(
+                velocity_derivative.x, velocity_derivative.y, velocity_derivative.z
+            );
+            cpu_asteroids.at(asteroid_index).velocity_divergence = asteroids.velocity_divergences.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).pressure = asteroids.pressures.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).density = asteroids.densities.at(asteroid_index);
+            cpu_asteroids.at(asteroid_index).particle_scale = asteroids.particle_scales.at(asteroid_index);
+        }
+        asteroids_count = asteroids.positions.size();
     }
+    else
+    {
+        for(i32 simulation_body_index = 0; simulation_body_index < asteroids.simulation_bodies.size(); ++simulation_body_index)
+        {
+            auto const & simulation_body = asteroids.simulation_bodies.at(simulation_body_index);
+            cpu_asteroids.at(simulation_body_index).position = std::bit_cast<daxa_f32vec3>(simulation_body.position);
+            cpu_asteroids.at(simulation_body_index).velocity = std::bit_cast<daxa_f32vec3>(simulation_body.velocity_vector * simulation_body.velocity_magnitude);
+            cpu_asteroids.at(simulation_body_index).particle_scale = simulation_body.radius * POSITION_SCALING_FACTOR;
 
-    asteroids_count = asteroids.positions.size();
+            f32 const & velocity_vector_scaling_factor = (simulation_body.radius + glm::length(simulation_body.velocity_magnitude));
+            debug_context.line_draws.draw({
+                .start = std::bit_cast<daxa_f32vec3>(simulation_body.position * s_cast<f32>(POSITION_SCALING_FACTOR)),
+                .end = std::bit_cast<daxa_f32vec3>((simulation_body.position + simulation_body.velocity_vector * velocity_vector_scaling_factor) * s_cast<f32>(POSITION_SCALING_FACTOR)),
+                .color = daxa_f32vec3{1.0f, 0.0f, 0.0f},
+                .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+            });
+        }
+        asteroids_count = asteroids.simulation_bodies.size();
+    }
 }
 
 void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)

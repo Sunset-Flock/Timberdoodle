@@ -3,6 +3,7 @@
 #include <daxa/daxa.inl>
 
 #define MAX_ASTEROID_COUNT 20000
+#define POSITION_SCALING_FACTOR 0.001
 
 struct GPUAsteroid
 {

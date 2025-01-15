@@ -10,6 +10,18 @@ using namespace tido::types;
 #define PLANET_RADIUS 50'000.0f
 #define ASTEROID_RADIUS 20'000.0f
 
+struct SimulationBodyInfo
+{
+    f32vec3 position = {};
+    f32vec3 velocity_vector = {};
+    f32 velocity_magnitude = {};
+    f32 radius = 1000;
+    i32 particle_count = 1;
+    f32 particle_size = 1.0f;
+
+    std::string name;
+};
+
 struct AsteroidsWrapper
 {
     void resize(i32 size)
@@ -64,6 +76,11 @@ struct AsteroidsWrapper
         copy_vector(dst.pressures, src.pressures);
 
         copy_vector(dst.particle_scales, src.particle_scales);
+
+
+        dst.max_smoothing_radius = src.max_smoothing_radius;
+        dst.simulation_started = src.simulation_started;
+        dst.simulation_bodies = src.simulation_bodies;
     }
 
     std::vector<f64vec3> positions = {};
@@ -84,5 +101,8 @@ struct AsteroidsWrapper
 
     std::vector<f32> particle_scales = {};
 
+    std::vector<SimulationBodyInfo> simulation_bodies = {};
+
     f64 max_smoothing_radius = {};
+    bool simulation_started = {};
 };
