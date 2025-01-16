@@ -26,7 +26,7 @@ struct Material
         f64 pressure;
         f64 speed_of_sound;
     };
-    auto evaluate(f64 const density, f64 const energy) -> EvaluateRet;
+    auto evaluate(f64 const density, f64 const energy) const -> EvaluateRet;
 
     private:
         f64 start_density;

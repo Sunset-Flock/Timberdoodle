@@ -37,10 +37,9 @@ Material::Material()
     c = 2.0f;
     start_density = INITAL_DENSITY;
     A = 26700000000.0f;
-    c_p = 700.0f;
 }
 
-auto Material::evaluate(f64 const density, f64 const energy) -> EvaluateRet
+auto Material::evaluate(f64 const density, f64 const energy) const -> EvaluateRet
 {
     const f64 mu = density / start_density - 1.0f;
     const f64 pressure = c * density * energy + A * mu;
@@ -52,6 +51,34 @@ auto Material::evaluate(f64 const density, f64 const energy) -> EvaluateRet
     };
 }
 
+struct MaterialUpdateTask : Task
+{
+    AsteroidsWrapper * const asteroids;
+    Material const * const material;
+
+    MaterialUpdateTask(AsteroidsWrapper * const the_asteroids,
+        Material const * const the_material,
+        u32 const the_chunk_count,
+        u32 const the_chunk_size) :
+        asteroids(the_asteroids),
+        material(the_material)
+    {
+        chunk_count = the_chunk_count;
+        chunk_size = the_chunk_size;
+    }
+
+    void callback(u32 chunk_index, u32 thread_index) override
+    {
+        u32 const start = chunk_size * chunk_index;
+        u32 const end = std::min(start + chunk_size, s_cast<u32>(asteroids->positions.size()));
+
+        for(i32 asteroid_idx = start; asteroid_idx < end; ++asteroid_idx)
+        {
+            auto const & ret = material->evaluate(asteroids->densities.at(asteroid_idx), asteroids->energies.at(asteroid_idx));
+            asteroids->pressures.at(asteroid_idx) = ret.pressure;
+        }
+    }
+};
 
 struct DerivativesTask : Task
 {
@@ -77,7 +104,11 @@ struct DerivativesTask : Task
         for(i32 asteroid_idx = start; asteroid_idx < end; ++asteroid_idx)
         {
             Kernel kernel;
-            std::vector<u16> potential_neighbors = grid->get_neighbor_candidate_indices(asteroids->positions.at(asteroid_idx), asteroids->max_smoothing_radius);
+            std::vector<u16> potential_neighbors = grid->get_neighbor_candidate_indices(
+                asteroids->positions.at(asteroid_idx),
+                0.5 * (asteroids->max_smoothing_radius + asteroids->smoothing_radii.at(asteroid_idx))
+            );
+
             std::vector<u16> actual_neighbors = {};
 
             for(i32 potential_neighbors_vector_idx = 0; potential_neighbors_vector_idx < potential_neighbors.size(); ++potential_neighbors_vector_idx)
@@ -192,21 +223,27 @@ void Solver::integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & 
     std::fill(asteroids.velocity_divergences.begin(), asteroids.velocity_divergences.end(), 0.0);
     // Zero out derivatives from last frame.
 
-    for(i32 asteroid_idx = 0; asteroid_idx < asteroids_size; ++asteroid_idx)
-    {
-        auto const & ret = material.evaluate(asteroids.densities.at(asteroid_idx), asteroids.energies.at(asteroid_idx));
-        asteroids.pressures.at(asteroid_idx) = ret.pressure;
-    }
 
     SpatialGrid grid = SpatialGrid(asteroids.positions, 3000.0f);
 
+    {
+        const u32 chunk_size = 256u;
+        const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
+        std::shared_ptr<MaterialUpdateTask> material_update_task = std::make_shared<MaterialUpdateTask>(&asteroids, &material, chunk_count, chunk_size);
+        threadpool.blocking_dispatch(material_update_task);
+    }
 
-    // Arbitrary
-    const u32 chunk_size = 32u;
-    const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
-    std::shared_ptr<DerivativesTask> derivatives_task = std::make_shared<DerivativesTask>(&asteroids, &grid, chunk_count, chunk_size);
-    threadpool.blocking_dispatch(derivatives_task);
+    {
+        const u32 chunk_size = 32u;
+        const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
+        std::shared_ptr<DerivativesTask> derivatives_task = std::make_shared<DerivativesTask>(&asteroids, &grid, chunk_count, chunk_size);
+        threadpool.blocking_dispatch(derivatives_task);
+    }
 
-    std::shared_ptr<EquationsAndUpdatesTask> equations_and_updates_task = std::make_shared<EquationsAndUpdatesTask>(&asteroids, &grid, chunk_count, chunk_size, dt);
-    threadpool.blocking_dispatch(equations_and_updates_task);
+    {
+        const u32 chunk_size = 256u;
+        const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
+        std::shared_ptr<EquationsAndUpdatesTask> equations_and_updates_task = std::make_shared<EquationsAndUpdatesTask>(&asteroids, &grid, chunk_count, chunk_size, dt);
+        threadpool.blocking_dispatch(equations_and_updates_task);
+    }
 }
