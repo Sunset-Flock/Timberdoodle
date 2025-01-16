@@ -1046,6 +1046,7 @@ void Renderer::render_frame(
                 std::cout << "Successfully reloaded!\n";
                 for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
                 {
+                    this->gpu_context->device.destroy_buffer(pipe.sbt_buffer_id);
                     auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
                     this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
                     this->gpu_context->ray_tracing_pipelines[name].sbt_buffer_id = sbt_info.buffer;

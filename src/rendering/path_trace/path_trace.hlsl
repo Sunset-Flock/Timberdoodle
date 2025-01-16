@@ -37,7 +37,8 @@ static const bool SHOW_ALBEDO = !true;
 static const bool USE_LIGHTS = true;
 static const bool USE_EMISSIVE = true;
 static const bool RESET_ACCUMULATION = !true;
-static const bool ROLLING_ACCUMULATION = false;
+static const bool ROLLING_ACCUMULATION = !true;
+static const bool TRACE_PRIMARY = !true;
 
 static const float DEFAULT_ROUGHNESS = 0.99;
 static const float DEFAULT_METALNESS = 0.0;
@@ -149,7 +150,7 @@ void ray_gen()
     
     const float exposure = compute_exposure(deref(AT.luminance_average));
     atmo_position = get_atmo_position(AT.globals);
-    const float2 screen_uv = px * AT.globals->settings.render_target_size_inv;
+    const float2 screen_uv = (float2(px) + 0.5) * AT.globals->settings.render_target_size_inv;
     const float2 ndc_xy = screen_uv * 2.0 - 1.0;
     const float3 view_direction = get_view_direction(ndc_xy);
 
@@ -195,7 +196,10 @@ void ray_gen()
                 {
                     outgoing_ray.Origin = AT.globals.camera.position;
                     outgoing_ray.Direction = view_direction;
+                }
 
+                if (!TRACE_PRIMARY && path_length == 0)
+                {
                     uint triangle_id = AT.vis_image.get()[px].x;
                     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
                     if (triangle_id_valid) {
@@ -294,20 +298,19 @@ void ray_gen()
                         float2(uint_to_u01_float(hash1_mut(rng)), uint_to_u01_float(hash1_mut(rng))),
                         true
                     );
+
+                    GbufferData gbuffer = primary_hit.gbuffer_packed.unpack();
                     
                     const bool is_shadowed =
                         (INDIRECT_ONLY && path_length == 0) ||
                         rt_is_shadowed(
                             acceleration_structure,
                             new_ray(
-                                primary_hit.position,
+                                rt_calc_ray_start(primary_hit.position, gbuffer.normal, outgoing_ray.Direction),
                                 to_light_norm,
-                                1e-4,
+                                0,
                                 FLT_MAX
                         ));
-
-                    GbufferData gbuffer = primary_hit.gbuffer_packed.unpack();
-
 
                     if (SHOW_ALBEDO) {
                         output_tex[px] = float4(gbuffer.albedo, 1);
@@ -473,9 +476,9 @@ void ray_gen()
                             roughness_bias = lerp(roughness_bias, 1.0, 0.5 * brdf_sample.approx_roughness);
                         }
 
-                        outgoing_ray.Origin = primary_hit.position;
+                        outgoing_ray.Origin = rt_calc_ray_start(primary_hit.position, gbuffer.normal, outgoing_ray.Direction);
                         outgoing_ray.Direction = mul(tangent_to_world, brdf_sample.wi);
-                        outgoing_ray.TMin = 1e-4;
+                        outgoing_ray.TMin = 0;
                         throughput *= brdf_sample.value_over_pdf;
                     } else {
                          break;
