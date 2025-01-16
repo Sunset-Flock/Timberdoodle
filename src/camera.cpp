@@ -16,12 +16,7 @@ void CameraController::process_input(Window & window, f32 dt)
     else if (window.is_cursor_captured()) { window.release_cursor(); }
 
     auto cameraSwaySpeed = this->cameraSwaySpeed;
-    if (window.key_pressed(GLFW_KEY_C))
-    {
-        cameraSwaySpeed *= 0.25;
-        bZoom = true;
-    }
-    else { bZoom = false; }
+    bZoom = false;
 
     glm::vec3 right = glm::cross(forward, up);
     glm::vec3 fake_up = glm::normalize(glm::cross(right, forward));
