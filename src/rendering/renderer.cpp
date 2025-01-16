@@ -88,6 +88,7 @@ Renderer::Renderer(
         depth_vistory,
         f32_depth_vistory,
         path_trace_history,
+        rtao_history,
     };
 
     frame_buffer_images = {
@@ -151,6 +152,13 @@ Renderer::~Renderer()
     if (!general_readback_buffer.is_empty())
     {
         this->gpu_context->device.destroy_buffer(general_readback_buffer);
+    }
+    for (auto const& [name, rt_pipe] : this->gpu_context->ray_tracing_pipelines)
+    {
+        if (!rt_pipe.sbt_buffer_id.is_empty())
+        {
+            this->gpu_context->device.destroy_buffer(rt_pipe.sbt_buffer_id);
+        }
     }
     pgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
@@ -545,7 +553,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
     tg.use_persistent_tlas(scene->_scene_tlas);
-    tg.use_persistent_image(rtao_history);
 
     // TODO: Move into an if and create persistent state only if necessary.
     tg.use_persistent_image(pgi_state.probe_radiance);

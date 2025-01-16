@@ -84,6 +84,12 @@ Scene::~Scene()
             _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.secondary_runtime_texture.value()));
         }
     }
+
+    for (auto & buffer : mesh_instances_buffer.get_state().buffers)
+        _device.destroy_buffer(buffer);
+
+    for (auto & tlas : _scene_tlas.get_state().tlas)
+        _device.destroy_tlas(tlas);
 }
 // TODO: Loading god function.
 struct LoadManifestFromFileContext
@@ -1292,7 +1298,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         auto const aligned_accel_structure_size = round_up_to_multiple(build_size_info.acceleration_structure_size, 256);
         auto blas = _device.create_blas({
             .size = aligned_accel_structure_size,
-            .name = mesh_lod_group.name,
+            .name = mesh_lod_group.name.empty() ? "mesh_lod_group blas" : mesh_lod_group.name.c_str(),
         });
         blas_build_info.dst_blas = blas;
         mesh_lod_group.runtime->blas_lods[lod] = blas;

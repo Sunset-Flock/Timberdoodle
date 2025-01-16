@@ -2019,6 +2019,11 @@ void PGIState::cleanup(daxa::Device& device)
         device.destroy_image(this->probe_info.get_state().images[0]);
         probe_info_view = daxa::NullTaskImage;
     }
+    if (!this->cell_requests.get_state().images.empty() && !this->cell_requests.get_state().images[0].is_empty())
+    {
+        device.destroy_image(this->cell_requests.get_state().images[0]);
+        cell_requests_view = daxa::NullTaskImage;
+    }
     *this = {};
 }
 
