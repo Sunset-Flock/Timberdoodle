@@ -271,7 +271,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         ImGui::BeginDisabled(body_not_selected);
         {
             ImGui::InputText("Name", &selected_simulation_body.name);
-            ImGui::SliderFloat3("Position", s_cast<f32*>(&selected_simulation_body.position.x), -500'000.0f, 500'000.0f);
+            ImGui::SliderFloat3("Position", s_cast<f32*>(&selected_simulation_body.position.x), -200'000.0f, 200'000.0f);
             ImGui::InputFloat("Radius", &selected_simulation_body.radius);
             ImGui::InputInt("Particle count", &selected_simulation_body.particle_count, 100, 1000);
             ImGui::InputFloat("Visual particle size", &selected_simulation_body.particle_size);

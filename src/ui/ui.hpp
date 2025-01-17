@@ -78,13 +78,13 @@ struct RenderTimesHistory
 struct UIEngine
 {
     public:
-        bool renderer_settings = true;
+        bool renderer_settings = false;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
-        bool widget_scene_hierarchy = true;
-        bool widget_property_viewer = true;
+        bool widget_scene_hierarchy = false;
+        bool widget_property_viewer = false;
         bool demo_window = false;
-        bool vsm_debug_menu = true;
+        bool vsm_debug_menu = false;
         bool tg_debug_ui = false;
         bool asteroid_menu = true;
         u32 magnify_pixels = 7;
