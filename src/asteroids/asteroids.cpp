@@ -22,16 +22,19 @@ struct DistributeAsteroidsInfo
     std::vector<f64> * masses;
 };
 
+// Distributes the particles using parameterized spiraling method.
 auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 {
     info.positions->reserve(info.asteroid_count);
     f64 const sphere_volume = 1.33333333333f * PI * std::pow(info.radius, 3.0f);
     f64 const h = std::cbrt(sphere_volume / info.asteroid_count);
 
+    // Determine the number of shells
     i32 num_shells = info.radius / h;
     std::vector<f64> shells(num_shells);
     f64 total = 0.0f;
 
+    // Determine the number of particles for each shell.
     for(i32 shell_index = 0; shell_index < num_shells; ++shell_index)
     {
         shells.at(shell_index) = std::pow((shell_index + 1) * h, 2.0f);
@@ -44,7 +47,7 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
     std::mt19937_64 mersenne_engine(1234);
     std::uniform_real_distribution<f64> uniform_distribution;
 
-    i32 shell_index = 0;
+    // Random sphere sampling helper.
     auto get_random_sphere_dir = [&]() -> f64vec3 {
         f64 const phi = uniform_distribution(mersenne_engine) * 2.0f * PI;
         f64 const z = uniform_distribution(mersenne_engine) * 2.0f - 1.0f;
@@ -53,6 +56,7 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
         return f64vec3(u * std::cos(phi), u * std::sin(phi), z);
     };
 
+    // Helper to convert from spherical to cartesian coordinates.
     auto spherical_to_cartesian = [](f64 const r, f64 const theta, f64 const phi) -> f64vec3
     {
         return r * f64vec3(
@@ -62,10 +66,13 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
         );
     };
 
+    i32 shell_index = 0;
     i32 actually_generated = 0;
     f64 phi = 0.0f;
+    // Loop through all shells and distribute particles in each one.
     for(f64 r = h; r <= info.radius; r += h, ++shell_index)
     {
+        // Used to offset the particles inside the shell.
         f64 const rotation = 2.0f * PI * uniform_distribution(mersenne_engine);
         f64vec3 const dir = get_random_sphere_dir();
         f64mat3x3 const rotator = glm::rotate(glm::identity<f64mat4x4>(), glm::radians(rotation), dir);
@@ -77,6 +84,7 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
             f64 const theta = std::acos(hk);
             phi += 3.8f / std::sqrt(m * (1.0f - pow(hk, 2.0f)));
             f64vec3 const pos = info.center + rotator * spherical_to_cartesian(r, theta, phi);
+            // It can happen the particle falls outside of the desired radius. We do not accept it in that case.
             if(length(pos - info.center) <= info.radius)
             {
                 info.positions->push_back(f64vec3(pos));
@@ -86,6 +94,7 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
         }
     }
 
+    // Distribute the masses equally to each of the particle.
     info.masses->reserve(actually_generated);
 
     f64 const total_mass = sphere_volume * INITAL_DENSITY;
@@ -143,8 +152,10 @@ void AsteroidSimulation::run()
 {
     while(should_run)
     {
+        // Do nothing if the simulation is paused.
         if(!simulation_paused.load(std::memory_order_relaxed))
         {
+            // Overwrite the time step if user requests.
             if(deduce_timestep.load(std::memory_order_relaxed))
             {
                 dt = 0.01;
@@ -157,17 +168,21 @@ void AsteroidSimulation::run()
                     }
                 }
             }
+            // Run the simulation.
             solver.integrate(asteroids, dt, *threadpool);
         }
 
+        // Copy the data only if the simulation is running!
         if(simulation_started.load(std::memory_order_relaxed) && !simulation_paused.load(std::memory_order_relaxed))
         {
+            // Critical section because the data can be simultaneously read by the main thread.
             std::lock_guard<std::mutex> guard(data_exchange_mutex);
             AsteroidsWrapper::copy(last_update_asteroids, asteroids);
         }
 
         if(simulation_paused.load(std::memory_order_relaxed))
         {
+            // Notify the main thread that we have seen the simulation paused and the data will no longer be in use.
             simulation_paused_ackowledged.store(true, std::memory_order_relaxed);
         }
     }
@@ -177,6 +192,8 @@ void AsteroidSimulation::run()
 
 void AsteroidSimulation::initialize_simulation()
 {
+    // Clear parameters that might be left from previous simulation run.
+    // The derivatives are cleared in the simulation step so we do not need to cover those.
     asteroids.positions.clear();
     asteroids.velocities.clear();
     asteroids.particle_scales.clear();
@@ -186,8 +203,10 @@ void AsteroidSimulation::initialize_simulation()
     asteroids.masses.clear();
     asteroids.smoothing_radii.clear();
 
+    // Loop through the bodies that should be a part of the simulation.
     for(auto const & simulation_body : asteroids.simulation_bodies)
     {
+        // Distribute the particles in the simulation body.
         i32 const generated_particles_count = distribute_particles_in_sphere({
             .center = simulation_body.position,
             .radius = simulation_body.radius,
@@ -196,6 +215,8 @@ void AsteroidSimulation::initialize_simulation()
             .smoothing_radii = &asteroids.smoothing_radii,
             .masses = &asteroids.masses,
         });
+
+        // And fill the particle properties with intial values.
         asteroids.velocities.resize(asteroids.velocities.size() + generated_particles_count);
         std::fill(asteroids.velocities.end() - generated_particles_count, asteroids.velocities.end(), simulation_body.velocity_vector * simulation_body.velocity_magnitude);
 
@@ -212,22 +233,27 @@ void AsteroidSimulation::initialize_simulation()
         std::fill(asteroids.pressures.end() - generated_particles_count, asteroids.pressures.end(), 0.0);
     }
 
+    // Calculate the maximum smoothing radius used by the spatial acceleration structure.
     asteroids.max_smoothing_radius = std::numeric_limits<f64>::min();
     for(auto const & smoothing_radius : asteroids.smoothing_radii)
     {
         asteroids.max_smoothing_radius = std::max(asteroids.max_smoothing_radius, smoothing_radius);
     }
 
+    // And finally resize both the containers so that fields we did not initalize here are correct size (mainly the derivatives).
     last_update_asteroids.resize(asteroids.positions.size());
     asteroids.resize(asteroids.positions.size());
 }
 
+// Draw the ui - this function is a bit messy, but it is ui code, can that really be super clean?
 void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
 {
+    // If the simulation was started user should not be messing with the simluation initial parameters.
     ImGui::BeginDisabled(simulation_started);
     ImGui::SeparatorText("Simulation Setup");
     {
         ImGui::Indent(20.0f);
+        // Simulation bodies overview.
         ImGui::SeparatorText("Simulation bodies");
         if(ImGui::BeginTable("Bodies table", 1, ImGuiTableFlags_Borders))
         {
@@ -267,6 +293,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         auto & selected_simulation_body = body_not_selected ? default_sim_body : asteroids.simulation_bodies.at(settings.selected_setup_asteroid);
 
 
+        // Properties of the individual body.
         ImGui::SeparatorText("Selected body properties");
         ImGui::BeginDisabled(body_not_selected);
         {
@@ -311,6 +338,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
     dt = tmp;
     ImGui::EndDisabled();
 
+    // A bit convoluted logic here but let me try to explain.
     std::string_view button_text = simulation_paused ? "Start simulation" : "Pause simulation";
     if(ImGui::Button(button_text.data()))
     {
@@ -318,23 +346,33 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         {
             if(!simulation_started)
             {
+                // If the simluation is just starting we need to initalize it first.
                 initialize_simulation();
             }
+            // If the simulation was already start (and thus just paused) this does nothing,
+            // otherwise this stores the information that the simulation was started until the user decides to restart it again.
             simulation_started.store(true, std::memory_order_relaxed);
             asteroids.simulation_started = true;
             settings.selected_setup_asteroid = -1;
         }
+        // Flip the started/paused state.
         simulation_paused.store(!simulation_paused, std::memory_order_relaxed);
     }
     ImGui::SameLine();
     if(ImGui::Button("Reset simulation"))
     {
+        // Reset the simulation acknowledged.
         simulation_paused_ackowledged.store(false, std::memory_order_relaxed);
+        // Notify the simulation thread that the simulation should be paused.
         simulation_paused.store(true, std::memory_order_relaxed);
+
+        // Wait for the simulation thread to stop using the data - complete it's simulation step.
         while(!simulation_paused_ackowledged.load())
         {
             std::this_thread::sleep_for(7ms);
         }
+
+        // We are back to initialization state - reset the simluation started flag.
         simulation_started.store(false, std::memory_order_relaxed);
         asteroids.simulation_started = false;
         last_update_asteroids.simulation_started = false;

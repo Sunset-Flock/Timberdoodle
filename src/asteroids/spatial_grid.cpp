@@ -13,17 +13,21 @@ auto SpatialGrid::hash_cell_coordinates(i32vec3 const & coordinates) const -> u3
     return s_cast<u32>(coordinates.x * HASH_KEY_1 + coordinates.y * HASH_KEY_2 + coordinates.z * HASH_KEY_3);
 }
 
+// This key will not be exclusive - it can happen that two cells form completely different portion of space will
+// have the same key, this is why spatial grid is only conservative in finding the neighbors.
 auto SpatialGrid::get_key_from_hash(u32 const hash) const -> u32
 {
     return hash % spatial_lookup.size();
 }
 
+// Construct the spatial hash grid.
 SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_size) :
     cell_size{cell_size}
 {
     DBG_ASSERT_TRUE_M(positions.size() < std::numeric_limits<u16>::max(), 
         "Currently only using 16 bit uints to represent index");
 
+    // First calculate the key of the cell for each of the positions.
     spatial_lookup.resize(positions.size());
     for(i32 position_index = 0; position_index < positions.size(); ++position_index)
     {
@@ -37,6 +41,7 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
         };
     }
 
+    // Sort the points which puts the neighbors in the same cell close together.
     std::sort(std::execution::par, spatial_lookup.begin(), spatial_lookup.end(), 
         [](SpatialEntry const & first, SpatialEntry const & second) -> bool
         {
@@ -44,6 +49,7 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
         }
     );
 
+    // And now initalize the start indices for each cell.
     cell_start_indices.resize(positions.size());
     std::fill(cell_start_indices.begin(), cell_start_indices.end(), std::numeric_limits<u32>::max());
 
@@ -54,6 +60,8 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
                 std::numeric_limits<u32>::max() :
                 spatial_lookup.at(spatial_lookup_index - 1).cell_key;
 
+        // If the previous key differs from the current key, we know a new cell started and so we store its index
+        // in the look up table.
         if(current_key != previous_key)
         {
             cell_start_indices.at(current_key) = spatial_lookup_index; 
@@ -64,10 +72,13 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
 auto SpatialGrid::get_neighbor_candidate_indices(f64vec3 const & position, f32 const radius) const -> std::vector<u16>
 {
     std::vector<u16> neighbor_candidate = {};
+    // Get the actual search radius.
     i32 const search_radius_in_cells = s_cast<i32>(std::ceil(radius / cell_size));
 
+    // Get the coordinates of the start cell.
     i32vec3 const start_cell_coordinates = position_to_cell_coordinates(position);
 
+    // And now loop through each cell in the search radius.
     for(i32 cell_x_offset = -search_radius_in_cells; cell_x_offset <= search_radius_in_cells; ++cell_x_offset)
     {
         for(i32 cell_y_offset = -search_radius_in_cells; cell_y_offset <= search_radius_in_cells; ++cell_y_offset)
@@ -77,9 +88,12 @@ auto SpatialGrid::get_neighbor_candidate_indices(f64vec3 const & position, f32 c
                 i32vec3 const cell_offset = i32vec3(cell_x_offset, cell_y_offset, cell_z_offset);
                 i32vec3 const offset_cell_coordinates = start_cell_coordinates + cell_offset;
 
+                // Calculate the cells key.
                 u32 const key = get_key_from_hash(hash_cell_coordinates(offset_cell_coordinates));
+                // Lookup its starting index.
                 u32 const cell_start_index = cell_start_indices.at(key);
 
+                // And while the key matches the cell we are currently in add the point indices to the list of potential neighbors.
                 for (i32 index = cell_start_index; index < spatial_lookup.size(); ++index)
                 {
                     if(spatial_lookup.at(index).cell_key != key) { break; }

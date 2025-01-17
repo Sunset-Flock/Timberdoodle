@@ -104,22 +104,27 @@ struct DerivativesTask : Task
         for(i32 asteroid_idx = start; asteroid_idx < end; ++asteroid_idx)
         {
             Kernel kernel;
+            // Find all the potential neighbors - note that this is conservative and thus may (and will) return false positives.
             std::vector<u16> potential_neighbors = grid->get_neighbor_candidate_indices(
                 asteroids->positions.at(asteroid_idx),
+                // Conservative search radius calculation.
                 0.5 * (asteroids->max_smoothing_radius + asteroids->smoothing_radii.at(asteroid_idx))
             );
 
+            // Now lets remove all the false positives.
             std::vector<u16> actual_neighbors = {};
-
             for(i32 potential_neighbors_vector_idx = 0; potential_neighbors_vector_idx < potential_neighbors.size(); ++potential_neighbors_vector_idx)
             {
                 u16 const potential_neighbor_index = potential_neighbors.at(potential_neighbors_vector_idx);
 
+                // Calculate the real smoothing radius.
                 kernel.smoothing_radius = 0.5f * (asteroids->smoothing_radii.at(asteroid_idx) + asteroids->smoothing_radii.at(potential_neighbor_index));
+                // Calculate the distance between the asteroid and the potential neighbor.
                 f64 const asteroid_distance = glm::length(asteroids->positions.at(asteroid_idx) - asteroids->positions.at(potential_neighbor_index));
 
                 bool const asteroids_same = potential_neighbor_index == asteroid_idx;
                 bool const asteroids_too_far = asteroid_distance > (kernel.smoothing_radius * 2.0f);
+                // And now accept the neigbor only if it isn't our original asteroid and if it fits to the supported range of our kernel.
                 if(!(asteroids_same || asteroids_too_far))
                 {
                     actual_neighbors.push_back(potential_neighbor_index);
@@ -127,6 +132,7 @@ struct DerivativesTask : Task
             }
 
 
+            // For the real neighbors we now calculate the derivatives.
             for(i32 neighbor_asteroid_vector_idx = 0; neighbor_asteroid_vector_idx < actual_neighbors.size(); ++neighbor_asteroid_vector_idx)
             {
                 u16 const neighbor_asteroid_idx = actual_neighbors.at(neighbor_asteroid_vector_idx);
@@ -217,15 +223,17 @@ void Solver::integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & 
 {
     const u32 asteroids_size = asteroids.positions.size();
 
+    // Zero out derivatives from last frame.
     std::fill(asteroids.energy_derivatives.begin(), asteroids.energy_derivatives.end(), 0.0);
     std::fill(asteroids.density_derivatives.begin(), asteroids.density_derivatives.end(), 0.0);
     std::fill(asteroids.velocity_derivatives.begin(), asteroids.velocity_derivatives.end(), f32vec3(0.0));
     std::fill(asteroids.velocity_divergences.begin(), asteroids.velocity_divergences.end(), 0.0);
-    // Zero out derivatives from last frame.
 
 
+    // Build the spatial grid for this current state - value 3000 
     SpatialGrid grid = SpatialGrid(asteroids.positions, 3000.0f);
 
+    // Update material properties.
     {
         const u32 chunk_size = 256u;
         const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
@@ -233,13 +241,16 @@ void Solver::integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & 
         threadpool.blocking_dispatch(material_update_task);
     }
 
+    // Calculate the derivatives.
     {
+        // Smaller chunk to let the threads load balance a bit better.
         const u32 chunk_size = 32u;
         const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
         std::shared_ptr<DerivativesTask> derivatives_task = std::make_shared<DerivativesTask>(&asteroids, &grid, chunk_count, chunk_size);
         threadpool.blocking_dispatch(derivatives_task);
     }
 
+    // And finally perform the integration step.
     {
         const u32 chunk_size = 256u;
         const u32 chunk_count = (asteroids.positions.size() + chunk_size - 1) / chunk_size;
