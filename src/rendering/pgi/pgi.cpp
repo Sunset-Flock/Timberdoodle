@@ -1599,6 +1599,17 @@ auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompil
     };
 }
 
+auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl"},
+        .entry_point = "enty_eval_screen_irradiance",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIEvalScreenIrradiancePush)),
+        .name = std::string{"enty_eval_screen_irradiance"},
+    };
+}
+
 void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
 {
     auto & gpu_context = render_context->gpu_context;
@@ -1785,6 +1796,26 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
         u32 const z = static_cast<u32>(render_data.pgi_settings.probe_count.z);
         ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
     }
+}
+
+void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
+{
+    auto & gpu_context = render_context->gpu_context;
+    auto & render_data = render_context->render_data;
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_eval_screen_irradiance_compute_compile_info().name));
+
+    PGIEvalScreenIrradiancePush push = {};
+    push.attach = ti.attachment_shader_blob;
+    push.render_target_size = render_data.settings.render_target_size;
+    push.irradiance_image_size = { 
+        render_data.settings.render_target_size.x / 2,
+        render_data.settings.render_target_size.y / 2
+    };
+    ti.recorder.push_constant(push);
+    
+    auto const dispatch_x = round_up_div(push.irradiance_image_size.x, PGI_EVAL_SCREEN_IRRADIANCE_XY);
+    auto const dispatch_y = round_up_div(push.irradiance_image_size.y, PGI_EVAL_SCREEN_IRRADIANCE_XY);
+    ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
 }
 
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool
@@ -2061,5 +2092,19 @@ auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, P
     return tg.create_transient_buffer({
         .size = static_cast<u32>(sizeof(PGIIndirections) + 2 * sizeof(daxa_u32) * settings.probe_count.x * settings.probe_count.y * settings.probe_count.z),
         .name = "pgi indirections",
+    });
+}
+
+auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & render_data) -> daxa::TaskImageView
+{
+    return tg.create_transient_image({
+        .dimensions = 2,
+        .format = daxa::Format::R16G16B16A16_SFLOAT, // TODO(pahrens): make U32 Packed exposure encoded
+        .size = {
+            static_cast<u32>(render_data.settings.render_target_size.x/2),
+            static_cast<u32>(render_data.settings.render_target_size.y/2),
+            1
+        },
+        .name = "pgi probe evaluated screen irradiance",
     });
 }

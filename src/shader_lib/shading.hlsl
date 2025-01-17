@@ -159,7 +159,7 @@ func shade_material(
 
     // Indirect Diffuse
     {
-        float3 global_illumination = pgi_sample_irradiance_nearest(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, tlas, probe_irradiance, probe_visibility, probe_infos, probe_requests, 2);
+        float3 global_illumination = pgi_sample_irradiance_nearest(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, probe_irradiance, probe_visibility, probe_infos, probe_requests, 2);
         diffuse_light += global_illumination;
     }
 

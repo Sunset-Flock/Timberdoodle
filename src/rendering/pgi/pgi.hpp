@@ -10,18 +10,6 @@
 #include "../../scene/scene.hpp"
 #include"pgi_update.inl"
 
-// PGI Process:
-// - Pre Update All possible probes
-//   - clear new probes
-//   - invalidate timed out probes
-//   - build dispatch indirect structs and indirections for other passes
-// - Trace Probe Rays
-// - Update Probes (analyze rays)
-//   - reposition probes
-//   - update validity
-// - Update Probe Texels
-//   - Using the validity, update probes radiance and visibility texels
-
 struct PGIState
 {
     daxa::BufferId debug_probe_mesh_buffer = {};
@@ -29,6 +17,7 @@ struct PGIState
     daxa::u32 debug_probe_mesh_vertices = {};
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
+    // TODO(pahrens): rename to irradiance
     daxa::TaskImage probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
     daxa::TaskImageView probe_radiance_view = daxa::NullTaskImage;
     daxa::TaskImage probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe visibility texture"});
@@ -57,6 +46,8 @@ auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2;
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo;
 
 auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
+
+auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
 
 struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
 {
@@ -100,6 +91,14 @@ struct PGIPreUpdateProbesTask : PGIPreUpdateProbesH::Task
     void callback(daxa::TaskInterface ti);
 };
 
+struct PGIEvalScreenIrradianceTask : PGIEvalScreenIrradianceH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    PGIState* pgi_state = {};
+    void callback(daxa::TaskInterface ti);
+};
+
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool;
 
 // Fills any auto calculated setting fields.
@@ -111,3 +110,5 @@ auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings,
 auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
 
 auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskBufferView;
+
+auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView;

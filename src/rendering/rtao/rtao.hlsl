@@ -126,7 +126,7 @@ void ray_gen()
             const float3 sample_dir = mul(tbn, hemi_sample);
             ray.Direction = sample_dir;
             payload.miss = false; // need to set to false as we skip the closest hit shader
-            TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
+            TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
             ao_factor += payload.miss ? 0 : 1;
         }
 
@@ -140,6 +140,7 @@ void ray_gen()
 void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     let push = rt_ao_push;
+
     if (!rt_is_alpha_hit(
         push.attach.globals,
         push.attach.mesh_instances,
@@ -154,7 +155,32 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
 [shader("closesthit")]
 void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
+    let push = rt_ao_push;
+
     payload.miss = false;
+
+    let primitive_index = PrimitiveIndex();
+    let instance_id = InstanceID();
+    let geometry_index = GeometryIndex();
+    
+    TriangleGeometry tri_geo = rt_get_triangle_geo(
+        attr.barycentrics,
+        instance_id,
+        geometry_index,
+        primitive_index,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.entity_to_meshgroup,
+        push.attach.globals.scene.mesh_groups,
+        push.attach.mesh_instances.instances
+    );
+
+    if (tri_geo.material_index != INVALID_MANIFEST_INDEX)
+    {
+        const GPUMaterial material = push.attach.globals.scene.materials[tri_geo.material_index];
+
+        bool emissive = any(material.emissive_color > 0.0f);
+        payload.miss = emissive;
+    }
 }
 
 [shader("miss")]

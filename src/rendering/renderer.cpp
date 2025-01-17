@@ -213,6 +213,7 @@ void Renderer::compile_pipelines()
         {pgi_update_probes_visibility_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
+        {pgi_eval_screen_irradiance_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -607,6 +608,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "main_camera_detail_normal_image",
     });
     daxa::TaskImageView view_camera_geo_normal_image = main_camera_geo_normal_image;
+    // TODO(pahrens): rename to view_camera_mapped_normal_image
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
     tg.add_task(GenGbufferTask{
         .views = std::array{
@@ -803,6 +805,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
             tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name="copy new ao to ao history"});
         }
+        daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
         if (render_context->render_data.pgi_settings.enabled)
         {
             pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
@@ -857,6 +860,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
                     PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
                     PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
+                },
+                .render_context = render_context.get(),
+                .pgi_state = &this->pgi_state,
+            });
+            pgi_screen_irrdiance = pgi_create_screen_irradiance(tg, render_context->render_data);
+            tg.add_task(PGIEvalScreenIrradianceTask{
+                .views = std::array{
+                    PGIEvalScreenIrradianceH::AT.globals | render_context->tgpu_render_data,
+                    PGIEvalScreenIrradianceH::AT.probe_info | pgi_state.probe_info_view,
+                    PGIEvalScreenIrradianceH::AT.probe_requests | pgi_state.cell_requests_view,
+                    PGIEvalScreenIrradianceH::AT.probe_radiance | pgi_state.probe_radiance_view,
+                    PGIEvalScreenIrradianceH::AT.probe_visibility | pgi_state.probe_visibility_view,
+                    PGIEvalScreenIrradianceH::AT.view_cam_depth | view_camera_depth,
+                    PGIEvalScreenIrradianceH::AT.view_cam_mapped_normals | view_camera_detail_normal_image,
+                    PGIEvalScreenIrradianceH::AT.pgi_irradiance | pgi_screen_irrdiance,
                 },
                 .render_context = render_context.get(),
                 .pgi_state = &this->pgi_state,

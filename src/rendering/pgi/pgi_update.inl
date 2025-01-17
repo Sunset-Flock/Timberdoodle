@@ -102,3 +102,24 @@ struct PGIPreUpdateProbesPush
     daxa_u32* workgroups_finished;
     daxa_u32 total_workgroups;
 };
+
+#define PGI_EVAL_SCREEN_IRRADIANCE_XY 8
+#define PGI_EVAL_SCREEN_IRRADIANCE_Z 1
+
+DAXA_DECL_TASK_HEAD_BEGIN(PGIEvalScreenIrradianceH)
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, view_cam_mapped_normals)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, probe_requests)
+DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, pgi_irradiance)
+DAXA_DECL_TASK_HEAD_END
+
+struct PGIEvalScreenIrradiancePush
+{
+    PGIEvalScreenIrradianceH::AttachmentShaderBlob attach;
+    daxa_u32vec2 render_target_size;
+    daxa_u32vec2 irradiance_image_size;
+};

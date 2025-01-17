@@ -482,7 +482,7 @@ void entry_main_cs(
         
         if (AT.globals.pgi_settings.enabled)
         {
-            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, mapped_normal, primary_ray, AT.tlas.get(), AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), 1);
+            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, mapped_normal, primary_ray, AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), 1);
         }
 
         float3 highlight_lighting = {};

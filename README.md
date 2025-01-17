@@ -57,41 +57,117 @@ Additionally to debug views Timberdoodle also includes additional set of debug t
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/meshlet_bistro.png)
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/culling_bistro.png)
 
-### Two Pass Culling Pipeline (Patrick Ahrens)
+### Visbuffer Geometry Pipeline (Patrick Ahrens)
 
-Tido uses a visibility buffer based two pass culling. This has several advantages over more conventional two pass culling. To show the difference i ll make a birds eye description of how tido performs two pass culling and how it is conventionally done:
+Tido uses a gpu driven fully bindless geometry pipeline to render a visbuffer (triangle id + depth).
 
-Conventional two-pass culling:
-* Step 1: Build hierarchical depth image (hiz) from last frames depth image
-* Step 2: Cull all mesh instances
-* Step 3: Cull meshlet instances of non-culled mesh instances
-* Step 4. Draw non-culled meshlet instances
-* Step 5: Build hierarchical depth image (hiz) for current new depth image
-* Step 6: Cull all mesh instances
-* Step 7: Cull meshlet instances of non-culled mesh instances
-* Step 8. Draw non-culled meshlet instances
+#### Mesh Preparation
 
-And here is how tido performs two pass culling using the visibility buffer:
+When loading assets, tido preprocesses all meshes:
+1. optimize vertices of each mesh
+2. auto generate lods for each mesh
+    - each lod is roughly half the triangle count of the previous lod
+    - uses error metric based on normal and positional error for each simplification
+    - up to 16 lods are generated, the generation of lods is stopped after crossing an error threshold
+3. generate meshlets for each mesh
+    - up to 64 triangles and 64 vertices per meshlet
+    - compressed indexbuffer for each meshlet
 
-* Step 1: Analyze triangle id image of last frame, build list of visible meshlets
-* Step 2: Build meshlet bitfield, marking all meshlets drawn in first pass (used to avoid drawing these meshlets a second time in the second pass)
-* Step 3: Draw triangle id and depth for all visible meshlets from the previous frame.
-* Step 4: Build hierarchical z buffer (hiz) from the drawn depth map.
-* Step 5: Cull all mesh instances against frustum and hiz
-* Step 6: Cull meshlets of non-culled meshes against frustum and hiz
-* Step 7: Draw triangle id and depth of all non-culled meshlets
+Most of these operations use the meshoptimizer library
 
-Steps 4-8 in the conventional way and Steps 3-7 in the tido way are very similar.
-But Steps 1-3 and 1-2 in tido are very different. Instead of culling all meshles and meshlets, tido uses the tri id image from the last frame, to build a list of visible meshlets. 
-These pre steps are quite different but take a similar amount of time on the gpu. 
+Each mesh with all its data (indices, vertices meshlets ...) is packed into a single buffer allocation. A GPUMesh struct is created holding metadata (vertex count, aabb...) and pointers to the section of the mesh buffer containing lists of all the meshes attributes (indices, meshlets, vertices...).
 
-The first benefit of the tido approach is, that the amount of geo drawn in the first pass is much lower. This is because hiz culling is necessarily conservative and coarse. It will always have many false negatives, drawing more geo than is actually visible. Using the triangle id image has the big advantage of giving you the exact meshlets that are visible. This typically reduces the meshlet count drawn by 40-70%, leading to a speedup of 30-60% for the first pass draws!
+> In tido we exclusively use Buffer Device Address pointers and never buffer objects in shader code
 
-The second big benefit arises from two smaller changes to the analyze triangle id image pass. Firstly, move it from `Step 1` to `Step 7`. This gives us the list of visible meshlets not only of the last but also the current frame. Secondly, also write out the visible triangles in the analyze triangle id image pass.
+This GPUMesh struct is then put into a buffer (called mesh manifest) containing an array with all GPUMeshes. This buffer is available in all shaders in shading, allowing any rendering shader to always access all geometry data.
 
-It might be surprising, due to the high spacial coherence, writing out hte visible triangles is actually very cheap and does not change the runtime much at all.
+#### Beginning of Frame on CPU
 
-Now with this we can perform perfectly culled forward shading! Forward shading is still the fastest way to draw when we arent quad occupancy limited AND/OR the vertex shader is much more expensive than the pixel shader (this is the case for example when drawing motion vectors for animated geo).
+At the beginning of each frame, tido goes over all entities in the scene and selects an appropriate lod.
+The lod is based on a rough pixel error metric. Each each lods bounding box is projected into a rotated view towards the lod. Rotating the view for the projection ensures that there is never an lod change based on the real cameras orientation, as well as making the selection consistent with raytracing.
 
-Other details:
-All meshlet culling is performed by task/amplification shaders in the mesh shading pipeline. Aside from meshlet culling, tido also does fine grained triangle culling. This is especially effective for very large triangles.
+The projected bounding boxes pixel size is multiplied with the estimated error calculated by the simplification. The lod with the highest error that still falls under ~1 pixel error is selected.
+This scheme is usually good enough to ensure that lod changes are not visible.
+
+Using the selected lods the new frames TLAS (used in raytracing) is build and a list of MeshInstances is generated. This list is then send to the gpu each frame.
+
+#### The Mega Drawcall
+
+Reguardless of mesh instance count, tido can draw all geometry in one drawcall. This means extremely low cpu overhead for any amount of geometry on the screen.
+
+To achieve this, tido must perform multiple phases of "work expansion":
+1. a compute shader goes over all mesh instances
+    - culls meshes (described later)
+    - enqueues the surviving meshes meshlets into a "work expansion" buffer
+2. a indirect compute shader goes over all surviving meshlets using the "work expansion" buffer
+    - culls meshlets 
+    - writes surviving meshlets into a meshlet instance buffer 
+3. a indirect mesh shader dispatch goes over all meshlet instances and draws them.
+    - uses the prepared meshlets
+    - draws visibility id and depth
+    - visibility id is 24 bit meshlet instance index and 6 bits triangle index 2 bit to spare
+    - uses inverse z to get best precision and infinite far plane
+    - as all geometry is bindless, the indirections from meshlet_instance->mesh_instance->mesh allows this to be one drawcall
+
+The second step can also be performed by task shaders instead of a compute pass. Sadly, task shaders have poor performance for very high meshlet counts. This makes them slower on my gpu (RTX4080) for high meshlet counts. For lowish meshlet counts (<100k) the task shaders are faster tho because they avoid the barrier between compute and mesh shader as well as allow for some overlap between meshshading and meshlet culling work. 
+
+There is a catch to the "one drawcall" to draw everything, as the Pixelshader for alpha discard geometry prevents early z tests due to the discard call. To prevent general performance degradation, Tido has two rasterization pipelines, one without alpha discard that can perform early z tests used on opaque. And one pipeline that does use discard to support alpha discard geometry.
+
+References: 
+* https://developer.nvidia.com/blog/introduction-turing-mesh-shaders/
+* https://gist.github.com/Ipotrick/d6bcf9696b00c72eb037370794733de8
+* https://github.com/zeux/meshoptimizer
+* http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
+
+#### GPU Culling
+
+Now this is one of two phases tido performs to draw. Tido performs two pass occlusion culling.
+This means Tido performs the whole draw pipeline twice.
+
+First culling everything against the depth of last frame and then culling everything that was not drawn in the first pass again against the newly generated depth in the first pass. To avoid culling things that were drawn in the first pass again, tido builds a bitfield with indirections from entity->mesh_instance->meshlet_instance to save space (2mb is enough for all tested scenes).
+
+Mesh and meshlet culling works essentially the same: cull against frustum then against occlusion.
+
+As tido uses mesh shading it can also perform shader based triangle culling. Tido culls large triangles against depth and all other triangles when its either a backface or a "microtriangle" (triangle that is so small and in just the right position, its not rasterized).
+
+The hierarchical depth buffer (called HiZ in tido) is generated in a single pass with a custom made downsampler similar to AMDs SPD. 
+
+The depth culling tests from 2x2 up to 4x4 texels in the HiZ depending on size and position of the projected aabb of the test object. 
+
+Tido has an alternative culling mode, where it instead of culling against previous frames depth and then drawing for the first pass, simply directly draws all meshlets that were visible in the last frame.
+For scenes with larger triangles this can be up to 25% faster. The downside is that this generally leaves larger "holes" in the HiZ as effectively using the meshlets from last frame instead of depth is a much finer culling. This can lead to much worse performance when moving the camera with high poly scenes.
+
+References: 
+* https://github.com/GPUOpen-Effects/FidelityFX-SPD
+
+#### Visbuffer
+
+Just using the visbuffer, we can fully reconstruct all triangle information in a deferred manner when shading later. 
+
+This is fully bindless, any shader reading it can fully reconstruct all triangle information including barycentrics and derivatives.
+
+As mentioned earlier, tidos alternative mode draws the previous frames meshlets first instead of using previous depth to cull and darw. To find all visible meshlets from the previous frame, tido performs a compute dispatch over the visbuffer analyzing it. This shader builds a list of all unique meshlets present in the visbuffer. Its generally very fast (<0.04ms).
+This list of visible meshlets could also be used to draw the scene again but with meshlet perfect culling.
+This allows for very efficient f+ drawing.
+
+References: 
+* http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
+* https://research.activision.com/publications/2021/09/geometry-rendering-pipeline-architecture
+
+### Probe Based Global Illumination
+
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/shaded.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/probes.png)
+
+Based on [RTXGI-DDGI](https://github.com/NVIDIAGameWorks/RTXGI-DDGI).
+
+The world is covered in an irradiance volume represented as a probe grid. Rays are shot from each probe, consine convolved and written to the texels of the probe. 
+Each probe is also calculating a visibility term via a statistical depthmap (average depth and depth variance per texel) to avoid leaking.
+In practice this works well and can be used as a unified indirect lighting model as it is volumetric and can be applied to all dynamic, static and volumetric rendering.
+
+There are a few key improvements made to improve the performance and scaling of DDGI:
+* only every 8th probe is updated every frame
+* depth convolution uses cos(dot(N,RAY_DIR))^25 to weigh ray contributions for visibility, drastically decreasing leaks
+* probes are not classified as useful via heuristic but instead are requested by shaded pixels and probe ray hits instead.
+* (TODO) only requested probes are allocated
+* (TODO) Cascades allow for much greater view distance
