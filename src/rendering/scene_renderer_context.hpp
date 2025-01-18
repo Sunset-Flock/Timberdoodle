@@ -129,6 +129,12 @@ namespace RenderTimes
         VSM_GEN_DIRY_BIT_HIZ,
         VSM_CULL_AND_DRAW_PAGES,
         VSM_CLEAR_DIRY_BITS,
+        PGI_TRACE_SHADE_RAYS,
+        PGI_PRE_UPDATE_PROBES,
+        PGI_UPDATE_PROBES,
+        PGI_UPDATE_IRRADIANCE,
+        PGI_UPDATE_VISIBILITY,
+        PGI_EVAL_SCREEN_IRRADIANCE,
         SHADE_OPAQUE,
         SHADE_GBUFFER,
         COUNT,
@@ -160,6 +166,12 @@ namespace RenderTimes
         "VSM_GEN_DIRY_BIT_HIZ",
         "VSM_CULL_AND_DRAW_PAGES",
         "VSM_CLEAR_DIRY_BITS",
+        "PGI_TRACE_SHADE_RAYS",
+        "PGI_PRE_UPDATE_PROBES",
+        "PGI_UPDATE_PROBES",
+        "PGI_UPDATE_IRRADIANCE",
+        "PGI_UPDATE_VISIBILITY",
+        "PGI_EVAL_SCREEN_IRRADIANCE",
         "SHADE_OPAQUE",
         "SHADE_GBUFFER",
     };
@@ -178,6 +190,7 @@ namespace RenderTimes
         GROUP_VSM_INVALIDATE_STAGES,
         GROUP_VSM_BOOKKEEPING,
         GROUP_VSM_CULL_AND_DRAW,
+        GROUP_PGI,
         GROUP_COUNT
     };
 
@@ -189,6 +202,7 @@ namespace RenderTimes
         "GROUP_VSM_MARK_PAGES",
         "GROUP_VSM_BOOKKEEPING",
         "GROUP_VSM_CULL_AND_DRAW",
+        "GROUP_PGI",
     };
 
     static constexpr inline auto to_string(RenderGroupTimesEnum index) -> char const *
@@ -244,6 +258,15 @@ namespace RenderTimes
         VSM_CULL_AND_DRAW_PAGES,
     };
 
+    static constexpr inline std::array GROUP_PGI_TIMES = std::array{
+        PGI_TRACE_SHADE_RAYS,
+        PGI_PRE_UPDATE_PROBES,
+        PGI_UPDATE_PROBES,
+        PGI_UPDATE_IRRADIANCE,
+        PGI_UPDATE_VISIBILITY,
+        PGI_EVAL_SCREEN_IRRADIANCE,
+    };
+
     static constexpr inline std::array<std::span<RenderTimesEnum const>, GROUP_COUNT> GROUP_RENDER_TIMES = {
         GROUP_VISBUFFER_TIMES,
         GROUP_AMBIENT_OCCLUSION_TIMES,
@@ -252,6 +275,7 @@ namespace RenderTimes
         GROUP_VSM_MARK_PAGES,
         GROUP_VSM_BOOKKEEPING_TIMES,
         GROUP_VSM_CULL_AND_DRAW_TIMES,
+        GROUP_PGI_TIMES,
     };
 
     struct State

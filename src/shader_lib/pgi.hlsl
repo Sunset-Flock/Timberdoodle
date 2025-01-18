@@ -210,8 +210,8 @@ func pgi_sample_probe_visibility(
 // Greatly reduces self shadowing for corners.
 func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
 {
-    const float BIAS_FACTOR = 0.25f;
-    const float NORMAL_TO_VIEW_WEIGHT = 0.2f;
+    const float BIAS_FACTOR = 0.3f;
+    const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
@@ -283,7 +283,7 @@ func pgi_sample_irradiance(
                     (y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
                     (z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                static const float INTERPOL_SOFTENER = 0.925f; // reduces banding between probes
+                static const float INTERPOL_SOFTENER = 1.0f; // reduces banding between probes
                 probe_weight *= pow(cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z, INTERPOL_SOFTENER);
             }
 
@@ -294,7 +294,7 @@ func pgi_sample_irradiance(
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
             float smooth_backface_term = (1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f;
-            probe_weight *= square(smooth_backface_term) + 0.2f;
+            probe_weight *= square(smooth_backface_term);
 
             // visibility (Chebyshev)
             // ===== Shadow Map Visibility Test =====
@@ -475,7 +475,7 @@ func pgi_sample_irradiance_nearest(
             float probe_weight = 1.0f;
 
             PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
-            if (probe_info.validity < 0.8f)
+            if (probe_info.validity < 0.3f)
             {
                 probe_weight = 0.0f;
             }

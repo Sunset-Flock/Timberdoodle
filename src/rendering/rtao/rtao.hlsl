@@ -114,7 +114,7 @@ void ray_gen()
 
         RayDesc ray = {};
         ray.Origin = sample_pos;
-        ray.TMax = 2.5f;
+        ray.TMax = 2.0f;
         ray.TMin = 0.0f;
 
         RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];

@@ -1610,6 +1610,17 @@ auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineC
     };
 }
 
+auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl"},
+        .entry_point = "entry_upscale_screen_irradiance",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIUpscaleScreenIrradiancePush)),
+        .name = std::string{"entry_upscale_screen_irradiance"},
+    };
+}
+
 void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
 {
     auto & gpu_context = render_context->gpu_context;
@@ -1679,6 +1690,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_irradiance_pipeline_compile_info().name));
         ti.recorder.push_constant(push);
 
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
         if (render_data.pgi_settings.enable_indirect_sparse)
         {
             ti.recorder.dispatch_indirect({
@@ -1696,8 +1708,10 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
             auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
             ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
         }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
     }
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_visibility_pipeline_compile_info().name));
         ti.recorder.push_constant(push);
         if (render_data.pgi_settings.enable_indirect_sparse)
@@ -1717,6 +1731,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
             auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
             ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
         }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
     }
 }
 
@@ -1731,6 +1746,7 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_compile_info().name));
         ti.recorder.push_constant(push);
         push.attach = ti.attachment_shader_blob;
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
         if (render_data.pgi_settings.enable_indirect_sparse)
         {
             ti.recorder.dispatch_indirect({
@@ -1748,6 +1764,7 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
             auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
             ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
         }
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
     }
 }
 
@@ -1767,7 +1784,9 @@ void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
     push.workgroups_finished = reinterpret_cast<u32*>(ti.allocator->allocate_fill(0u).value().device_address);
     push.total_workgroups = dispatch_x * dispatch_y * dispatch_z;
     ti.recorder.push_constant(push);
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_PRE_UPDATE_PROBES);
     ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_PRE_UPDATE_PROBES);
 }
 
 void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
@@ -1782,6 +1801,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
     if (render_data.pgi_settings.enable_indirect_sparse)
     {
         ti.recorder.trace_rays_indirect({
@@ -1796,6 +1816,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
         u32 const z = static_cast<u32>(render_data.pgi_settings.probe_count.z);
         ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
     }
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
 }
 
 void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
@@ -1808,13 +1829,32 @@ void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
     push.attach = ti.attachment_shader_blob;
     push.render_target_size = render_data.settings.render_target_size;
     push.irradiance_image_size = { 
-        render_data.settings.render_target_size.x / 2,
-        render_data.settings.render_target_size.y / 2
+        render_data.settings.render_target_size.x,
+        render_data.settings.render_target_size.y
     };
     ti.recorder.push_constant(push);
     
     auto const dispatch_x = round_up_div(push.irradiance_image_size.x, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     auto const dispatch_y = round_up_div(push.irradiance_image_size.y, PGI_EVAL_SCREEN_IRRADIANCE_XY);
+    
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_EVAL_SCREEN_IRRADIANCE);
+    ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_EVAL_SCREEN_IRRADIANCE);
+}
+
+void PGIUpscaleScreenIrradianceTask::callback(daxa::TaskInterface ti)
+{
+    auto & gpu_context = render_context->gpu_context;
+    auto & render_data = render_context->render_data;
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_upscale_screen_irradiance_compute_compile_info().name));
+
+    PGIUpscaleScreenIrradiancePush push = {};
+    push.attach = ti.attachment_shader_blob;
+    push.size = render_data.settings.render_target_size;
+    ti.recorder.push_constant(push);
+    
+    auto const dispatch_x = round_up_div(push.size.x, PGI_UPSCALE_SCREEN_IRRADIANCE_XY);
+    auto const dispatch_y = round_up_div(push.size.y, PGI_UPSCALE_SCREEN_IRRADIANCE_XY);
     ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
 }
 
@@ -2095,7 +2135,7 @@ auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, P
     });
 }
 
-auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & render_data) -> daxa::TaskImageView
+auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView
 {
     return tg.create_transient_image({
         .dimensions = 2,
@@ -2107,4 +2147,98 @@ auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & 
         },
         .name = "pgi probe evaluated screen irradiance",
     });
+}
+
+auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & render_data) -> daxa::TaskImageView
+{
+    return tg.create_transient_image({
+        .dimensions = 2,
+        .format = daxa::Format::R16G16B16A16_SFLOAT, // TODO(pahrens): make U32 Packed exposure encoded
+        .size = {
+            static_cast<u32>(render_data.settings.render_target_size.x),
+            static_cast<u32>(render_data.settings.render_target_size.y),
+            1
+        },
+        .name = "pgi probe upscaled screen irradiance",
+    });
+}
+
+auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
+{
+    daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
+    info.tg.add_task(PGIPreUpdateProbesTask{
+        .views = std::array{
+            PGIPreUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
+            PGIPreUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIPreUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
+            PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });
+    daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    info.tg.add_task(PGITraceProbeRaysTask{
+        .views = std::array{
+            PGITraceProbeRaysTask::AT.globals | info.render_context->tgpu_render_data,
+            PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
+            PGITraceProbeRaysTask::AT.probe_radiance | info.pgi_state.probe_radiance_view,
+            PGITraceProbeRaysTask::AT.probe_visibility | info.pgi_state.probe_visibility_view,
+            PGITraceProbeRaysTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGITraceProbeRaysTask::AT.probe_requests | info.pgi_state.cell_requests_view,
+            PGITraceProbeRaysTask::AT.tlas | info.tlas,
+            PGITraceProbeRaysTask::AT.sky_transmittance | info.sky_transmittance,
+            PGITraceProbeRaysTask::AT.sky | info.sky,
+            PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
+            PGITraceProbeRaysTask::AT.mesh_instances | info.mesh_instances,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });
+    daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    info.tg.copy_image_to_image({info.pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
+    info.tg.add_task(PGIUpdateProbesTask{
+        .views = std::array{
+            PGIUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
+            PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+            PGIUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
+            PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
+            PGIUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });
+    info.tg.add_task(PGIUpdateProbeTexelsTask{
+        .views = std::array{
+            PGIUpdateProbeTexelsTask::AT.globals | info.render_context->tgpu_render_data,
+            PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
+            PGIUpdateProbeTexelsTask::AT.probe_radiance | info.pgi_state.probe_radiance_view,
+            PGIUpdateProbeTexelsTask::AT.probe_visibility | info.pgi_state.probe_visibility_view,
+            PGIUpdateProbeTexelsTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });
+    auto pgi_screen_irrdiance = pgi_create_screen_irradiance(info.tg, info.render_context->render_data);
+    info.tg.add_task(PGIEvalScreenIrradianceTask{
+        .views = std::array{
+            PGIEvalScreenIrradianceH::AT.globals | info.render_context->tgpu_render_data,
+            PGIEvalScreenIrradianceH::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIEvalScreenIrradianceH::AT.probe_requests | info.pgi_state.cell_requests_view,
+            PGIEvalScreenIrradianceH::AT.probe_radiance | info.pgi_state.probe_radiance_view,
+            PGIEvalScreenIrradianceH::AT.probe_visibility | info.pgi_state.probe_visibility_view,
+            PGIEvalScreenIrradianceH::AT.view_cam_depth | info.view_camera_depth,
+            PGIEvalScreenIrradianceH::AT.view_cam_mapped_normals | info.view_camera_detail_normal_image,
+            PGIEvalScreenIrradianceH::AT.irradiance_depth | pgi_screen_irrdiance,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });
+
+    TaskPGIAllOut ret = {};
+    ret.pgi_indirections = pgi_indirections;
+    ret.pgi_screen_irradiance = pgi_screen_irrdiance;
+    return ret;
 }

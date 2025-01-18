@@ -12,8 +12,6 @@
 #include "shader_lib/volumetric.hlsl"
 #include "shader_lib/shading.hlsl"
 #include "shader_lib/raytracing.hlsl"
-#include "shader_lib/pgi.hlsl"
-#include "shader_lib/SH.hlsl"
 #include "shader_lib/transform.hlsl"
 
 
@@ -471,18 +469,25 @@ void entry_main_cs(
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
             sun_direction, atmo_position);
-        const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), mapped_normal, 0);
+
+        float3 indirect_lighting = {};        
+        if (AT.globals.pgi_settings.enabled)
+        {
+            float3 pgi_irradiance = push.attachments.attachments.pgi_screen_irrdiance.get()[index].rgb;
+            indirect_lighting = pgi_irradiance;
+        }
+        else
+        {
+            const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), mapped_normal, 0);
+            indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
+        }
+
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled)
         {
             ambient_occlusion = AT.ao_image.get().Load(index);
-        }
-        float3 indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
-        
-        if (AT.globals.pgi_settings.enabled)
-        {
-            indirect_lighting = pgi_sample_irradiance(AT.globals, AT.globals.pgi_settings, tri_point.world_position, tri_point.world_normal, mapped_normal, primary_ray, AT.pgi_probe_radiance.get(), AT.pgi_probe_visibility.get(), AT.pgi_probe_info.get(), AT.pgi_probe_requests.get(), 1);
+            ambient_occlusion = pow(ambient_occlusion, 1.0f);
         }
 
         float3 highlight_lighting = {};
@@ -495,8 +500,7 @@ void entry_main_cs(
             highlight_lighting = float3(0.4,0.4,0.4);
         }
         
-        // const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting * ambient_occlusion);
-        const float3 lighting = directional_light_direct + float3(0,0,0) + (indirect_lighting.rgb * pow(ambient_occlusion, 1.25f)) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 

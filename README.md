@@ -154,7 +154,7 @@ References:
 * http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
 * https://research.activision.com/publications/2021/09/geometry-rendering-pipeline-architecture
 
-### Probe Based Global Illumination
+### Probe Based Global Illumination (PGI)
 
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/shaded.png)
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/probes.png)
@@ -166,8 +166,11 @@ Each probe is also calculating a visibility term via a statistical depthmap (ave
 In practice this works well and can be used as a unified indirect lighting model as it is volumetric and can be applied to all dynamic, static and volumetric rendering.
 
 There are a few key improvements made to improve the performance and scaling of DDGI:
-* only every 8th probe is updated every frame
+* Variable Probe update rate based on budget
 * depth convolution uses cos(dot(N,RAY_DIR))^25 to weigh ray contributions for visibility, drastically decreasing leaks
 * probes are not classified as useful via heuristic but instead are requested by shaded pixels and probe ray hits instead.
+* better automatic probe repositioning. PGI also consideres the average free direction and the grids distortion in addition to the closest back and frontface. This is the biggest improvement over the base DDGI in terms of quality. In models like bistro and sponza, the PGI repositioning leaves no visible artifacts while the default DDGI repositioning leaves many "blind spots" causing ugly missinterpolations.
+* more robust hysteresis estimation and strong luminance clamping allows PGI to converge faster in challenging scenarios like bistros emissive lights.
+* half resolution probe evaluation. The irradiance volume requires 8 probes to be read, that is 8 bisibility and 8 irradiance samples. That is very expensive and even on a RTX4080 leads to up to 0.4ms evaluation time at full resolution. PGI instead evaluates the probes at half res and then uses a depth aware upscale to save performance.
 * (TODO) only requested probes are allocated
 * (TODO) Cascades allow for much greater view distance

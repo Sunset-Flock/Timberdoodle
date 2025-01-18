@@ -49,6 +49,8 @@ auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompil
 
 auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
 
+auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
+
 struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
 {
     AttachmentViews views = {};
@@ -99,6 +101,14 @@ struct PGIEvalScreenIrradianceTask : PGIEvalScreenIrradianceH::Task
     void callback(daxa::TaskInterface ti);
 };
 
+struct PGIUpscaleScreenIrradianceTask : PGIUpscaleScreenIrradianceH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    PGIState* pgi_state = {};
+    void callback(daxa::TaskInterface ti);
+};
+
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool;
 
 // Fills any auto calculated setting fields.
@@ -111,4 +121,25 @@ auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISettings& 
 
 auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskBufferView;
 
+auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView;
+
 auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView;
+
+struct TaskPGIAllInfo
+{
+    daxa::TaskGraph& tg;
+    RenderContext* render_context = {};
+    PGIState& pgi_state;
+    daxa::TaskImageView view_camera_depth = {};
+    daxa::TaskImageView view_camera_detail_normal_image = {};
+    daxa::TaskBufferView mesh_instances = {};
+    daxa::TaskTlas tlas = {};
+    daxa::TaskImageView sky_transmittance = {};
+    daxa::TaskImageView sky = {};
+};
+struct TaskPGIAllOut
+{
+    daxa::TaskBufferView pgi_indirections = {};
+    daxa::TaskImageView pgi_screen_irradiance = {};
+};
+auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut;

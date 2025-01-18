@@ -186,10 +186,5 @@ func shade_sky(
         incoming_ray,
         atmo_position
     );
-    const float3 sun_direct_illuminance = get_sun_direct_lighting(
-        globals, sky_transmittance, sky,
-        incoming_ray, atmo_position);
-    const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
-    DEBUG_atmosphere_direct_illuminnace = atmosphere_direct_illuminnace;
-    return total_direct_illuminance;
+    return atmosphere_direct_illuminnace;
 }

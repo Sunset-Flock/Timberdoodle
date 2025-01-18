@@ -214,6 +214,7 @@ void Renderer::compile_pipelines()
         {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
+        {pgi_upscale_screen_irradiance_compute_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
@@ -718,6 +719,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
 
     daxa::TaskBufferView pgi_indirections = {};
+    daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
+    if (render_context->render_data.pgi_settings.enabled)
+    {
+        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, view_camera_depth, view_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
+        pgi_screen_irrdiance = ret.pgi_screen_irradiance;
+        pgi_indirections = ret.pgi_indirections;
+    }
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
         // TODO: Precompute once, and save
@@ -805,81 +813,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
             tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name="copy new ao to ao history"});
         }
-        daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
-        if (render_context->render_data.pgi_settings.enabled)
-        {
-            pgi_indirections = pgi_create_probe_indirections(tg, render_context->render_data.pgi_settings, pgi_state);
-            tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
-            tg.add_task(PGIPreUpdateProbesTask{
-                .views = std::array{
-                    PGIPreUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                    PGIPreUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
-                    PGIPreUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
-                    PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
-                },
-                .render_context = render_context.get(),
-                .pgi_state = &this->pgi_state,
-            });
-            daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(tg, render_context->render_data.pgi_settings, pgi_state);
-            tg.add_task(PGITraceProbeRaysTask{
-                .views = std::array{
-                    PGITraceProbeRaysTask::AT.globals | render_context->tgpu_render_data,
-                    PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
-                    PGITraceProbeRaysTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                    PGITraceProbeRaysTask::AT.probe_visibility | pgi_state.probe_visibility_view,
-                    PGITraceProbeRaysTask::AT.probe_info | pgi_state.probe_info_view,
-                    PGITraceProbeRaysTask::AT.probe_requests | pgi_state.cell_requests_view,
-                    PGITraceProbeRaysTask::AT.tlas | scene->_scene_tlas,
-                    PGITraceProbeRaysTask::AT.sky_transmittance | transmittance,
-                    PGITraceProbeRaysTask::AT.sky | sky,
-                    PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
-                    PGITraceProbeRaysTask::AT.mesh_instances | scene->mesh_instances_buffer,
-                },
-                .render_context = render_context.get(),
-                .pgi_state = &this->pgi_state,
-            });
-            daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(tg, render_context->render_data.pgi_settings, pgi_state);
-            tg.copy_image_to_image({pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
-            tg.add_task(PGIUpdateProbesTask{
-                .views = std::array{
-                    PGIUpdateProbesTask::AT.globals | render_context->tgpu_render_data,
-                    PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
-                    PGIUpdateProbesTask::AT.probe_info | pgi_state.probe_info_view,
-                    PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
-                    PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
-                    PGIUpdateProbesTask::AT.requests | pgi_state.cell_requests_view,
-                },
-                .render_context = render_context.get(),
-                .pgi_state = &this->pgi_state,
-            });
-            tg.add_task(PGIUpdateProbeTexelsTask{
-                .views = std::array{
-                    PGIUpdateProbeTexelsTask::AT.globals | render_context->tgpu_render_data,
-                    PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
-                    PGIUpdateProbeTexelsTask::AT.probe_radiance | pgi_state.probe_radiance_view,
-                    PGIUpdateProbeTexelsTask::AT.probe_visibility | pgi_state.probe_visibility_view,
-                    PGIUpdateProbeTexelsTask::AT.probe_info | pgi_state.probe_info_view,
-                    PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
-                },
-                .render_context = render_context.get(),
-                .pgi_state = &this->pgi_state,
-            });
-            pgi_screen_irrdiance = pgi_create_screen_irradiance(tg, render_context->render_data);
-            tg.add_task(PGIEvalScreenIrradianceTask{
-                .views = std::array{
-                    PGIEvalScreenIrradianceH::AT.globals | render_context->tgpu_render_data,
-                    PGIEvalScreenIrradianceH::AT.probe_info | pgi_state.probe_info_view,
-                    PGIEvalScreenIrradianceH::AT.probe_requests | pgi_state.cell_requests_view,
-                    PGIEvalScreenIrradianceH::AT.probe_radiance | pgi_state.probe_radiance_view,
-                    PGIEvalScreenIrradianceH::AT.probe_visibility | pgi_state.probe_visibility_view,
-                    PGIEvalScreenIrradianceH::AT.view_cam_depth | view_camera_depth,
-                    PGIEvalScreenIrradianceH::AT.view_cam_mapped_normals | view_camera_detail_normal_image,
-                    PGIEvalScreenIrradianceH::AT.pgi_irradiance | pgi_screen_irrdiance,
-                },
-                .render_context = render_context.get(),
-                .pgi_state = &this->pgi_state,
-            });
-        }
         auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         tg.add_task(ShadeOpaqueTask{
@@ -910,10 +843,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
                 ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
                 ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
-                ShadeOpaqueH::AT.pgi_probe_radiance | pgi_state.probe_radiance_view,
-                ShadeOpaqueH::AT.pgi_probe_visibility | pgi_state.probe_visibility_view,
-                ShadeOpaqueH::AT.pgi_probe_info | pgi_state.probe_info_view,
-                ShadeOpaqueH::AT.pgi_probe_requests | pgi_state.cell_requests_view,
+                ShadeOpaqueH::AT.pgi_screen_irrdiance | pgi_screen_irrdiance,
             },
             .render_context = render_context.get(),
         });
