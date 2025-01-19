@@ -1,7 +1,5 @@
 #include "pgi.hpp"
 
-#include "../../gpu_context.hpp"
-
 static const daxa_f32vec3 PROBE_MESH_POSITIONS[] = {
     daxa_f32vec3{ 0.000000, 0.555570, 0.831470 },
     daxa_f32vec3{ 0.000000, 0.831470, 0.555570 },

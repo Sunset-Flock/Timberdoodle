@@ -152,7 +152,7 @@ func entry_update_probe_irradiance(
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
         if (factor > 0.0f)
         {
-            factor *= 0.5f;
+            factor *= 30.5f;
         }
         hysteresis += 0.025 * factor;
         hysteresis = clamp(hysteresis, 0.8f, 0.98f);
@@ -629,11 +629,16 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         // Each base probe is responsible for maintaining the cells request counter.
         if (is_prev_base_probe)
         {
-            probe_base_request = push.attach.requests.get()[stable_index];
-            probe_base_request = max(1,probe_base_request) - 1;
+            uint request_package = push.attach.requests.get()[stable_index];
+            uint direct_request_timer = request_package & 0xFF;
+            uint indirect_request_timer = (request_package >> 8) & 0xFF;
+            direct_request_timer = max(direct_request_timer, 1) - 1;
+            indirect_request_timer = max(indirect_request_timer, 1) - 1;
+            request_package = direct_request_timer | (indirect_request_timer << 8);
+
+            probe_base_request = request_package;
         }
     }
-    push.attach.requests.get()[stable_index] = probe_base_request;
 
     // New probes are those that came into existence due to the window moving to a new location.
     // Any probes that occupy space that was not taken in the prior frame are new.
@@ -645,6 +650,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     bool update = false;
     uint request_index = ~0u;
     uint update_index = ~0u;
+    bool probe_directly_requested = false;
+    bool probe_indirectly_requested = false;
     if (!is_new_probe)
     {
         // Each Probe is part of up to 8 cells (8 Probes form the vertices of a cell)
@@ -664,8 +671,15 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
 
             let other_probe_stable_index = pgi_probe_to_stable_index(settings, other_probe);
 
-            uint request = push.attach.requests.get()[other_probe_stable_index];
-            requested = requested || (request != 0);
+            uint request_package = push.attach.requests.get()[other_probe_stable_index];
+            uint direct_request_timer = request_package & 0xFF;
+            uint indirect_request_timer = (request_package >> 8) & 0xFF;
+            let cell_directly_requested = direct_request_timer != 0;
+            let cell_indirectly_requested = indirect_request_timer != 0;
+
+            probe_directly_requested = probe_directly_requested || cell_directly_requested;
+            probe_indirectly_requested = probe_indirectly_requested || cell_directly_requested;
+            requested = requested || cell_directly_requested || cell_indirectly_requested;
         }
 
         if (requested)
@@ -697,6 +711,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             InterlockedAdd(push.attach.probe_indirections.probe_update_count, 1, update_index);
         }
     }
+
+    push.attach.requests.get()[stable_index] = probe_base_request | (uint(probe_directly_requested) << 16) | (uint(probe_directly_requested) << 17);
 
     if (update)
     {

@@ -48,6 +48,7 @@ struct RayPayload
     uint geometry_index;
     uint instance_id;
     float4 color_depth;
+    int3 probe_index;
 }
 
 struct PGILightVisibilityTester : LightVisibilityTesterI
@@ -143,6 +144,7 @@ void entry_ray_gen()
     ray.TMin = 0.0f;
 
     RayPayload payload;
+    payload.probe_index = probe_index;
 
     TraceRay(push.attach.tlas.get(), {}, ~0, 0, 0, 0, ray, payload);
 
@@ -189,7 +191,8 @@ void entry_ray_gen()
             push.attach.probe_visibility.get(), 
             push.attach.probe_info.get(),
             push.attach.probe_requests.get(),
-            push.attach.tlas.get()
+            push.attach.tlas.get(),
+            PGI_PROBE_REQUEST_MODE_INDIRECT
         ).rgb;
 
         float distance = payload.t;
@@ -265,26 +268,39 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         tri_geo,
         tri_point
     );
-    PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
-    light_vis_tester.origin = WorldRayOrigin();
-    payload.color_depth.rgb = shade_material(
-        push.attach.globals, 
-        push.attach.sky_transmittance,
-        push.attach.sky,
-        material_point, 
-        WorldRayDirection(), 
-        light_vis_tester, 
-        push.attach.probe_radiance.get(), 
-        push.attach.probe_visibility.get(), 
-        push.attach.probe_info.get(),
-        push.attach.probe_requests.get(),
-        push.attach.tlas.get()
-    ).rgb;
+    bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
+    bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f && !double_sided_or_blend;
+    payload.color_depth.rgb = float3(0,0,0);
+    if (!backface)
+    {
+        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+        light_vis_tester.origin = WorldRayOrigin();
+        uint request_mode = pgi_get_probe_request_mode(
+            push.attach.globals,
+            push.attach.globals.pgi_settings,
+            push.attach.probe_requests.get(),
+            payload.probe_index);
+
+        request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
+        //request_mode = PGI_PROBE_REQUEST_MODE_DIRECT;
+        payload.color_depth.rgb = shade_material(
+            push.attach.globals, 
+            push.attach.sky_transmittance,
+            push.attach.sky,
+            material_point, 
+            WorldRayDirection(), 
+            light_vis_tester, 
+            push.attach.probe_radiance.get(), 
+            push.attach.probe_visibility.get(), 
+            push.attach.probe_info.get(),
+            push.attach.probe_requests.get(),
+            push.attach.tlas.get(),
+            request_mode
+        ).rgb;
+    }
 
     float distance = payload.t;
-    bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f;
-    bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-    if (backface && !double_sided_or_blend)
+    if (backface)
     {
         distance *= -1.0f;
     }

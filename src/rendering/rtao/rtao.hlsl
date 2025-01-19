@@ -55,58 +55,20 @@ void ray_gen()
     const int2 index = DispatchRaysIndex().xy;
     const float2 screen_uv = index * push.attach.globals->settings.render_target_size_inv;
 
-    uint triangle_id;
-    if(all(lessThan(index, push.attach.globals->settings.render_target_size)))
-    {
-        triangle_id = push.attach.view_cam_visbuffer.get()[index].x;
-    } else {
-        triangle_id = INVALID_TRIANGLE_ID;
-    }
-
+    const float depth = push.attach.view_cam_depth.get()[index];
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
 
-    bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
-
-    if(triangle_id_valid)
+    if(depth != 0.0f)
     {
-        float4x4 view_proj;
-        float3 camera_position;
-        if(push.attach.globals->settings.draw_from_observer == 1)
-        {
-            view_proj = push.attach.globals->observer_camera.view_proj;
-            camera_position = push.attach.globals->observer_camera.position;
-        }
-        else 
-        {
-            view_proj = push.attach.globals->camera.view_proj;
-            camera_position = push.attach.globals->camera.position;
-        }
-
-        MeshletInstancesBufferHead* instantiated_meshlets = push.attach.meshlet_instances;
-        GPUMesh* meshes = push.attach.globals.scene.meshes;
-        daxa_f32mat4x3* combined_transforms = push.attach.globals.scene.entity_combined_transforms;
-        VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
-            triangle_id,
-            float2(index),
-            push.attach.globals->settings.render_target_size,
-            push.attach.globals->settings.render_target_size_inv,
-            view_proj,
-            instantiated_meshlets,
-            meshes,
-            combined_transforms
-        );
-        TriangleGeometry tri_geo = visbuf_tri.tri_geo;
-        TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
-        float depth = visbuf_tri.depth;
-        uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
-        uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
-        uint meshlet_index = visbuf_tri.meshlet_index;
+        CameraInfo camera = push.attach.globals.camera;
+        const float3 world_position = pixel_index_to_world_space(camera, index, depth);
         const float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
-        const float3 primary_ray = normalize(tri_point.world_position - push.attach.globals.camera.position);
+        const float3 primary_ray = normalize(world_position - push.attach.globals.camera.position);
         const float3 corrected_face_normal = flip_normal_to_incoming(detail_normal, detail_normal, primary_ray);
-        const float3 sample_pos = rt_calc_ray_start(tri_point.world_position, corrected_face_normal, primary_ray);
-        const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, corrected_face_normal), corrected_face_normal));
+        const float3 sample_pos = rt_calc_ray_start(world_position, corrected_face_normal, primary_ray);
+        const float3 world_tangent = normalize(cross(corrected_face_normal, float3(0,0,1) + 0.0001));
+        const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, corrected_face_normal), corrected_face_normal));
             
         const uint AO_RAY_COUNT = push.attach.globals.settings.ao_samples;
         const uint thread_seed = (index.x * push.attach.globals->settings.render_target_size.y + index.y) * push.attach.globals.frame_index;
@@ -189,6 +151,13 @@ void miss(inout RayPayload payload)
     payload.miss = true;
 }
 
+float DepthWeight(float linear_depth_a, float linear_depth_b, float3 normalCur, float3 viewDir, float4x4 proj, float phi)
+{  
+  float angleFactor = max(0.25, -dot(normalCur, viewDir));
+
+  float diff = abs(linear_depth_a - linear_depth_b);
+  return exp(-diff * angleFactor / phi);
+}
 
 #define DENOISER_TAP_WIDTH 1
 [[vk::push_constant]] RTAODenoiserPush denoiser_push;
@@ -202,6 +171,8 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
     {
         return;
     }
+
+    CameraInfo camera = push.attach.globals->camera;
 
 
     // Blur new samples.
@@ -223,13 +194,14 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         }
     }
 
+    float non_linear_depth = push.attach.depth.get()[index];
+    float3 ray = normalize(pixel_index_to_world_space(camera, index, non_linear_depth) - camera.position);
     float4 prev_frame_ndc = {};
     {
-        float4x4 view_proj = push.attach.globals->camera.view_proj;
+        float4x4 view_proj = camera.view_proj;
         float4x4 view_proj_prev = push.attach.globals->camera_prev_frame.view_proj;
-        float3 camera_position = push.attach.globals->camera.position;
-        float non_linear_depth = push.attach.depth.get()[index];
-        float3 pixel_world_position = pixel_index_to_world_space(push.attach.globals.camera, index, non_linear_depth);
+        float3 camera_position = camera.position;
+        float3 pixel_world_position = pixel_index_to_world_space(camera, index, non_linear_depth);
 
         prev_frame_ndc = mul(view_proj_prev, float4(pixel_world_position, 1.0f));
         prev_frame_ndc.xyz /= prev_frame_ndc.w;
@@ -239,10 +211,10 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
     float acceptance = 0.0f;
     {
         float2 pixel_prev_uv = (prev_frame_ndc.xy * 0.5f + 0.5f);
-        float2 pixel_prev_index = pixel_prev_uv * float2(push.attach.globals.camera.screen_size);
+        float2 pixel_prev_index = pixel_prev_uv * float2(camera.screen_size);
         float2 base_texel = max(float2(0,0), floor(pixel_prev_index - 0.5f)); 
         float2 interpolants = clamp((pixel_prev_index - (base_texel + 0.5f)), float2(0,0), float2(1,1));
-        float2 gather_uv = (base_texel + 1.0f) / float2(push.attach.globals.camera.screen_size);
+        float2 gather_uv = (base_texel + 1.0f) / float2(camera.screen_size);
         
         float4 history_ao = push.attach.history.get().GatherRed(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
         float4 history_depth = push.attach.history.get().GatherGreen(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
@@ -254,17 +226,19 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             interpolants.x * interpolants.y
         );
 
-        float linear_prev_depth = linearise_depth(prev_frame_ndc.z, push.attach.globals.camera.near_plane);
+        float linear_prev_depth = linearise_depth(prev_frame_ndc.z, camera.near_plane);
+        float3 face_normal = uncompress_normal_octahedral_32(push.attach.face_normals.get()[index]);
         float interpolated_ao = 0.0f;
         float interpolated_ao_weight_sum = 0.0f;
         for (int i = 0; i < 4; ++i)
         {
             float depth = history_depth[i];
-            float linear_depth = linearise_depth(depth, push.attach.globals.camera.near_plane);
+            float linear_depth = linearise_depth(depth, camera.near_plane);
             float depth_diff = abs(linear_prev_depth - linear_depth);
             float acceptable_diff = 0.05f;
+            const float depth_weight = DepthWeight(linear_depth, linear_prev_depth, face_normal, ray, camera.proj, 0.1);
 
-            if (depth_diff < acceptable_diff)
+            if (depth_weight > 0.1)
             {
                 interpolated_ao_weight_sum += sample_linear_weights[i];
                 interpolated_ao += history_ao[i] * sample_linear_weights[i];
@@ -275,7 +249,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             acceptance = 1.0f;
             accepted_history_ao = interpolated_ao * rcp(interpolated_ao_weight_sum);
         }
-        if (any(base_texel < 0.0f || (base_texel + 1.0f >= float2(push.attach.globals.camera.screen_size))))
+        if (any(base_texel < 0.0f || (base_texel + 1.0f >= float2(camera.screen_size))))
         {
             acceptance = 0.0f;
         }

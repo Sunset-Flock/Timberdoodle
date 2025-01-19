@@ -215,12 +215,73 @@ func pgi_calc_biased_sample_position(PGISettings settings, float3 position, floa
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
 
+#define PGI_PROBE_REQUEST_MODE_DIRECT 0
+#define PGI_PROBE_REQUEST_MODE_INDIRECT 1
+#define PGI_PROBE_REQUEST_MODE_NONE 2
+
+// Pass non adjusted position here.
+// This typically yields a lot fewer probe requests while not causing any new artifacts.
+func pgi_request_probes(
+    RenderGlobalData* globals,
+    PGISettings settings,
+    RWTexture2DArray<uint> probe_requests,
+    float3 position,
+    uint probe_request_mode)
+{
+    const bool direct_request_mode = probe_request_mode == PGI_PROBE_REQUEST_MODE_DIRECT;
+    const bool indirect_request_mode = probe_request_mode == PGI_PROBE_REQUEST_MODE_INDIRECT;
+    
+    const float3 request_grid_coord = (position - settings.window_base_position) * settings.probe_spacing_rcp;
+    const int3 request_base_probe = int3(floor(request_grid_coord));
+    if ((direct_request_mode || indirect_request_mode) && all(request_base_probe >= int3(0,0,0) && request_base_probe < (settings.probe_count - int3(1,1,1))))
+    {
+        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, request_base_probe);
+        uint request_package = probe_requests[base_probe_stable_index];
+        uint direct_request_timer = request_package & 0xFF;
+        uint indirect_request_timer = (request_package >> 8) & 0xFF;
+
+        if (direct_request_mode && (direct_request_timer < 16))
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0x3F);
+        }
+        if (indirect_request_mode && (indirect_request_timer < 16))
+        {
+            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 8);
+        }
+    }
+}
+
+func pgi_get_probe_request_mode(
+    RenderGlobalData* globals,
+    PGISettings settings,
+    RWTexture2DArray<uint> probe_requests,
+    int3 probe_index) -> uint
+{
+    if (all(probe_index >= int3(0,0,0) && probe_index < (settings.probe_count - int3(1,1,1))))
+    {
+        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, probe_index);
+        uint request_package = probe_requests[base_probe_stable_index];
+        bool directly_requested = ((request_package >> 16) & 0x1) != 0;
+        bool indirectly_requested = ((request_package >> 17) & 0x1) != 0;
+
+        if (directly_requested)
+        {
+            return PGI_PROBE_REQUEST_MODE_DIRECT;
+        }
+        if (indirectly_requested)
+        {
+            return PGI_PROBE_REQUEST_MODE_INDIRECT;
+        }
+    }
+    return PGI_PROBE_REQUEST_MODE_NONE;
+}
+
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
     float3 position,
     float3 geo_normal,
-    float3 shading_normal,
+    float3 shading_normal, 
     float3 view_direction,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -233,24 +294,7 @@ func pgi_sample_irradiance(
     float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp;
     int3 base_probe = int3(floor(grid_coord));
 
-    // Request Probe Cell (Base Probe responsible for cell)
-    if ((probe_request_mode != 0) && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
-    {
-        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, base_probe);
-        uint request_timer = probe_requests[base_probe_stable_index];
-
-        uint main_view_request_timer = request_timer & 0xFF;
-        uint indirect_request_timer = (request_timer >> 16) & 0xFF;
-
-        if ((probe_request_mode == 1) && (main_view_request_timer < 64))
-        {
-            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF);
-        }
-        if ((probe_request_mode == 2) && (indirect_request_timer < 64))
-        {
-            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 16);
-        }
-    }
+    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
 
     float3 grid_interpolants = frac(grid_coord);
     
@@ -437,24 +481,7 @@ func pgi_sample_irradiance_nearest(
     float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp + 0.5f;
     int3 base_probe = int3(floor(grid_coord));
 
-    // Request Probe Cell (Base Probe responsible for cell)
-    if ((probe_request_mode != 0) && all(base_probe >= int3(0,0,0) && base_probe < (settings.probe_count - int3(1,1,1))))
-    {
-        int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, base_probe);
-        uint request_timer = probe_requests[base_probe_stable_index];
-
-        uint main_view_request_timer = request_timer & 0xFF;
-        uint indirect_request_timer = (request_timer >> 16) & 0xFF;
-
-        if ((probe_request_mode == 1) && (main_view_request_timer < 64))
-        {
-            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF);
-        }
-        if ((probe_request_mode == 2) && (indirect_request_timer < 64))
-        {
-            InterlockedOr(probe_requests[base_probe_stable_index], 0xFF << 16);
-        }
-    }
+    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
 
     float3 grid_interpolants = frac(grid_coord);
     
@@ -475,7 +502,7 @@ func pgi_sample_irradiance_nearest(
             float probe_weight = 1.0f;
 
             PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
-            if (probe_info.validity < 0.3f)
+            if (probe_info.validity < 0.05f)
             {
                 probe_weight = 0.0f;
             }

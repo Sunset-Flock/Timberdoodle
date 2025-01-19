@@ -303,6 +303,9 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                         .draw_list_section_index = opaque_draw_list_type,
                         .observer = observer,
                     },
+                    .meshes = render_context->render_data.scene.meshes,
+                    .materials = render_context->render_data.scene.materials,
+                    .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
                 };
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({

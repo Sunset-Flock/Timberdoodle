@@ -52,5 +52,5 @@ interface LightVisibilityTesterI
 
 float3 flip_normal_to_incoming(float3 face_normal, float3 normal, float3 incoming_ray)
 {
-    return -sign(dot(face_normal, incoming_ray)) * normal;
+    return sign(dot(face_normal, -incoming_ray)) * normal;
 }

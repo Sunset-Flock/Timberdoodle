@@ -369,19 +369,23 @@ void entry_main_cs(
 
     float4x4 view_proj;
     float3 camera_position;
+    CameraInfo camera = {};
     if(AT.globals->settings.draw_from_observer == 1)
     {
         view_proj = AT.globals->observer_camera.view_proj;
         camera_position = AT.globals->observer_camera.position;
+        camera = AT.globals->observer_camera;
     }
     else 
     {
         view_proj = AT.globals->camera.view_proj;
         camera_position = AT.globals->camera.position;
+        camera = AT.globals->camera;
     }
 
-    let pixel_ndc = float4(screen_uv * 2.0f - 1.0f, 0.0f, 1.0f);
-    let primary_ray = normalize(mul(AT.globals.camera.inv_view_proj, pixel_ndc).xyz);
+    float nonlinear_depth = AT.depth.get()[index];
+
+    let primary_ray = normalize(pixel_index_to_world_space(camera, index, nonlinear_depth) - camera.position);
     float world_space_depth = 0.0f;
 
     if(triangle_id_valid)
@@ -405,6 +409,8 @@ void entry_main_cs(
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
+        tri_point.world_normal = flip_normal_to_incoming(tri_point.world_normal, tri_point.world_normal, primary_ray);
+        tri_point.face_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.face_normal, primary_ray);
 
         if (is_center_pixel)
         {
@@ -429,8 +435,6 @@ void entry_main_cs(
                 tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
             ).rgb;
         }
-        
-        mapped_normal = flip_normal_to_incoming(tri_point.face_normal, mapped_normal, primary_ray);
 
         if(material.normal_texture_id.value != 0)
         {
@@ -463,15 +467,14 @@ void entry_main_cs(
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
-        const float3 view_direction = get_view_direction(pixel_ndc.xy);
-        float3 point_lights_direct = point_lights_contribution(mapped_normal, tri_point.world_position, view_direction, AT.point_lights);
+        float3 point_lights_direct = point_lights_contribution(mapped_normal, tri_point.world_position, primary_ray, AT.point_lights);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
             sun_direction, atmo_position);
 
         float3 indirect_lighting = {};        
-        if (AT.globals.pgi_settings.enabled)
+        if (AT.globals.pgi_settings.enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             float3 pgi_irradiance = push.attachments.attachments.pgi_screen_irrdiance.get()[index].rgb;
             indirect_lighting = pgi_irradiance;
@@ -484,7 +487,7 @@ void entry_main_cs(
 
         float ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
-        if (ao_enabled)
+        if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             ambient_occlusion = AT.ao_image.get().Load(index);
             ambient_occlusion = pow(ambient_occlusion, 1.0f);
@@ -493,14 +496,14 @@ void entry_main_cs(
         float3 highlight_lighting = {};
         if (AT.globals.hovered_entity_index == tri_geo.entity_index)
         {
-            highlight_lighting = float3(0.2,0.2,0.2);
+            highlight_lighting = float3(0.2,0.2,0.2) * 5;
         }
         if (AT.globals.selected_entity_index == tri_geo.entity_index)
         {
-            highlight_lighting = float3(0.4,0.4,0.4);
+            highlight_lighting = float3(0.4,0.4,0.4) * 10;
         }
         
-        const float3 lighting = directional_light_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
+        const float3 lighting = (1.0f / 3.14f) * directional_light_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 

@@ -8,7 +8,6 @@
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
 #include "virtual_shadow_maps/vsm.inl"
-#include "pgi/pgi_update.inl"
 
 #include "rtao/rtao.inl"
 #include "path_trace/path_trace.inl"
@@ -722,7 +721,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
     if (render_context->render_data.pgi_settings.enabled)
     {
-        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, view_camera_depth, view_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
+        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, main_camera_depth, main_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
         pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
     }
@@ -788,9 +787,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
                     RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
                     RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
-                    RayTraceAmbientOcclusionH::AT.view_cam_visbuffer | view_camera_visbuffer,
-                    RayTraceAmbientOcclusionH::AT.view_cam_depth | view_camera_depth,
-                    RayTraceAmbientOcclusionH::AT.view_cam_detail_normals | view_camera_detail_normal_image,
+                    RayTraceAmbientOcclusionH::AT.view_cam_visbuffer | main_camera_visbuffer,
+                    RayTraceAmbientOcclusionH::AT.view_cam_depth | main_camera_depth,
+                    RayTraceAmbientOcclusionH::AT.view_cam_detail_normals | main_camera_detail_normal_image,
                     RayTraceAmbientOcclusionH::AT.sky | sky,
                     RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
                     RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
@@ -803,8 +802,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .views = std::array{
                     RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
                     RTAODeoinserTask::AT.debug_image | debug_image,
+                    RTAODeoinserTask::AT.face_normals | main_camera_geo_normal_image,
                     RTAODeoinserTask::AT.history | rtao_history,
-                    RTAODeoinserTask::AT.depth | view_camera_depth,
+                    RTAODeoinserTask::AT.depth | main_camera_depth,
                     RTAODeoinserTask::AT.src | ao_image_raw,
                     RTAODeoinserTask::AT.dst | ao_image,
                 },
@@ -844,6 +844,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
                 ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
                 ShadeOpaqueH::AT.pgi_screen_irrdiance | pgi_screen_irrdiance,
+                ShadeOpaqueH::AT.depth | view_camera_depth,
             },
             .render_context = render_context.get(),
         });

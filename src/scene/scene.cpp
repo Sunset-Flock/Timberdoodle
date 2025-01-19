@@ -1452,14 +1452,22 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
                     auto const & mesh_lod_group = _mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
                     bool is_alpha_discard = false;
                     bool is_alpha_dirty = false;
+                    bool is_blend = false;
                     if (mesh_lod_group.material_index.has_value())
                     {
-                        is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
-                        is_alpha_dirty = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_dirty;
+                        auto const & material = _material_manifest.at(mesh_lod_group.material_index.value());
+                        is_alpha_discard = material.alpha_discard_enabled;
+                        is_alpha_dirty = material.alpha_dirty;
+                        is_blend = material.blend_enabled;
                     }
 
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
+
+                    if (is_blend)
+                    {
+                        continue;
+                    }
                     
                     ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
 

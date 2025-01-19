@@ -40,7 +40,7 @@ static const bool RESET_ACCUMULATION = !true;
 static const bool ROLLING_ACCUMULATION = !true;
 static const bool TRACE_PRIMARY = !true;
 
-static const float DEFAULT_ROUGHNESS = 0.99;
+static const float DEFAULT_ROUGHNESS = 1.0;
 static const float DEFAULT_METALNESS = 0.0;
 
 [[vk::push_constant]] ReferencePathTracePush ref_pt_push;

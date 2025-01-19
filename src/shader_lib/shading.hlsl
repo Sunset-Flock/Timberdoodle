@@ -124,6 +124,7 @@ func shade_material(
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
     RaytracingAccelerationStructure tlas,
+    uint pgi_request_mode
 ) -> float4
 {
     // TODO: material_point.normal is busted only in ray tracing for some reason
@@ -159,14 +160,23 @@ func shade_material(
 
     // Indirect Diffuse
     {
-        float3 global_illumination = pgi_sample_irradiance_nearest(globals, globals.pgi_settings, material_point.position, material_point.geometry_normal, material_point.geometry_normal, incoming_ray, probe_irradiance, probe_visibility, probe_infos, probe_requests, 2);
+        float3 global_illumination = pgi_sample_irradiance_nearest(
+            globals, 
+            globals.pgi_settings, 
+            material_point.position, 
+            material_point.geometry_normal, 
+            material_point.geometry_normal, 
+            incoming_ray, probe_irradiance, 
+            probe_visibility, 
+            probe_infos, 
+            probe_requests, 
+            pgi_request_mode);
         diffuse_light += global_illumination;
     }
 
     // Emissive
-    diffuse_light += material_point.emissive;
 
-    return float4(material_point.albedo * diffuse_light, material_point.alpha);
+    return float4(material_point.albedo * (diffuse_light * (1.0f / 3.14f) + material_point.emissive * 2), material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;

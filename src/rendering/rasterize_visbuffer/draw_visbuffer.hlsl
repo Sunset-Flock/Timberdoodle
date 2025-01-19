@@ -717,7 +717,12 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     // That would require a shitload of extra processing power, 2x vertex work.
     // Because of this we simply dont hiz cull tris in first pass ever.
     let cull_hiz_occluded = draw_p.draw_data.pass_index != VISBUF_FIRST_PASS;
-   
+
+    if (meshlet_instance.mesh_index == INVALID_MANIFEST_INDEX)
+    {
+        SetMeshOutputCounts(0,0);
+        return;
+    }
     const GPUMesh mesh = draw_p.meshes[meshlet_instance.mesh_index];
     if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
     {
