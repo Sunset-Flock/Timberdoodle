@@ -597,25 +597,24 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_depth = visbuffer_ret.view_camera_depth;
     daxa::TaskImageView overdraw_image = visbuffer_ret.view_camera_overdraw;
 
-    daxa::TaskImageView main_camera_geo_normal_image = tg.create_transient_image({
-        .format = GBUFFER_GEO_NORMAL_FORMAT,
+    daxa::TaskImageView main_camera_face_normal_image = tg.create_transient_image({
+        .format = GBUFFER_NORMAL_FORMAT,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
-        .name = "main_camera_geo_normal_image",
+        .name = "main_camera_face_normal_image",
     });
     daxa::TaskImageView main_camera_detail_normal_image = tg.create_transient_image({
-        .format = GBUFFER_GEO_NORMAL_FORMAT,
+        .format = GBUFFER_NORMAL_FORMAT,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "main_camera_detail_normal_image",
     });
-    daxa::TaskImageView view_camera_geo_normal_image = main_camera_geo_normal_image;
-    // TODO(pahrens): rename to view_camera_mapped_normal_image
+    daxa::TaskImageView view_camera_face_normal_image = main_camera_face_normal_image;
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
     tg.add_task(GenGbufferTask{
         .views = std::array{
             GenGbufferTask::AT.globals | render_context->tgpu_render_data,
             GenGbufferTask::AT.debug_image | debug_image,
             GenGbufferTask::AT.vis_image | main_camera_visbuffer,
-            GenGbufferTask::AT.geo_normal_image | main_camera_geo_normal_image,
+            GenGbufferTask::AT.face_normal_image | view_camera_face_normal_image,
             GenGbufferTask::AT.detail_normal_image | main_camera_detail_normal_image,
             GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
             GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
@@ -630,13 +629,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
     if (render_context->render_data.settings.draw_from_observer)
     {
-        view_camera_geo_normal_image = tg.create_transient_image({
-            .format = GBUFFER_GEO_NORMAL_FORMAT,
+        view_camera_face_normal_image = tg.create_transient_image({
+            .format = GBUFFER_NORMAL_FORMAT,
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_geo_normal_image",
         });
         view_camera_detail_normal_image = tg.create_transient_image({
-            .format = GBUFFER_GEO_NORMAL_FORMAT,
+            .format = GBUFFER_NORMAL_FORMAT,
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_detail_normal_image",
         });
@@ -645,7 +644,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 GenGbufferTask::AT.globals | render_context->tgpu_render_data,
                 GenGbufferTask::AT.debug_image | debug_image,
                 GenGbufferTask::AT.vis_image | view_camera_visbuffer,
-                GenGbufferTask::AT.geo_normal_image | view_camera_geo_normal_image,
+                GenGbufferTask::AT.face_normal_image | view_camera_face_normal_image,
                 GenGbufferTask::AT.detail_normal_image | view_camera_detail_normal_image,
                 GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
                 GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
@@ -697,7 +696,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
             .g_buffer_depth = main_camera_depth,
-            .g_buffer_geo_normal = main_camera_geo_normal_image,
+            .g_buffer_geo_normal = main_camera_face_normal_image,
         });
     }
     else
@@ -721,7 +720,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
     if (render_context->render_data.pgi_settings.enabled)
     {
-        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, main_camera_depth, main_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
+        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, main_camera_depth, main_camera_face_normal_image, main_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
         pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
     }
@@ -802,7 +801,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .views = std::array{
                     RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
                     RTAODeoinserTask::AT.debug_image | debug_image,
-                    RTAODeoinserTask::AT.face_normals | main_camera_geo_normal_image,
+                    RTAODeoinserTask::AT.face_normals | main_camera_face_normal_image,
                     RTAODeoinserTask::AT.history | rtao_history,
                     RTAODeoinserTask::AT.depth | main_camera_depth,
                     RTAODeoinserTask::AT.src | ao_image_raw,

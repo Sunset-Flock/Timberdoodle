@@ -18,7 +18,7 @@
 /// ===== GBUFFER FORMAT =====
 
 // Octahedral 32bit uint encoded float3 world normal.
-static constexpr inline daxa::Format GBUFFER_GEO_NORMAL_FORMAT = daxa::Format::R32_UINT;
+static constexpr inline daxa::Format GBUFFER_NORMAL_FORMAT = daxa::Format::R32_UINT;
 // Octagedral 24 bit uint encoded float3 shading normal + 8 bit uint unorm encoded roughness float.
 static constexpr inline daxa::Format GBUFFER_SHADING_NORMAL_ROUGHNESS_FORMAT = daxa::Format::R32_UINT;
 
@@ -36,7 +36,7 @@ struct GenGbufferTask : GenGbufferH::Task
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_gbuffer_pipeline_compile_info().name));
 
-        auto const info = ti.info(AT.geo_normal_image).value();
+        auto const info = ti.info(AT.face_normal_image).value();
         GenGbufferPush push = {};
         push.attachments = ti.attachment_shader_blob;
         push.size = {static_cast<f32>(info.size.x), static_cast<f32>(info.size.y)};

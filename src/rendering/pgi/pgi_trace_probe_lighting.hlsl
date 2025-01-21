@@ -273,8 +273,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     payload.color_depth.rgb = float3(0,0,0);
     if (!backface)
     {
-        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
-        light_vis_tester.origin = WorldRayOrigin();
         uint request_mode = pgi_get_probe_request_mode(
             push.attach.globals,
             push.attach.globals.pgi_settings,
@@ -282,21 +280,41 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             payload.probe_index);
 
         request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
-        //request_mode = PGI_PROBE_REQUEST_MODE_DIRECT;
-        payload.color_depth.rgb = shade_material(
-            push.attach.globals, 
-            push.attach.sky_transmittance,
-            push.attach.sky,
-            material_point, 
-            WorldRayDirection(), 
-            light_vis_tester, 
-            push.attach.probe_radiance.get(), 
-            push.attach.probe_visibility.get(), 
-            push.attach.probe_info.get(),
-            push.attach.probe_requests.get(),
-            push.attach.tlas.get(),
-            request_mode
-        ).rgb;
+        if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 10) // simpler lighting model for far rays to avoid expensive divergence
+        {
+            payload.color_depth.rgb = pgi_sample_irradiance_nearest(
+                push.attach.globals, 
+                push.attach.globals.pgi_settings, 
+                material_point.position, 
+                material_point.geometry_normal, 
+                material_point.geometry_normal, 
+                WorldRayDirection(), 
+                push.attach.probe_radiance.get(), 
+                push.attach.probe_visibility.get(), 
+                push.attach.probe_info.get(), 
+                push.attach.probe_requests.get(), 
+                request_mode);
+        }
+        else
+        {
+            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+            light_vis_tester.origin = WorldRayOrigin();
+            //request_mode = PGI_PROBE_REQUEST_MODE_DIRECT;
+            payload.color_depth.rgb = shade_material(
+                push.attach.globals, 
+                push.attach.sky_transmittance,
+                push.attach.sky,
+                material_point, 
+                WorldRayDirection(), 
+                light_vis_tester, 
+                push.attach.probe_radiance.get(), 
+                push.attach.probe_visibility.get(), 
+                push.attach.probe_info.get(),
+                push.attach.probe_requests.get(),
+                push.attach.tlas.get(),
+                request_mode
+            ).rgb;
+        }
     }
 
     float distance = payload.t;

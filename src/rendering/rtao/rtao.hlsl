@@ -46,6 +46,7 @@ float3 cosine_sample_hemi()
 struct RayPayload
 {
     bool miss;
+    float power;
 }
 
 [shader("raygeneration")]
@@ -88,8 +89,9 @@ void ray_gen()
             const float3 sample_dir = mul(tbn, hemi_sample);
             ray.Direction = sample_dir;
             payload.miss = false; // need to set to false as we skip the closest hit shader
+            payload.power = 1.0f;
             TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
-            ao_factor += payload.miss ? 0 : 1;
+            ao_factor += payload.miss ? 0 : payload.power;
         }
 
         let ao_value = 1.0f - ao_factor * rcp(AO_RAY_COUNT);
@@ -142,6 +144,52 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         bool emissive = any(material.emissive_color > 0.0f);
         payload.miss = emissive;
+    }
+    
+
+    if (!payload.miss)
+    {
+        const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+        const uint primitive_index = PrimitiveIndex();
+        GPUMesh *mesh = {};
+        
+        const uint mesh_instance_index = InstanceID();
+        MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
+        mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
+        if (mesh.material_index == INVALID_MANIFEST_INDEX)
+        {
+            return;
+        }
+        const GPUMaterial *material = push.attach.globals.scene.materials + mesh.material_index;
+
+        let luma_constant = (material.base_color.r + material.base_color.g + material.base_color.b) / 3.0f;
+
+        payload.power = 1.0f - square(luma_constant);
+
+        if ((mesh.vertex_uvs == {}) || material.diffuse_texture_id.is_empty())
+        {
+            return;
+        }
+
+        const int primitive_indices[3] = {
+            mesh.primitive_indices[3 * primitive_index],
+            mesh.primitive_indices[3 * primitive_index + 1],
+            mesh.primitive_indices[3 * primitive_index + 2],
+        };
+
+        const float2 uvs[3] = {
+            mesh.vertex_uvs[primitive_indices[0]],
+            mesh.vertex_uvs[primitive_indices[1]],
+            mesh.vertex_uvs[primitive_indices[2]],
+        };
+        const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y* (uvs[2] - uvs[0]);
+
+        let albedo_tex = Texture2D<float3>::get(material.diffuse_texture_id);
+        let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 5).rgb;
+
+        let luma = (albedo.r + albedo.g + albedo.b) / 3.0f;
+
+        payload.power = 1.0 - square(luma * luma_constant);
     }
 }
 

@@ -1255,7 +1255,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
                 ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
-                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_radiance_resolution);
+                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_irradiance_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
                 ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);

@@ -1698,8 +1698,8 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
         }
         else
         {
-            auto const x = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_radiance_resolution;
-            auto const y = render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_radiance_resolution;
+            auto const x = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_irradiance_resolution;
+            auto const y = render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_irradiance_resolution;
             auto const z = render_data.pgi_settings.probe_count.z;
             auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
             auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
@@ -1862,7 +1862,7 @@ auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const
         prev.probe_count.x != curr.probe_count.x ||
         prev.probe_count.y != curr.probe_count.y ||
         prev.probe_count.z != curr.probe_count.z ||
-        prev.probe_radiance_resolution != curr.probe_radiance_resolution ||
+        prev.probe_irradiance_resolution != curr.probe_irradiance_resolution ||
         prev.probe_trace_resolution != curr.probe_trace_resolution ||
         prev.probe_visibility_resolution != curr.probe_visibility_resolution ||
         prev.enabled != curr.enabled;
@@ -1891,7 +1891,7 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
         return valid_resolutions.back();
     };
 
-    render_data.pgi_settings.probe_radiance_resolution = constrain_resolution(render_data.pgi_settings.probe_radiance_resolution);
+    render_data.pgi_settings.probe_irradiance_resolution = constrain_resolution(render_data.pgi_settings.probe_irradiance_resolution);
     render_data.pgi_settings.probe_visibility_resolution = constrain_resolution(render_data.pgi_settings.probe_visibility_resolution);
 
     render_data.pgi_settings.probe_spacing = {
@@ -1924,6 +1924,16 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
         render_data.pgi_settings.window_to_stable_index_offset.y - prev_settings.window_to_stable_index_offset.y,
         render_data.pgi_settings.window_to_stable_index_offset.z - prev_settings.window_to_stable_index_offset.z,
     };
+    
+    render_data.pgi_settings.probe_count_rcp = {
+        1.0f / static_cast<float>(render_data.pgi_settings.probe_count.x),
+        1.0f / static_cast<float>(render_data.pgi_settings.probe_count.y),
+        1.0f / static_cast<float>(render_data.pgi_settings.probe_count.z),
+    };
+    render_data.pgi_settings.irradiance_resolution_w_border = static_cast<float>(render_data.pgi_settings.probe_irradiance_resolution + 2);
+    render_data.pgi_settings.irradiance_resolution_w_border_rcp = 1.0f / static_cast<float>(render_data.pgi_settings.probe_irradiance_resolution + 2);;
+    render_data.pgi_settings.visibility_resolution_w_border = static_cast<float>(render_data.pgi_settings.probe_visibility_resolution + 2);
+    render_data.pgi_settings.visibility_resolution_w_border_rcp = 1.0f / static_cast<float>(render_data.pgi_settings.probe_visibility_resolution + 2);
 }
 
 void PGIState::initialize(daxa::Device& device)
@@ -1971,8 +1981,8 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {
-            static_cast<u32>(settings.probe_count.x * (settings.probe_radiance_resolution + 2)),
-            static_cast<u32>(settings.probe_count.y * (settings.probe_radiance_resolution + 2)),
+            static_cast<u32>(settings.probe_count.x * (settings.probe_irradiance_resolution + 2)),
+            static_cast<u32>(settings.probe_count.y * (settings.probe_irradiance_resolution + 2)),
             1
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z),
@@ -2110,7 +2120,7 @@ auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings,
     });
 }
 
-auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView
+auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView
 {
     return tg.create_transient_image({
         .dimensions = 2,
@@ -2165,10 +2175,12 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
 {
     daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
+    daxa::TaskImageView probe_info_copy = pgi_create_probe_info_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.add_task(PGIPreUpdateProbesTask{
         .views = std::array{
             PGIPreUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
             PGIPreUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIPreUpdateProbesTask::AT.probe_info_copy | probe_info_copy,
             PGIPreUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
             PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
         },
@@ -2193,14 +2205,13 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
-    daxa::TaskImageView pgi_probe_info_prev = pgi_create_probe_info_texture_prev_frame(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
-    info.tg.copy_image_to_image({info.pgi_state.probe_info_view, pgi_probe_info_prev, "copy over probe info prev frame"});
+    //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
     info.tg.add_task(PGIUpdateProbesTask{
         .views = std::array{
             PGIUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
             PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
             PGIUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
-            PGIUpdateProbesTask::AT.probe_info_prev | pgi_probe_info_prev,
+            PGIUpdateProbesTask::AT.probe_info_copy | probe_info_copy,
             PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
             PGIUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
         },
@@ -2227,8 +2238,9 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
             PGIEvalScreenIrradianceH::AT.probe_requests | info.pgi_state.cell_requests_view,
             PGIEvalScreenIrradianceH::AT.probe_radiance | info.pgi_state.probe_radiance_view,
             PGIEvalScreenIrradianceH::AT.probe_visibility | info.pgi_state.probe_visibility_view,
-            PGIEvalScreenIrradianceH::AT.view_cam_depth | info.view_camera_depth,
-            PGIEvalScreenIrradianceH::AT.view_cam_mapped_normals | info.view_camera_detail_normal_image,
+            PGIEvalScreenIrradianceH::AT.main_cam_depth | info.view_camera_depth,
+            PGIEvalScreenIrradianceH::AT.main_cam_face_normals | info.view_camera_face_normal_image,
+            PGIEvalScreenIrradianceH::AT.main_cam_detail_normals | info.view_camera_detail_normal_image,
             PGIEvalScreenIrradianceH::AT.irradiance_depth | pgi_screen_irrdiance,
         },
         .render_context = info.render_context,

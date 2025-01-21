@@ -357,7 +357,7 @@ void entry_main_cs(
     const bool is_center_pixel = all(index == AT.globals->settings.render_target_size/2);
     if (is_center_pixel)
     {
-        debug_pixel = 1;
+        debug_pixel = true;
     }
 
     float3 atmo_position = get_atmo_position(AT.globals);

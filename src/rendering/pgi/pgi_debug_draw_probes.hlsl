@@ -120,7 +120,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float mean2 = visibility.y;
 
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
-    float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
+    float2 texel = floor(uv * settings.probe_irradiance_resolution) * rcp(settings.probe_irradiance_resolution);
 
     float exposure = compute_exposure(push.attach.globals.postprocess_settings, deref(push.attach.luminance_average));
     irradiance *= exposure;

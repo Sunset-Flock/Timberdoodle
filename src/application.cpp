@@ -53,13 +53,13 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube/cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld2.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "repro\\minimal.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_icelandrock\\Icelandic_Mossy_Rock_Formation_sktsW_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
 

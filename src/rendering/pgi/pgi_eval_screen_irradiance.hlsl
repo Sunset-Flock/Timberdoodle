@@ -18,61 +18,36 @@
 func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
 {
     let push = enty_eval_screen_irradiance_push;
-    let globals = push.attach.globals;
 
     if (any(dtid >= push.irradiance_image_size))
     {
         return;
     }
 
-    #if 0
-    float2 downscaled_pixel_index = {};
-    float downscaled_depth = {};
-    float average_depth = {};
-    float3 downscaled_normal = {};
+    const bool is_center_pixel = all(dtid == push.irradiance_image_size/2);
+    if (is_center_pixel)
     {
-        downscaled_pixel_index = float2(dtid) * 2.0f + 0.5f;
-
-        float4 depths = float4(
-            push.attach.view_cam_depth.get()[dtid * 2 + uint2(0,0)],
-            push.attach.view_cam_depth.get()[dtid * 2 + uint2(1,0)],
-            push.attach.view_cam_depth.get()[dtid * 2 + uint2(0,1)],
-            push.attach.view_cam_depth.get()[dtid * 2 + uint2(1,1)]
-        );
-        downscaled_depth = max(max(depths[0], depths[1]), max(depths[2], depths[3]));
-        average_depth = 0.25f * (depths[0], depths[1], depths[2], depths[3]);
-
-        uint4 compressed_mapped_normals = uint4(
-            push.attach.view_cam_mapped_normals.get()[dtid * 2 + uint2(0,0)],
-            push.attach.view_cam_mapped_normals.get()[dtid * 2 + uint2(1,0)],
-            push.attach.view_cam_mapped_normals.get()[dtid * 2 + uint2(0,1)],
-            push.attach.view_cam_mapped_normals.get()[dtid * 2 + uint2(1,1)]
-        );
-        half3 mapped_normals[4] = {
-            half3(uncompress_normal_octahedral_32(compressed_mapped_normals[0])),
-            half3(uncompress_normal_octahedral_32(compressed_mapped_normals[1])),
-            half3(uncompress_normal_octahedral_32(compressed_mapped_normals[2])),
-            half3(uncompress_normal_octahedral_32(compressed_mapped_normals[3]))
-        };
-        downscaled_normal = normalize(float3(mapped_normals[0] + mapped_normals[1] + mapped_normals[2] + mapped_normals[3]));
+        debug_pixel = true;
     }
-    #endif
 
-    float depth = push.attach.view_cam_depth.get()[dtid];
-    float3 normal = uncompress_normal_octahedral_32(push.attach.view_cam_mapped_normals.get()[dtid]);
 
-    let camera = push.attach.globals.camera;
-    float3 ws_position = pixel_index_to_world_space(camera, dtid, depth);
-    float3 primary_ray = normalize(ws_position - globals.camera.position);
+    float depth = push.attach.main_cam_depth.get()[dtid];
+    float3 face_normal = uncompress_normal_octahedral_32(push.attach.main_cam_face_normals.get()[dtid]);
+    float3 detail_normal = uncompress_normal_octahedral_32(push.attach.main_cam_detail_normals.get()[dtid]);
 
-    normal = flip_normal_to_incoming(normal,normal,primary_ray);
+    let camera = &push.attach.globals.camera;
+    float3 ws_position = pixel_index_to_world_space(*camera, dtid, depth);
+    float3 primary_ray = normalize(ws_position - camera.position);
+
+    detail_normal = flip_normal_to_incoming(face_normal,detail_normal,primary_ray);
+    face_normal = flip_normal_to_incoming(face_normal,face_normal,primary_ray);
 
     float3 pgi_irradiance = pgi_sample_irradiance(
-        globals,
-        globals.pgi_settings,
+        push.attach.globals,
+        push.attach.globals.pgi_settings,
         ws_position,
-        normal,
-        normal,
+        face_normal,
+        detail_normal,
         primary_ray,
         push.attach.probe_radiance.get(),
         push.attach.probe_visibility.get(),
@@ -134,9 +109,9 @@ func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_g
 
     CameraInfo camera = push.attach.globals.camera;
 
-    float full_depth = push.attach.view_cam_depth.get()[dtid];
+    float full_depth = push.attach.main_cam_depth.get()[dtid];
     float full_depth_linear = linearise_depth(full_depth, camera.near_plane);
-    float3 full_normal = uncompress_normal_octahedral_32(push.attach.view_cam_mapped_normals.get()[dtid]);
+    float3 full_normal = uncompress_normal_octahedral_32(push.attach.main_cam_detail_normals.get()[dtid]);
 
     float3 ws_pos = pixel_index_to_world_space(camera, dtid, full_depth);
     float3 ray = normalize(ws_pos - camera.position);

@@ -59,16 +59,16 @@ func entry_update_probe_irradiance(
 {
     let push = update_probe_texels_push;
     PGISettings settings = push.attach.globals.pgi_settings;
-    let probe_texel_res = settings.probe_radiance_resolution;
+    let probe_texel_res = settings.probe_irradiance_resolution;
 
     uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
     if (settings.enable_indirect_sparse)
     {
-        uint probes_in_column = uint(float(48) * rcp(float(settings.probe_radiance_resolution)));
-        uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_radiance_resolution)));
-        uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_radiance_resolution)));
+        uint probes_in_column = uint(float(48) * rcp(float(settings.probe_irradiance_resolution)));
+        uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_irradiance_resolution)));
+        uint indirect_index_x = uint(float(dtid.x) * rcp(float(settings.probe_irradiance_resolution)));
         indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
         let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
@@ -81,8 +81,8 @@ func entry_update_probe_irradiance(
             (indirect_package >> 10) & ((1u << 10u) - 1),
             (indirect_package >> 20) & ((1u << 10u) - 1),
         );
-        probe_texel.x = dtid.x - int(settings.probe_radiance_resolution * indirect_index_x);
-        probe_texel.y = dtid.y - int(settings.probe_radiance_resolution * indirect_index_y);
+        probe_texel.x = dtid.x - int(settings.probe_irradiance_resolution * indirect_index_x);
+        probe_texel.y = dtid.y - int(settings.probe_irradiance_resolution * indirect_index_y);
 
         //printf("indirect index %i probe %i,%i,%i texel %i,%i\n", indirect_index, probe_index.x, probe_index.y, probe_index.z, probe_texel.x, probe_texel.y);
     }
@@ -152,10 +152,10 @@ func entry_update_probe_irradiance(
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
         if (factor > 0.0f)
         {
-            factor *= 30.5f;
+            factor *= 0.1f;
         }
         hysteresis += 0.025 * factor;
-        hysteresis = clamp(hysteresis, 0.8f, 0.98f);
+        hysteresis = clamp(hysteresis, 0.8f, 0.95f);
     }
     if (probe_info.validity == 0.0f)
     {
@@ -177,7 +177,7 @@ func entry_update_probe_irradiance(
     new_radiance = lerp(new_radiance, prev_frame_radiance, prev_frame_texel.a);
 
     float4 value = float4(new_radiance, hysteresis);
-    write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_radiance_resolution, probe_texture_base_index, probe_texel, value);
+    write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
 [shader("compute")]
@@ -230,6 +230,7 @@ func entry_update_probe_visibility(
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
     float2 probe_texel_min_uv = (float2(probe_texel)) * rcp(probe_texel_res);
     float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
+    float2 probe_texel_uv_center = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal((probe_texel_max_uv + probe_texel_min_uv) * 0.5f);
 
     int3 probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, probe_index);
@@ -246,22 +247,38 @@ func entry_update_probe_visibility(
     int s = settings.probe_trace_resolution;
     float rcp_s = rcp(s) * 0.999999f; // The multiplication with 0.999999f ensures that the calculated uv never reaches 1.0f.
 
-    static const float COS_POWER = 50.0f;
+    static const float COS_POWER = 25.0f;
     static const float MIN_ACCEPTED_POWER_COS = 0.001f;
     // Based on the COS_POWER and the MIN_ACCEPTED_COS_POWER, we can calculate the largest accepted cos value.
-    static const float MAX_ACCEPTED_COS = acos(pow(MIN_ACCEPTED_POWER_COS, 1.0f / COS_POWER));
+    static const float MIN_ACCEPTED_COS = acos(pow(MIN_ACCEPTED_POWER_COS, 1.0f / COS_POWER));
 
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
-    for (int y = 0; y < s; ++y)
-    for (int x = 0; x < s; ++x)
+
+    const float rcp_texel_size = rcp(float(settings.probe_visibility_resolution));
+
+    // At 0.15 RADIANS, the power cos weight becomes 0.01.
+    // This calculation assumes the least distortion and the highest local texel resolution of an octahedral mapped sphere.
+    // At 0.15 * 2 = 0.3 as a RADIANS range to sample trace texels
+    static const float RELEVANT_RANGE = 0.3; // from 0 - 1
+    const int relevant_texel_range = int(ceil(float(settings.probe_trace_resolution) * RELEVANT_RANGE));
+
+    // Calculate the relevant trace texel range
+    // Due to the power cosine weighting, most traces are weighted to be 0
+    // We can calculate a tight window of trace texels that have a weight above one.
+
+    int half_range = relevant_texel_range/2;
+    for (int ye = 0; ye < relevant_texel_range; ++ye)
+    for (int xe = 0; xe < relevant_texel_range; ++xe)
     {
-        float2 trace_tex_uv = (float2(x,y) + trace_texel_noise) * rcp_s;
+        int x = xe - half_range;
+        int y = ye - half_range;
+        float2 trace_tex_uv = frac((float2(x,y) + trace_texel_noise) * rcp_s + probe_texel_uv_center);
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = (dot(trace_direction, probe_texel_normal));
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
-        if (cos_weight > MAX_ACCEPTED_COS)
+        if (cos_weight > MIN_ACCEPTED_COS)
         {
-            float power_cos_weight = pow(cos_weight, 25.0f);
+            float power_cos_weight = pow(cos_weight, COS_POWER);
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -463,7 +480,7 @@ func entry_update_probe(
         if (all(other_probe_index == probe_index) || ((sett.x + sett.y + sett.z) != 1))
             continue;
 
-        PGIProbeInfo other_info = PGIProbeInfo::load(settings, push.attach.probe_info_prev.get(), other_probe_index);
+        PGIProbeInfo other_info = PGIProbeInfo::load(settings, push.attach.probe_info_copy.get(), other_probe_index);
 
         float3 equilibrium_diff = lerp(other_info.offset - probe_info.offset, - probe_info.offset, 0.1f);
         float diff_magnitude = min(1.0f, length(equilibrium_diff));
@@ -733,7 +750,6 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         let fetch = push.attach.probe_info.get()[stable_index];
         probe_info = PGIProbeInfo(fetch.xyz, fetch.a);
     }
-    push.attach.probe_info.get()[stable_index] = float4(probe_info.offset, probe_info.validity);
 
     // Used for Debug Draws
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
@@ -774,6 +790,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         debug_draw_line(push.attach.globals.debug, line);
     }
 
+    push.attach.probe_info.get()[stable_index] = float4(probe_info.offset, probe_info.validity);
+    push.attach.probe_info_copy.get()[stable_index] = float4(probe_info.offset, probe_info.validity);
 
     if (group_index == 0)
     {
@@ -795,9 +813,9 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let texel_update_threads_y = 48;
             let texel_update_workgroups_y = 6; // 48/WG_Y = 48/8 = 6
 
-            let radiance_texel_update_probes_y = texel_update_threads_y / settings.probe_radiance_resolution;
+            let radiance_texel_update_probes_y = texel_update_threads_y / settings.probe_irradiance_resolution;
             let radiance_texel_update_probes_x = round_up_div(probe_update_count, radiance_texel_update_probes_y);
-            let radiance_texel_update_threads_x = radiance_texel_update_probes_x * settings.probe_radiance_resolution;
+            let radiance_texel_update_threads_x = radiance_texel_update_probes_x * settings.probe_irradiance_resolution;
             let radiance_texel_update_workgroups_x = round_up_div(radiance_texel_update_threads_x, 8);
 
             let visibility_texel_update_probes_y = texel_update_threads_y / settings.probe_visibility_resolution;

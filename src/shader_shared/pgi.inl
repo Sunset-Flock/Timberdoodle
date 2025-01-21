@@ -31,7 +31,7 @@ struct PGISettings
     daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_grid TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning_forces TIDO_DEFAULT_VALUE(false);
-    daxa_i32 probe_radiance_resolution TIDO_DEFAULT_VALUE(6);
+    daxa_i32 probe_irradiance_resolution TIDO_DEFAULT_VALUE(6);
     daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(16);
     daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(16);
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
@@ -51,4 +51,9 @@ struct PGISettings
     daxa_i32vec3 window_to_stable_index_offset;
     daxa_f32vec3 window_base_position;
     daxa_i32vec3 window_movement_frame_to_frame;
+    daxa_f32vec3 probe_count_rcp;
+    daxa_f32 irradiance_resolution_w_border;
+    daxa_f32 irradiance_resolution_w_border_rcp;
+    daxa_f32 visibility_resolution_w_border;
+    daxa_f32 visibility_resolution_w_border_rcp;
 };

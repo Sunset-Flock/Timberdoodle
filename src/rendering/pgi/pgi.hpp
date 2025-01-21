@@ -117,7 +117,7 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
 
 auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
 
-auto pgi_create_probe_info_texture_prev_frame(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
+auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskImageView;
 
 auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings, PGIState& state) -> daxa::TaskBufferView;
 
@@ -131,6 +131,7 @@ struct TaskPGIAllInfo
     RenderContext* render_context = {};
     PGIState& pgi_state;
     daxa::TaskImageView view_camera_depth = {};
+    daxa::TaskImageView view_camera_face_normal_image = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskTlas tlas = {};
