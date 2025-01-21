@@ -280,7 +280,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             payload.probe_index);
 
         request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
-        if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 10) // simpler lighting model for far rays to avoid expensive divergence
+        if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 50) // simpler lighting model for far rays to avoid expensive divergence
         {
             payload.color_depth.rgb = pgi_sample_irradiance_nearest(
                 push.attach.globals, 
@@ -305,6 +305,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.sky_transmittance,
                 push.attach.sky,
                 material_point, 
+                WorldRayOrigin(),
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.probe_radiance.get(), 

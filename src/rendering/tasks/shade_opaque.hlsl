@@ -489,7 +489,7 @@ void entry_main_cs(
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
-            ambient_occlusion = AT.ao_image.get().Load(index);
+            ambient_occlusion = AT.ao_image.get().Load(index + int2(1,1));
             ambient_occlusion = pow(ambient_occlusion, 1.0f);
         }
 

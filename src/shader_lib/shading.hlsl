@@ -117,6 +117,7 @@ func shade_material(
     daxa_ImageViewId sky_transmittance,
     daxa_ImageViewId sky,
     MaterialPointData material_point, 
+    float3 origin,
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
     Texture2DArray<float4> probe_irradiance,
@@ -159,6 +160,7 @@ func shade_material(
     }
 
     // Indirect Diffuse
+    if (all(material_point.emissive == float3(0,0,0)))
     {
         float3 global_illumination = pgi_sample_irradiance_nearest(
             globals, 
@@ -175,8 +177,11 @@ func shade_material(
     }
 
     // Emissive
+    {
+        diffuse_light += (1.0f / length(origin - material_point.position)) * material_point.emissive;
+    }
 
-    return float4(material_point.albedo * (diffuse_light * (1.0f / 3.14f) + material_point.emissive * 2), material_point.alpha);
+    return float4(material_point.albedo * diffuse_light, material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;

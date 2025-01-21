@@ -327,7 +327,6 @@ func pgi_sample_irradiance(
                     (y == 0 ? 1.0f - grid_interpolants.y : grid_interpolants.y),
                     (z == 0 ? 1.0f - grid_interpolants.z : grid_interpolants.z)
                 );
-                static const float INTERPOL_SOFTENER = 1.0f; // reduces banding between probes
                 probe_weight *= cell_probe_weights.x * cell_probe_weights.y * cell_probe_weights.z;
             }
 
@@ -338,7 +337,7 @@ func pgi_sample_irradiance(
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
             float smooth_backface_term = (1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f;
-            probe_weight *= square(smooth_backface_term);
+            probe_weight *= sqrt(smooth_backface_term);
 
             // visibility (Chebyshev)
             // ===== Shadow Map Visibility Test =====
@@ -370,21 +369,13 @@ func pgi_sample_irradiance(
                 if (visibility_distance > average_distance)
                 {
                     visibility_weight = variance / (variance + square(visibility_distance - average_distance));
-                    const float min_visibility = 0.00001f; // Bias. If all probes are occluded we want to fallback to leaking.
-                    visibility_weight = max(min_visibility, visibility_weight * visibility_weight * visibility_weight);
-
-                    // Crushing tiny weights reduces leaking BUT does not reduce image blending smoothness.
-                    const float crushThreshold = 0.02f;
-                    if (visibility_weight < crushThreshold)
-                    {
-                        visibility_weight *= (visibility_weight * visibility_weight) * (1.f / (crushThreshold * crushThreshold));
-                    }
+                    visibility_weight = square(square(visibility_weight));
                 }
             }
             probe_weight *= visibility_weight;
             // ===== Shadow Map Visibility Test =====
 
-            if (false && debug_pixel && settings.debug_probe_influence)
+            if (debug_pixel && settings.debug_probe_influence)
             {
                 ShaderDebugLineDraw white_line = {};
                 white_line.start = probe_position;
@@ -624,9 +615,21 @@ func pgi_sample_irradiance_nearest(
         }
     }
 
-    if (weight_accum == 0)
+    if (weight_accum < 0.201f)
     {
-        return float3(0,0,0);
+        return pgi_sample_irradiance(
+            globals,
+            settings,
+            position,
+            geo_normal,
+            shading_normal,
+            view_direction,
+            probes,
+            probe_visibility,
+            probe_infos,
+            probe_requests,
+            probe_request_mode
+        );
     }
     else
     {

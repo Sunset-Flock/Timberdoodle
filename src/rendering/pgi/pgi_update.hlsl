@@ -152,10 +152,10 @@ func entry_update_probe_irradiance(
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
         if (factor > 0.0f)
         {
-            factor *= 0.1f;
+            factor *= 0.333f;
         }
         hysteresis += 0.025 * factor;
-        hysteresis = clamp(hysteresis, 0.8f, 0.95f);
+        hysteresis = clamp(hysteresis, 0.8f, 0.99f);
     }
     if (probe_info.validity == 0.0f)
     {
@@ -230,7 +230,7 @@ func entry_update_probe_visibility(
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
     float2 probe_texel_min_uv = (float2(probe_texel)) * rcp(probe_texel_res);
     float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
-    float2 probe_texel_uv_center = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
+    float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal((probe_texel_max_uv + probe_texel_min_uv) * 0.5f);
 
     int3 probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, probe_index);
@@ -259,23 +259,21 @@ func entry_update_probe_visibility(
     // At 0.15 RADIANS, the power cos weight becomes 0.01.
     // This calculation assumes the least distortion and the highest local texel resolution of an octahedral mapped sphere.
     // At 0.15 * 2 = 0.3 as a RADIANS range to sample trace texels
+    // Roughly this means we sample a 0.3 x 0.3 uv area of the trace texels
     static const float RELEVANT_RANGE = 0.3; // from 0 - 1
     const int relevant_texel_range = int(ceil(float(settings.probe_trace_resolution) * RELEVANT_RANGE));
 
-    // Calculate the relevant trace texel range
-    // Due to the power cosine weighting, most traces are weighted to be 0
-    // We can calculate a tight window of trace texels that have a weight above one.
+    const float2 probe_trace_uv_min = frac(probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f + 1.0f);
+    const int2 probe_trace_index_min = int2(floor(probe_trace_uv_min * settings.probe_trace_resolution));
 
-    int half_range = relevant_texel_range/2;
-    for (int ye = 0; ye < relevant_texel_range; ++ye)
-    for (int xe = 0; xe < relevant_texel_range; ++xe)
+    for (int y = 0; y < relevant_texel_range; ++y)
+    for (int x = 0; x < relevant_texel_range; ++x)
     {
-        int x = xe - half_range;
-        int y = ye - half_range;
-        float2 trace_tex_uv = frac((float2(x,y) + trace_texel_noise) * rcp_s + probe_texel_uv_center);
+        int2 probe_trace_tex_index = (int2(x,y) + probe_trace_index_min) % 16;
+        float2 trace_tex_uv = frac((probe_trace_tex_index + trace_texel_noise) * rcp_s);
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
-        float cos_weight = (dot(trace_direction, probe_texel_normal));
-        int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
+        float cos_weight = (dot(trace_direction, probe_texel_normal));        
+        int3 sample_texture_index = trace_result_texture_base_index + int3(probe_trace_tex_index,0);
         if (cos_weight > MIN_ACCEPTED_COS)
         {
             float power_cos_weight = pow(cos_weight, COS_POWER);
