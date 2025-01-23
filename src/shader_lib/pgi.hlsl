@@ -147,21 +147,45 @@ float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
 
 static bool debug_pixel = false;
 
-func octahedtral_texel_wrap(int2 index, int2 resolution) -> int2
+func octahedtral_texel_wrap(int2 index, int resolution) -> int2
 {
     // Octahedral texel clamping is very strange..
-    if (index.y >= resolution.y || index.y == -1)
+    if (index.y >= resolution)
     {
-        index.y = clamp(index.y, 0, resolution.y-1);
-        // Mirror x sample when y is out of bounds
-        index.x = resolution.x - 1 - index.x;
+        // Flip y on the edge of the texture
+        index.y = (resolution-1) - (index.y-resolution);
+
+        // Flip x on the middle of the texture.
+        index.x = resolution - 1 - index.x;
     }
-    if (index.x >= resolution.x|| index.x == -1)
+    
+    if (index.y < 0)
     {
-        index.x = clamp(index.x, 0, resolution.x-1);
-        // Mirror y sample when x is out of bounds
-        index.y = resolution.y - 1 - index.y;
+        // Flip y on the edge of the texture
+        index.y = -index.y + 1;
+
+        // Flip x on the middle of the texture.
+        index.x = resolution - 1 - index.x;
     }
+
+    if (index.x >= resolution)
+    {
+        // Flip x on the edge of the texture
+        index.x = (resolution-1) - (index.x-resolution);
+
+        // Flip y on the middle of the texture.
+        index.y = resolution - 1 - index.y;
+    }
+    
+    if (index.x < 0)
+    {
+        // Flip x on the edge of the texture
+        index.x = -index.x + 1;
+
+        // Flip y on the middle of the texture.
+        index.y = resolution - 1 - index.y;
+    }
+
     return index;
 }
 
@@ -291,7 +315,7 @@ func pgi_sample_irradiance(
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp;
+    float3 grid_coord = (position - settings.window_base_position) * settings.probe_spacing_rcp;
     int3 base_probe = int3(floor(grid_coord));
 
     pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
@@ -377,6 +401,7 @@ func pgi_sample_irradiance(
 
             if (debug_pixel && settings.debug_probe_influence)
             {
+                
                 ShaderDebugLineDraw white_line = {};
                 white_line.start = probe_position;
                 white_line.end = probe_position - visibility_to_probe_direction * (average_distance - average_distance_std_dev);

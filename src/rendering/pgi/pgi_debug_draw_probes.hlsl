@@ -120,7 +120,9 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float mean2 = visibility.y;
 
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
-    float2 texel = floor(uv * settings.probe_irradiance_resolution) * rcp(settings.probe_irradiance_resolution);
+    float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
+
+    
 
     float exposure = compute_exposure(push.attach.globals.postprocess_settings, deref(push.attach.luminance_average));
     irradiance *= exposure;
@@ -136,7 +138,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
         case PGI_DEBUG_PROBE_DRAW_MODE_TEXEL: draw_color = float3(texel,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = square((hysteresis - 0.7) * (1.0f / (0.7))) * float3(0,1,0); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = TurboColormap(hysteresis); break;
     }
     return DrawDebugProbesFragmentOut(float4(draw_color,1));
 }

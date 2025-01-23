@@ -13,11 +13,25 @@
 #include "../../shader_lib/shading.hlsl"
 #include "../../shader_lib/raytracing.hlsl"
 
-
 #include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/misc.hlsl"
 
 [[vk::push_constant]] PGITraceProbeLightingPush pgi_trace_probe_lighting_push;
+
+// Trace Gbuffer:
+// uint0: 20 bit indirect index, 6 bit probe texel x 6 bit probe texel y
+// uint0: attr.barycentrics,
+// uint2: meshinstanceindex
+// uint3: PrimitiveIndex(),
+struct PGITraceHitGbuffer
+{
+    uint indirect_index : 20;
+    uint texel_x : 6;
+    uint texel_y : 6;
+    half2 barycentrics;
+    uint mesh_instance_index;
+    uint primitive_index; 
+};
 
 #define PI 3.1415926535897932384626433832795
 
@@ -42,13 +56,11 @@ float3 rand_hemi_dir(float3 nrm) {
 struct RayPayload
 {
     bool hit;
-    float t;
-    float2 barycentrics;
-    uint primitive_index;
-    uint geometry_index;
-    uint instance_id;
     float4 color_depth;
     int3 probe_index;
+    half2 barycentrics;
+    uint instance_index;
+    uint primitive_index;
 }
 
 struct PGILightVisibilityTester : LightVisibilityTesterI
@@ -117,8 +129,6 @@ void entry_ray_gen()
         probe_index = uint3(dtid.xy / settings.probe_trace_resolution, dtid.z);
     }
 
-
-
     uint frame_index = push.attach.globals.frame_index;
 
     // Seed is the same for all threads processing a probe.
@@ -137,10 +147,39 @@ void entry_ray_gen()
 
     float3 probe_normal = pgi_probe_uv_to_probe_normal(probe_uv);
 
+    // Randomly Offset Origin tangentially to the trace direction
+    // Reduces artifacts caused by specific probe positioning.
+    float3 sample_origin = probe_position;
+    float3 sample_direction = probe_normal;
+    if (false && probe_info.validity > 1.0f)
+    {
+        rand_seed((probe_index.x * 231) ^ (probe_index.y * 3) ^ (probe_index.z * 523) ^ (probe_texel.x * 132) ^ (probe_texel.y * 311) ^ (push.attach.globals.frame_index * 213));
+        float3 rand3 = float3(rand(), rand(), rand()) * 2.0f - 1.0f;
+        float3 tangent = normalize(cross(sample_direction, rand3));
+
+        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
+        float2 vis = pgi_sample_probe_visibility(push.attach.globals,settings, tangent, push.attach.probe_visibility.get(), stable_index);
+
+        float offset_len = clamp(settings.probe_spacing.x * 0.5f * 0.33f, 0.01f, vis.x * 0.8f) * rand();
+        float3 offset = tangent * offset_len;
+        sample_origin += offset;
+
+        ShaderDebugLineDraw line = {};
+        line.start = probe_position;
+        line.end = sample_origin;
+        line.color = float3(0,0,1);
+        //debug_draw_line(push.attach.globals.debug, line);
+        ShaderDebugCircleDraw circle = {};
+        circle.position = sample_origin;
+        circle.radius = 0.01;
+        circle.color = float3(1,1,1);
+        //debug_draw_circle(push.attach.globals.debug, circle);
+    }
+
     RayDesc ray = {};
-    ray.Direction = probe_normal;
-    ray.Origin = probe_position;
-    ray.TMax = 1000.0f;
+    ray.Direction = sample_direction;
+    ray.Origin = sample_origin;
+    ray.TMax = 100000.0f;
     ray.TMin = 0.0f;
 
     RayPayload payload;
@@ -150,70 +189,17 @@ void entry_ray_gen()
 
     RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
-    #if RAYGEN_SHADING
-    float4 color_depth = {};
-    if (payload.hit)
-    {
-        float3 hit_point = probe_position + probe_normal * payload.t;
-        MeshInstance* mi = push.attach.mesh_instances.instances;
-        TriangleGeometry tri_geo = rt_get_triangle_geo(
-            payload.barycentrics,
-            payload.instance_id,
-            payload.geometry_index,
-            payload.primitive_index,
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
-            mi
-        );
-        TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
-            tri_geo,
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
-            push.scene.entity_combined_transforms
-        );
-        MaterialPointData material_point = evaluate_material(
-            push.attach.globals,
-            tri_geo,
-            tri_point
-        );
-        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
-        light_vis_tester.origin = probe_position;
-        color_depth.rgb = shade_material(
-            push.attach.globals, 
-            push.attach.sky_transmittance,
-            push.attach.sky,
-            material_point, 
-            probe_normal, 
-            light_vis_tester, 
-            push.attach.probe_radiance.get(), 
-            push.attach.probe_visibility.get(), 
-            push.attach.probe_info.get(),
-            push.attach.probe_requests.get(),
-            push.attach.tlas.get(),
-            PGI_PROBE_REQUEST_MODE_INDIRECT
-        ).rgb;
-
-        float distance = payload.t;
-        bool backface = dot(probe_normal, tri_point.face_normal) > 0.01f;
-        bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-        if (backface && !double_sided_or_blend)
-        {
-            distance *= -1.0f;
-        }
-
-        color_depth.a = distance;
-    }
-    else
-    {
-        color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, probe_normal);
-        color_depth.a = 1000.0f;
-    }
-    trace_result_tex[trace_result_texture_index] = color_depth;
-    #else
     trace_result_tex[trace_result_texture_index] = payload.color_depth;
-    #endif
+
+    PGITraceHitGbuffer gbuf = {};
+    gbuf.indirect_index = indirect_index;
+    gbuf.texel_x = probe_texel.x;
+    gbuf.texel_y = probe_texel.y;
+    gbuf.barycentrics = payload.barycentrics;
+    gbuf.mesh_instance_index = payload.instance_index;
+    gbuf.primitive_index = payload.primitive_index;
+
+    push.attach.trace_gbuffer.get()[trace_result_texture_index] = reinterpret<uint4>(gbuf);
 }
 
 [shader("anyhit")]
@@ -237,20 +223,14 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     let push = pgi_trace_probe_lighting_push;
 
     payload.hit = true;
-    payload.t = RayTCurrent();
-    payload.barycentrics = attr.barycentrics;
-    payload.primitive_index = PrimitiveIndex();
-    payload.instance_id = InstanceID();
-    payload.geometry_index = GeometryIndex();
 
-#if RAYGEN_SHADING == 0
-    float3 hit_point = WorldRayOrigin() + WorldRayDirection() * payload.t;
+    float3 hit_point = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
     MeshInstance* mi = push.attach.mesh_instances.instances;
     TriangleGeometry tri_geo = rt_get_triangle_geo(
-        payload.barycentrics,
-        payload.instance_id,
-        payload.geometry_index,
-        payload.primitive_index,
+        attr.barycentrics,
+        InstanceID(),
+        GeometryIndex(),
+        PrimitiveIndex(),
         push.scene.meshes,
         push.scene.entity_to_meshgroup,
         push.scene.mesh_groups,
@@ -316,16 +296,18 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 request_mode
             ).rgb;
         }
+
+        payload.color_depth.a = RayTCurrent();
     }
 
-    float distance = payload.t;
     if (backface)
     {
-        distance *= -1.0f;
+        payload.color_depth.a = -RayTCurrent();
     }
 
-    payload.color_depth.a = distance;
-    #endif
+    payload.barycentrics = half2(attr.barycentrics);
+    payload.instance_index = InstanceID();
+    payload.primitive_index = PrimitiveIndex();
 }
 
 [shader("miss")]

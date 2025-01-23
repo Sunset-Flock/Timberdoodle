@@ -155,7 +155,7 @@ func shade_material(
                 globals.sky_settings.sun_direction,
                 atmo_position
             );
-            diffuse_light += sun_light * sun_visibility;
+            diffuse_light += sun_light * sun_visibility * rcp(3.14);
         }
     }
 

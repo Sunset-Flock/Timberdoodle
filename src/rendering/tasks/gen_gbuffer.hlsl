@@ -50,20 +50,15 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
     uint packed_face_normal = 0u;
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
-        float4x4 view_proj;
-        float4x4 view_proj_prev;
-        float3 camera_position;
+        CameraInfo* camera = {};
+        CameraInfo* camera_prev = {};
         if(push.attachments.globals->settings.draw_from_observer == 1)
         {
-            view_proj = push.attachments.globals->observer_camera.view_proj;
-            view_proj_prev = push.attachments.globals->observer_camera_prev_frame.view_proj;
-            camera_position = push.attachments.globals->observer_camera.position;
+            camera = &push.attachments.globals->observer_camera;
         }
         else 
         {
-            view_proj = push.attachments.globals->camera.view_proj;
-            view_proj_prev = push.attachments.globals->camera_prev_frame.view_proj;
-            camera_position = push.attachments.globals->camera.position;
+            camera = &push.attachments.globals->camera;
         }
 
         MeshletInstancesBufferHead* instantiated_meshlets = push.attachments.instantiated_meshlets;
@@ -74,14 +69,14 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
             float2(dtid),
             push.size,
             push.inv_size,
-            view_proj,
+            camera->view_proj,
             instantiated_meshlets,
             meshes,
             combined_transforms
         );     
         TriangleGeometry tri_geo = visbuf_tri.tri_geo;
         TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
-        float3 primary_ray = normalize(tri_point.world_position - camera_position);
+        float3 primary_ray = normalize(tri_point.world_position - camera->position);
         float depth = visbuf_tri.depth;
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;

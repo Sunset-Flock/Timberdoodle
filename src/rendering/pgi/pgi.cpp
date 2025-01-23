@@ -2153,7 +2153,7 @@ auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData con
             static_cast<u32>(render_data.settings.render_target_size.y/2),
             1
         },
-        .name = "pgi probe evaluated screen irradiance",
+        .name = "pgi probe half screen irradiance",
     });
 }
 
@@ -2167,7 +2167,28 @@ auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & 
             static_cast<u32>(render_data.settings.render_target_size.y),
             1
         },
-        .name = "pgi probe upscaled screen irradiance",
+        .name = "pgi probe screen irradiance",
+    });
+}
+
+// Trace Gbuffer:
+// * Start Position -> implicit 
+// * Hit Position -> implicit 
+// * Trace T -> first uint
+// * Trace Albedo + SunShadow -> second uint
+// * Face Normal -> third uint
+// * 5 unused uints for future
+auto pgi_create_trace_gbuffer(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView
+{
+    return tg.create_transient_image({
+        .format = daxa::Format::R32G32B32A32_UINT,
+        .size = { 
+            static_cast<u32>(render_data.pgi_settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
+            static_cast<u32>(render_data.pgi_settings.probe_trace_resolution * (PGI_MAX_UPDATES_PER_FRAME / PGI_TRACE_TEX_PROBES_X)),
+            1,
+        },
+        .array_layer_count = 1,
+        .name = "pgi trace gbuffer",
     });
 }
 
@@ -2188,6 +2209,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .pgi_state = &info.pgi_state,
     });
     daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
+    daxa::TaskImageView trace_gbuffer = pgi_create_trace_gbuffer(info.tg, info.render_context->render_data);
     info.tg.add_task(PGITraceProbeRaysTask{
         .views = std::array{
             PGITraceProbeRaysTask::AT.globals | info.render_context->tgpu_render_data,
@@ -2200,6 +2222,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
             PGITraceProbeRaysTask::AT.sky_transmittance | info.sky_transmittance,
             PGITraceProbeRaysTask::AT.sky | info.sky,
             PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
+            PGITraceProbeRaysTask::AT.trace_gbuffer | trace_gbuffer,
             PGITraceProbeRaysTask::AT.mesh_instances | info.mesh_instances,
         },
         .render_context = info.render_context,

@@ -146,35 +146,21 @@ func entry_update_probe_irradiance(
     // Automatic Hysteresis
     float hysteresis = prev_frame_texel.a;
     {
-        float3 lighting_change3 = abs(prev_frame_radiance - new_radiance);
+        // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
+        float3 lighting_change3 = square(abs(sqrt(prev_frame_radiance + 0.0000001f) - sqrt(new_radiance + 0.0000001f))) * 5.0f;
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
         float prev_frame_max = max3(prev_frame_radiance.x, prev_frame_radiance.y, prev_frame_radiance.z) + 0.01f;
         float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
-        if (factor > 0.0f)
-        {
-            factor *= 0.333f;
-        }
-        hysteresis += 0.025 * factor;
-        hysteresis = clamp(hysteresis, 0.8f, 0.99f);
+        hysteresis += clamp(factor, -0.01f, 0.01f);
+        hysteresis = clamp(hysteresis, 0.0f, 0.98f);
     }
     if (probe_info.validity == 0.0f)
     {
         hysteresis = 0.0f;
     }
-
-    // Slam down large luminance changes to make convergence faster
-    {
-        float prev_luma = length(prev_frame_radiance + 0.0001f);
-        float new_luma = length(new_radiance + 0.0001f);
-
-        if (new_luma > prev_luma)
-        {
-            new_luma = sqrt(new_luma - prev_luma + 1) - 1 + prev_luma;
-            new_radiance = normalize(new_radiance + 0.0001f) * new_luma;
-        }
-    }
-    //new_radiance = min(new_radiance, prev_frame_radiance * 3.0f);
-    new_radiance = lerp(new_radiance, prev_frame_radiance, prev_frame_texel.a);
+    // Perform blend in perceptual space. Reduces noise and increased convergence from bright to drark drastically.
+    new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), prev_frame_texel.a), 5.0f);
+    new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
     float4 value = float4(new_radiance, hysteresis);
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
@@ -263,14 +249,17 @@ func entry_update_probe_visibility(
     static const float RELEVANT_RANGE = 0.3; // from 0 - 1
     const int relevant_texel_range = int(ceil(float(settings.probe_trace_resolution) * RELEVANT_RANGE));
 
-    const float2 probe_trace_uv_min = frac(probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f + 1.0f);
+    const float2 probe_trace_uv_min = probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f;
     const int2 probe_trace_index_min = int2(floor(probe_trace_uv_min * settings.probe_trace_resolution));
 
     for (int y = 0; y < relevant_texel_range; ++y)
     for (int x = 0; x < relevant_texel_range; ++x)
     {
-        int2 probe_trace_tex_index = (int2(x,y) + probe_trace_index_min) % 16;
-        float2 trace_tex_uv = frac((probe_trace_tex_index + trace_texel_noise) * rcp_s);
+        // THIS IS BUGGED
+        // OCTAHEDRAL WRAPPING DOES NOT WORK LIKE THIS!
+        int2 probe_trace_tex_index = (int2(x,y) + probe_trace_index_min);
+        probe_trace_tex_index = octahedtral_texel_wrap(probe_trace_tex_index, settings.probe_trace_resolution);
+        float2 trace_tex_uv = (probe_trace_tex_index + trace_texel_noise) * rcp_s;
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = (dot(trace_direction, probe_texel_normal));        
         int3 sample_texture_index = trace_result_texture_base_index + int3(probe_trace_tex_index,0);
