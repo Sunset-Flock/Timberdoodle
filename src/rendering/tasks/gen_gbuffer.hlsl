@@ -103,6 +103,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
         }
         
         mapped_normal = flip_normal_to_incoming(tri_point.face_normal, mapped_normal, primary_ray);
+        tri_point.world_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.world_normal, primary_ray);
 
         if(material.normal_texture_id.value != 0)
         {

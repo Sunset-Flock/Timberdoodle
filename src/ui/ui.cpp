@@ -1169,6 +1169,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
+        ImGui::Checkbox("Enable RenderTimings", &render_context.render_times.enable_render_times);
         ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
         std::array<char const * const, 3> aa_modes = {
             "AA_MODE_NONE",

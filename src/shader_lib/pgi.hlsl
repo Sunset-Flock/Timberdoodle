@@ -147,48 +147,6 @@ float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
 
 static bool debug_pixel = false;
 
-func octahedtral_texel_wrap(int2 index, int resolution) -> int2
-{
-    // Octahedral texel clamping is very strange..
-    if (index.y >= resolution)
-    {
-        // Flip y on the edge of the texture
-        index.y = (resolution-1) - (index.y-resolution);
-
-        // Flip x on the middle of the texture.
-        index.x = resolution - 1 - index.x;
-    }
-    
-    if (index.y < 0)
-    {
-        // Flip y on the edge of the texture
-        index.y = -index.y + 1;
-
-        // Flip x on the middle of the texture.
-        index.x = resolution - 1 - index.x;
-    }
-
-    if (index.x >= resolution)
-    {
-        // Flip x on the edge of the texture
-        index.x = (resolution-1) - (index.x-resolution);
-
-        // Flip y on the middle of the texture.
-        index.y = resolution - 1 - index.y;
-    }
-    
-    if (index.x < 0)
-    {
-        // Flip x on the edge of the texture
-        index.x = -index.x + 1;
-
-        // Flip y on the middle of the texture.
-        index.y = resolution - 1 - index.y;
-    }
-
-    return index;
-}
-
 func pgi_sample_probe_irradiance(
     RenderGlobalData* globals,
     PGISettings settings,
@@ -224,9 +182,19 @@ func pgi_sample_probe_visibility(
     float inv_border_probe_res = settings.visibility_resolution_w_border_rcp;
     float probe_uv_to_border_uv = probe_res * inv_border_probe_res;
 
+    SamplerState sampler = globals.samplers.linear_clamp.get();
+    
+    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
+    bool debug_mode = any(settings.debug_probe_index != 0);
+    if (debug_mode)
+    {
+        sampler = globals.samplers.nearest_clamp.get();
+    }
+    #endif
+
     float2 base_uv = stable_index.xy * inv_probe_cnt;
     float2 uv = base_uv + (probe_octa_uv * probe_uv_to_border_uv + inv_border_probe_res) * inv_probe_cnt;
-    float2 linearly_filtered_samples = probe_visibility.SampleLevel(globals.samplers.linear_clamp.get(), float3(uv, stable_index.z), 0);
+    float2 linearly_filtered_samples = probe_visibility.SampleLevel(sampler, float3(uv, stable_index.z), 0);
     return linearly_filtered_samples;
 }
 

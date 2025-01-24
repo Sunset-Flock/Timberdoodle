@@ -14,6 +14,48 @@
 #include "../../shader_lib/raytracing.hlsl"
 #include "../../shader_lib/SH.hlsl"
 
+func octahedtral_texel_wrap(int2 index, int resolution) -> int2
+{
+    // Octahedral texel clamping is very strange..
+    if (index.y >= resolution)
+    {
+        // Flip y on the edge of the texture
+        index.y = (resolution-1) - (index.y-resolution);
+
+        // Flip x on the middle of the texture.
+        index.x = resolution - 1 - index.x;
+    }
+    
+    if (index.y < 0)
+    {
+        // Flip y on the edge of the texture
+        index.y = -index.y - 1;
+
+        // Flip x on the middle of the texture.
+        index.x = resolution - 1 - index.x;
+    }
+
+    if (index.x >= resolution)
+    {
+        // Flip x on the edge of the texture
+        index.x = (resolution-1) - (index.x-resolution);
+
+        // Flip y on the middle of the texture.
+        index.y = resolution - 1 - index.y;
+    }
+    
+    if (index.x < 0)
+    {
+        // Flip x on the edge of the texture
+        index.x = -index.x - 1;
+
+        // Flip y on the middle of the texture.
+        index.y = resolution - 1 - index.y;
+    }
+
+    return index;
+}
+
 __generic<let N : uint>
 func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 probe_res, int3 base_index, int2 probe_texel, vector<float, N> value)
 {
@@ -147,12 +189,11 @@ func entry_update_probe_irradiance(
     float hysteresis = prev_frame_texel.a;
     {
         // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
-        float3 lighting_change3 = square(abs(sqrt(prev_frame_radiance + 0.0000001f) - sqrt(new_radiance + 0.0000001f))) * 5.0f;
+        float3 lighting_change3 = abs(pow(prev_frame_radiance + 0.000000000001f, 0.2f) - pow(new_radiance + 0.000000000001f, 0.2f));
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
-        float prev_frame_max = max3(prev_frame_radiance.x, prev_frame_radiance.y, prev_frame_radiance.z) + 0.01f;
-        float factor = (1.0f - smoothstep(0.0f, prev_frame_max * rcp((hysteresis-0.75)*5), lighting_change)) - 0.5f;
-        hysteresis += clamp(factor, -0.01f, 0.01f);
-        hysteresis = clamp(hysteresis, 0.0f, 0.98f);
+        float factor = 0.5f - lighting_change * 4;
+        hysteresis += clamp(factor, -0.02f, 0.02f);
+        hysteresis = clamp(hysteresis, 0.0f, 2.0f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
     if (probe_info.validity == 0.0f)
     {
@@ -162,7 +203,7 @@ func entry_update_probe_irradiance(
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), prev_frame_texel.a), 5.0f);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
-    float4 value = float4(new_radiance, hysteresis);
+    float4 value = float4(new_radiance, min(hysteresis, 0.99f));
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
@@ -252,6 +293,20 @@ func entry_update_probe_visibility(
     const float2 probe_trace_uv_min = probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f;
     const int2 probe_trace_index_min = int2(floor(probe_trace_uv_min * settings.probe_trace_resolution));
 
+    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
+    bool debug_mode = any(settings.debug_probe_index != 0);
+    if (debug_mode && ((push.attach.globals.frame_index % 256) == 0))
+    {
+        push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_texel, 0)] = float2(0,0);
+        return;
+    }
+    bool debug_texel = (all(settings.debug_probe_index.xy == probe_texel));
+    if (debug_mode && !debug_texel)
+    {
+        return;
+    }
+    #endif
+
     for (int y = 0; y < relevant_texel_range; ++y)
     for (int x = 0; x < relevant_texel_range; ++x)
     {
@@ -263,9 +318,15 @@ func entry_update_probe_visibility(
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = (dot(trace_direction, probe_texel_normal));        
         int3 sample_texture_index = trace_result_texture_base_index + int3(probe_trace_tex_index,0);
-        if (cos_weight > MIN_ACCEPTED_COS)
+        float power_cos_weight = pow(cos_weight, COS_POWER);
+    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
+        if (debug_mode && debug_texel)
         {
-            float power_cos_weight = pow(cos_weight, COS_POWER);
+            push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_trace_tex_index,0)] = float2(0.05,power_cos_weight);
+        }
+        #endif
+        if (power_cos_weight > 0.01f)
+        {
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -291,6 +352,14 @@ func entry_update_probe_visibility(
             }
         }
     }
+
+    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
+    if (debug_mode && debug_texel)
+    {
+        push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_texel, 0)] = float2(1,0);
+        return;
+    }
+    #endif
     
     if (valid_trace_count > 0)
     {
@@ -307,6 +376,7 @@ func entry_update_probe_visibility(
         }
 
         float2 value = lerp(prev_frame_visibility, relevant_trace_blend, update_factor);
+
         write_probe_texel_with_border(push.attach.probe_visibility.get(), settings.probe_visibility_resolution, probe_texture_base_index, probe_texel, value);
     }
 }
