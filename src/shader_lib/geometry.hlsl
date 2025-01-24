@@ -54,3 +54,19 @@ float3 flip_normal_to_incoming(float3 face_normal, float3 normal, float3 incomin
 {
     return sign(dot(face_normal, -incoming_ray)) * normal;
 }
+
+float3 geom_compute_uv_tangent(float3 tri_vert_positions[3], float2 tri_vert_uvs[3])
+{
+    float3 d_p1 = tri_vert_positions[1].xyz - tri_vert_positions[0].xyz;
+    float3 d_p2 = tri_vert_positions[2].xyz - tri_vert_positions[0].xyz;
+    float2 d_uv1 = tri_vert_uvs[1] - tri_vert_uvs[0];
+    float2 d_uv2 = tri_vert_uvs[2] - tri_vert_uvs[0];
+    float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv1.y * d_uv2.x);
+    float3 t = normalize((d_p1 * d_uv2.y - d_p2 * d_uv1.y) * r);
+    return t;
+}
+
+float3 geom_compute_arb_tangent(float3 tri_vert_positions[3])
+{
+    return normalize(tri_vert_positions[1] - tri_vert_positions[0]);
+}

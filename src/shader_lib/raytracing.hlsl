@@ -114,10 +114,10 @@ func rt_get_triangle_geo_point(
         deref_i(mesh.vertex_positions, surf_geo.vertex_indices.z)
     );
 
-    const daxa_f32vec4[3] world_vertex_positions = daxa_f32vec4[3](
-        mul(model_matrix, daxa_f32vec4(vertex_positions[0],1)),
-        mul(model_matrix, daxa_f32vec4(vertex_positions[1],1)),
-        mul(model_matrix, daxa_f32vec4(vertex_positions[2],1))
+    const daxa_f32vec3[3] world_vertex_positions = daxa_f32vec3[3](
+        mul(model_matrix, daxa_f32vec4(vertex_positions[0],1)).xyz,
+        mul(model_matrix, daxa_f32vec4(vertex_positions[1],1)).xyz,
+        mul(model_matrix, daxa_f32vec4(vertex_positions[2],1)).xyz
     );    
 
     ret.world_position = interpolate_vec3(
@@ -170,19 +170,13 @@ func rt_get_triangle_geo_point(
     ret.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));
 
     // Calculate Tangent.
-    if (mesh.vertex_uvs != {})
+    if ((mesh.vertex_uvs != {}) && !all(ret.world_normal == float3(0,0,0)))
     {
-        float3 d_p1 = world_vertex_positions[1].xyz - world_vertex_positions[1].xyz;
-        float3 d_p2 = world_vertex_positions[2].xyz - world_vertex_positions[1].xyz;
-        float2 d_uv1 = vertex_uvs[1] - vertex_uvs[0];
-        float2 d_uv2 = vertex_uvs[2] - vertex_uvs[0];
-        float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv2.x * d_uv1.y);
-
-        ret.world_tangent = normalize(r * ( d_uv2.y * d_p1 - d_uv1.y * d_p2 ));
+        ret.world_tangent = geom_compute_uv_tangent(world_vertex_positions, vertex_uvs);
     }
     else // When no uvs are available we still want a tangent to construct a tbn even if its not aligned to anything
     {
-        ret.world_tangent = normalize(cross(ret.world_normal, float3(0,0,1) + 0.0001 * (world_vertex_positions[2].xyz - world_vertex_positions[0].xyz)));
+        ret.world_tangent = geom_compute_arb_tangent(world_vertex_positions);
     }
 
     return ret;

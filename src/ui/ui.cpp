@@ -1169,7 +1169,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
-        ImGui::Checkbox("Enable RenderTimings", &render_context.render_times.enable_render_times);
         ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
         std::array<char const * const, 3> aa_modes = {
             "AA_MODE_NONE",
@@ -1201,6 +1200,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
                 "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
                 "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
+                "FACE_TANGENT", // DEBUG_DRAW_MODE_FACE_TANGENT
+                "SMOOTH_TANGENT", // DEBUG_DRAW_MODE_SMOOTH_TANGENT
                 "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
                 "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
                 "AMBIENT_OCCLUSION", // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION

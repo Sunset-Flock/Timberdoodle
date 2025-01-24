@@ -329,7 +329,7 @@ func pgi_sample_irradiance(
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
             float smooth_backface_term = (1.0f + dot(shading_normal, shading_to_probe_direction)) * 0.5f;
-            probe_weight *= sqrt(smooth_backface_term);
+            probe_weight *= square(smooth_backface_term);
 
             // visibility (Chebyshev)
             // ===== Shadow Map Visibility Test =====

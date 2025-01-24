@@ -193,7 +193,7 @@ func entry_update_probe_irradiance(
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
         float factor = 0.5f - lighting_change * 4;
         hysteresis += clamp(factor, -0.02f, 0.02f);
-        hysteresis = clamp(hysteresis, 0.0f, 2.0f); // allow it to go over 1 to have some buffer for shot term light changes.
+        hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
     if (probe_info.validity == 0.0f)
     {

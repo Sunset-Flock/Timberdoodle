@@ -426,6 +426,11 @@ void entry_main_cs(
             material = AT.material_manifest[tri_geo.material_index];
         }
 
+        if (material.alpha_discard_enabled)
+        {
+            tri_point.world_normal = tri_point.face_normal;
+        }
+
         float3 albedo = float3(material.base_color);
         if(material.diffuse_texture_id.value != 0)
         {
@@ -584,6 +589,17 @@ void entry_main_cs(
             {
                 let color = mapped_normal * 0.5 + 0.5f;
                 output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_FACE_TANGENT:
+            {
+                let color = tri_point.world_tangent * 0.5 + 0.5f;
+                output_value.rgb = color;
+                break;
+            }
+            case DEBUG_DRAW_MODE_SMOOTH_TANGENT:
+            {
+                output_value.rgb = float3(frac(tri_point.uv), 0);
                 break;
             }
             case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
