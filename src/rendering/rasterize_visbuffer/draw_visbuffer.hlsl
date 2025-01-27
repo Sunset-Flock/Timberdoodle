@@ -263,7 +263,7 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
             // const float max_obj_space_deriv_len = max(length(ddx(mvertex.object_space_position)), length(ddy(mvertex.object_space_position)));
             // const float threshold = compute_hashed_alpha_threshold(mvertex.object_space_position, max_obj_space_deriv_len, 0.3);
             // if (alpha < clamp(threshold, 0.001, 1.0)) // { discard; }
-            if(alpha < 0.5) { discard; }
+            if(alpha < 0.1) { discard; }
         }
     }
     if (overdraw_image.value != 0)

@@ -45,6 +45,8 @@ auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2;
 
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo;
 
+auto pgi_shade_rays_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2;
+
 auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
 
 auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
@@ -75,9 +77,15 @@ struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
     void callback(daxa::TaskInterface ti);
 };
 
-// Traces one ray per probe texel.
-// Results (color, depth) are written to the trace result texture.
 struct PGITraceProbeRaysTask : PGITraceProbeLightingH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    PGIState* pgi_state = {};
+    void callback(daxa::TaskInterface ti);
+};
+
+struct PGIShadeRaysTask : PGIShadeRaysH::Task
 {
     AttachmentViews views = {};
     RenderContext* render_context = {};

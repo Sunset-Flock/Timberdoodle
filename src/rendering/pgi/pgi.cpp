@@ -1538,6 +1538,17 @@ auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelin
     };
 }
 
+auto pgi_shade_rays_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2
+{
+    return daxa::ComputePipelineCompileInfo2{
+        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},
+        .entry_point = "entry_shade_rays",
+        .language = daxa::ShaderLanguage::SLANG,
+        .push_constant_size = s_cast<u32>(sizeof(PGIShadeRaysPush)),
+        .name = std::string{"entry_shade_rays"},
+    };
+}
+
 daxa::RasterPipelineCompileInfo pgi_draw_debug_probes_compile_info()
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
@@ -1800,6 +1811,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     ti.recorder.push_constant(push);
 
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
+    // TODO(pahrens): remove non indirect version!
     if (render_data.pgi_settings.enable_indirect_sparse)
     {
         ti.recorder.trace_rays_indirect({
@@ -1815,6 +1827,23 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
         ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
     }
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
+}
+
+void PGIShadeRaysTask::callback(daxa::TaskInterface ti)
+{
+    auto & gpu_context = render_context->gpu_context;
+    auto & render_data = render_context->render_data;
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_shade_rays_pipeline_compile_info().name));
+    
+    PGIShadeRaysPush push = {};
+    push.attach = ti.attachment_shader_blob;
+    push.scene = render_data.scene;
+    ti.recorder.push_constant(push);
+    
+    ti.recorder.dispatch_indirect({
+        .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+        .offset = offsetof(PGIIndirections, probe_shade_rays_dispatch),
+    });
 }
 
 void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
@@ -2224,6 +2253,23 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
             PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
             PGITraceProbeRaysTask::AT.trace_gbuffer | trace_gbuffer,
             PGITraceProbeRaysTask::AT.mesh_instances | info.mesh_instances,
+        },
+        .render_context = info.render_context,
+        .pgi_state = &info.pgi_state,
+    });    
+    info.tg.add_task(PGIShadeRaysTask{
+        .views = std::array{
+            PGIShadeRaysTask::AT.globals | info.render_context->tgpu_render_data,
+            PGIShadeRaysTask::AT.probe_indirections | pgi_indirections,
+            PGIShadeRaysTask::AT.probe_radiance | info.pgi_state.probe_radiance_view,
+            PGIShadeRaysTask::AT.probe_visibility | info.pgi_state.probe_visibility_view,
+            PGIShadeRaysTask::AT.probe_info | info.pgi_state.probe_info_view,
+            PGIShadeRaysTask::AT.probe_requests | info.pgi_state.cell_requests_view,
+            PGIShadeRaysTask::AT.sky_transmittance | info.sky_transmittance,
+            PGIShadeRaysTask::AT.sky | info.sky,
+            PGIShadeRaysTask::AT.trace_result | pgi_trace_result,
+            PGIShadeRaysTask::AT.trace_gbuffer | trace_gbuffer,
+            PGIShadeRaysTask::AT.mesh_instances | info.mesh_instances,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,

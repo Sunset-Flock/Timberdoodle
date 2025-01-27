@@ -9,6 +9,13 @@ if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/deps/daxa/CMakeLists.txt")
         COMMAND_ERROR_IS_FATAL ANY)
 endif()
 
+if(NOT EXISTS "${CMAKE_CURRENT_LIST_DIR}/deps/meshoptimizer/CMakeLists.txt")
+    find_package(Git REQUIRED)
+    execute_process(COMMAND ${GIT_EXECUTABLE} submodule update --init
+        WORKING_DIRECTORY "${CMAKE_CURRENT_LIST_DIR}"
+        COMMAND_ERROR_IS_FATAL ANY)
+endif()
+
 project(TimberDoodle)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
@@ -23,6 +30,9 @@ else()
         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}/deps/timberdoodle_assets
         COMMAND_ERROR_IS_FATAL ANY)
 endif()
+
+# include_directories(${PROJECT_SOURCE_DIR}/deps/meshoptimizer)
+add_subdirectory(${PROJECT_SOURCE_DIR}/deps/meshoptimizer)
 
 add_executable(${PROJECT_NAME} 
     "src/main.cpp"
@@ -45,15 +55,19 @@ find_package(fmt CONFIG REQUIRED)
 find_package(daxa CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)     
 find_package(fastgltf CONFIG REQUIRED)
-find_package(meshoptimizer CONFIG REQUIRED)
+# find_package(meshoptimizer CONFIG REQUIRED)
 find_package(freeimage CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(implot CONFIG REQUIRED)
 
 # NOTE(grundlett): Really hacky. It appears there's no way to create plugin dll dependencies...
 # see https://gitlab.kitware.com/cmake/cmake/-/issues/22993
-add_custom_command(TARGET ${PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:slang::glslang> $<TARGET_FILE_DIR:${PROJECT_NAME}>
+
+find_program(SLANG_DLL slang.dll)
+find_program(SLANG_GLSLANG_DLL slang-glslang.dll)
+add_custom_command(TARGET TimberDoodle POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${SLANG_DLL} $<TARGET_FILE_DIR:TimberDoodle>
+    COMMAND ${CMAKE_COMMAND} -E copy ${SLANG_GLSLANG_DLL} $<TARGET_FILE_DIR:TimberDoodle>
 )
 
 # FreeImage links OpenEXR, which adds /EHsc for its targets, even if we're using Clang
@@ -86,7 +100,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     fmt::fmt
     daxa::daxa
     glfw
-    meshoptimizer::meshoptimizer
+    meshoptimizer
     fastgltf::fastgltf
     KTX::ktx
     freeimage::FreeImage

@@ -701,20 +701,20 @@ auto load_accessor_data_from_file(
     /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
     ifs.seekg(gltf_buffer_view.byteOffset + accesor.byteOffset + uri.fileByteOffset);
     std::vector<u16> raw = {};
-    auto const elem_byte_size = fastgltf::getElementByteSize(accesor.type, accesor.componentType);
+    size_t const elem_byte_size = fastgltf::getElementByteSize(accesor.type, accesor.componentType);
     raw.resize((accesor.count * elem_byte_size) / 2);
     /// NOTE: Only load the relevant part of the file containing the view of the buffer we actually need.
     if (!ifs.read(r_cast<char *>(raw.data()), accesor.count * elem_byte_size))
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
     }
-    auto buffer_adapter = [&](fastgltf::Buffer const & buffer)
+    auto buffer_adapter = [&](fastgltf::Asset const & asset, u32 asset_index) -> fastgltf::span<const std::byte>
     {
         /// NOTE:   We only have a ptr to the loaded data to the accessors section of the buffer.
-        ///         Fastgltf expects a ptr to the begin of the buffer, so we just subtract the offsets.
+        ///         Fastgltf expects a ptr to the begin of the buffer VIEW, so we just subtract the offsets.
         ///         Fastgltf adds these on in the accessor tool, so in the end it gets the right ptr.
-        auto const fastgltf_reverse_byte_offset = (gltf_buffer_view.byteOffset + accesor.byteOffset);
-        return r_cast<std::byte *>(raw.data()) - fastgltf_reverse_byte_offset;
+        auto const fastgltf_reverse_byte_offset = - accesor.byteOffset;
+        return fastgltf::span<const std::byte>(reinterpret_cast<std::byte const*>(raw.data()) - accesor.byteOffset, accesor.count * elem_byte_size);
     };
 
     std::vector<ElemT> ret(accesor.count);
@@ -852,7 +852,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_POSITIONS;
     }
-    fastgltf::Accessor & gltf_vertex_pos_accessor = gltf_asset.accessors.at(vert_attrib_iter->second);
+    fastgltf::Accessor & gltf_vertex_pos_accessor = gltf_asset.accessors.at(vert_attrib_iter->accessorIndex);
     bool const gltf_vertex_pos_accessor_valid =
         gltf_vertex_pos_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_pos_accessor.type == fastgltf::AccessorType::Vec3;
@@ -874,7 +874,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 #pragma region UVS
     auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
     bool has_uv = texcoord0_attrib_iter != gltf_prim.attributes.end();
-    fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->second);
+    fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->accessorIndex);
     
     bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
@@ -902,7 +902,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_MISSING_VERTEX_NORMALS;
     }
-    fastgltf::Accessor & gltf_vertex_normals_accessor = gltf_asset.accessors.at(normals_attrib_iter->second);
+    fastgltf::Accessor & gltf_vertex_normals_accessor = gltf_asset.accessors.at(normals_attrib_iter->accessorIndex);
     bool const gltf_vertex_normals_accessor_valid =
         gltf_vertex_normals_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_normals_accessor.type == fastgltf::AccessorType::Vec3;
@@ -915,7 +915,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return *err;
     }
-    std::vector<glm::vec3> vert_normals = std::get<std::vector<glm::vec3>>(std::move(vertex_normals_pos_result));
+    std::vector<glm::vec3> const vert_normals = std::get<std::vector<glm::vec3>>(std::move(vertex_normals_pos_result));
     DBG_ASSERT_TRUE_M(vert_normals.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
 #pragma endregion
 
@@ -965,6 +965,20 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     f32 const lod0_average_vertex_distance = normalized_average_vertex_distance;
     /// ===== Calculate Normalized Vertex Distance =====
 
+    std::vector<f32> attributes_normals_uvs = {};
+    attributes_normals_uvs.resize(vertex_count * 5);
+    for (u32 i = 0; i < vertex_count; ++i)
+    {
+        attributes_normals_uvs[i * 5 + 0] = vert_normals[i].x;
+        attributes_normals_uvs[i * 5 + 1] = vert_normals[i].y;
+        attributes_normals_uvs[i * 5 + 2] = vert_normals[i].z;
+        if (has_uv)
+        {
+            attributes_normals_uvs[i * 5 + 3] = vert_texcoord0[i].x;
+            attributes_normals_uvs[i * 5 + 4] = vert_texcoord0[i].y;
+        }
+    }
+
     std::vector<daxa::u32> prev_lod_index_buffer = {};
     for (u32 lod = 0; lod < MAX_MESHES_PER_LOD_GROUP; ++lod)
     {
@@ -982,7 +996,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
             f32 target_error = std::numeric_limits<f32>::max();
-            f32 max_acceptable_error = 0.95f;
+            f32 max_acceptable_error = 0.5f;
             // TODO: Only enable this for meshes that really need it!
             // It completely prevents foliage optimization and we desperately need foliage optimization!
             // It worsenes performance a lot
@@ -990,6 +1004,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             u32 options = meshopt_SimplifyLockBorder;
             f32 result_error = {};
 
+            /// INFO:       Meshoptimizer changed how the attributes are weighted
+            ///             Must determine a new scaling for normals and or modify meshopt for optimal normal weighting.
+            ///             For now use fixed weights (they work much nicer with recent changes)
             /// ===== Estimate Average Vertex Distance For LOD ====
             // We assume a simplification rate that halves triangles from lod to lod.
             // In this case, the average vertex distance increases at a rate of sqrt(2) per lod.
@@ -1006,14 +1023,24 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // - We bias the weight towards the normal a little here with a factor of 2
             // - Typically normals are a little more important for visual error than position as they effect the shading more.
             f32 const MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR = 2.0f;
-            f32 const lod_normal_weight = lod_average_normalized_vertex_distance * MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR;
+            f32 const lod_normal_weight = MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR;
             /// ===== Estimate Average Vertex Distance For LOD ====
 
-            f32 normal_weights[] = { lod_normal_weight, lod_normal_weight, lod_normal_weight };
+            // ===== TexCoord Weight =====
+            // Some meshes use complex uvs to save on texture memory space.
+            // One such complex uvs would be to MIRROR the uv on some vertex.
+            // Such vertices often lie on a flat plane between tringles
+            // If meshoptimizer does not know about uvs, it will simply remove these vertices.
+            // This is because these verts are usually of very low geometric value.
+            //
+            // Give uvs a small weight to that extreme uv distortions are prevented in simplification.
+            f32 const TEXCOORD_WEIGHT = 1.0f;
+
+            f32 attribute_weights[] = { lod_normal_weight, lod_normal_weight, lod_normal_weight, TEXCOORD_WEIGHT, TEXCOORD_WEIGHT };
             i32 result_index_count = meshopt_simplifyWithAttributes(
                 index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), 
                 &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), 
-                &vert_normals.data()->x, sizeof(glm::vec3), normal_weights, 3, 
+                attributes_normals_uvs.data(), sizeof(f32) * 5, attribute_weights, 5, nullptr,
                 lod_index_count, target_error, options, &result_error);
             lod_error = lods[lod-1].lod_error + result_error;
             if (result_index_count > lod_index_count || result_index_count < 12 || result_error > max_acceptable_error)
@@ -1120,7 +1147,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
         meshlets.resize(meshlet_count);
 
-        u32 const total_mesh_buffer_size =
+        u32 total_mesh_buffer_size =
             sizeof(Meshlet) * meshlet_count +
             sizeof(BoundingSphere) * meshlet_count +
             sizeof(AABB) * meshlet_count +
@@ -1128,8 +1155,12 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             sizeof(u32) * meshlet_indirect_vertices.size() +
             sizeof(u32) * index_buffer->size() +
             sizeof(daxa_f32vec3) * optimized_vert_positions.size() +
-            sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size() +
             sizeof(daxa_f32vec3) * optimized_vert_normals.size();
+        
+        if (has_uv)
+        {
+            total_mesh_buffer_size += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
+        }
 
         GPUMesh mesh = {};
         mesh.lod_error = lod_error;

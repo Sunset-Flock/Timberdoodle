@@ -20,7 +20,6 @@
       ]
     },
     "glm",
-    "meshoptimizer",
     "fastgltf",
     "fmt",
     "ktx",
@@ -28,11 +27,11 @@
     "nlohmann-json",
     "implot"
   ],
-  "builtin-baseline": "e56312cb3d33be09ec550ade6ffbb8dc18d23cfd",
+  "builtin-baseline": "cf035d9916a0a23042b41fcae7ee0386d245af08",
+
   "vcpkg-configuration": {
     "overlay-ports": [
-      "deps/daxa",
-      "deps/daxa/cmake/vcpkg-overlay-ports/shader-slang"
+      "deps/daxa"
     ]
   }
 }

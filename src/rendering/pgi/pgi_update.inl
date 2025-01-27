@@ -12,6 +12,7 @@ struct PGIIndirections
     DispatchIndirectStruct probe_trace_dispatch;
     DispatchIndirectStruct probe_radiance_update_dispatch;
     DispatchIndirectStruct probe_visibility_update_dispatch;
+    DispatchIndirectStruct probe_shade_rays_dispatch;
     DrawIndexedIndirectStruct probe_debug_draw_dispatch;
     daxa_u32 detailed_probe_count;
     daxa_u32 probe_update_count;
@@ -85,6 +86,30 @@ DAXA_DECL_TASK_HEAD_END
 struct PGITraceProbeLightingPush
 {
     PGITraceProbeLightingH::AttachmentShaderBlob attach;
+    GPUScene scene;
+};
+
+#define PGI_SHADE_RAYS_X 256
+#define PGI_SHADE_RAYS_Y 1
+#define PGI_SHADE_RAYS_Z 1
+
+DAXA_DECL_TASK_HEAD_BEGIN(PGIShadeRaysH)
+DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
+DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky_transmittance)
+DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
+DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32vec4>, trace_gbuffer)
+DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_DECL_TASK_HEAD_END
+
+struct PGIShadeRaysPush
+{
+    PGIShadeRaysH::AttachmentShaderBlob attach;
     GPUScene scene;
 };
 

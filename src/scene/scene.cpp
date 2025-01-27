@@ -153,19 +153,19 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
         fastgltf::Options::DontRequireValidAssetMember |
         fastgltf::Options::AllowDouble;
 
-    fastgltf::GltfDataBuffer data;
-    bool const worked = data.loadFromFile(file_path);
-    if (!worked)
+    auto data_opt = fastgltf::GltfDataBuffer::FromPath(file_path);
+    if (data_opt.error() != fastgltf::Error::None)
     {
         return Scene::LoadManifestErrorCode::FILE_NOT_FOUND;
     }
-    auto type = fastgltf::determineGltfFileType(&data);
+    fastgltf::GltfDataBuffer data = std::move(data_opt.get());
+    auto type = fastgltf::determineGltfFileType(data);
     LoadManifestFromFileContext load_ctx;
     switch (type)
     {
         case fastgltf::GltfType::glTF:
         {
-            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltf(&data, file_path.parent_path(), gltf_options);
+            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltf(data, file_path.parent_path(), gltf_options);
             if (result.error() != fastgltf::Error::None)
             {
                 return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
@@ -175,7 +175,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
         }
         case fastgltf::GltfType::GLB:
         {
-            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltfBinary(&data, file_path.parent_path(), gltf_options);
+            fastgltf::Expected<fastgltf::Asset> result = parser.loadGltfBinary(data, file_path.parent_path(), gltf_options);
             if (result.error() != fastgltf::Error::None)
             {
                 return Scene::LoadManifestErrorCode::COULD_NOT_LOAD_ASSET;
@@ -389,7 +389,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
     for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
     {
         // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
-        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::Node::TransformMatrix> const & trans) -> glm::mat4x3
+        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::math::fmat4x4> const & trans) -> glm::mat4x3
         {
             glm::mat4x3 ret_trans;
             if (auto const * trs = std::get_if<fastgltf::TRS>(&trans))
@@ -402,10 +402,10 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
                 /// NOTE: As the last row is always (0,0,0,1) we dont store it.
                 ret_trans = glm::mat4x3(translated_rotated_scaled);
             }
-            else if (auto const * trs = std::get_if<fastgltf::Node::TransformMatrix>(&trans))
+            else if (auto const * trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
             {
                 // Gltf and glm matrices are column major.
-                ret_trans = glm::mat4x3(std::bit_cast<glm::mat4x4>(*trs));
+                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(trs->data()));
             }
             return ret_trans;
         };
@@ -473,7 +473,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
                     for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
                     {
                         // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
-                        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::Node::TransformMatrix> const & trans) -> glm::mat4x3
+                        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::math::fmat4x4> const & trans) -> glm::mat4x3
                         {
                             glm::mat4x3 ret_trans;
                             if (auto const * trs = std::get_if<fastgltf::TRS>(&trans))
@@ -486,10 +486,10 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
                                 /// NOTE: As the last row is always (0,0,0,1) we dont store it.
                                 ret_trans = glm::mat4x3(translated_rotated_scaled);
                             }
-                            else if (auto const * trs = std::get_if<fastgltf::Node::TransformMatrix>(&trans))
+                            else if (auto const * trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
                             {
                                 // Gltf and glm matrices are column major.
-                                ret_trans = glm::mat4x3(std::bit_cast<glm::mat4x4>(*trs));
+                                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(trs->data()));
                             }
                             return ret_trans;
                         };

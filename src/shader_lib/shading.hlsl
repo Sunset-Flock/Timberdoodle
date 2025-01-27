@@ -124,8 +124,7 @@ func shade_material(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    RaytracingAccelerationStructure tlas,
-    uint pgi_request_mode
+    uint pgi_request_mode,
 ) -> float4
 {
     // TODO: material_point.normal is busted only in ray tracing for some reason

@@ -214,6 +214,7 @@ void Renderer::compile_pipelines()
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {pgi_upscale_screen_irradiance_compute_compile_info()},
+        {pgi_shade_rays_pipeline_compile_info()},
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},

@@ -880,10 +880,14 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let visibility_texel_update_threads_x = visibility_texel_update_probes_x * settings.probe_visibility_resolution;
             let visibility_texel_update_workgroups_x = round_up_div(visibility_texel_update_threads_x, 8);
 
+            let shade_rays_threads = settings.probe_trace_resolution * settings.probe_trace_resolution * probe_update_count;
+            let shade_rays_wgs = round_up_div(shade_rays_threads, PGI_SHADE_RAYS_X * PGI_SHADE_RAYS_Y * PGI_SHADE_RAYS_Z);
+
             push.attach.probe_indirections.probe_update_dispatch = DispatchIndirectStruct(probe_update_workgroups_x,1,1);
             push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * settings.probe_trace_resolution * settings.probe_trace_resolution, 1, 1);
             push.attach.probe_indirections.probe_radiance_update_dispatch = DispatchIndirectStruct(radiance_texel_update_workgroups_x, texel_update_workgroups_y, 1);
             push.attach.probe_indirections.probe_visibility_update_dispatch = DispatchIndirectStruct(visibility_texel_update_workgroups_x, texel_update_workgroups_y, 1);
+            push.attach.probe_indirections.probe_shade_rays_dispatch = DispatchIndirectStruct(shade_rays_wgs, 1, 1);
             push.attach.probe_indirections.probe_debug_draw_dispatch = DrawIndexedIndirectStruct(
                 PGI_DEBUG_PROBE_MESH_INDICES * 3,
                 (settings.debug_probe_draw_mode != 0) ? detailed_probe_count : 0,
