@@ -383,7 +383,7 @@ void vsm_entry_fragment_masked(
             // const float max_obj_space_deriv_len = max(length(ddx(vert.object_space_position)), length(ddy(vert.object_space_position)));
             // const float threshold = compute_hashed_alpha_threshold(vert.object_space_position, max_obj_space_deriv_len, 0.3);
             // if(alpha < clamp(threshold, 0.001, 1.0)) { discard; }
-            if(alpha < 0.5) { discard; }
+            if(alpha < 0.1) { discard; }
         }
 
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
