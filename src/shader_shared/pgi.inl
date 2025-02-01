@@ -20,8 +20,9 @@
 #define PGI_UPDATE_RATE_1_OF_64 5
 
 #define PGI_DEBUG_PROBE_MESH_INDICES 960
-#define PGI_MAX_UPDATES_PER_FRAME (1u << 16u)
+#define PGI_MAX_UPDATES_PER_FRAME (1u << 14u)
 #define PGI_TRACE_TEX_PROBES_X (1u << 8u)
+#define PGI_MAX_REQUESTED_PROBES (1u << 18u)
 
 struct PGISettings
 {

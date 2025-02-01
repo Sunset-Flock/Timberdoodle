@@ -195,7 +195,7 @@ func entry_update_probe_irradiance(
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), prev_frame_texel.a), 5.0f);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
-    float4 value = float4(new_radiance, min(hysteresis, 0.99f));
+    float4 value = float4(new_radiance, clamp(hysteresis, 0.5f, 0.99f));
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
@@ -749,6 +749,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             InterlockedAdd(push.attach.probe_indirections.detailed_probe_count, 1, request_index);
         }
 
+        requested = requested && (request_index < PGI_MAX_REQUESTED_PROBES);
+
         // Increase update rate for new probes. Without this, probes take too long to initialize after beeing unveiled.
         uint update_rate = probe_info.validity < 0.5f ? min(PGI_UPDATE_RATE_1_OF_2, settings.update_rate) : settings.update_rate;
 
@@ -783,6 +785,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         {
             InterlockedAdd(push.attach.probe_indirections.probe_update_count, 1, update_index);
         }
+
+        update = update && (update_index < PGI_MAX_UPDATES_PER_FRAME);
     }
 
     push.attach.requests.get()[stable_index] = probe_base_request | (uint(probe_directly_requested) << 16) | (uint(probe_directly_requested) << 17);
@@ -796,8 +800,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     if (requested)
     {
         // We need a list of all active probes 
-        uint active_probes_offset = settings.probe_count.x * settings.probe_count.y * settings.probe_count.z;
-        ((uint*)(push.attach.probe_indirections + 1))[request_index + active_probes_offset] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
+        ((uint*)(push.attach.probe_indirections + 1))[request_index + PGI_MAX_UPDATES_PER_FRAME] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
     }
 
     if (!requested)
@@ -877,8 +880,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             let visibility_texel_update_threads_x = visibility_texel_update_probes_x * settings.probe_visibility_resolution;
             let visibility_texel_update_workgroups_x = round_up_div(visibility_texel_update_threads_x, 8);
 
-            let shade_rays_threads = settings.probe_trace_resolution * settings.probe_trace_resolution * probe_update_count;
-            let shade_rays_wgs = round_up_div(shade_rays_threads, PGI_SHADE_RAYS_X * PGI_SHADE_RAYS_Y * PGI_SHADE_RAYS_Z);
+            let shade_rays_threads = 0;//settings.probe_trace_resolution * settings.probe_trace_resolution * probe_update_count;
+            let shade_rays_wgs = 0;//round_up_div(shade_rays_threads, PGI_SHADE_RAYS_X * PGI_SHADE_RAYS_Y * PGI_SHADE_RAYS_Z);
 
             push.attach.probe_indirections.probe_update_dispatch = DispatchIndirectStruct(probe_update_workgroups_x,1,1);
             push.attach.probe_indirections.probe_trace_dispatch = DispatchIndirectStruct(probe_update_count * settings.probe_trace_resolution * settings.probe_trace_resolution, 1, 1);

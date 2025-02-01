@@ -37,9 +37,8 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     int3 probe_index = {};
     {
         uint indirect_index = instance_index;
-        // We want to draw all active probes, not only the updated probes
-        uint active_probes_offset = settings.probe_count.x * settings.probe_count.y * settings.probe_count.z;
-        uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + active_probes_offset];
+        // We want to draw all active probes, not only the updated probes:
+        uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + PGI_MAX_UPDATES_PER_FRAME];
         probe_index = int3(
             (indirect_package >> 0) & ((1u << 10u) - 1),
             (indirect_package >> 10) & ((1u << 10u) - 1),
