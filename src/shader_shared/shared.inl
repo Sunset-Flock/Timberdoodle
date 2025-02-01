@@ -58,6 +58,7 @@ struct DensityProfileLayer
 };
 DAXA_DECL_BUFFER_PTR(DensityProfileLayer)
 
+
 struct SkySettings
 {
     daxa_u32vec2 transmittance_dimensions;

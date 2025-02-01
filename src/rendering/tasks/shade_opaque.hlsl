@@ -495,7 +495,7 @@ void entry_main_cs(
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             ambient_occlusion = AT.ao_image.get().Load(index + int2(1,1));
-            ambient_occlusion = pow(ambient_occlusion, 1.0f);
+            ambient_occlusion = pow(ambient_occlusion, 1.2f);
         }
 
         float3 highlight_lighting = {};
@@ -508,7 +508,7 @@ void entry_main_cs(
             highlight_lighting = float3(0.4,0.4,0.4) * 10;
         }
         
-        const float3 lighting = (1.0f / 3.14f) * directional_light_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 

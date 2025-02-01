@@ -1232,11 +1232,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z;
                 ImGui::Text("Requested Probes %i / %i = %f %%", render_context.general_readback.requested_probes, total_probes, float(render_context.general_readback.requested_probes) / float(total_probes) * 100.0f);
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
-                ImGui::Checkbox("Enable Indirect Sparse", reinterpret_cast<bool *>(&render_data.pgi_settings.enable_indirect_sparse));
                 auto update_rates = std::array{
                     "FULL", // PGI_UPDATE_RATE_FULL
                     "1_OF_2", // PGI_UPDATE_RATE_1_OF_2
                     "1_OF_8", // PGI_UPDATE_RATE_1_OF_8
+                    "1_OF_16", // PGI_UPDATE_RATE_1_OF_16
+                    "1_OF_32", // PGI_UPDATE_RATE_1_OF_32
                     "1_OF_64", // PGI_UPDATE_RATE_1_OF_64
                 };
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), update_rates.size());

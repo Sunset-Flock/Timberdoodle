@@ -202,7 +202,7 @@ func pgi_sample_probe_visibility(
 // Greatly reduces self shadowing for corners.
 func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
 {
-    const float BIAS_FACTOR = 0.3f;
+    const float BIAS_FACTOR = 0.2f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.probe_spacing * BIAS_FACTOR;
 }
@@ -283,7 +283,7 @@ func pgi_sample_irradiance(
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    float3 grid_coord = (position - settings.window_base_position) * settings.probe_spacing_rcp;
+    float3 grid_coord = (visibility_sample_position - settings.window_base_position) * settings.probe_spacing_rcp;
     int3 base_probe = int3(floor(grid_coord));
 
     pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
@@ -487,7 +487,7 @@ func pgi_sample_irradiance_nearest(
             float probe_weight = 1.0f;
 
             PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
-            if (probe_info.validity < 0.05f)
+            if (probe_info.validity < 0.5f)
             {
                 probe_weight = 0.0f;
             }

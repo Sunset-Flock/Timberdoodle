@@ -189,7 +189,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         let luma = (albedo.r + albedo.g + albedo.b) / 3.0f;
 
-        payload.power = 1.0 - square(luma * luma_constant);
+        payload.power = lerp(1.0 - square(luma * luma_constant), 0.2f, 0.2f) * square(1.0f - RayTCurrent());
     }
 }
 

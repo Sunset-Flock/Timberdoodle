@@ -1669,20 +1669,12 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
         .id = pgi_state->debug_probe_mesh_buffer,
     }); 
 
-    if (render_data.pgi_settings.enable_indirect_sparse)
     {
         render_cmd.draw_indirect({
             .draw_command_buffer = ti.get(AT.probe_indirections).ids[0],
             .indirect_buffer_offset = offsetof(PGIIndirections, probe_debug_draw_dispatch),
             .draw_count = 1,
             .is_indexed = true,
-        });
-    }
-    else
-    {
-        render_cmd.draw_indexed({
-            .index_count = pgi_state->debug_probe_mesh_triangles * 3,
-            .instance_count = static_cast<u32>(render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z),
         });
     }
 
@@ -1700,46 +1692,20 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
         ti.recorder.push_constant(push);
 
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
-        if (render_data.pgi_settings.enable_indirect_sparse)
-        {
-            ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-                .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
-            });
-        }
-        else
-        {
-            auto const x = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_irradiance_resolution;
-            auto const y = render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_irradiance_resolution;
-            auto const z = render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
-        }
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+            .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
+        });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
     }
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_visibility_pipeline_compile_info().name));
         ti.recorder.push_constant(push);
-        if (render_data.pgi_settings.enable_indirect_sparse)
-        {
-            ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-                .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
-            });
-        }
-        else
-        {
-            auto const x = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_visibility_resolution;
-            auto const y = render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_visibility_resolution;
-            auto const z = render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
-        }
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+            .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
+        });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
     }
 }
@@ -1748,7 +1714,6 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
 {
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
-    if ((render_data.pgi_settings.enable_indirect_sparse != 0) || (render_data.pgi_settings.debug_probe_draw_mode != 0))
     {
         PGIUpdateProbesPush push = {};
         push.attach = ti.attachment_shader_blob;
@@ -1756,23 +1721,10 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
         ti.recorder.push_constant(push);
         push.attach = ti.attachment_shader_blob;
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
-        if (render_data.pgi_settings.enable_indirect_sparse)
-        {
-            ti.recorder.dispatch_indirect({
-                .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-                .offset = offsetof(PGIIndirections, probe_update_dispatch),
-            });
-        }
-        else
-        {
-            auto const x = render_data.pgi_settings.probe_count.x;
-            auto const y = render_data.pgi_settings.probe_count.y;
-            auto const z = render_data.pgi_settings.probe_count.z;
-            auto const dispatch_x = round_up_div(x, PGI_UPDATE_WG_XY);
-            auto const dispatch_y = round_up_div(y, PGI_UPDATE_WG_XY);
-            auto const dispatch_z = round_up_div(z, PGI_UPDATE_WG_Z);
-            ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
-        }
+        ti.recorder.dispatch_indirect({
+            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+            .offset = offsetof(PGIIndirections, probe_update_dispatch),
+        });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
     }
 }
@@ -1811,21 +1763,10 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     ti.recorder.push_constant(push);
 
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
-    // TODO(pahrens): remove non indirect version!
-    if (render_data.pgi_settings.enable_indirect_sparse)
-    {
-        ti.recorder.trace_rays_indirect({
-            .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
-            .shader_binding_table = pipeline.sbt,
-        });
-    }
-    else
-    {
-        u32 const x = static_cast<u32>(render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_trace_resolution);
-        u32 const y = static_cast<u32>(render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_trace_resolution);
-        u32 const z = static_cast<u32>(render_data.pgi_settings.probe_count.z);
-        ti.recorder.trace_rays({.width = x, .height = y, .depth = z, .shader_binding_table = pipeline.sbt});
-    }
+    ti.recorder.trace_rays_indirect({
+        .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
+        .shader_binding_table = pipeline.sbt,
+    });
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
 }
 

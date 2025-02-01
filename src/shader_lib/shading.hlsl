@@ -154,7 +154,7 @@ func shade_material(
                 globals.sky_settings.sun_direction,
                 atmo_position
             );
-            diffuse_light += sun_light * sun_visibility * rcp(3.14);
+            diffuse_light += sun_light * sun_visibility;
         }
     }
 
@@ -177,7 +177,7 @@ func shade_material(
 
     // Emissive
     {
-        diffuse_light += (1.0f / length(origin - material_point.position)) * material_point.emissive;
+        diffuse_light += material_point.emissive;
     }
 
     return float4(material_point.albedo * diffuse_light, material_point.alpha);

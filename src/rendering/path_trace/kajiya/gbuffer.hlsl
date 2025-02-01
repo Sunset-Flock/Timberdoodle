@@ -53,7 +53,7 @@ struct GbufferData {
     }
 
     GbufferDataPacked pack(){
-        float4 res = 0.0.xxxx;
+        float4 res = (0.0).xxxx;
         res.x = asfloat(pack_color_888(albedo));
         res.y = pack_normal_11_10_11(normal);
 
@@ -61,9 +61,9 @@ struct GbufferData {
         res.z = asfloat(pack_2x16f_uint(roughness_metalness));
         res.w = asfloat(float3_to_rgb9e5(emissive));
 
-    GbufferDataPacked packed;
-    packed.data0 = asuint(res);
-    return packed;
+        GbufferDataPacked packed;
+        packed.data0 = asuint(res);
+        return packed;
     }
 };
 

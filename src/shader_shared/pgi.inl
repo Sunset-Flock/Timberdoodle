@@ -15,7 +15,9 @@
 #define PGI_UPDATE_RATE_FULL 0
 #define PGI_UPDATE_RATE_1_OF_2 1
 #define PGI_UPDATE_RATE_1_OF_8 2
-#define PGI_UPDATE_RATE_1_OF_64 3
+#define PGI_UPDATE_RATE_1_OF_16 3
+#define PGI_UPDATE_RATE_1_OF_32 4
+#define PGI_UPDATE_RATE_1_OF_64 5
 
 #define PGI_DEBUG_PROBE_MESH_INDICES 960
 #define PGI_MAX_UPDATES_PER_FRAME (1u << 16u)
@@ -24,7 +26,6 @@
 struct PGISettings
 {
     daxa_b32 enabled TIDO_DEFAULT_VALUE(true);
-    daxa_b32 enable_indirect_sparse TIDO_DEFAULT_VALUE(true);
     daxa_i32 update_rate TIDO_DEFAULT_VALUE(PGI_UPDATE_RATE_1_OF_8);
     daxa_i32 debug_probe_draw_mode TIDO_DEFAULT_VALUE(PGI_DEBUG_PROBE_DRAW_MODE_OFF);
     daxa_b32 debug_probe_influence TIDO_DEFAULT_VALUE(false);

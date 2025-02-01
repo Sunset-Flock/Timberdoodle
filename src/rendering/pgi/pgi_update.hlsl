@@ -106,7 +106,6 @@ func entry_update_probe_irradiance(
     uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
-    if (settings.enable_indirect_sparse)
     {
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_irradiance_resolution)));
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_irradiance_resolution)));
@@ -125,13 +124,6 @@ func entry_update_probe_irradiance(
         );
         probe_texel.x = dtid.x - int(settings.probe_irradiance_resolution * indirect_index_x);
         probe_texel.y = dtid.y - int(settings.probe_irradiance_resolution * indirect_index_y);
-
-        //printf("indirect index %i probe %i,%i,%i texel %i,%i\n", indirect_index, probe_index.x, probe_index.y, probe_index.z, probe_texel.x, probe_texel.y);
-    }
-    else
-    {
-        probe_index = int3(float2(dtid.xy) * rcp(probe_texel_res), dtid.z);
-        probe_texel = dtid.xy - probe_index.xy * probe_texel_res;
     }
     
     uint frame_index = push.attach.globals.frame_index;
@@ -220,7 +212,6 @@ func entry_update_probe_visibility(
     uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
-    if (settings.enable_indirect_sparse)
     {
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_visibility_resolution)));
         uint indirect_index_y = uint(float(dtid.y) * rcp(float(settings.probe_visibility_resolution)));
@@ -239,11 +230,6 @@ func entry_update_probe_visibility(
         );
         probe_texel.x = dtid.x - settings.probe_visibility_resolution * indirect_index_x;
         probe_texel.y = dtid.y - settings.probe_visibility_resolution * indirect_index_y;
-    }
-    else
-    {
-        probe_index = int3(float2(dtid.xy) * rcp(probe_texel_res), dtid.z);
-        probe_texel = dtid.xy - probe_index.xy * probe_texel_res;
     }
 
     uint frame_index = push.attach.globals.frame_index;
@@ -426,8 +412,7 @@ func entry_update_probe(
     PGISettings settings = push.attach.globals.pgi_settings;
 
     uint indirect_index = {};
-    int3 probe_index = dtid;
-    if (settings.enable_indirect_sparse)
+    int3 probe_index = {};
     {
         indirect_index = group_id * 64 + group_index;
         let overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
@@ -718,6 +703,9 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     // Any probes that occupy space that was not taken in the prior frame are new.
     let is_new_probe = any(prev_frame_probe_index < int3(0,0,0)) || any(prev_frame_probe_index >= (settings.probe_count));
 
+    let fetch = push.attach.probe_info.get()[stable_index];
+    PGIProbeInfo probe_info = PGIProbeInfo(fetch.xyz, fetch.a);
+
     // Each probe is a vertex in up to 8 cells.
     // Check each cells base probes request counter to determine if probe is requested.
     bool requested = false;
@@ -761,21 +749,32 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             InterlockedAdd(push.attach.probe_indirections.detailed_probe_count, 1, request_index);
         }
 
-        switch(settings.update_rate)
+        // Increase update rate for new probes. Without this, probes take too long to initialize after beeing unveiled.
+        uint update_rate = probe_info.validity < 0.5f ? min(PGI_UPDATE_RATE_1_OF_2, settings.update_rate) : settings.update_rate;
+
+        switch(update_rate)
         {
         case PGI_UPDATE_RATE_FULL:
             update = requested;
             break;
         case PGI_UPDATE_RATE_1_OF_2:
-            int checker_board = (probe_index.x & 0x1) ^ (probe_index.y & 0x1) ^ (probe_index.z & 0x1) ^ (push.attach.globals.frame_index & 0x1);
-            update = requested && (checker_board != 0);
+            int every_2nd = (probe_index.x & 0x1) ^ (probe_index.y & 0x1) ^ (probe_index.z & 0x1) ^ (push.attach.globals.frame_index & 0x1);
+            update = requested && (every_2nd != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_8:
-            int every_eightth = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index & 0x7);
-            update = requested && (every_eightth != 0);
+            int every_8th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index % 8);
+            update = requested && (every_8th != 0);
+            break;
+        case PGI_UPDATE_RATE_1_OF_16:
+            int every_16th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index % 16);
+            update = requested && (every_16th != 0);
+            break;
+        case PGI_UPDATE_RATE_1_OF_32:
+            int every_32th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index % 32);
+            update = requested && (every_32th != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_64:
-            int every_64th = ((probe_index.x/4 & 0x3) + (probe_index.y/4 & 0x3) * 16 + (probe_index.z/4 & 0x3) * 4) == ((push.attach.globals.frame_index) & 0x3F);
+            int every_64th = ((probe_index.x/4 & 0x3) + (probe_index.y/4 & 0x3) * 16 + (probe_index.z/4 & 0x3) * 4) == (push.attach.globals.frame_index % 64);
             update = requested && (every_64th != 0);
             break;
         }
@@ -801,11 +800,9 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         ((uint*)(push.attach.probe_indirections + 1))[request_index + active_probes_offset] = ((probe_index.x << 0) | (probe_index.y << 10) | (probe_index.z << 20));
     }
 
-    PGIProbeInfo probe_info = {};
-    if (requested)
+    if (!requested)
     {
-        let fetch = push.attach.probe_info.get()[stable_index];
-        probe_info = PGIProbeInfo(fetch.xyz, fetch.a);
+        probe_info = {}; 
     }
 
     // Used for Debug Draws

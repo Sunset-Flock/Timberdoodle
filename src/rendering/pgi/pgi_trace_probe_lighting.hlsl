@@ -110,7 +110,6 @@ void entry_ray_gen()
     uint indirect_index = {};
     int3 probe_index = {};
     int2 probe_texel = {};
-    if (settings.enable_indirect_sparse)
     {
         indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
         uint local_index = (dtid.x - indirect_index * (settings.probe_trace_resolution * settings.probe_trace_resolution));
@@ -123,11 +122,6 @@ void entry_ray_gen()
             (indirect_package >> 10) & ((1u << 10u) - 1),
             (indirect_package >> 20) & ((1u << 10u) - 1),
         );
-    }
-    else
-    {
-        probe_texel = (dtid.xy % settings.probe_trace_resolution);
-        probe_index = uint3(dtid.xy / settings.probe_trace_resolution, dtid.z);
     }
 
     uint frame_index = push.attach.globals.frame_index;
