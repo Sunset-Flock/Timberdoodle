@@ -83,26 +83,26 @@ struct AsteroidsWrapper
         dst.simulation_bodies = src.simulation_bodies;
     }
 
-    std::vector<f64vec3> positions = {};
-    std::vector<f64vec3> velocities = {};
-    std::vector<f64vec3> velocity_derivatives = {};
-    std::vector<f64> velocity_divergences = {};
+    std::vector<f32vec3> positions = {};
+    std::vector<f32vec3> velocities = {};
+    std::vector<f32vec3> velocity_derivatives = {};
+    std::vector<f32> velocity_divergences = {};
     
-    std::vector<f64> smoothing_radii = {};
-    std::vector<f64> masses = {};
+    std::vector<f32> smoothing_radii = {};
+    std::vector<f32> masses = {};
 
-    std::vector<f64> densities = {};
-    std::vector<f64> density_derivatives = {};
+    std::vector<f32> densities = {};
+    std::vector<f32> density_derivatives = {};
 
-    std::vector<f64> energies = {};
-    std::vector<f64> energy_derivatives = {};
+    std::vector<f32> energies = {};
+    std::vector<f32> energy_derivatives = {};
 
-    std::vector<f64> pressures = {};
+    std::vector<f32> pressures = {};
 
     std::vector<f32> particle_scales = {};
 
     std::vector<SimulationBodyInfo> simulation_bodies = {};
 
-    f64 max_smoothing_radius = {};
+    f32 max_smoothing_radius = {};
     bool simulation_started = {};
 };

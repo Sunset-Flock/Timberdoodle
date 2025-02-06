@@ -25,15 +25,66 @@ static const float3[COLOR_COUNT] ACCRETION_PALETTE = float3[](
 
 [[vk::push_constant]] DebugDrawAsteroidsPush debug_draw_asteroids_push;
 
+float3 get_asteroid_float3_param<let PARAM : int>(int asteroid_index)
+{
+    let push = debug_draw_asteroids_push;
+#if CPU_SIMULATION
+    switch(PARAM)
+    {
+        case ASTEROID_POSITION            : return push.attach.asteroids[asteroid_index].position;
+        case ASTEROID_VELOCITY            : return push.attach.asteroids[asteroid_index].velocity;
+        case ASTEROID_VELOCITY_DIVERGENCE : return push.attach.asteroids[asteroid_index].velocity_divergence;
+        case ASTEROID_VELOCITY_DERIVATIVE : return push.attach.asteroids[asteroid_index].acceleration;
+        default                           : return 0.0f;
+    }
+#else
+    switch(PARAM)
+    {
+        case ASTEROID_POSITION            : return push.parameters.position[asteroid_index];
+        case ASTEROID_VELOCITY            : return push.parameters.velocity[asteroid_index];
+        case ASTEROID_VELOCITY_DIVERGENCE : return push.parameters.velocity_divergence[asteroid_index];
+        case ASTEROID_VELOCITY_DERIVATIVE : return push.parameters.velocity_derivative[asteroid_index];
+        default                           : return 0.0f;
+    }
+#endif
+}
+
+float get_asteroid_float_param<let PARAM : int>(int asteroid_index)
+{
+    let push = debug_draw_asteroids_push;
+#if CPU_SIMULATION
+    switch(PARAM)
+    {
+        case ASTEROID_PRESSURE: return push.attach.asteroids[asteroid_index].pressure;
+        case ASTEROID_DENSITY: return push.attach.asteroids[asteroid_index].density;
+        case ASTEROID_SCALE: return push.attach.asteroids[asteroid_index].particle_scale;
+        default: return 0.0f;
+    }
+#else
+    switch(PARAM)
+    {
+        case ASTEROID_SMOOTHING_RADIUS    : return push.parameters.smoothing_radius[asteroid_index];
+        case ASTEROID_MASS                : return push.parameters.mass[asteroid_index];
+        case ASTEROID_DENSITY             : return push.parameters.density[asteroid_index];
+        case ASTEROID_DENSITY_DERIVATIVE  : return push.parameters.density_derivative[asteroid_index];
+        case ASTEROID_ENERGY              : return push.parameters.energy[asteroid_index];
+        case ASTEROID_ENERGY_DERIVATIVE   : return push.parameters.energy_derivative[asteroid_index];
+        case ASTEROID_PRESSURE            : return push.parameters.pressure[asteroid_index];
+        case ASTEROID_SCALE               : return push.parameters.scale[asteroid_index];
+        default                           : return 0.0f;
+    }
+#endif
+}
+
 
 [shader("vertex")]
 func entry_vertex_debug_draw_asteroids(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> DrawDebugAsteroidVertexToPixel
 {
     let push = debug_draw_asteroids_push;
-    var position = push.asteroid_mesh_positions[vertex_index] * push.attach.asteroids[instance_index].particle_scale;
+    var position = push.asteroid_mesh_positions[vertex_index] * get_asteroid_float_param<ASTEROID_SCALE>(instance_index);
     var normal = normalize(position);
 
-    float3 asteroid_position = push.attach.asteroids[instance_index].position * POSITION_SCALING_FACTOR;
+    float3 asteroid_position = get_asteroid_float3_param<ASTEROID_POSITION>(instance_index) * POSITION_SCALING_FACTOR;
     position += asteroid_position;
 
     float4x4* viewproj = {};
@@ -81,31 +132,31 @@ func entry_fragment_debug_draw_asteroids(DrawDebugAsteroidVertexToPixel vertex_t
         case ASTEROID_DEBUG_DRAW_MODE_VELOCITY:
             min_value = 0.0f;
             max_value = 10000.0f;
-            value = length(push.attach.asteroids[vertex_to_pixel.asteroid_index].velocity);
+            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY>(vertex_to_pixel.asteroid_index));
             do_log10 = true;
             break;
         case ASTEROID_DEBUG_DRAW_MODE_ACCELERATION:
             min_value = 0.0f;
             max_value = 100.0f;
-            value = length(push.attach.asteroids[vertex_to_pixel.asteroid_index].acceleration);
+            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DERIVATIVE>(vertex_to_pixel.asteroid_index));
             do_log10 = true;
             break;
         case ASTEROID_DEBUG_DRAW_MODE_VELOCITY_DIVERGENCE:
             min_value = -0.1f;
             max_value = 0.1f;
-            value = push.attach.asteroids[vertex_to_pixel.asteroid_index].velocity_divergence;
+            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DIVERGENCE>(vertex_to_pixel.asteroid_index));
             do_log10 = false;
             break;
         case ASTEROID_DEBUG_DRAW_MODE_PRESSURE:
             min_value = -100000.0f;
             max_value = 10e+10f;
-            value = push.attach.asteroids[vertex_to_pixel.asteroid_index].pressure;
+            value = length(get_asteroid_float_param<ASTEROID_PRESSURE>(vertex_to_pixel.asteroid_index));
             do_log10 = true;
             break;
         case ASTEROID_DEBUG_DRAW_MODE_DENSITY:
             min_value = 2650.0f;
             max_value = 2750.0f;
-            value = push.attach.asteroids[vertex_to_pixel.asteroid_index].density;
+            value = length(get_asteroid_float_param<ASTEROID_DENSITY>(vertex_to_pixel.asteroid_index));
             do_log10 = false;
             break;
     }

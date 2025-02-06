@@ -539,6 +539,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
+#if !CPU_SIMULATION
+    tg.use_persistent_buffer(asteroid_state.gpu_asteroids);
+#endif
     // tg.use_persistent_tlas(scene->_scene_tlas);
 
     // TODO: Move into an if and create persistent state only if necessary.
@@ -927,7 +930,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 void Renderer::render_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
-    AsteroidsWrapper const & asteroids,
+    AsteroidSimulation & simulation,
     f32 const delta_time)
 {
     if (window->size.x == 0 || window->size.y == 0) { return; }
@@ -1102,7 +1105,7 @@ void Renderer::render_frame(
     };
     vsm_state.clip_projections_cpu = get_vsm_projections(vsm_projections_info);
 
-    asteroid_state.update_cpu_data(asteroids, gpu_context->shader_debug_context);
+    asteroid_state.update_cpu_data(render_context->gpu_context->device, simulation, gpu_context->shader_debug_context);
 
     for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
     {

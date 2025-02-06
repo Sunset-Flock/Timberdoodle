@@ -21,7 +21,7 @@ auto SpatialGrid::get_key_from_hash(u32 const hash) const -> u32
 }
 
 // Construct the spatial hash grid.
-SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_size) :
+SpatialGrid::SpatialGrid(std::vector<f32vec3> const & positions, f32 const cell_size) :
     cell_size{cell_size}
 {
     DBG_ASSERT_TRUE_M(positions.size() < std::numeric_limits<u16>::max(), 
@@ -69,7 +69,7 @@ SpatialGrid::SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_
     }
 }
 
-auto SpatialGrid::get_neighbor_candidate_indices(f64vec3 const & position, f32 const radius) const -> std::vector<u16>
+auto SpatialGrid::get_neighbor_candidate_indices(f32vec3 const & position, f32 const radius) const -> std::vector<u16>
 {
     std::vector<u16> neighbor_candidate = {};
     // Get the actual search radius.

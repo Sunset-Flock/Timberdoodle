@@ -9,13 +9,13 @@ using namespace tido::types;
 
 struct Kernel
 {
-    f64 value(f64 const dist) const;
-    f64 grad_value(f64 const dist) const;
+    f32 value(f32 const dist) const;
+    f32 grad_value(f32 const dist) const;
 
-    f64 smoothing_radius;
+    f32 smoothing_radius;
 
     private:
-        static constexpr f64 NORMALIZATION = 1.0f / PI;
+        static constexpr f32 NORMALIZATION = 1.0f / PI;
 };
 
 struct Material
@@ -23,21 +23,21 @@ struct Material
     Material();
     struct EvaluateRet
     {
-        f64 pressure;
-        f64 speed_of_sound;
+        f32 pressure;
+        f32 speed_of_sound;
     };
-    auto evaluate(f64 const density, f64 const energy) const -> EvaluateRet;
+    auto evaluate(f32 const density, f32 const energy) const -> EvaluateRet;
 
     private:
-        f64 start_density;
-        f64 A;
-        f64 c;
-        f64 c_p;
+        f32 start_density;
+        f32 A;
+        f32 c;
+        f32 c_p;
 };
 
 struct Solver
 {
-    void integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & threadpool);
+    void integrate(AsteroidsWrapper & asteroids, f32 const dt, ThreadPool & threadpool);
 
     private:
         Material material = {};

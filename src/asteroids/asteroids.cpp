@@ -14,25 +14,25 @@ using namespace std::chrono_literals;
 
 struct DistributeAsteroidsInfo
 {
-    f64vec3 center;
-    f64 radius;
+    f32vec3 center;
+    f32 radius;
     i32 asteroid_count;
-    std::vector<f64vec3> * positions;
-    std::vector<f64> * smoothing_radii;
-    std::vector<f64> * masses;
+    std::vector<f32vec3> * positions;
+    std::vector<f32> * smoothing_radii;
+    std::vector<f32> * masses;
 };
 
 // Distributes the particles using parameterized spiraling method.
 auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 {
     info.positions->reserve(info.asteroid_count);
-    f64 const sphere_volume = 1.33333333333f * PI * std::pow(info.radius, 3.0f);
-    f64 const h = std::cbrt(sphere_volume / info.asteroid_count);
+    f32 const sphere_volume = 1.33333333333f * PI * std::pow(info.radius, 3.0f);
+    f32 const h = std::cbrt(sphere_volume / info.asteroid_count);
 
     // Determine the number of shells
     i32 num_shells = info.radius / h;
-    std::vector<f64> shells(num_shells);
-    f64 total = 0.0f;
+    std::vector<f32> shells(num_shells);
+    f32 total = 0.0f;
 
     // Determine the number of particles for each shell.
     for(i32 shell_index = 0; shell_index < num_shells; ++shell_index)
@@ -41,25 +41,25 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
         total += shells.at(shell_index);
     }
 
-    f64 const mult = info.asteroid_count / total;
-    std::for_each(shells.begin(), shells.end(), [mult](f64 & shell){ shell *= mult; });
+    f32 const mult = info.asteroid_count / total;
+    std::for_each(shells.begin(), shells.end(), [mult](f32 & shell){ shell *= mult; });
 
     std::mt19937_64 mersenne_engine(1234);
-    std::uniform_real_distribution<f64> uniform_distribution;
+    std::uniform_real_distribution<f32> uniform_distribution;
 
     // Random sphere sampling helper.
-    auto get_random_sphere_dir = [&]() -> f64vec3 {
-        f64 const phi = uniform_distribution(mersenne_engine) * 2.0f * PI;
-        f64 const z = uniform_distribution(mersenne_engine) * 2.0f - 1.0f;
-        f64 const u = std::sqrt(1.0f - pow(z, 2.0f));
+    auto get_random_sphere_dir = [&]() -> f32vec3 {
+        f32 const phi = uniform_distribution(mersenne_engine) * 2.0f * PI;
+        f32 const z = uniform_distribution(mersenne_engine) * 2.0f - 1.0f;
+        f32 const u = std::sqrt(1.0f - pow(z, 2.0f));
 
-        return f64vec3(u * std::cos(phi), u * std::sin(phi), z);
+        return f32vec3(u * std::cos(phi), u * std::sin(phi), z);
     };
 
     // Helper to convert from spherical to cartesian coordinates.
-    auto spherical_to_cartesian = [](f64 const r, f64 const theta, f64 const phi) -> f64vec3
+    auto spherical_to_cartesian = [](f32 const r, f32 const theta, f32 const phi) -> f32vec3
     {
-        return r * f64vec3(
+        return r * f32vec3(
             std::sin(theta) * std::cos(phi),
             std::sin(theta) * std::sin(phi),
             std::cos(theta)
@@ -68,26 +68,26 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 
     i32 shell_index = 0;
     i32 actually_generated = 0;
-    f64 phi = 0.0f;
+    f32 phi = 0.0f;
     // Loop through all shells and distribute particles in each one.
-    for(f64 r = h; r <= info.radius; r += h, ++shell_index)
+    for(f32 r = h; r <= info.radius; r += h, ++shell_index)
     {
         // Used to offset the particles inside the shell.
-        f64 const rotation = 2.0f * PI * uniform_distribution(mersenne_engine);
-        f64vec3 const dir = get_random_sphere_dir();
-        f64mat3x3 const rotator = glm::rotate(glm::identity<f64mat4x4>(), glm::radians(rotation), dir);
+        f32 const rotation = 2.0f * PI * uniform_distribution(mersenne_engine);
+        f32vec3 const dir = get_random_sphere_dir();
+        f32mat3x3 const rotator = glm::rotate(glm::identity<f32mat4x4>(), glm::radians(rotation), dir);
 
         i32 const m = std::ceil(shells.at(shell_index));
         for(i32 k = 1; k < m; ++k)
         {
-            f64 const hk = -1.0f + 2.0f * f64(k) / m;
-            f64 const theta = std::acos(hk);
+            f32 const hk = -1.0f + 2.0f * f32(k) / m;
+            f32 const theta = std::acos(hk);
             phi += 3.8f / std::sqrt(m * (1.0f - pow(hk, 2.0f)));
-            f64vec3 const pos = info.center + rotator * spherical_to_cartesian(r, theta, phi);
+            f32vec3 const pos = info.center + rotator * spherical_to_cartesian(r, theta, phi);
             // It can happen the particle falls outside of the desired radius. We do not accept it in that case.
             if(length(pos - info.center) <= info.radius)
             {
-                info.positions->push_back(f64vec3(pos));
+                info.positions->push_back(f32vec3(pos));
                 info.smoothing_radii->push_back(h);
                 actually_generated += 1;
             }
@@ -97,9 +97,9 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
     // Distribute the masses equally to each of the particle.
     info.masses->reserve(actually_generated);
 
-    f64 const total_mass = sphere_volume * INITAL_DENSITY;
+    f32 const total_mass = sphere_volume * INITAL_DENSITY;
 
-    f64 prelim_mass = 0.0f;
+    f32 prelim_mass = 0.0f;
     i32 const start = info.positions->size() - actually_generated;
     for(i32 i = start; i < info.positions->size(); ++i)
     {
@@ -107,7 +107,7 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
         prelim_mass += info.masses->back();
     }
 
-    f64 const normalization = total_mass / prelim_mass;
+    f32 const normalization = total_mass / prelim_mass;
     for (i32 i = start; i < info.positions->size(); ++i)
     {
         info.masses->at(i) *= normalization;
@@ -119,9 +119,9 @@ auto distribute_particles_in_sphere(DistributeAsteroidsInfo const & info) -> i32
 AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool(the_threadpool)
 {
     asteroids.simulation_bodies.push_back({
-        .position = f64vec3(0.0),
-        .velocity_vector = f64vec3(0.0),
-        .velocity_magnitude = f64(0.0),
+        .position = f32vec3(0.0),
+        .velocity_vector = f32vec3(0.0),
+        .velocity_magnitude = f32(0.0),
         .radius = PLANET_RADIUS,
         .particle_count = 5000,
         .particle_size = 2.5f,
@@ -129,8 +129,8 @@ AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool
     });
 
     asteroids.simulation_bodies.push_back({
-        .position = f64vec3(75'000) / f64vec3(std::sqrt(3)),
-        .velocity_vector = normalize(f64vec3(-1.0, -1.0, 0.0)),
+        .position = f32vec3(75'000) / f32vec3(std::sqrt(3)),
+        .velocity_vector = normalize(f32vec3(-1.0, -1.0, 0.0)),
         .velocity_magnitude = 3000.0,
         .radius = ASTEROID_RADIUS,
         .particle_count = 2000,
@@ -138,8 +138,10 @@ AsteroidSimulation::AsteroidSimulation(ThreadPool * the_threadpool) : threadpool
         .name = "small dynamic asteroid"
     });
 
+#if CPU_SIMULATION
     last_update_asteroids.simulation_bodies = asteroids.simulation_bodies;
     run_thread = std::thread([=, this]() {AsteroidSimulation::run(); });
+#endif
 }
 
 AsteroidSimulation::~AsteroidSimulation()
@@ -161,7 +163,7 @@ void AsteroidSimulation::run()
                 dt = 0.01;
                 for(auto const & velocity_divergence : asteroids.velocity_divergences)
                 {
-                    f64 const factor = 0.001;
+                    f32 const factor = 0.001;
                     if(velocity_divergence > 10e-13)
                     {
                         dt = std::min(dt, factor / velocity_divergence);
@@ -227,21 +229,23 @@ void AsteroidSimulation::initialize_simulation()
         std::fill(asteroids.densities.end() - generated_particles_count, asteroids.densities.end(), INITAL_DENSITY);
 
         asteroids.energies.resize(asteroids.energies.size() + generated_particles_count);
-        std::fill(asteroids.energies.end() - generated_particles_count, asteroids.energies.end(), 0.0);
+        std::fill(asteroids.energies.end() - generated_particles_count, asteroids.energies.end(), 0.0f);
 
         asteroids.pressures.resize(asteroids.pressures.size() + generated_particles_count);
-        std::fill(asteroids.pressures.end() - generated_particles_count, asteroids.pressures.end(), 0.0);
+        std::fill(asteroids.pressures.end() - generated_particles_count, asteroids.pressures.end(), 0.0f);
     }
 
     // Calculate the maximum smoothing radius used by the spatial acceleration structure.
-    asteroids.max_smoothing_radius = std::numeric_limits<f64>::min();
+    asteroids.max_smoothing_radius = std::numeric_limits<f32>::min();
     for(auto const & smoothing_radius : asteroids.smoothing_radii)
     {
         asteroids.max_smoothing_radius = std::max(asteroids.max_smoothing_radius, smoothing_radius);
     }
 
     // And finally resize both the containers so that fields we did not initalize here are correct size (mainly the derivatives).
+#if CPU_SIMULATION
     last_update_asteroids.resize(asteroids.positions.size());
+#endif
     asteroids.resize(asteroids.positions.size());
 }
 
@@ -340,6 +344,7 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
 
     // A bit convoluted logic here but let me try to explain.
     std::string_view button_text = simulation_paused ? "Start simulation" : "Pause simulation";
+
     if(ImGui::Button(button_text.data()))
     {
         if(simulation_paused)
@@ -366,11 +371,13 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         // Notify the simulation thread that the simulation should be paused.
         simulation_paused.store(true, std::memory_order_relaxed);
 
+#if CPU_SIMULATION
         // Wait for the simulation thread to stop using the data - complete it's simulation step.
         while(!simulation_paused_ackowledged.load())
         {
             std::this_thread::sleep_for(7ms);
         }
+#endif
 
         // We are back to initialization state - reset the simluation started flag.
         simulation_started.store(false, std::memory_order_relaxed);
@@ -381,6 +388,10 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
 
 auto AsteroidSimulation::get_asteroids() -> AsteroidsWrapper
 {
+#if CPU_SIMULATION
     std::lock_guard<std::mutex> guard(data_exchange_mutex);
     return last_update_asteroids;
+#else
+    return asteroids;
+#endif
 }

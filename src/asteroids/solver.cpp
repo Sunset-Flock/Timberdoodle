@@ -1,10 +1,10 @@
 #include "solver.hpp"
 #include "spatial_grid.hpp"
 
-f64 Kernel::value(f64 const dist) const
+f32 Kernel::value(f32 const dist) const
 {
     DBG_ASSERT_TRUE_M(dist >= 0, "q must be not negative");
-    f64 const q = dist / smoothing_radius;
+    f32 const q = dist / smoothing_radius;
 
     if(q < 1.0) {
         return NORMALIZATION * (0.25 * std::pow(2.0 - q, 3.0) - std::pow(1.0 - q, 3.0));
@@ -16,9 +16,9 @@ f64 Kernel::value(f64 const dist) const
     return 0.0f;
 }
 
-f64 Kernel::grad_value(f64 const dist) const
+f32 Kernel::grad_value(f32 const dist) const
 {
-    f64 const q = dist / smoothing_radius;
+    f32 const q = dist / smoothing_radius;
 
     if (q == 0.0) {
         return -3.0f * NORMALIZATION;
@@ -39,11 +39,11 @@ Material::Material()
     A = 26700000000.0f;
 }
 
-auto Material::evaluate(f64 const density, f64 const energy) const -> EvaluateRet
+auto Material::evaluate(f32 const density, f32 const energy) const -> EvaluateRet
 {
-    const f64 mu = density / start_density - 1.0f;
-    const f64 pressure = c * density * energy + A * mu;
-    const f64 speed_of_sound = std::sqrt(A / start_density);
+    const f32 mu = density / start_density - 1.0f;
+    const f32 pressure = c * density * energy + A * mu;
+    const f32 speed_of_sound = std::sqrt(A / start_density);
 
     return {
         .pressure = pressure,
@@ -120,7 +120,7 @@ struct DerivativesTask : Task
                 // Calculate the real smoothing radius.
                 kernel.smoothing_radius = 0.5f * (asteroids->smoothing_radii.at(asteroid_idx) + asteroids->smoothing_radii.at(potential_neighbor_index));
                 // Calculate the distance between the asteroid and the potential neighbor.
-                f64 const asteroid_distance = glm::length(asteroids->positions.at(asteroid_idx) - asteroids->positions.at(potential_neighbor_index));
+                f32 const asteroid_distance = glm::length(asteroids->positions.at(asteroid_idx) - asteroids->positions.at(potential_neighbor_index));
 
                 bool const asteroids_same = potential_neighbor_index == asteroid_idx;
                 bool const asteroids_too_far = asteroid_distance > (kernel.smoothing_radius * 2.0f);
@@ -139,21 +139,21 @@ struct DerivativesTask : Task
 
                 kernel.smoothing_radius = 0.5f * (asteroids->smoothing_radii.at(asteroid_idx) + asteroids->smoothing_radii.at(neighbor_asteroid_idx));
 
-                f64 const asteroid_distance = glm::length(asteroids->positions.at(asteroid_idx) - asteroids->positions.at(neighbor_asteroid_idx));
+                f32 const asteroid_distance = glm::length(asteroids->positions.at(asteroid_idx) - asteroids->positions.at(neighbor_asteroid_idx));
 
-                f64vec3 const asteroid_to_neighbor = asteroids->positions.at(asteroid_idx) - asteroids->positions.at(neighbor_asteroid_idx);
-                f64vec3 const to_neighbor_gradient = asteroid_to_neighbor * std::pow(1.0f / kernel.smoothing_radius, 5.0f) * kernel.grad_value(asteroid_distance);
+                f32vec3 const asteroid_to_neighbor = asteroids->positions.at(asteroid_idx) - asteroids->positions.at(neighbor_asteroid_idx);
+                f32vec3 const to_neighbor_gradient = asteroid_to_neighbor * std::pow(1.0f / kernel.smoothing_radius, 5.0f) * kernel.grad_value(asteroid_distance);
 
                 // Velocity derivative
-                f64vec3 const force = (
-                    (asteroids->pressures.at(asteroid_idx) / std::pow(asteroids->densities.at(asteroid_idx), 2.0)) + 
-                    (asteroids->pressures.at(neighbor_asteroid_idx) / std::pow(asteroids->densities.at(neighbor_asteroid_idx), 2.0)))
-                    * to_neighbor_gradient * -1.0;
+                f32vec3 const force = (
+                    (asteroids->pressures.at(asteroid_idx) / std::pow(asteroids->densities.at(asteroid_idx), 2.0f)) + 
+                    (asteroids->pressures.at(neighbor_asteroid_idx) / std::pow(asteroids->densities.at(neighbor_asteroid_idx), 2.0f)))
+                    * to_neighbor_gradient * -1.0f;
             
                 asteroids->velocity_derivatives.at(asteroid_idx) += asteroids->masses.at(neighbor_asteroid_idx) * force;
 
                 // Velocity divergence
-                f64 dv = glm::dot(asteroids->velocities.at(neighbor_asteroid_idx) - asteroids->velocities.at(asteroid_idx), to_neighbor_gradient);
+                f32 dv = glm::dot(asteroids->velocities.at(neighbor_asteroid_idx) - asteroids->velocities.at(asteroid_idx), to_neighbor_gradient);
                 asteroids->velocity_divergences.at(asteroid_idx) += asteroids->masses.at(neighbor_asteroid_idx) / asteroids->densities.at(asteroid_idx) * dv;
             }
         }
@@ -164,13 +164,13 @@ struct EquationsAndUpdatesTask : Task
 {
     AsteroidsWrapper * const asteroids;
     SpatialGrid const * const grid;
-    f64 const dt;
+    f32 const dt;
 
     EquationsAndUpdatesTask(AsteroidsWrapper * const the_asteroids,
         SpatialGrid const * const the_grid,
         u32 const the_chunk_count,
         u32 const the_chunk_size,
-        f64 const the_dt) :
+        f32 const the_dt) :
         asteroids(the_asteroids),
         grid(the_grid),
         dt(the_dt)
@@ -219,15 +219,15 @@ struct EquationsAndUpdatesTask : Task
     }
 };
 
-void Solver::integrate(AsteroidsWrapper & asteroids, f64 const dt, ThreadPool & threadpool)
+void Solver::integrate(AsteroidsWrapper & asteroids, f32 const dt, ThreadPool & threadpool)
 {
     const u32 asteroids_size = asteroids.positions.size();
 
     // Zero out derivatives from last frame.
-    std::fill(asteroids.energy_derivatives.begin(), asteroids.energy_derivatives.end(), 0.0);
-    std::fill(asteroids.density_derivatives.begin(), asteroids.density_derivatives.end(), 0.0);
-    std::fill(asteroids.velocity_derivatives.begin(), asteroids.velocity_derivatives.end(), f32vec3(0.0));
-    std::fill(asteroids.velocity_divergences.begin(), asteroids.velocity_divergences.end(), 0.0);
+    std::fill(asteroids.energy_derivatives.begin(), asteroids.energy_derivatives.end(), 0.0f);
+    std::fill(asteroids.density_derivatives.begin(), asteroids.density_derivatives.end(), 0.0f);
+    std::fill(asteroids.velocity_derivatives.begin(), asteroids.velocity_derivatives.end(), f32vec3(0.0f));
+    std::fill(asteroids.velocity_divergences.begin(), asteroids.velocity_divergences.end(), 0.0f);
 
 
     // Build the spatial grid for this current state - value 3000 

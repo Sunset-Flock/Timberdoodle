@@ -12,6 +12,10 @@ using namespace tido::types;
 
 struct AsteroidSimulation
 {
+#if !CPU_SIMULATION
+    friend struct AsteroidsState;
+#endif
+
     std::mutex data_exchange_mutex;
 
     AsteroidSimulation(ThreadPool * the_threadpool);
@@ -28,7 +32,7 @@ struct AsteroidSimulation
         AsteroidsWrapper asteroids = {};
         AsteroidsWrapper last_update_asteroids = {};
         Solver solver = {};
-        f64 dt = 0.0000001;
+        f32 dt = 0.0000001;
 
         std::atomic_bool should_run = true;
         std::atomic_bool simulation_paused = true;

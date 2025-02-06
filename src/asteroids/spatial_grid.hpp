@@ -12,9 +12,9 @@ struct SpatialEntry
 
 struct SpatialGrid
 {
-    SpatialGrid(std::vector<f64vec3> const & positions, f32 const cell_size);
+    SpatialGrid(std::vector<f32vec3> const & positions, f32 const cell_size);
 
-    auto get_neighbor_candidate_indices(f64vec3 const & position, f32 const radius) const -> std::vector<u16>;
+    auto get_neighbor_candidate_indices(f32vec3 const & position, f32 const radius) const -> std::vector<u16>;
 
     private:
         static constexpr u32 HASH_KEY_1 = 15823;

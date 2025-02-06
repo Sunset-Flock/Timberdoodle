@@ -126,7 +126,7 @@ auto Application::run() -> i32
             _renderer->render_frame(
                 camera_info,
                 app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
-                _simulation->get_asteroids(),
+                *_simulation.get(),
                 app_state.delta_time);
         }
         _gpu_context->device.collect_garbage();
