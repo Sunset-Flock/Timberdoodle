@@ -22,18 +22,6 @@ struct DebugDrawAsteroidsPush
 
 #else
 
-DAXA_DECL_TASK_HEAD_BEGIN(MaterialUpdateH)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);
-DAXA_DECL_TASK_HEAD_END
-
-DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawAsteroidsH)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32), asteroid_params);
-DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
-DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
-DAXA_DECL_TASK_HEAD_END
-
 struct AsteroidParameters
 {
     daxa_f32vec3 *position;
@@ -49,6 +37,58 @@ struct AsteroidParameters
     daxa_f32 *pressure;
     daxa_f32 *scale;
 };
+
+#define MATERIAL_UPDATE_WORKGROUP_X 256
+DAXA_DECL_TASK_HEAD_BEGIN(MaterialUpdateH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);
+DAXA_DECL_TASK_HEAD_END
+
+struct MaterialUpdatePush
+{
+    MaterialUpdateH::AttachmentShaderBlob attach;
+    daxa_u32 asteroid_count;
+
+    daxa_f32 *asteroid_density;
+    daxa_f32 *asteroid_energy;
+    daxa_f32 *asteroid_pressure;
+
+    daxa_f32 start_density;
+    daxa_f32 A;
+    daxa_f32 c;
+};
+
+#define DERIVATIVES_CALCULATION_WORKGROUP_X 256
+DAXA_DECL_TASK_HEAD_BEGIN(DerivativesCalculationH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);
+DAXA_DECL_TASK_HEAD_END
+
+struct DerivativesCalculationPush
+{
+    daxa_u32 asteroid_count;
+    AsteroidParameters params;
+};
+
+#define EQUATION_UPDATE_WORKGROUP_X 256
+DAXA_DECL_TASK_HEAD_BEGIN(EquationUpdateH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);
+DAXA_DECL_TASK_HEAD_END
+
+struct EquationUpdatePush
+{
+    daxa_u32 asteroid_count;
+    daxa_f32 dt;
+    AsteroidParameters params;
+};
+
+DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawAsteroidsH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32), asteroid_params);
+DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
+DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
+DAXA_DECL_TASK_HEAD_END
 
 struct DebugDrawAsteroidsPush
 {

@@ -230,6 +230,9 @@ void Renderer::compile_pipelines()
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
+        {tido::upgrade_compute_pipeline_compile_info(material_update_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(derivative_update_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(equation_update_compile_info())},
     };
     for (auto const & info : computes)
     {
@@ -499,6 +502,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
         .reorder_tasks = true,
+        .permutation_condition_count = 1,
         .staging_memory_pool_size = 2'097'152 * 8, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
@@ -1154,5 +1158,5 @@ void Renderer::render_frame(
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size);
 
     u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-    main_task_graph.execute({});
+    main_task_graph.execute({.permutation_condition_values = {&asteroid_state.last_simulation_started, 1}});
 }

@@ -88,70 +88,48 @@ inline daxa::RasterPipelineCompileInfo debug_draw_asteroids_compile_info()
     return ret;
 }
 
-struct DebugDrawAsteroidsTask : DebugDrawAsteroidsH::Task
+static constexpr inline char const ASTEROID_SIMULATION_SHADER_PATH[] = "./src/rendering/asteroids/asteroids_simulation.hlsl";
+inline daxa::ComputePipelineCompileInfo material_update_compile_info()
 {
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    AsteroidsState* asteroid_state = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-#if !CPU_SIMULATION
-        if(ti.get(AT.asteroid_params).ids.size() != (ASTEROID_SCALE + 1)) { return; }
-#endif
-
-        auto const colorImageSize = ti.device.image_info(ti.get(AT.color_image).ids[0]).value().size;
-        daxa::RenderPassBeginInfo render_pass_begin_info{
-            .depth_attachment =
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.depth_image).view_ids[0],
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = daxa::AttachmentLoadOp::LOAD,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                },
-            .render_area = daxa::Rect2D{.width = colorImageSize.x, .height = colorImageSize.y},
-        };
-        render_pass_begin_info.color_attachments = {
-            daxa::RenderAttachmentInfo{
-                .image_view = ti.get(AT.color_image).view_ids[0],
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                .load_op = daxa::AttachmentLoadOp::LOAD,
-                .store_op = daxa::AttachmentStoreOp::STORE,
-            },
-        };
-
-        auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(debug_draw_asteroids_compile_info().name));
-
-        DebugDrawAsteroidsPush push = {
-            .attach = ti.attachment_shader_blob,
-            .asteroid_mesh_positions = asteroid_state->debug_asteroid_mesh_vertex_positions_addr,
-#if !CPU_SIMULATION
-            .parameters = {
-                .position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
-                .velocity = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY]).value()),
-                .velocity_derivative = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DERIVATIVE]).value()),
-                .velocity_divergence = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DIVERGENCE]).value()),
-                .smoothing_radius = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SMOOTHING_RADIUS]).value()),
-                .mass = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_MASS]).value()),
-                .density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
-                .density_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY_DERIVATIVE]).value()),
-                .energy = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY]).value()),
-                .energy_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY_DERIVATIVE]).value()),
-                .pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
-                .scale = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SCALE]).value()),
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{ASTEROID_SIMULATION_SHADER_PATH},
+            .compile_options = {
+                .entry_point = "update_material",
+                .language = daxa::ShaderLanguage::SLANG
             }
-#endif
-        };
-        render_cmd.push_constant(push);
+        },
+        .push_constant_size = static_cast<u32>(sizeof(MaterialUpdatePush)),
+        .name = std::string{MaterialUpdateH::NAME},
+    };
+}
 
-        render_cmd.set_index_buffer({ .id = asteroid_state->debug_asteroid_mesh_buffer}); 
+inline daxa::ComputePipelineCompileInfo derivative_update_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{ASTEROID_SIMULATION_SHADER_PATH},
+            .compile_options = {
+                .entry_point = "calculate_derivatives",
+                .language = daxa::ShaderLanguage::SLANG
+            }
+        },
+        .push_constant_size = static_cast<u32>(sizeof(DerivativesCalculationPush)),
+        .name = std::string{DerivativesCalculationH::NAME},
+    };
+}
 
-        render_cmd.draw_indexed({
-            .index_count = asteroid_state->debug_probe_mesh_triangles * 3,
-            .instance_count = asteroid_state->asteroids_count,
-        });
-
-        ti.recorder = std::move(render_cmd).end_renderpass();
-    }
-};
+inline daxa::ComputePipelineCompileInfo equation_update_compile_info()
+{
+    return {
+        .shader_info = daxa::ShaderCompileInfo{
+            .source = daxa::ShaderFile{ASTEROID_SIMULATION_SHADER_PATH},
+            .compile_options = {
+                .entry_point = "equation_update",
+                .language = daxa::ShaderLanguage::SLANG
+            }
+        },
+        .push_constant_size = static_cast<u32>(sizeof(EquationUpdatePush)),
+        .name = std::string{EquationUpdateH::NAME},
+    };
+}
