@@ -1094,19 +1094,24 @@ func entry_task_meshlet_cull(
     DispatchMesh(1, surviving_meshlet_count, 1, payload);
 }
 
-func wave32_find_nth_set_bit(uint mask, uint bit) -> uint
+// Starts counting bits from 0
+func wave32_find_nth_set_bit(uint mask, uint n) -> uint
 {
-    // Each thread tests a bit in the mask.
-    // The nth bit is the nth thread.
-    let wave_lane_bit_mask = 1u << WaveGetLaneIndex();
-    let is_nth_bit_set = ((mask & wave_lane_bit_mask) != 0) ? 1u : 0u;
-    let set_bits_prefix_sum = WavePrefixSum(is_nth_bit_set) + is_nth_bit_set;
-
-    let does_nth_bit_match_group = set_bits_prefix_sum == (bit + 1);
-    uint ret;
-    uint4 mask = WaveActiveBallot(does_nth_bit_match_group);
-    uint first_set_bit = WaveActiveMin((mask.x & wave_lane_bit_mask) != 0 ? WaveGetLaneIndex() : ~0u);
-    return first_set_bit;
+    // We assign one bit in the mask to one thread.
+    // Each thread calculates bits up to its own bit.
+    // If the number of bits before the threads bit is equal to n AND the bit is set, 
+    // this means that the threads bit is the nth set bit.
+    let lane_mask = ~((~0u) << (WaveGetLaneIndex())); // mask away all bits greater or equal to the tested bit
+    let bits_set_up_to_lanebit = countbits(mask & lane_mask);
+    let lane_bit_set = (mask & (1u << WaveGetLaneIndex())) != 0;
+    let is_nth_bit = (bits_set_up_to_lanebit == n) && lane_bit_set;
+    let nth_bit_finder_ballot = WaveActiveBallot(is_nth_bit).x;
+    if (nth_bit_finder_ballot == 0) // no bits were set
+    {
+        return ~0u;
+    }
+    let nth_set_bit = firstbitlow(nth_bit_finder_ballot);
+    return nth_set_bit;
 }
 
 func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
