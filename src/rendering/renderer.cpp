@@ -233,6 +233,12 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(material_update_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(derivative_update_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(equation_update_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(spatial_hash_initalize_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(radix_downsweep_pass_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(radix_scan_pass_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(radix_scan_finalize_pass_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(radix_upsweep_pass_compile_info())},
+        {tido::upgrade_compute_pipeline_compile_info(spatial_hash_finalize_compile_info())},
     };
     for (auto const & info : computes)
     {
@@ -545,6 +551,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(swapchain_image);
 #if !CPU_SIMULATION
     tg.use_persistent_buffer(asteroid_state.gpu_asteroids);
+    tg.use_persistent_buffer(asteroid_state.spatial_hash_src);
+    tg.use_persistent_buffer(asteroid_state.spatial_hash_dst);
+    tg.use_persistent_buffer(asteroid_state.wg_count_bins);
+    tg.use_persistent_buffer(asteroid_state.cell_start_indices);
 #endif
     // tg.use_persistent_tlas(scene->_scene_tlas);
 
@@ -865,19 +875,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     if (render_context->render_data.pgi_settings.enabled && (render_context->render_data.pgi_settings.debug_probe_draw_mode != PGI_DEBUG_PROBE_DRAW_MODE_OFF))
     {
-        tg.add_task(PGIDrawDebugProbesTask{
-            .views = std::array{
-                PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
-                PGIDrawDebugProbesH::AT.color_image | color_image,
-                PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
-                PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIDrawDebugProbesH::AT.probe_visibility | pgi_state.probe_visibility_view,
-                PGIDrawDebugProbesH::AT.probe_info | pgi_state.probe_info_view,
-                PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
-            },
-            .render_context = render_context.get(),
-            .pgi_state = &pgi_state,
-        });
+        // tg.add_task(PGIDrawDebugProbesTask{
+        //     .views = std::array{
+        //         PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
+        //         PGIDrawDebugProbesH::AT.color_image | color_image,
+        //         PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
+        //         PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
+        //         PGIDrawDebugProbesH::AT.probe_visibility | pgi_state.probe_visibility_view,
+        //         PGIDrawDebugProbesH::AT.probe_info | pgi_state.probe_info_view,
+        //         PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
+        //     },
+        //     .render_context = render_context.get(),
+        //     .pgi_state = &pgi_state,
+        // });
     }
     tg.add_task(DebugDrawTask{
         .views = std::array{

@@ -66,9 +66,7 @@ float get_asteroid_float_param<let PARAM : int>(int asteroid_index)
         case ASTEROID_SMOOTHING_RADIUS    : return push.parameters.smoothing_radius[asteroid_index];
         case ASTEROID_MASS                : return push.parameters.mass[asteroid_index];
         case ASTEROID_DENSITY             : return push.parameters.density[asteroid_index];
-        case ASTEROID_DENSITY_DERIVATIVE  : return push.parameters.density_derivative[asteroid_index];
         case ASTEROID_ENERGY              : return push.parameters.energy[asteroid_index];
-        case ASTEROID_ENERGY_DERIVATIVE   : return push.parameters.energy_derivative[asteroid_index];
         case ASTEROID_PRESSURE            : return push.parameters.pressure[asteroid_index];
         case ASTEROID_SCALE               : return push.parameters.scale[asteroid_index];
         default                           : return 0.0f;

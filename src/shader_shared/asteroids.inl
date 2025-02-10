@@ -19,11 +19,9 @@
 #define ASTEROID_SMOOTHING_RADIUS    4
 #define ASTEROID_MASS                5
 #define ASTEROID_DENSITY             6
-#define ASTEROID_DENSITY_DERIVATIVE  7
-#define ASTEROID_ENERGY              8
-#define ASTEROID_ENERGY_DERIVATIVE   9
-#define ASTEROID_PRESSURE            10
-#define ASTEROID_SCALE               11
+#define ASTEROID_ENERGY              7
+#define ASTEROID_PRESSURE            8
+#define ASTEROID_SCALE               9
 
 struct GPUAsteroid
 {

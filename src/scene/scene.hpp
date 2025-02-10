@@ -89,7 +89,7 @@ struct MeshLodGroupManifestEntry
     struct Runtime
     {
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
-        std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
+        // std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
         daxa_u32 lod_count = {};
     };
     std::optional<Runtime> runtime = {};
@@ -105,7 +105,7 @@ struct MeshGroupManifestEntry
     u32 asset_local_index = {};
     u32 loaded_mesh_lod_groups = {}; 
     bool fully_loaded_last_frame = {};
-    daxa::BlasId blas = {};
+    // daxa::BlasId blas = {};
     std::string name = {};
 };
 
@@ -242,8 +242,8 @@ struct Scene
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
 
-    daxa::TaskTlas _scene_tlas = {};
-    daxa::BlasId _scene_blas = {};
+    // daxa::TaskTlas _scene_tlas = {};
+    // daxa::BlasId _scene_blas = {};
     daxa::TaskBuffer _scene_as_indirections = {};
 
     daxa::Device _device = {};

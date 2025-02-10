@@ -178,6 +178,126 @@ static const daxa_i32 PROBE_MESH_INDICES[] = {
     43, 42, 51
 };
 
+struct InitializeHashingTask : InitializeHashingH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at((spatial_hash_initalize_compile_info()).name));
+        InitalizeHashingPush push = {
+            .spatial_hash = r_cast<daxa_u32vec2*>(ti.device.buffer_device_address(ti.get(AT.spatial_hash).ids[0]).value()),
+            .asteroid_position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
+            .cell_size = 3000.0f,
+            .asteroid_count = asteroid_state->asteroids_count,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, SPATIAL_HASH_INITIALIZE_WORKGROUP_X), 1, 1});
+    }
+};
+
+struct RadixDownsweepPassTask : RadixDownsweepPassH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+    u32 pass_index = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(radix_downsweep_pass_compile_info().name));
+        RadixDownsweepPassPush push = {
+            .attach = ti.attachment_shader_blob,
+            .asteroid_count = asteroid_state->asteroids_count,
+            .pass_index = pass_index,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, RADIX_DOWNSWEEP_PASS_WORKGROUP_X), 1, 1});
+    }
+};
+
+struct RadixScanPassTask : RadixScanPassH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        u32 const num_downsweep_workgroups = round_up_div(asteroid_state->asteroids_count, RADIX_DOWNSWEEP_PASS_WORKGROUP_X);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(radix_scan_pass_compile_info().name));
+        RadixScanPassPush push = {
+            .attach = ti.attachment_shader_blob,
+            .downsweep_pass_wg_count = num_downsweep_workgroups,
+        };
+        ti.recorder.push_constant(push);
+        // Dispatch one workgroup per one digit.
+        ti.recorder.dispatch({256, 1, 1});
+    }
+};
+
+struct RadixScanFinalizePassTask : RadixScanFinalizePassH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        u32 const num_downsweep_workgroups = round_up_div(asteroid_state->asteroids_count, RADIX_DOWNSWEEP_PASS_WORKGROUP_X);
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(radix_scan_finalize_pass_compile_info().name));
+        RadixScanFinalizePassPush push = {
+            .attach = ti.attachment_shader_blob,
+            .downsweep_pass_wg_count = num_downsweep_workgroups,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({1, 1, 1});
+    }
+};
+
+struct RadixUpsweepPassTask : RadixUpsweepPassH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+    u32 pass_index = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        u32 const num_downsweep_workgroups = round_up_div(asteroid_state->asteroids_count, RADIX_DOWNSWEEP_PASS_WORKGROUP_X);
+
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(radix_upsweep_pass_compile_info().name));
+        RadixUpsweepPassPush push = {
+            .attach = ti.attachment_shader_blob,
+            .asteroid_count = asteroid_state->asteroids_count,
+            .pass_index = pass_index,
+            .downsweep_pass_wg_count = num_downsweep_workgroups,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, RADIX_UPSWEEP_PASS_WORKGROUP_X), 1, 1});
+    }
+};
+
+struct FinalizeHashingTask : FinalizeHashingH::Task
+{
+    AttachmentViews views = {};
+    RenderContext* render_context = {};
+    AsteroidsState* asteroid_state = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at((spatial_hash_finalize_compile_info()).name));
+        FinalizeHashingPush push = {
+            .attach = ti.attachment_shader_blob,
+            .asteroid_count = asteroid_state->asteroids_count,
+        };
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, SPATIAL_HASH_FINALIZE_WORKGROUP_X), 1, 1});
+    }
+};
+
 struct MaterialUpdateTask : MaterialUpdateH::Task
 {
     AttachmentViews views = {};
@@ -213,23 +333,21 @@ struct DerivativesCalculationTask : DerivativesCalculationH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(derivative_update_compile_info().name));
         DerivativesCalculationPush push = {
             .asteroid_count = asteroid_state->asteroids_count,
-            .params = {
-                .position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
-                .velocity = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY]).value()),
-                .velocity_derivative = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DERIVATIVE]).value()),
-                .velocity_divergence = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DIVERGENCE]).value()),
-                .smoothing_radius = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SMOOTHING_RADIUS]).value()),
-                .mass = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_MASS]).value()),
-                .density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
-                .density_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY_DERIVATIVE]).value()),
-                .energy = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY]).value()),
-                .energy_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY_DERIVATIVE]).value()),
-                .pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
-                .scale = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SCALE]).value()),
-            }
+            .max_smoothing_radius = asteroid_state->max_smoothing_radius,
+            .cell_size = 3000.0f,
+            .position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
+            .velocity = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY]).value()),
+            .velocity_derivative = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DERIVATIVE]).value()),
+            .velocity_divergence = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY_DIVERGENCE]).value()),
+            .smoothing_radius = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SMOOTHING_RADIUS]).value()),
+            .mass = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_MASS]).value()),
+            .density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
+            .pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
+            .spatial_lookup = r_cast<daxa_u32vec2*>(ti.device.buffer_device_address(ti.get(AT.spatial_hash).ids[0]).value()),
+            .cell_start_indices = r_cast<daxa_u32*>(ti.device.buffer_device_address(ti.get(AT.cell_start_indices).ids[0]).value()),
         };
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch({asteroid_state->asteroids_count, 1, 1});
+        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, DERIVATIVES_CALCULATION_WORKGROUP_X), 1, 1});
     }
 };
 
@@ -244,7 +362,7 @@ struct EquationUpdateTask : EquationUpdateH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(equation_update_compile_info().name));
         EquationUpdatePush push = {
             .asteroid_count = asteroid_state->asteroids_count,
-            .dt = 0.01f,
+            .dt = 0.005f,
             .params = {
                 .position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
                 .velocity = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY]).value()),
@@ -253,12 +371,10 @@ struct EquationUpdateTask : EquationUpdateH::Task
                 .smoothing_radius = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SMOOTHING_RADIUS]).value()),
                 .mass = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_MASS]).value()),
                 .density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
-                .density_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY_DERIVATIVE]).value()),
                 .energy = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY]).value()),
-                .energy_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY_DERIVATIVE]).value()),
                 .pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
                 .scale = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SCALE]).value()),
-            }
+            },
         };
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, EQUATION_UPDATE_WORKGROUP_X), 1, 1});
@@ -312,9 +428,7 @@ struct DebugDrawAsteroidsTask : DebugDrawAsteroidsH::Task
                 .smoothing_radius = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SMOOTHING_RADIUS]).value()),
                 .mass = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_MASS]).value()),
                 .density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
-                .density_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY_DERIVATIVE]).value()),
                 .energy = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY]).value()),
-                .energy_derivative = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY_DERIVATIVE]).value()),
                 .pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
                 .scale = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_SCALE]).value()),
             }
@@ -357,9 +471,29 @@ void AsteroidsState::initialize_persistent_state(daxa::Device& device)
 #if !CPU_SIMULATION 
     gpu_asteroids = daxa::TaskBuffer(daxa::TaskBufferInfo{
         .initial_buffers = {std::array{ device.create_buffer({.size = 1, .name = "dummy"})}},
-        .name = "GPU Asteroids Task buffer"
-        }
-    );
+        .name = "GPU Asteroids Task buffer",
+    });
+
+    spatial_hash_src = daxa::TaskBuffer(daxa::TaskBufferInfo{
+        .initial_buffers = {std::array{ device.create_buffer({.size = 1, .name = "dummy"})}},
+        .name = "Spatial hash buffer src",
+    });
+
+    spatial_hash_dst = daxa::TaskBuffer(daxa::TaskBufferInfo{
+        .initial_buffers = {std::array{ device.create_buffer({.size = 1, .name = "dummy"})}},
+        .name = "Spatial hash buffer dst",
+    });
+
+    cell_start_indices = daxa::TaskBuffer(daxa::TaskBufferInfo{
+        .initial_buffers = {std::array{ device.create_buffer({.size = 1, .name = "dummy"})}},
+        .name = "Cell start indices",
+    });
+
+    wg_count_bins = daxa::TaskBuffer(daxa::TaskBufferInfo{
+        .initial_buffers = {std::array{ device.create_buffer({.size = 1, .name = "dummy"})}},
+        .name = "wg count bins buffer",
+    });
+
 #endif
 }
 
@@ -377,14 +511,23 @@ void AsteroidsState::initialize_gpu_simulation(daxa::Device & device, AsteroidsW
 {
 #if !CPU_SIMULATION
     asteroids_count = asteroids.positions.size();
+    max_smoothing_radius = asteroids.max_smoothing_radius;
 
-    if(!gpu_asteroids.get_state().buffers.empty())
+    auto task_buffer_destroy_buffers = [&device](daxa::TaskBuffer tb)
     {
-        for(auto const & buffer : gpu_asteroids.get_state().buffers)
+        if(!tb.get_state().buffers.empty())
         {
-            device.destroy_buffer(buffer);
+            for(auto const & buffer : tb.get_state().buffers)
+            {
+                device.destroy_buffer(buffer);
+            }
         }
-    }
+    };
+    task_buffer_destroy_buffers(gpu_asteroids);
+    task_buffer_destroy_buffers(spatial_hash_src);
+    task_buffer_destroy_buffers(spatial_hash_dst);
+    task_buffer_destroy_buffers(cell_start_indices);
+    task_buffer_destroy_buffers(wg_count_bins);
 
     auto const ai = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE;
     gpu_asteroids.set_buffers({
@@ -396,12 +539,36 @@ void AsteroidsState::initialize_gpu_simulation(daxa::Device & device, AsteroidsW
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids smoothing radii" }),
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids smoothing masses" }),
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids densities" }),
-            device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids density derivatives" }),
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids energies" }),
-            device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids energy derivatives" }),
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids pressures" }),
             device.create_buffer({ .size = sizeof(f32) * asteroids_count, .allocate_info = ai, .name = "gpu asteroids scales" }),
         },
+    });
+
+    spatial_hash_src.set_buffers({
+        .buffers = std::array{
+            device.create_buffer({ .size = sizeof(u32vec2) * asteroids_count, .name = "gpu asteroids spatial hash src"}),
+        },
+    });
+
+    spatial_hash_dst.set_buffers({
+        .buffers = std::array{
+            device.create_buffer({ .size = sizeof(u32vec2) * asteroids_count, .name = "gpu asteroids spatial hash dst"}),
+        },
+    });
+
+    cell_start_indices.set_buffers({
+        .buffers = std::array{
+            device.create_buffer({ .size = sizeof(u32) * asteroids_count, .name = "gpu asteroids cell start indices"}),
+        },
+    });
+
+    u32 const num_downsweep_workgroups = round_up_div(asteroids_count, RADIX_DOWNSWEEP_PASS_WORKGROUP_X);
+    // We do radix with 4 passes each sorting 8 bits.
+    u32 const number_of_bins = 256;
+    u32 const count_bins_size = s_cast<u32>(number_of_bins * (num_downsweep_workgroups + 1) * sizeof(daxa_u32));
+    wg_count_bins.set_buffers({
+        .buffers = std::array{ device.create_buffer({ .size = count_bins_size, .name = "workgroup count bins"}), }
     });
 
     std::array<const void*, 3> vec3_data_pointers = {asteroids.positions.data(), asteroids.velocities.data(), asteroids.velocity_derivatives.data()};
@@ -411,14 +578,12 @@ void AsteroidsState::initialize_gpu_simulation(daxa::Device & device, AsteroidsW
         std::memcpy(host_addr, vec3_data_pointers.at(vec3_buffer), sizeof(f32vec3) * asteroids_count);
     }
 
-    std::array<const void*, 9> float_data_pointers = {
+    std::array<const void*, 7> float_data_pointers = {
         asteroids.velocity_divergences.data(),
         asteroids.smoothing_radii.data(),
         asteroids.masses.data(),
         asteroids.densities.data(),
-        asteroids.density_derivatives.data(),
         asteroids.energies.data(),
-        asteroids.energy_derivatives.data(),
         asteroids.pressures.data(),
         asteroids.particle_scales.data(),
     };
@@ -523,10 +688,69 @@ void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
     info.tg->conditional({
         .condition_index = 0,
         .when_true = [&]{
+
+            info.tg->add_task(InitializeHashingTask{
+                .views = std::array{
+                    InitializeHashingTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
+                    InitializeHashingTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                },
+                .render_context = info.render_context,
+                .asteroid_state = info.asteroids_state,
+            });
+
+            for(u32 pass_index = 0; pass_index < 4; ++pass_index)
+            {
+                info.tg->add_task(RadixDownsweepPassTask{
+                    .views = std::array{
+                        RadixDownsweepPassTask::AT.spatial_hash_src | ((pass_index % 2 == 0) ? info.asteroids_state->spatial_hash_src : info.asteroids_state->spatial_hash_dst),
+                        RadixDownsweepPassTask::AT.wg_bin_counts | info.asteroids_state->wg_count_bins,
+                    },
+                    .render_context = info.render_context,
+                    .asteroid_state = info.asteroids_state,
+                    .pass_index = pass_index,
+                });
+
+                info.tg->add_task(RadixScanPassTask{
+                    .views = std::array{
+                        RadixScanPassTask::AT.wg_bin_counts | info.asteroids_state->wg_count_bins,
+                    },
+                    .render_context = info.render_context,
+                    .asteroid_state = info.asteroids_state
+                });
+
+                info.tg->add_task(RadixScanFinalizePassTask{
+                    .views = std::array{
+                        RadixScanPassTask::AT.wg_bin_counts | info.asteroids_state->wg_count_bins,
+                    },
+                    .render_context = info.render_context,
+                    .asteroid_state = info.asteroids_state
+                });
+
+                info.tg->add_task(RadixUpsweepPassTask{
+                    .views = std::array{
+                        RadixUpsweepPassTask::AT.src_spatial_hash | ((pass_index % 2 == 0) ? info.asteroids_state->spatial_hash_src : info.asteroids_state->spatial_hash_dst),
+                        RadixUpsweepPassTask::AT.dst_spatial_hash | ((pass_index % 2 == 0) ? info.asteroids_state->spatial_hash_dst : info.asteroids_state->spatial_hash_src),
+                        RadixUpsweepPassTask::AT.wg_bin_counts | info.asteroids_state->wg_count_bins,
+                    },
+                    .render_context = info.render_context,
+                    .asteroid_state = info.asteroids_state,
+                    .pass_index = pass_index,
+                });
+            }
+
+            info.tg->add_task(FinalizeHashingTask{
+                .views = std::array{
+                    FinalizeHashingTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
+                    FinalizeHashingTask::AT.cell_start_indices | info.asteroids_state->cell_start_indices,
+                },
+                .render_context = info.render_context,
+                .asteroid_state = info.asteroids_state,
+            });
+
             info.tg->add_task(MaterialUpdateTask{
                 .views = std::array{
-                    DebugDrawAsteroidsTask::AT.globals | info.render_context->tgpu_render_data,
-                    DebugDrawAsteroidsTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    MaterialUpdateTask::AT.globals | info.render_context->tgpu_render_data,
+                    MaterialUpdateTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
                 },
                 .render_context = info.render_context,
                 .asteroid_state = info.asteroids_state,
@@ -534,8 +758,10 @@ void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
 
             info.tg->add_task(DerivativesCalculationTask{
                 .views = std::array{
-                    DebugDrawAsteroidsTask::AT.globals | info.render_context->tgpu_render_data,
-                    DebugDrawAsteroidsTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    DerivativesCalculationTask::AT.globals | info.render_context->tgpu_render_data,
+                    DerivativesCalculationTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    DerivativesCalculationTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
+                    DerivativesCalculationTask::AT.cell_start_indices | info.asteroids_state->cell_start_indices,
                 },
                 .render_context = info.render_context,
                 .asteroid_state = info.asteroids_state,
@@ -543,8 +769,8 @@ void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
 
             info.tg->add_task(EquationUpdateTask{
                 .views = std::array{
-                    DebugDrawAsteroidsTask::AT.globals | info.render_context->tgpu_render_data,
-                    DebugDrawAsteroidsTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    EquationUpdateTask::AT.globals | info.render_context->tgpu_render_data,
+                    EquationUpdateTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
                 },
                 .render_context = info.render_context,
                 .asteroid_state = info.asteroids_state,

@@ -48,30 +48,30 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
 Scene::~Scene()
 {
     if (!_gpu_mesh_group_indices_array_buffer.is_empty()) { _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer); }
-    if (!_scene_blas.is_empty()) { _device.destroy_blas(_scene_blas); }
+    // if (!_scene_blas.is_empty()) { _device.destroy_blas(_scene_blas); }
 
-    for (auto & mesh_group : _mesh_group_manifest)
-    {
-        if(!mesh_group.blas.is_empty())
-        {
-            _device.destroy_blas(mesh_group.blas);
-        }
-    }
+    // for (auto & mesh_group : _mesh_group_manifest)
+    // {
+    //     if(!mesh_group.blas.is_empty())
+    //     {
+    //         _device.destroy_blas(mesh_group.blas);
+    //     }
+    // }
 
-    for (auto & mesh : _mesh_lod_group_manifest)
-    {
-        if (mesh.runtime.has_value())
-        {
-            for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
-            {
-                _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
-                if (!mesh.runtime.value().blas_lods[lod].is_empty())
-                {
-                    _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
-                }
-            }
-        }
-    }
+    // for (auto & mesh : _mesh_lod_group_manifest)
+    // {
+    //     if (mesh.runtime.has_value())
+    //     {
+    //         for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
+    //         {
+    //             _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
+    //             if (!mesh.runtime.value().blas_lods[lod].is_empty())
+    //             {
+    //                 _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
+    //             }
+    //         }
+    //     }
+    // }
 
     for (auto & texture : _material_texture_manifest)
     {
@@ -1299,7 +1299,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
             .name = mesh_lod_group.name,
         });
         blas_build_info.dst_blas = blas;
-        mesh_lod_group.runtime->blas_lods[lod] = blas;
+        // mesh_lod_group.runtime->blas_lods[lod] = blas;
 
         build_infos.push_back(std::move(blas_build_info));
         _mesh_as_build_queue.pop_back();
@@ -1440,10 +1440,10 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
             // Process all fully loaded mesh groups
             if (is_mesh_group_loaded)
             {
-                if (mesh_group.blas.is_empty())
-                {
-                    blas_build_requests.push_back(_render_entities.id_from_index(entity_i));
-                }
+                // if (mesh_group.blas.is_empty())
+                // {
+                //     blas_build_requests.push_back(_render_entities.id_from_index(entity_i));
+                // }
 
                 auto const mesh_lod_group_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
                 for (u32 in_mesh_group_index = 0; in_mesh_group_index < mesh_group.mesh_lod_group_count; in_mesh_group_index++)
