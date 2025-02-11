@@ -80,7 +80,7 @@ struct UIEngine
     public:
         bool renderer_settings = false;
         bool widget_settings = false;
-        bool widget_renderer_statistics = false;
+        bool widget_renderer_statistics = true;
         bool widget_scene_hierarchy = false;
         bool widget_property_viewer = false;
         bool demo_window = false;

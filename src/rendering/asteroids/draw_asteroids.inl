@@ -136,7 +136,7 @@ struct FinalizeHashingPush
     daxa_u32 asteroid_count;
 };
 
-#define DERIVATIVES_CALCULATION_WORKGROUP_X 256
+#define DERIVATIVES_CALCULATION_WORKGROUP_X 64
 DAXA_DECL_TASK_HEAD_BEGIN(DerivativesCalculationH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);

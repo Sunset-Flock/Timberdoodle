@@ -50,6 +50,25 @@ static const uint HASH_KEY_1 = 15823;
 static const uint HASH_KEY_2 = 9737333;
 static const uint HASH_KEY_3 = 440817757;
 
+
+struct WaveScalarParameters
+{
+    float my_pressure;
+    float my_density;
+    float my_smoothing_radius;
+    float my_force;
+    float3 my_position;
+    float3 my_velocity;
+
+    float max_search_radius;
+    int search_radius_in_cells;
+    int3 start_cell_coordinates;
+
+    int cell_start_indices[27];
+    int keys[27];
+};
+groupshared WaveScalarParameters gs_derivatives[DERIVATIVES_CALCULATION_WORKGROUP_X / 32];
+
 [[vk::push_constant]] DerivativesCalculationPush derivatives_push;
 [numthreads(DERIVATIVES_CALCULATION_WORKGROUP_X, 1, 1)]
 [shader("compute")]
@@ -60,92 +79,119 @@ void calculate_derivatives(
 )
 {
     let push = derivatives_push;
-    let asteroid_index = svdtid.x;
+    let wave_index = gtid.x >> 5;
+    let waves_per_group = DERIVATIVES_CALCULATION_WORKGROUP_X / 32;
+    let asteroid_index = (gid.x * waves_per_group) + wave_index;
 
     float3 velocity_derivative = 0.0f;
     float velocity_divergence = 0.0f;
 
-    if(asteroid_index < push.asteroid_count)
+    if(WaveIsFirstLane())
     {
-        const float my_smoothing_radius = push.smoothing_radius[asteroid_index];
-        const float3 my_position = push.position[asteroid_index];
-        const float my_pressure = push.pressure[asteroid_index];
-        const float3 my_velocity = push.velocity[asteroid_index];
-        const float my_density = push.density[asteroid_index];
+        gs_derivatives[wave_index].my_smoothing_radius = push.smoothing_radius[asteroid_index];
+        gs_derivatives[wave_index].my_pressure = push.pressure[asteroid_index];
+        gs_derivatives[wave_index].my_density = push.density[asteroid_index];
+        gs_derivatives[wave_index].my_force = push.pressure[asteroid_index] / pow(gs_derivatives[wave_index].my_density, 2.0f);
 
-        const float my_force = push.pressure[asteroid_index] / pow(my_density, 2.0f);
+        gs_derivatives[wave_index].my_position = push.position[asteroid_index];
+        gs_derivatives[wave_index].my_velocity = push.velocity[asteroid_index];
 
-        const float max_search_radius = (my_smoothing_radius + push.max_smoothing_radius) * 0.5f;
-        const int search_radius_in_cells = int(ceil(max_search_radius / push.cell_size));
+        gs_derivatives[wave_index].max_search_radius = (gs_derivatives[wave_index].my_smoothing_radius + push.max_smoothing_radius) * 0.5f;
+        gs_derivatives[wave_index].search_radius_in_cells = int(ceil(gs_derivatives[wave_index].max_search_radius / push.cell_size));
 
-        const int3 start_cell_coordinates = int3(my_position / float3(push.cell_size));
+        gs_derivatives[wave_index].start_cell_coordinates = int3(gs_derivatives[wave_index].my_position / float3(push.cell_size));
+    }
+    GroupMemoryBarrierWithWaveSync();
 
-        const uint target_asteroid_index = 6696;
-        for(int cell_x_offset = -search_radius_in_cells; cell_x_offset <= search_radius_in_cells; ++cell_x_offset)
+    let search_radius = gs_derivatives[wave_index].search_radius_in_cells;
+    if(any(greaterThan(abs(search_radius), 1)))
+    {
+        printf("Search radius larger than I assumed wtf\n");
+    }
+
+    if(WaveGetLaneIndex() < 27)
+    {
+        let wave_lane_index = WaveGetLaneIndex();
+        const int z_offset = wave_lane_index % 3;
+        const int y_offset = (wave_lane_index / 3) % 3;
+        const int x_offset = (wave_lane_index / 9);
+
+        const int3 cell_offset = int3(x_offset - 1, y_offset - 1 , z_offset - 1);
+        const int3 offset_cell_coordinates = gs_derivatives[wave_index].start_cell_coordinates + cell_offset;
+
+        // Calculate the cells key.
+        const uint hash = 
+            offset_cell_coordinates.x * HASH_KEY_1 +
+            offset_cell_coordinates.y * HASH_KEY_2 +
+            offset_cell_coordinates.z * HASH_KEY_3;
+
+        const uint key = hash % push.asteroid_count;
+        const uint cell_start_index = push.cell_start_indices[key];
+
+        gs_derivatives[wave_index].cell_start_indices[WaveGetLaneIndex()] = cell_start_index;
+        gs_derivatives[wave_index].keys[WaveGetLaneIndex()] = key;
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    for(int cells_index = 0; cells_index < 27; ++cells_index)
+    {
+        // And while the key matches the cell we are currently in add the point indices to the list of potential neighbors.
+        for (int index = gs_derivatives[wave_index].cell_start_indices[cells_index]; index < push.asteroid_count; index += WaveGetLaneCount())
         {
-            for(int cell_y_offset = -search_radius_in_cells; cell_y_offset <= search_radius_in_cells; ++cell_y_offset)
+            int real_index = index + WaveGetLaneIndex();
+            bool is_key = false;
+            if(real_index < push.asteroid_count)
             {
-                for(int cell_z_offset = -search_radius_in_cells; cell_z_offset <= search_radius_in_cells; ++cell_z_offset)
+                is_key = push.spatial_lookup[real_index].x == gs_derivatives[wave_index].keys[cells_index];
+            }
+
+            if(is_key)
+            {
+                bool real_neighbor = true;
+                const int neighbor_index = push.spatial_lookup[real_index].y;
+                real_neighbor = (neighbor_index != asteroid_index);
+
+                float average_smoothing_radius = 0.0f;
+                float distance = 0.0f;
+                float3 position_difference = 0.0f;
+                if(real_neighbor)
                 {
-                    const int3 cell_offset = int3(cell_x_offset, cell_y_offset, cell_z_offset);
-                    const int3 offset_cell_coordinates = start_cell_coordinates + cell_offset;
+                    const float3 neighbor_position = push.position[neighbor_index];
+                    position_difference = gs_derivatives[wave_index].my_position - neighbor_position;
 
-                    // Calculate the cells key.
-                    const uint hash = 
-                        offset_cell_coordinates.x * HASH_KEY_1 +
-                        offset_cell_coordinates.y * HASH_KEY_2 +
-                        offset_cell_coordinates.z * HASH_KEY_3;
+                    average_smoothing_radius = (gs_derivatives[wave_index].my_smoothing_radius + push.smoothing_radius[neighbor_index]) * 0.5f;
 
-                    const uint key = hash % push.asteroid_count;
+                    distance = length(position_difference);
+                    real_neighbor = distance <= (average_smoothing_radius * 2.0f);
+                }
 
-                    // Lookup its starting index.
-                    const uint cell_start_index = push.cell_start_indices[key];
+                if(real_neighbor)
+                {
+                    const float gradient_value = grad_value(distance, average_smoothing_radius);
+                    const float3 to_neighbor_gradient = position_difference * pow(1.0f / average_smoothing_radius, 5.0f) * gradient_value;
 
-                    // And while the key matches the cell we are currently in add the point indices to the list of potential neighbors.
-                    for (int index = cell_start_index; index < push.asteroid_count; ++index)
-                    {
-                        if(push.spatial_lookup[index].x != key) { break; }
+                    const float neighbor_force = push.pressure[neighbor_index] / pow(push.density[neighbor_index], 2.0f);
 
-                        const int neighbor_index = push.spatial_lookup[index].y;
-                        if(neighbor_index == asteroid_index) { continue; }
+                    const float3 force = (gs_derivatives[wave_index].my_force + neighbor_force) * to_neighbor_gradient * -1.0f;
+                    velocity_derivative += push.mass[neighbor_index] * force;
 
-                        const float3 neighbor_position = push.position[neighbor_index];
-                        const float3 position_difference = my_position - neighbor_position;
-
-                        const float average_smoothing_radius = (my_smoothing_radius + push.smoothing_radius[neighbor_index]) * 0.5f;
-
-                        const float distance = length(position_difference);
-                        if(distance > average_smoothing_radius * 2.0f) { continue; }
-
-                        const float gradient_value = grad_value(distance, average_smoothing_radius);
-                        const float3 to_neighbor_gradient = position_difference * pow(1.0f / average_smoothing_radius, 5.0f) * gradient_value;
-                        if(asteroid_index == target_asteroid_index)
-                        {
-                            // push.velocity_derivative[neighbor_index] = 10.0f;
-                            // printf("found neighbor %d with key %d my key %d offset: %d %d %d gradient value %f\n",
-                            //     neighbor_index, push.spatial_lookup[index].x, key, cell_offset.x, cell_offset.y, cell_offset.z, gradient_value);
-                        }
-
-                        const float neighbor_force = push.pressure[neighbor_index] / pow(push.density[neighbor_index], 2.0f);
-
-                        const float3 force = (my_force + neighbor_force) * to_neighbor_gradient * -1.0f;
-                        velocity_derivative += push.mass[neighbor_index] * force;
-
-                        const float dv = dot(push.velocity[neighbor_index] - my_velocity, to_neighbor_gradient);
-                        velocity_divergence += push.mass[neighbor_index] / my_density * dv;
-                    }
+                    const float dv = dot(push.velocity[neighbor_index] - gs_derivatives[wave_index].my_velocity, to_neighbor_gradient);
+                    velocity_divergence += push.mass[neighbor_index] / gs_derivatives[wave_index].my_density * dv;
                 }
             }
+            if(WaveActiveAnyTrue(!is_key))
+            {
+                break;
+            }
         }
+    }
 
-        if(asteroid_index == target_asteroid_index)
-        {
-            // push.velocity_derivative[asteroid_index] = 100.0f;
-            // printf("===============================\n");
-        }
-        // push.velocity_derivative[asteroid_index] = 0;
-        push.velocity_derivative[asteroid_index] = velocity_derivative;
-        push.velocity_divergence[asteroid_index] = velocity_divergence;
+    let exclusive_velocity_derivative = WavePrefixSum(velocity_derivative);
+    let exclusive_velocity_divergence = WavePrefixSum(velocity_divergence);
+    if(WaveGetLaneIndex() == 31)
+    {
+        push.velocity_derivative[asteroid_index] = exclusive_velocity_derivative + velocity_derivative;
+        push.velocity_divergence[asteroid_index] = exclusive_velocity_divergence + velocity_divergence;
     }
 }
 

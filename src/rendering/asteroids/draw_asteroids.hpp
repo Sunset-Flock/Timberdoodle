@@ -9,7 +9,8 @@
 
 struct AsteroidsState
 {
-    daxa::BufferId debug_asteroid_mesh_buffer = {};
+    daxa::BufferId particle_mesh_buffer = {};
+    daxa::BufferId high_res_body_mesh_buffer = {};
 
 #if CPU_SIMULATION
     daxa::TaskBufferView asteroids = {};
@@ -22,13 +23,19 @@ struct AsteroidsState
     daxa::TaskBuffer wg_count_bins = {};
 #endif
 
-    daxa::u32 debug_probe_mesh_triangles = {};
-    daxa::u32 debug_probe_mesh_vertices = {};
-    daxa_f32vec3* debug_asteroid_mesh_vertex_positions_addr = {};
+    daxa::u32 high_res_triangles_count = {};
+    daxa::u32 high_res_vertices_count = {};
+    daxa_f32vec3* high_res_mesh_vertex_positions_addr = {};
+
+    daxa::u32 particle_triangles_count = {};
+    daxa::u32 particle_vertices_count = {};
+    daxa_f32vec3* particle_mesh_vertex_positions_addr = {};
+
     std::array<GPUAsteroid, MAX_ASTEROID_COUNT> cpu_asteroids = {};
 
     bool last_simulation_started = {};
     bool simulation_just_started = {};
+    bool simulation_paused = {};
 
     u32 asteroids_count = {};
     f32 max_smoothing_radius = {};

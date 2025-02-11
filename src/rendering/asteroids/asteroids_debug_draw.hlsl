@@ -11,6 +11,7 @@ struct DrawDebugAsteroidVertexToPixel
 {
     float4 position : SV_Position;
     float3 normal;
+    float3 color_interp;
     nointerpolation int asteroid_index;
 };
 
@@ -99,6 +100,65 @@ func entry_vertex_debug_draw_asteroids(uint vertex_index : SV_VertexID, uint ins
     ret.position = mul(*viewproj, float4(position, 1));
     ret.normal = normal;
     ret.asteroid_index = instance_index;
+    ret.color_interp = 1.0f;
+
+    float value;
+    float min_value;
+    float max_value;
+    bool do_log10;
+    if(push.attach.globals.asteroid_settings.simulation_started != 0)
+    {
+        switch(push.attach.globals.asteroid_settings.debug_draw_mode)
+        {
+            case ASTEROID_DEBUG_DRAW_MODE_NONE:
+                break;
+            case ASTEROID_DEBUG_DRAW_MODE_VELOCITY:
+                min_value = 0.0f;
+                max_value = 10000.0f;
+                value = length(get_asteroid_float3_param<ASTEROID_VELOCITY>(instance_index));
+                do_log10 = true;
+                break;
+            case ASTEROID_DEBUG_DRAW_MODE_ACCELERATION:
+                min_value = 0.0f;
+                max_value = 100.0f;
+                value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DERIVATIVE>(instance_index));
+                do_log10 = true;
+                break;
+            case ASTEROID_DEBUG_DRAW_MODE_VELOCITY_DIVERGENCE:
+                min_value = -0.1f;
+                max_value = 0.1f;
+                value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DIVERGENCE>(instance_index));
+                do_log10 = false;
+                break;
+            case ASTEROID_DEBUG_DRAW_MODE_PRESSURE:
+                min_value = -100000.0f;
+                max_value = 10e+10f;
+                value = length(get_asteroid_float_param<ASTEROID_PRESSURE>(instance_index));
+                do_log10 = true;
+                break;
+            case ASTEROID_DEBUG_DRAW_MODE_DENSITY:
+                min_value = 2650.0f;
+                max_value = 2750.0f;
+                value = length(get_asteroid_float_param<ASTEROID_DENSITY>(instance_index));
+                do_log10 = false;
+                break;
+        }
+
+        if(push.attach.globals.asteroid_settings.debug_draw_mode != ASTEROID_DEBUG_DRAW_MODE_NONE)
+        {
+            float rescaled_value;
+            if(do_log10) {
+                rescaled_value = log10(clamp(value - min_value, 0.0001f, max_value - min_value)) / log10((max_value - min_value));
+            }
+            else {
+                rescaled_value = clamp(value - min_value, 0.0f, max_value - min_value) / (max_value - min_value);
+            }
+            int lower_color_idx = clamp(floor(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
+            int upper_color_idx = clamp(ceil(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
+            float interp = fract(rescaled_value * float(COLOR_COUNT -1));
+            ret.color_interp *= ACCRETION_PALETTE[lower_color_idx] * (1.0f - interp) + ACCRETION_PALETTE[upper_color_idx] * interp;
+        }
+    }
     return ret;
 }
 
@@ -117,62 +177,8 @@ func entry_fragment_debug_draw_asteroids(DrawDebugAsteroidVertexToPixel vertex_t
     let sun_norm_dot = clamp(dot(vertex_to_pixel.normal, sun_direction), 0.0, 1.0f);
     let lighting = sun_norm_dot + ambient;
 
-    float value;
-    float min_value;
-    float max_value;
-    bool do_log10;
 
-    float3 color = lighting;
-    switch(push.attach.globals.asteroid_settings.debug_draw_mode)
-    {
-        case ASTEROID_DEBUG_DRAW_MODE_NONE:
-            break;
-        case ASTEROID_DEBUG_DRAW_MODE_VELOCITY:
-            min_value = 0.0f;
-            max_value = 10000.0f;
-            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY>(vertex_to_pixel.asteroid_index));
-            do_log10 = true;
-            break;
-        case ASTEROID_DEBUG_DRAW_MODE_ACCELERATION:
-            min_value = 0.0f;
-            max_value = 100.0f;
-            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DERIVATIVE>(vertex_to_pixel.asteroid_index));
-            do_log10 = true;
-            break;
-        case ASTEROID_DEBUG_DRAW_MODE_VELOCITY_DIVERGENCE:
-            min_value = -0.1f;
-            max_value = 0.1f;
-            value = length(get_asteroid_float3_param<ASTEROID_VELOCITY_DIVERGENCE>(vertex_to_pixel.asteroid_index));
-            do_log10 = false;
-            break;
-        case ASTEROID_DEBUG_DRAW_MODE_PRESSURE:
-            min_value = -100000.0f;
-            max_value = 10e+10f;
-            value = length(get_asteroid_float_param<ASTEROID_PRESSURE>(vertex_to_pixel.asteroid_index));
-            do_log10 = true;
-            break;
-        case ASTEROID_DEBUG_DRAW_MODE_DENSITY:
-            min_value = 2650.0f;
-            max_value = 2750.0f;
-            value = length(get_asteroid_float_param<ASTEROID_DENSITY>(vertex_to_pixel.asteroid_index));
-            do_log10 = false;
-            break;
-    }
-
-    if(push.attach.globals.asteroid_settings.debug_draw_mode != ASTEROID_DEBUG_DRAW_MODE_NONE)
-    {
-        float rescaled_value;
-        if(do_log10) {
-            rescaled_value = log10(clamp(value - min_value, 0.0001f, max_value - min_value)) / log10((max_value - min_value));
-        }
-        else {
-            rescaled_value = clamp(value - min_value, 0.0f, max_value - min_value) / (max_value - min_value);
-        }
-        int lower_color_idx = clamp(floor(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
-        int upper_color_idx = clamp(ceil(rescaled_value * float(COLOR_COUNT - 1)), 0, 5);
-        float interp = fract(rescaled_value * float(COLOR_COUNT -1));
-        color *= ACCRETION_PALETTE[lower_color_idx] * (1.0f - interp) + ACCRETION_PALETTE[upper_color_idx] * interp;
-    }
+    float3 color = lighting * vertex_to_pixel.color_interp;
     if(push.attach.globals.asteroid_settings.selected_setup_asteroid == vertex_to_pixel.asteroid_index)
     {
         color = float3(1.0f, 1.0f, 0.0f);

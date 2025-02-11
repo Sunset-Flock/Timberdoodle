@@ -384,6 +384,9 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         asteroids.simulation_started = false;
         last_update_asteroids.simulation_started = false;
     }
+
+    settings.simulation_started = simulation_started;
+    settings.simulation_paused = simulation_paused;
 }
 
 auto AsteroidSimulation::get_asteroids() -> AsteroidsWrapper

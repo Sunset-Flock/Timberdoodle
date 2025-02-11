@@ -1166,7 +1166,8 @@ void Renderer::render_frame(
     });
 
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size);
+    bool should_step_simulation = asteroid_state.last_simulation_started & !asteroid_state.simulation_paused;
 
     u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-    main_task_graph.execute({.permutation_condition_values = {&asteroid_state.last_simulation_started, 1}});
+    main_task_graph.execute({.permutation_condition_values = {&should_step_simulation, 1}});
 }

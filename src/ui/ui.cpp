@@ -285,75 +285,75 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
                 VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
             };
-            ImGui::SeparatorText("Visbuffer Pipeline Statistics");
-            {
-                if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
-                {
-                    ImGui::TableSetupColumn("Value Name", {});
-                    ImGui::TableSetupColumn("Value", {});
-                    ImGui::TableSetupColumn("Value Max", {});
-                    ImGui::TableSetupColumn("Value %", {});
-                    ImGui::TableHeadersRow();
-                    for (auto const& stat : visbuffer_pipeline_stats)
-                    {
-                        f32 const percentage = static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f;
-                        if (percentage > 100.0f)
-                        {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
-                        }
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text(stat.name);
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%i%s", stat.value, stat.unit);
-                        ImGui::TableSetColumnIndex(2);
-                        ImGui::Text("%i%s", stat.max_value, stat.unit);
-                        ImGui::TableSetColumnIndex(3);
-                        ImGui::Text("%f%%", percentage);
-                        if (percentage > 100.0f)
-                        {
-                            ImGui::PopStyleColor();
-                        }
-                    }
-                    ImGui::EndTable();
-                }
-                if (ImGui::BeginTable("Visbuffer GPU Time Metrics", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
-                {
-                    ImGui::TableSetupColumn("Timing", {});
-                    ImGui::TableSetupColumn("Value", {});
-                    ImGui::TableSetupColumn("Value Smooth", {});
-                    ImGui::TableHeadersRow();
-                    u64 total = {};
-                    u64 total_smooth = {};
-                    for (auto const& visbuffer_render_time : RenderTimes::GROUP_RENDER_TIMES[RenderTimes::GROUP_VISBUFFER])
-                    {
-                        bool skip = render_context.render_times.get(visbuffer_render_time) == 0;
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("%s", RenderTimes::to_string(visbuffer_render_time));
-                        ImGui::TableSetColumnIndex(1);
-                        if (skip)
-                            ImGui::Text("-");
-                        else
-                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
-                        ImGui::TableSetColumnIndex(2);
-                        if (skip)
-                            ImGui::Text("-");
-                        else
-                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
-                        total += render_context.render_times.get(visbuffer_render_time);
-                        total_smooth += render_context.render_times.get_smooth(visbuffer_render_time);
-                    }
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("VISBUFFER_TOTAL");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%fmics", static_cast<f32>(total) * 0.001f);
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("%fmics", static_cast<f32>(total_smooth) * 0.001f);
-                    ImGui::EndTable();
-                }
-            }
+            // ImGui::SeparatorText("Visbuffer Pipeline Statistics");
+            // {
+            //     if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            //     {
+            //         ImGui::TableSetupColumn("Value Name", {});
+            //         ImGui::TableSetupColumn("Value", {});
+            //         ImGui::TableSetupColumn("Value Max", {});
+            //         ImGui::TableSetupColumn("Value %", {});
+            //         ImGui::TableHeadersRow();
+            //         for (auto const& stat : visbuffer_pipeline_stats)
+            //         {
+            //             f32 const percentage = static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f;
+            //             if (percentage > 100.0f)
+            //             {
+            //                 ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
+            //             }
+            //             ImGui::TableNextRow();
+            //             ImGui::TableSetColumnIndex(0);
+            //             ImGui::Text(stat.name);
+            //             ImGui::TableSetColumnIndex(1);
+            //             ImGui::Text("%i%s", stat.value, stat.unit);
+            //             ImGui::TableSetColumnIndex(2);
+            //             ImGui::Text("%i%s", stat.max_value, stat.unit);
+            //             ImGui::TableSetColumnIndex(3);
+            //             ImGui::Text("%f%%", percentage);
+            //             if (percentage > 100.0f)
+            //             {
+            //                 ImGui::PopStyleColor();
+            //             }
+            //         }
+            //         ImGui::EndTable();
+            //     }
+            //     if (ImGui::BeginTable("Visbuffer GPU Time Metrics", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            //     {
+            //         ImGui::TableSetupColumn("Timing", {});
+            //         ImGui::TableSetupColumn("Value", {});
+            //         ImGui::TableSetupColumn("Value Smooth", {});
+            //         ImGui::TableHeadersRow();
+            //         u64 total = {};
+            //         u64 total_smooth = {};
+            //         // for (auto const& visbuffer_render_time : RenderTimes::GROUP_RENDER_TIMES[RenderTimes::GROUP_VISBUFFER])
+            //         // {
+            //         //     bool skip = render_context.render_times.get(visbuffer_render_time) == 0;
+            //         //     ImGui::TableNextRow();
+            //         //     ImGui::TableSetColumnIndex(0);
+            //         //     ImGui::Text("%s", RenderTimes::to_string(visbuffer_render_time));
+            //         //     ImGui::TableSetColumnIndex(1);
+            //         //     if (skip)
+            //         //         ImGui::Text("-");
+            //         //     else
+            //         //         ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
+            //         //     ImGui::TableSetColumnIndex(2);
+            //         //     if (skip)
+            //         //         ImGui::Text("-");
+            //         //     else
+            //         //         ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
+            //         //     total += render_context.render_times.get(visbuffer_render_time);
+            //         //     total_smooth += render_context.render_times.get_smooth(visbuffer_render_time);
+            //         // }
+            //         ImGui::TableNextRow();
+            //         ImGui::TableSetColumnIndex(0);
+            //         ImGui::Text("VISBUFFER_TOTAL");
+            //         ImGui::TableSetColumnIndex(1);
+            //         ImGui::Text("%fmics", static_cast<f32>(total) * 0.001f);
+            //         ImGui::TableSetColumnIndex(2);
+            //         ImGui::Text("%fmics", static_cast<f32>(total_smooth) * 0.001f);
+            //         ImGui::EndTable();
+            //     }
+            // }
             ImGui::SeparatorText("Timings");
             if (gather_perm_measurements)
             {
@@ -440,7 +440,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             {
                 if (selected_item == 0) { 
                     ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{:<40} {:>10.2f} us", 
                         fmt::format("{} ewa: ", 
                         RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
                         render_times_history.scrolling_ewa.at(group_i).back().y).c_str()
@@ -449,7 +449,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 else if (selected_item == 1) 
                 { 
                     ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{:<40} {:>10.2f} us", 
                         fmt::format("{} average: ", 
                         RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
                         render_times_history.scrolling_mean.at(group_i).back().y).c_str()
@@ -458,7 +458,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 else
                 {
                     ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
+                        fmt::format("{:<40} {:>10.2f} us", 
                         fmt::format("{} raw: ", 
                         RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
                         render_times_history.scrolling_raw.at(group_i).back().y).c_str()
@@ -469,8 +469,8 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                         std::sort(sorted_values.begin(), sorted_values.end(),
                             [](auto const & a, auto const & b) -> bool
                             { return a.y < b.y; });
-                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
-                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
+                        ImGui::TextUnformatted(fmt::format("{:<40} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
+                        ImGui::TextUnformatted(fmt::format("{:<40} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
                     }
                 }
             }
