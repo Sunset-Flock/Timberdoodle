@@ -15,15 +15,24 @@ void update_material(
 )
 {
     let push = material_push;
+    let asteroid_index = svdtid.x;
 
     if(svdtid.x < push.asteroid_count)
     {
-        const float density = push.asteroid_density[svdtid.x];
-        const float energy = push.asteroid_energy[svdtid.x];
+        const float density = push.asteroid_density[asteroid_index];
+        const float energy = push.asteroid_energy[asteroid_index];
 
         const float mu = density / push.start_density - 1.0f;
         const float pressure = push.c * density * energy + push.A * mu;
-        push.asteroid_pressure[svdtid.x] = pressure;
+        push.asteroid_pressure[asteroid_index] = pressure;
+
+        // This key will not be exclusive - it can happen that two cells form completely different portion of space will
+        // have the same key, this is why spatial grid is only conservative in finding the neighbors.
+        const int3 cell_coordinates = int3(push.asteroid_position[asteroid_index] / float3(push.cell_size));
+        const uint hash = cell_coordinates.x * HASH_KEY_1 + cell_coordinates.y * HASH_KEY_2 + cell_coordinates.z * HASH_KEY_3;
+        const uint key = hash % push.asteroid_count;
+
+        push.attach.spatial_hash[asteroid_index] = uint2(key, asteroid_index);
     }
 }
 

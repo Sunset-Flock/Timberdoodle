@@ -169,6 +169,7 @@ struct AsteroidSettings
     daxa_i32 selected_setup_asteroid TIDO_DEFAULT_VALUE(-1);
     daxa_i32 simulation_started TIDO_DEFAULT_VALUE(0);
     daxa_i32 simulation_paused TIDO_DEFAULT_VALUE(0);
+    daxa_f32 dt TIDO_DEFAULT_VALUE(0.001);
 };
 
 #define DEBUG_DRAW_MODE_NONE 0

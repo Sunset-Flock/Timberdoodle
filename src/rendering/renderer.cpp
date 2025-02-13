@@ -233,7 +233,6 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(material_update_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(derivative_update_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(equation_update_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(spatial_hash_initalize_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(radix_downsweep_pass_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(radix_scan_pass_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(radix_scan_finalize_pass_compile_info())},

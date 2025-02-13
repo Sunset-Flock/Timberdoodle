@@ -101,20 +101,6 @@ inline daxa::RasterPipelineCompileInfo debug_draw_asteroids_compile_info()
 }
 
 static constexpr inline char const ASTEROIDS_SPATIAL_HASH_PATH[] = "./src/rendering/asteroids/asteroids_spatial_hashing.hlsl";
-inline daxa::ComputePipelineCompileInfo spatial_hash_initalize_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{ASTEROIDS_SPATIAL_HASH_PATH},
-            .compile_options = {
-                .entry_point = "initialize_hasing",
-                .language = daxa::ShaderLanguage::SLANG
-            }
-        },
-        .push_constant_size = static_cast<u32>(sizeof(InitalizeHashingPush)),
-        .name = std::string{InitializeHashingH::NAME},
-    };
-}
 
 inline daxa::ComputePipelineCompileInfo radix_downsweep_pass_compile_info()
 {

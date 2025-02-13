@@ -40,6 +40,7 @@ struct AsteroidParameters
 DAXA_DECL_TASK_HEAD_BEGIN(MaterialUpdateH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), asteroid_params);
+DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_u32vec2), spatial_hash)
 DAXA_DECL_TASK_HEAD_END
 
 struct MaterialUpdatePush
@@ -50,24 +51,13 @@ struct MaterialUpdatePush
     daxa_f32 *asteroid_density;
     daxa_f32 *asteroid_energy;
     daxa_f32 *asteroid_pressure;
+    daxa_f32vec3 *asteroid_position;
+
+    daxa_f32 cell_size;
 
     daxa_f32 start_density;
     daxa_f32 A;
     daxa_f32 c;
-};
-
-#define SPATIAL_HASH_INITIALIZE_WORKGROUP_X 256
-DAXA_DECL_TASK_HEAD_BEGIN(InitializeHashingH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), asteroid_params);
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_u32vec2), spatial_hash);
-DAXA_DECL_TASK_HEAD_END
-
-struct InitalizeHashingPush
-{
-    daxa_u32vec2 *spatial_hash;
-    daxa_f32vec3 *asteroid_position;
-    daxa_f32 cell_size;
-    daxa_u32 asteroid_count;
 };
 
 #define RADIX_DOWNSWEEP_PASS_WORKGROUP_X 256

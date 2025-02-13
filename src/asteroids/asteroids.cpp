@@ -332,15 +332,9 @@ void AsteroidSimulation::draw_imgui(AsteroidSettings & settings)
         "DENSITY",
     };
     ImGui::Combo("debug visualization", &settings.debug_draw_mode, modes.data(), modes.size());
-    bool deduce_timestep_tmp = deduce_timestep;
-    ImGui::Checkbox("Deduce timestep", &deduce_timestep_tmp);
-    deduce_timestep.store(deduce_timestep_tmp, std::memory_order_relaxed);
 
-    ImGui::BeginDisabled(deduce_timestep_tmp);
-    f32 tmp = dt;
-    ImGui::SliderFloat("Manual timestep", &tmp, 0.001, 0.01);
-    dt = tmp;
-    ImGui::EndDisabled();
+    ImGui::SliderFloat("Manual timestep", &settings.dt, 0.0001f, 0.01f);
+    dt = settings.dt;
 
     // A bit convoluted logic here but let me try to explain.
     std::string_view button_text = simulation_paused ? "Start simulation" : "Pause simulation";

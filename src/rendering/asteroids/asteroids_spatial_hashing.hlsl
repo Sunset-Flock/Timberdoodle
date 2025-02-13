@@ -11,29 +11,6 @@ static const uint HASH_KEY_1 = 15823;
 static const uint HASH_KEY_2 = 9737333;
 static const uint HASH_KEY_3 = 440817757;
 
-[[vk::push_constant]] InitalizeHashingPush init_hashing_push;
-
-[numthreads(SPATIAL_HASH_INITIALIZE_WORKGROUP_X, 1, 1)]
-[shader("compute")]
-void initialize_hasing(
-    uint3 svdtid : SV_DispatchThreadID
-)
-{
-    let push = init_hashing_push;
-    let asteroid_index = svdtid.x;
-
-    if(svdtid.x < push.asteroid_count)
-    {
-        // This key will not be exclusive - it can happen that two cells form completely different portion of space will
-        // have the same key, this is why spatial grid is only conservative in finding the neighbors.
-        const int3 cell_coordinates = int3(push.asteroid_position[asteroid_index] / float3(push.cell_size));
-        const uint hash = cell_coordinates.x * HASH_KEY_1 + cell_coordinates.y * HASH_KEY_2 + cell_coordinates.z * HASH_KEY_3;
-        const uint key = hash % push.asteroid_count;
-
-        push.spatial_hash[asteroid_index] = uint2(key, asteroid_index);
-    }
-}
-
 [[vk::push_constant]] RadixDownsweepPassPush radix_count_pass_push;
 
 // We do radix in four passes each sorting 2^8 == 256 bits

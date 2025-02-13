@@ -1487,29 +1487,6 @@ static const daxa_i32 PROBE_MESH_INDICES[] = {
     466-1, 465-1, 3-1,
 };
 
-
-struct InitializeHashingTask : InitializeHashingH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    AsteroidsState* asteroid_state = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at((spatial_hash_initalize_compile_info()).name));
-        InitalizeHashingPush push = {
-            .spatial_hash = r_cast<daxa_u32vec2*>(ti.device.buffer_device_address(ti.get(AT.spatial_hash).ids[0]).value()),
-            .asteroid_position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
-            .cell_size = asteroid_state->max_smoothing_radius,
-            .asteroid_count = asteroid_state->asteroids_count,
-        };
-        ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::ASTEROIDS_INTIALIZE_HASHING);
-        ti.recorder.dispatch({round_up_div(asteroid_state->asteroids_count, SPATIAL_HASH_INITIALIZE_WORKGROUP_X), 1, 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::ASTEROIDS_INTIALIZE_HASHING);
-    }
-};
-
 struct RadixDownsweepPassTask : RadixDownsweepPassH::Task
 {
     AttachmentViews views = {};
@@ -1629,6 +1606,8 @@ struct MaterialUpdateTask : MaterialUpdateH::Task
             .asteroid_density = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_DENSITY]).value()),
             .asteroid_energy = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_ENERGY]).value()),
             .asteroid_pressure = r_cast<daxa_f32*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_PRESSURE]).value()),
+            .asteroid_position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
+            .cell_size = asteroid_state->max_smoothing_radius,
             .start_density = INITAL_DENSITY,
             .A = 26700000000.0f,
             .c = 2.0f,
@@ -1682,7 +1661,7 @@ struct EquationUpdateTask : EquationUpdateH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(equation_update_compile_info().name));
         EquationUpdatePush push = {
             .asteroid_count = asteroid_state->asteroids_count,
-            .dt = 0.001f,
+            .dt = render_context->render_data.asteroid_settings.dt,
             .params = {
                 .position = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_POSITION]).value()),
                 .velocity = r_cast<daxa_f32vec3*>(ti.device.buffer_device_address(ti.get(AT.asteroid_params).ids[ASTEROID_VELOCITY]).value()),
@@ -2055,10 +2034,11 @@ void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
         .condition_index = 0,
         .when_true = [&]{
 
-            info.tg->add_task(InitializeHashingTask{
+            info.tg->add_task(MaterialUpdateTask{
                 .views = std::array{
-                    InitializeHashingTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
-                    InitializeHashingTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    MaterialUpdateTask::AT.globals | info.render_context->tgpu_render_data,
+                    MaterialUpdateTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
+                    MaterialUpdateTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
                 },
                 .render_context = info.render_context,
                 .asteroid_state = info.asteroids_state,
@@ -2108,15 +2088,6 @@ void task_draw_asteroids(TaskDrawAsteroidsInfo const & info)
                 .views = std::array{
                     FinalizeHashingTask::AT.spatial_hash | info.asteroids_state->spatial_hash_src,
                     FinalizeHashingTask::AT.cell_start_indices | info.asteroids_state->cell_start_indices,
-                },
-                .render_context = info.render_context,
-                .asteroid_state = info.asteroids_state,
-            });
-
-            info.tg->add_task(MaterialUpdateTask{
-                .views = std::array{
-                    MaterialUpdateTask::AT.globals | info.render_context->tgpu_render_data,
-                    MaterialUpdateTask::AT.asteroid_params | info.asteroids_state->gpu_asteroids,
                 },
                 .render_context = info.render_context,
                 .asteroid_state = info.asteroids_state,
