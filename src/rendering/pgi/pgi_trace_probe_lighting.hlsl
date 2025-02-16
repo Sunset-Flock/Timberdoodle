@@ -49,7 +49,6 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;
     RenderGlobalData* globals;
-    float3 origin;
     float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         let sky = globals->sky_settings;
@@ -245,7 +244,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             else
             {
                 PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
-                light_vis_tester.origin = WorldRayOrigin();
                 payload.color_depth.rgb = shade_material(
                     push.attach.globals, 
                     push.attach.sky_transmittance,
@@ -290,7 +288,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             push.scene.mesh_groups,
             push.scene.entity_combined_transforms
         );
-        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
         MaterialPointData material_point = {};
         material_point.position = WorldRayDirection() * RayTCurrent() + WorldRayOrigin();
         material_point.geometry_normal = tri_point.face_normal;

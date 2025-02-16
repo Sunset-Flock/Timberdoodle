@@ -50,7 +50,7 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
     position += probe_position;
 
-    float4x4* viewproj = {};
+    float4x4* viewproj = Ptr<float4x4>(0);
     if (push.attach.globals.settings.draw_from_observer != 0)
     {
         viewproj = &push.attach.globals.observer_camera.view_proj;

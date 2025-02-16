@@ -195,7 +195,7 @@ func entry_update_probe_irradiance(
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), prev_frame_texel.a), 5.0f);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
-    float4 value = float4(new_radiance, clamp(hysteresis, 0.5f, 0.99f));
+    float4 value = float4(new_radiance, clamp(hysteresis, 0.75f, 0.99f));
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
@@ -768,15 +768,15 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
             update = requested && (every_8th != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_16:
-            int every_16th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index % 16);
+            int every_16th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/4 & 0x3) * 4) == (push.attach.globals.frame_index % 16);
             update = requested && (every_16th != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_32:
-            int every_32th = ((probe_index.x/2 & 0x1) + (probe_index.y/2 & 0x1) * 2 + (probe_index.z/2 & 0x1) * 4) == (push.attach.globals.frame_index % 32);
+            int every_32th = ((probe_index.x/2 & 0x1) + (probe_index.y/4 & 0x3) * 2 + (probe_index.z/4 & 0x3) * 8) == (push.attach.globals.frame_index % 32);
             update = requested && (every_32th != 0);
             break;
         case PGI_UPDATE_RATE_1_OF_64:
-            int every_64th = ((probe_index.x/4 & 0x3) + (probe_index.y/4 & 0x3) * 16 + (probe_index.z/4 & 0x3) * 4) == (push.attach.globals.frame_index % 64);
+            int every_64th = ((probe_index.x/4 & 0x3) + (probe_index.y/4 & 0x3) * 4 + (probe_index.z/4 & 0x3) * 16) == (push.attach.globals.frame_index % 64);
             update = requested && (every_64th != 0);
             break;
         }
@@ -842,7 +842,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     {
         ShaderDebugLineDraw line = {};
         line.start = probe_position;
-        line.end = pgi_probe_index_to_worldspace(settings, PGIProbeInfo(), probe_index);
+        line.end = pgi_probe_index_to_worldspace(settings, PGIProbeInfo::null(), probe_index);
         line.color = float3(1,1,0);
         debug_draw_line(push.attach.globals.debug, line);
     }

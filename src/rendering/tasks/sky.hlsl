@@ -285,7 +285,7 @@ void compute_multiscattering_lut(
         settings->multiscattering_step_count,
         multiscattering_push.globals.samplers.linear_clamp,
         multiscattering_push.transmittance,
-        daxa::Texture2DId<vector<float, 3>>(),
+        daxa::Texture2DId<vector<float, 3>>(0),
     );
     LuminanceRaymarchResult result = integrate_luminance(info);
 

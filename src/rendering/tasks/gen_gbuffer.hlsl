@@ -50,8 +50,8 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
     uint packed_face_normal = 0u;
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
-        CameraInfo* camera = {};
-        CameraInfo* camera_prev = {};
+        CameraInfo* camera = Ptr<CameraInfo>(0);
+        CameraInfo* camera_prev = Ptr<CameraInfo>(0);
         if(push.attachments.globals->settings.draw_from_observer == 1)
         {
             camera = &push.attachments.globals->observer_camera;

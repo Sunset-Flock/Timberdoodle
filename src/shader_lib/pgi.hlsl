@@ -58,6 +58,11 @@ struct PGIProbeInfo
     float3 offset;
     float validity;
 
+    static func null() -> PGIProbeInfo
+    {
+        return PGIProbeInfo(float3(0,0,0),0);
+    }
+
     static func load(PGISettings settings, Texture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
     {
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);

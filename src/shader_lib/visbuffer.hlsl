@@ -215,7 +215,7 @@ VisbufferTriangleGeometry visgeo_triangle_data(
     ret.tri_geo_point.uv_ddx = {};
     ret.tri_geo_point.uv_ddy = {};
     daxa_f32vec2[3] vertex_uvs = {};
-    if (mesh.vertex_uvs != {})
+    if (mesh.vertex_uvs != Ptr<float2>(0))
     {
         vertex_uvs = daxa_f32vec2[3](
             deref_i(mesh.vertex_uvs, ret.tri_geo.vertex_indices.x),
@@ -248,7 +248,7 @@ VisbufferTriangleGeometry visgeo_triangle_data(
     // Calculate Face Normal
     ret.tri_geo_point.face_normal = normalize(cross(world_vertex_positions[1].xyz - world_vertex_positions[0].xyz, world_vertex_positions[2].xyz - world_vertex_positions[0].xyz));
 
-    if ((mesh.vertex_uvs != {}) && !all(ret.tri_geo_point.world_normal == float3(0,0,0)))
+    if ((mesh.vertex_uvs != Ptr<float2>(0)) && !all(ret.tri_geo_point.world_normal == float3(0,0,0)))
     {
         ret.tri_geo_point.world_tangent = geom_compute_uv_tangent(world_vertex_positions, vertex_uvs);
     }

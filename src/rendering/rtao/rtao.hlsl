@@ -151,11 +151,10 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     {
         const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
         const uint primitive_index = PrimitiveIndex();
-        GPUMesh *mesh = {};
         
         const uint mesh_instance_index = InstanceID();
         MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
-        mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
+        GPUMesh *mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
         if (mesh.material_index == INVALID_MANIFEST_INDEX)
         {
             return;
@@ -166,7 +165,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         payload.power = 1.0f - square(luma_constant);
 
-        if ((mesh.vertex_uvs == {}) || material.diffuse_texture_id.is_empty())
+        if ((mesh.vertex_uvs == Ptr<float2>(0)) || material.diffuse_texture_id.is_empty())
         {
             return;
         }
@@ -224,8 +223,8 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
 
     // Blur new samples.
-    float blurred_new_ao = {};
-    {
+    float blurred_new_ao = push.attach.src.get()[index];
+    if (false) {
         // Reads and box blurrs a 6x6 area.
         // Uses 3x3 taps. Each tap is doing a 2x2 linear interpolation.
         // All samples are averaged for the box blur.
@@ -288,8 +287,8 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
             if (depth_weight > 0.1)
             {
-                interpolated_ao_weight_sum += sample_linear_weights[i];
-                interpolated_ao += history_ao[i] * sample_linear_weights[i];
+                interpolated_ao_weight_sum += sample_linear_weights[i] * depth_weight;
+                interpolated_ao += history_ao[i] * sample_linear_weights[i] * depth_weight;
             }
         }
         if (interpolated_ao_weight_sum > 0.01f)

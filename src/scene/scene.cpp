@@ -360,6 +360,7 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
                 .asset_local_primitive_index = in_group_index,
                 .mesh_group_manifest_index = mesh_group_manifest_index,
                 .material_index = material_manifest_index,
+                .name = gltf_mesh.name.c_str(),
             });
             scene._new_mesh_lod_group_manifest_entries += 1;
         }

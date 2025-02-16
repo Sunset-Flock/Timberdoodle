@@ -229,7 +229,7 @@ struct Scene
     daxa::TaskBuffer _gpu_mesh_acceleration_structure_build_scratch_buffer = {};
     daxa::TaskBuffer _gpu_tlas_build_scratch_buffer = {};
     static constexpr u32 _gpu_scratch_buffer_size = 1u << 24u;
-    static constexpr u32 _gpu_mesh_acceleration_structure_build_scratch_buffer_size = 1u << 24u;
+    static constexpr u32 _gpu_mesh_acceleration_structure_build_scratch_buffer_size = 1u << 28u;
     static constexpr u32 _gpu_tlas_build_scratch_buffer_size = 1u << 24u;
     static constexpr u32 _indirections_count = (1 << 26);
     static constexpr u32 MAX_MESH_BLAS_BUILDS_PER_FRAME = 64;

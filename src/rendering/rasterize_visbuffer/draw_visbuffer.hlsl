@@ -584,7 +584,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
             var mvertex = reinterpret<MeshShaderMaskVertex>(vertex);
             mvertex.uv = float2(0,0);
             mvertex.object_space_position = vertex_position.xyz;
-            if (mesh.vertex_uvs != {})
+            if (mesh.vertex_uvs != Ptr<float2>(0))
             {
                 mvertex.uv = mesh.vertex_uvs[in_mesh_vertex_index];
             }

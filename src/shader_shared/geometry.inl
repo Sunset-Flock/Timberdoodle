@@ -107,10 +107,10 @@ DAXA_DECL_BUFFER_PTR_ALIGN(GPUMaterial, 8)
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 static const GPUMaterial GPU_MATERIAL_FALLBACK = GPUMaterial(
-    daxa_ImageViewId(),
-    daxa_ImageViewId(),
-    daxa_ImageViewId(),
-    daxa_ImageViewId(),
+    daxa_ImageViewId(0),
+    daxa_ImageViewId(0),
+    daxa_ImageViewId(0),
+    daxa_ImageViewId(0),
     false,
     false,
     false,
