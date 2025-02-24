@@ -1341,7 +1341,7 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
 
     auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
 
-    for (i32 cube_face = 0; cube_face < 6; ++cube_face)
+    for (i32 cube_face = 4; cube_face < 5; ++cube_face)
     {
         auto const inverse_view = info.light->face_cameras[cube_face].inv_view;
         ShaderDebugBoxDraw box_draw = {};

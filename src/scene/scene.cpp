@@ -1478,11 +1478,6 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
 
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
-
-                    if (is_blend)
-                    {
-                        continue;
-                    }
                     
                     ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
 

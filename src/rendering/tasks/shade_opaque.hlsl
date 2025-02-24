@@ -29,7 +29,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 1;
+static const uint PCF_NUM_SAMPLES = 8;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -332,7 +332,7 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
     }
     info.mip_level = clamp(info.mip_level, 0, 5);
 
-    const float filter_radius = 0.00;
+    const float filter_radius = 0.01;
     float sum = 0.0;
 
     rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f));
