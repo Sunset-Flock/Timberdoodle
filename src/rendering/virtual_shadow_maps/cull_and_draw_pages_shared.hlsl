@@ -133,6 +133,10 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         let vert_2_world_pos = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index_2), 1);
         let vert_2_ndc_pos = mul(camera.view_proj, mul(model_mat, vert_2_world_pos));
 
+        const bool max_behind_near_plane = 
+            (vert_0_ndc_pos.z > vert_0_ndc_pos.w) ||
+            (vert_1_ndc_pos.z > vert_1_ndc_pos.w) ||
+            (vert_2_ndc_pos.z > vert_2_ndc_pos.w);
         let vert_0_clip_pos = vert_0_ndc_pos.xyz / vert_0_ndc_pos.w;
         let vert_1_clip_pos = vert_1_ndc_pos.xyz / vert_1_ndc_pos.w;
         let vert_2_clip_pos = vert_2_ndc_pos.xyz / vert_2_ndc_pos.w;
@@ -176,7 +180,10 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
                 array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
                 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
             }
-            // cull_primitive = is_ndc_aabb_hiz_opacity_occluded(tri_aabb, hiz, base_resolution, array_index);
+            if(! max_behind_near_plane)
+            {
+                cull_primitive = is_ndc_aabb_hiz_opacity_occluded(tri_aabb, hiz, base_resolution, array_index);
+            }
         }
 
         primitive.set_vsm_meta_info(vsm_meta_info);

@@ -324,24 +324,41 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     daxa_u32 array_layer
 )
 {
+    daxa_i32vec2 quad_corner_texel;
+    int imip;
+    daxa_i32 sample_width = 2;
+    daxa_i32vec2 at_mip_pixel_width;
     if (ndc_aabb.ndc_max.z == INVALID_NDC_AABB_Z)
     {
-        return false;
+        sample_width = 1;
+        quad_corner_texel = 0;
+        at_mip_pixel_width = 2;
+        switch(int(f_hiz_resolution.x))
+        {
+            case 64: imip = 5; break;
+            case 32: imip = 4; break;
+            case 16: imip = 3; break;
+            case 8: imip = 2; break;
+            case 4: imip = 1; break;
+            case 2: imip = 0; break;
+        }
+    }
+    else
+    {
+        const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
+        const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
+        const daxa_f32vec2 min_texel_i = clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f);
+        const daxa_f32vec2 max_texel_i = clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f);
+        const float pixel_width = max(max_texel_i.x - min_texel_i.x, max_texel_i.y - min_texel_i.y);
+        const float mip = max(0.0f, ceil(log2(pixel_width)) - log2(sample_width)) /* we want one mip lower, as we sample a quad */;
+
+        imip = int(mip);
+        quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+        const daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
+        const daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
+        at_mip_pixel_width = max_corner_texel - min_corner_texel + 1;
     }
 
-    const daxa_i32 sample_width = 4;
-    const daxa_f32vec2 min_uv = (ndc_aabb.ndc_min.xy + 1.0f) * 0.5f;
-    const daxa_f32vec2 max_uv = (ndc_aabb.ndc_max.xy + 1.0f) * 0.5f;
-    const daxa_f32vec2 min_texel_i = clamp(f_hiz_resolution * min_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f);
-    const daxa_f32vec2 max_texel_i = clamp(f_hiz_resolution * max_uv, daxa_f32vec2(0.0f, 0.0f), f_hiz_resolution - 1.0f);
-    const float pixel_width = max(max_texel_i.x - min_texel_i.x, max_texel_i.y - min_texel_i.y);
-    const float mip = max(0.0f, ceil(log2(pixel_width)) - log2(sample_width)) /* we want one mip lower, as we sample a quad */;
-
-    int imip = int(mip);
-    const daxa_i32vec2 min_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
-    const daxa_i32vec2 max_corner_texel = daxa_i32vec2(max_texel_i) >> imip;
-    const daxa_i32vec2 at_mip_pixel_width = max_corner_texel - min_corner_texel + 1;
-    const daxa_i32vec2 quad_corner_texel = daxa_i32vec2(min_texel_i) >> imip;
     const daxa_i32vec2 texel_bounds = max(daxa_i32vec2(0,0), (daxa_i32vec2(f_hiz_resolution) >> imip) - 1);
 
     Texture2DArray<uint> thiz = Texture2DArray<uint>::get(hiz);

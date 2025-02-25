@@ -677,7 +677,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct;
+                output_value.rgb = directional_light_direct + point_lights_direct;
                 break;
             }
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
@@ -697,7 +697,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_ALL_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
+                output_value.rgb = directional_light_direct + point_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
             case DEBUG_DRAW_MODE_LOD:

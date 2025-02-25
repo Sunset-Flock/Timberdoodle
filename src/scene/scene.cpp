@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <ktx.h>
+#include <random>
 #include "../daxa_helper.hpp"
 
 #include "../shader_shared/raytracing.inl"
@@ -581,30 +582,80 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 
 static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
+    std::array positions = {
+        f32vec3(-6.92f,   6.72f,  6.93f),
+        f32vec3(-15.43f, -3.33f,  6.93f),
+        f32vec3(-3.33f,  -7.40f,  6.93f),
+        f32vec3(-2.80f,  -16.0f,  6.93f),
+        f32vec3( 12.51f, -13.81f, 6.93f),
+        f32vec3( 33.22f, -20.39f, 6.36f),
+        f32vec3( 34.53f, -30.1f,  6.93f),
+        f32vec3( 48.00f, -21.57f, 6.36f),
+        f32vec3( 39.15f, -37.1f,  7.24f),
+        f32vec3( 56.16f, -29.28f, 6.93f),
+        f32vec3( 53.30f, -38.52f, 6.93f),
+        f32vec3( 62.10f, -54.28f, 6.93f),
+        f32vec3( 78.91f, -54.94f, 6.93f),
+        f32vec3(-21.43f, -1.92f,  6.33f),
+        f32vec3(-27.60f,  6.07f,  6.33f),
+        f32vec3(-32.26f, 11.52f,  6.33f),
+        f32vec3(-39.32f, 18.91f,  6.33f),
+        f32vec3(-45.63f, 27.52f,  5.15f),
+        f32vec3(-43.03f, 33.71f,  5.15f),
+    };
+    // std::random_device rnd_device;
+    // std::mt19937 mersenne_engine{ rnd_device() };
+    // std::uniform_real_distribution<f32> position_distribution{ -20, 20};
+    // std::uniform_real_distribution<f32> color_distribution{ 0.0f, 1.0f};    
+    // std::uniform_real_distribution<f32> intensity_distribution{ 1.0f, 4.0f};    
+    // std::uniform_real_distribution<f32> cutoff_distribution{ 5.0f, 15.0f};    
+
+    // for(i32 light_idx = 0; light_idx < MAX_POINT_LIGHTS; ++light_idx)
+    // {
+    //     scene._active_point_lights.push_back({
+    //         .position = {position_distribution(mersenne_engine), std::abs(position_distribution(mersenne_engine) / 2.0f), position_distribution(mersenne_engine)},
+    //         .color = {color_distribution(mersenne_engine), color_distribution(mersenne_engine), color_distribution(mersenne_engine)},
+    //         .intensity = intensity_distribution(mersenne_engine),
+    //         .cutoff = cutoff_distribution(mersenne_engine),
+    //         .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + light_idx * sizeof(GPUPointLight),
+    //     });
+    // }
+
     // TODO(msakmary) Hook this into a scene, this sucks!
-    scene._active_point_lights.push_back({
-        .position = {-2.8f, -11.4f, 3.5f},
-        .color = {1.0f, 0.55f, 0.15f}, 
-        .intensity = 5.0f,
-        .cutoff = 20.0f,
-        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
-    });
+    // scene._active_point_lights.push_back({
+    //     .position = {-2.8f, -11.4f, 3.5f},
+    //     .color = {1.0f, 0.55f, 0.15f}, 
+    //     .intensity = 5.0f,
+    //     .cutoff = 20.0f,
+    //     .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
+    // });
 
-    scene._active_point_lights.push_back({
-        .position = {-15.1f, 1.4f, 4.0f},
-        .color = {1.0f, 0.2f, 0.15f}, 
-        .intensity = 4.0f,
-        .cutoff = 10.0f,
-        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + sizeof(GPUPointLight),
-    });
+    // scene._active_point_lights.push_back({
+    //     .position = {-15.1f, 1.4f, 4.0f},
+    //     .color = {1.0f, 0.2f, 0.15f}, 
+    //     .intensity = 4.0f,
+    //     .cutoff = 10.0f,
+    //     .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + sizeof(GPUPointLight),
+    // });
 
-    scene._active_point_lights.push_back({
-        .position = {-5.51f, 16.5f, 3.0f},
-        .color = {0.2f, 0.3f, 0.15f}, 
-        .intensity = 3.5f,
-        .cutoff = 13.0f,
-        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (2 * sizeof(GPUPointLight)),
-    });
+    // scene._active_point_lights.push_back({
+    //     .position = {-5.51f, 16.5f, 3.0f},
+    //     .color = {0.2f, 0.3f, 0.15f}, 
+    //     .intensity = 3.5f,
+    //     .cutoff = 13.0f,
+    //     .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (2 * sizeof(GPUPointLight)),
+    // });
+
+    for(i32 light_idx = 0; light_idx < MAX_POINT_LIGHTS; ++light_idx)
+    {
+        scene._active_point_lights.push_back({
+            .position = positions[light_idx],
+            .color = {1.0f, 0.55f, 0.15f}, 
+            .intensity = 3.5f,
+            .cutoff = 20.0f,
+            .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (light_idx * sizeof(GPUPointLight)),
+        });
+    }
 
     auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
 

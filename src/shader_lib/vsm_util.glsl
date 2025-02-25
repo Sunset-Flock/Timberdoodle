@@ -365,7 +365,7 @@ PointMipInfo project_into_point_light(
         const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
         const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-        const int clamped_mip_level = clamp(mip_level, 2, 5);
+        const int clamped_mip_level = clamp(mip_level, 1, 5);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
         const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
