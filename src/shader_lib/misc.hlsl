@@ -85,6 +85,7 @@ func AtomicAddU64(__ref uint64_t dest, uint64_t value) -> uint64_t
     spirv_asm
     {
         OpCapability Int64Atomics;
+        OpCapability Int64ImageEXT;
         %origin:$$uint64_t = OpAtomicIAdd &dest Device None $value;
         OpStore &original_value %origin
     };

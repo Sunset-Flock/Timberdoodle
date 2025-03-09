@@ -76,4 +76,6 @@ struct Renderer
     daxa::TaskGraph sky_task_graph;
     daxa::CommandSubmitInfo submit_info = {};
     daxa::ImGuiRenderer* imgui_renderer;
+
+    std::vector<daxa::BinarySemaphore> waiter = {};
 };

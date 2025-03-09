@@ -467,6 +467,7 @@ struct RenderContext
         };
         render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
         render_times.init(gpu_context->device, gpu_context->swapchain.info().max_allowed_frames_in_flight);
+        lighting_phase_wait = gpu_context->device.create_binary_semaphore({.name = "as build to shade phase sema"});
     }
     ~RenderContext()
     {
@@ -499,6 +500,8 @@ struct RenderContext
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
     i32 debug_frustum = {-1};
     bool visualize_frustum = {};
+
+    daxa::BinarySemaphore lighting_phase_wait = {};
 
     // Timing code:
     RenderTimes::State render_times = {};

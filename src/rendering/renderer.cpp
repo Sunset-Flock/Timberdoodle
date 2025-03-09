@@ -198,12 +198,12 @@ void Renderer::compile_pipelines()
         auto compilation_result = this->gpu_context->pipeline_manager.add_raster_pipeline(info);
         if (compilation_result.value()->is_valid())
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                compilation_result.message()));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
+                compilation_result.message()) << std::endl;
         }
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
@@ -225,27 +225,27 @@ void Renderer::compile_pipelines()
         {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(expand_meshes_pipeline_compile_info())},
+        {expand_meshes_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(PrefixSumCommandWriteTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(prefix_sum_upsweep_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(prefix_sum_downsweep_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(compute_transmittance_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(compute_multiscattering_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(compute_sky_pipeline_compile_info())},
+        {compute_transmittance_pipeline_compile_info()},
+        {compute_multiscattering_pipeline_compile_info()},
+        {compute_sky_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(sky_into_cubemap_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_histogram_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_free_wrapped_pages_pipeline_compile_info())},
+        {vsm_free_wrapped_pages_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(CullAndDrawPages_WriteCommandTask::pipeline_compile_info)},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_invalidate_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_mark_required_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_find_free_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_allocate_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_clear_pages_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_gen_dirty_bit_hiz_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_clear_dirty_bit_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_debug_virtual_page_table_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(vsm_debug_meta_memory_table_pipeline_compile_info())},
+        {vsm_invalidate_pages_pipeline_compile_info()},
+        {vsm_mark_required_pages_pipeline_compile_info()},
+        {vsm_find_free_pages_pipeline_compile_info()},
+        {vsm_allocate_pages_pipeline_compile_info()},
+        {vsm_clear_pages_pipeline_compile_info()},
+        {vsm_gen_dirty_bit_hiz_pipeline_compile_info()},
+        {vsm_clear_dirty_bit_pipeline_compile_info()},
+        {vsm_debug_virtual_page_table_pipeline_compile_info()},
+        {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
@@ -259,12 +259,12 @@ void Renderer::compile_pipelines()
         auto compilation_result = this->gpu_context->pipeline_manager.add_compute_pipeline2(info);
         if (compilation_result.value()->is_valid())
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                compilation_result.message()));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
+                compilation_result.message()) << std::endl;
         }
         this->gpu_context->compute_pipelines[info.name] = compilation_result.value();
     }
@@ -279,12 +279,12 @@ void Renderer::compile_pipelines()
         auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline(info);
         if (compilation_result.value()->is_valid())
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
         }
         else
         {
-            DEBUG_MSG(fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                compilation_result.message()));
+            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
+                compilation_result.message()) << std::endl;
         }
         this->gpu_context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
         auto sbt_info = gpu_context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
@@ -682,6 +682,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .gpu_context = gpu_context,
     });
 
+    waiter = {render_context->lighting_phase_wait};
+    tg.submit({
+        .additional_wait_binary_semaphores = &waiter,
+    });
+
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -703,8 +708,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         vsm_state.zero_out_transient_state(tg, render_context->render_data);
     }
-
-    tg.submit({});
 
     auto color_image = tg.create_transient_image({
         .format = daxa::Format::B10G11R11_UFLOAT_PACK32,

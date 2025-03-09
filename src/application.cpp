@@ -210,9 +210,15 @@ void Application::update()
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
 
-    cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
     cmd_lists.at(cmd_list_count++) = _scene->create_tlas_from_mesh_instances(frame_mesh_instances);
     _gpu_context->device.submit_commands({.command_lists = std::span{cmd_lists.data(), cmd_list_count}});
+    
+    cmd_list_count = 0;
+    cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
+    _gpu_context->device.submit_commands({
+        .command_lists = std::span{cmd_lists.data(), cmd_list_count},
+        .signal_binary_semaphores = std::span{ &_renderer->render_context->lighting_phase_wait, 1 }
+    });
 
     // ===== Update GPU Scene Buffers =====
 
