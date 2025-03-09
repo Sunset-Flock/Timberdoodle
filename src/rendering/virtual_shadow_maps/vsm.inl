@@ -211,80 +211,16 @@ DAXA_DECL_TASK_HEAD_END
 #include <glm/gtx/vector_angle.hpp>
 #include "../scene_renderer_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo vsm_invalidate_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl"},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = static_cast<u32>(sizeof(InvalidatePagesH::AttachmentShaderBlob)),
-        .name = std::string{InvalidatePagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_free_wrapped_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl"},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = static_cast<u32>(sizeof(FreeWrappedPagesH::AttachmentShaderBlob)),
-        .name = std::string{FreeWrappedPagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_mark_required_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl"},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = static_cast<u32>(sizeof(MarkRequiredPagesH::AttachmentShaderBlob)),
-        .name = std::string{MarkRequiredPagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_find_free_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/find_free_pages.glsl"}},
-        .push_constant_size = static_cast<u32>(sizeof(FindFreePagesH::AttachmentShaderBlob)),
-        .name = std::string{FindFreePagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_allocate_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/allocate_pages.hlsl"},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = static_cast<u32>(sizeof(AllocatePagesH::AttachmentShaderBlob)),
-        .name = std::string{AllocatePagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_clear_pages_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_pages.glsl"}},
-        .push_constant_size = static_cast<u32>(sizeof(ClearPagesPush)),
-        .name = std::string{ClearPagesH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_gen_dirty_bit_hiz_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl"},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG}},
-        .push_constant_size = static_cast<u32>(sizeof(GenDirtyBitHizPush)),
-        .name = std::string{GenDirtyBitHizH::NAME},
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_pages.glsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
 
 static constexpr inline char const CULL_AND_DRAW_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_pages.hlsl";
 inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_compile_info()
@@ -343,46 +279,6 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_masked_pipeline_c
 inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_pages_pipelines = {
     vsm_cull_and_draw_pages_opaque_pipeline_compile_info(),
     vsm_cull_and_draw_pages_masked_pipeline_compile_info()};
-
-inline daxa::ComputePipelineCompileInfo vsm_clear_dirty_bit_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl"}},
-        .push_constant_size = static_cast<u32>(sizeof(ClearDirtyBitH::AttachmentShaderBlob)),
-        .name = std::string{ClearDirtyBitH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_debug_virtual_page_table_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl"},
-            .compile_options = {
-                .entry_point = "debug_virtual_main",
-                .language = daxa::ShaderLanguage::SLANG,
-            },
-        },
-        .push_constant_size = static_cast<u32>(sizeof(DebugVirtualPageTableH::AttachmentShaderBlob)),
-        .name = std::string{DebugVirtualPageTableH::NAME},
-    };
-}
-
-inline daxa::ComputePipelineCompileInfo vsm_debug_meta_memory_table_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl"},
-            .compile_options = {
-                .entry_point = "debug_meta_main",
-                .language = daxa::ShaderLanguage::SLANG,
-            },
-        },
-        .push_constant_size = static_cast<u32>(sizeof(DebugMetaMemoryTableH::AttachmentShaderBlob)),
-        .name = std::string{DebugMetaMemoryTableH::NAME},
-    };
-}
 
 using CullAndDrawPages_WriteCommandTask = SimpleComputeTaskPushless<
     CullAndDrawPages_WriteCommandH::Task,

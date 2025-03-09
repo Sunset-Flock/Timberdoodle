@@ -103,15 +103,8 @@ struct CullMeshletsDrawVisbufferPush
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
-inline auto cull_meshlets_compute_pipeline_compile_info()
-{
-    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl"}, .entry_point = "entry_compute_meshlet_cull", .push_constant_size = sizeof(CullMeshletsDrawVisbufferPush), .name = "CullMeshletsCompute" };
-}
-
-inline auto draw_meshlets_compute_pipeline_compile_info()
-{
-    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl"}, .entry_point = "entry_mesh_opaque_compute_raster", .push_constant_size = sizeof(DrawVisbufferPush), .name = "DrawMeshletsComputeRaster" };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(cull_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_compute_meshlet_cull")
+inline MAKE_COMPUTE_COMPILE_INFO(draw_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_mesh_opaque_compute_raster")
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
 

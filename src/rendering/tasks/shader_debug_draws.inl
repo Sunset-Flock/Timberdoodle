@@ -273,18 +273,7 @@ struct DebugDrawTask : DebugDrawH::Task
     }
 };
 
-inline auto debug_task_draw_display_image_pipeline_info()
-{
-    return daxa::ComputePipelineCompileInfo2
-    {
-        .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .entry_point = "entry_draw_debug_display",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = sizeof(DebugTaskDrawDebugDisplayPush),
-        .name = "debug_task_pipeline",
-    };
-}
-
+inline MAKE_COMPUTE_COMPILE_INFO(debug_task_draw_display_image_pipeline_info, "./src/rendering/tasks/shader_debug_draws.hlsl", "entry_draw_debug_display")
 
 void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::ComputePipeline& pipeline, bool pre_task)
 {

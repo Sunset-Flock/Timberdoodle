@@ -50,47 +50,10 @@ DAXA_DECL_TASK_HEAD_END
 
 inline static constexpr char const SKY_SHADER_PATH[] = "./src/rendering/tasks/sky.hlsl";
 
-inline daxa::ComputePipelineCompileInfo compute_transmittance_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{SKY_SHADER_PATH},
-            .compile_options = {
-                .entry_point = "compute_transmittance_lut",
-                .language = daxa::ShaderLanguage::SLANG,
-            }
-        },
-        .push_constant_size = sizeof(ComputeTransmittanceH::AttachmentShaderBlob),
-        .name = std::string{ComputeTransmittanceH::NAME}};
-}
-inline daxa::ComputePipelineCompileInfo compute_multiscattering_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{SKY_SHADER_PATH},
-            .compile_options = {
-                .entry_point = "compute_multiscattering_lut",
-                .language = daxa::ShaderLanguage::SLANG,
-            }
-        },
-        .push_constant_size = static_cast<u32>(sizeof(ComputeMultiscatteringH::AttachmentShaderBlob)),
-        .name = std::string{ComputeMultiscatteringH::NAME},
-    };
-}
-inline daxa::ComputePipelineCompileInfo compute_sky_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{SKY_SHADER_PATH},
-            .compile_options = {
-                .entry_point = "compute_sky_lut",
-                .language = daxa::ShaderLanguage::SLANG,
-            }
-        },
-        .push_constant_size = static_cast<u32>(sizeof(ComputeSkyH::AttachmentShaderBlob)),
-        .name = std::string{ComputeSkyH::NAME},
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(compute_transmittance_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_transmittance_lut")
+inline MAKE_COMPUTE_COMPILE_INFO(compute_multiscattering_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_multiscattering_lut")
+inline MAKE_COMPUTE_COMPILE_INFO(compute_sky_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_sky_lut")
+
 inline daxa::ComputePipelineCompileInfo sky_into_cubemap_pipeline_compile_info()
 {
     return {

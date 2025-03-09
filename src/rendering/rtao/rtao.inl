@@ -143,15 +143,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
     }
 };
 
-inline auto rtao_denoiser_pipeline_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return {
-        .source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"},
-        .entry_point = "entry_rtao_denoiser",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(RayTraceAmbientOcclusionPush)),
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(rtao_denoiser_pipeline_info, "./src/rendering/rtao/rtao.hlsl", "entry_rtao_denoiser")
 
 struct RTAODeoinserTask : RTAODenoiserH::Task
 {

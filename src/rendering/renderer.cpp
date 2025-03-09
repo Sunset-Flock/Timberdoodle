@@ -222,7 +222,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
-        {tido::upgrade_compute_pipeline_compile_info(analyze_visbufer_pipeline_compile_info())},
+        {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(expand_meshes_pipeline_compile_info())},
@@ -376,9 +376,9 @@ void Renderer::clear_select_buffers()
         .swapchain = this->gpu_context->swapchain,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "clear task list",
     }};
     tg.use_persistent_buffer(meshlet_instances);
@@ -426,9 +426,9 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
         .device = gpu_context->device,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Calculate sky luts task graph",
     }};
     // TODO:    Do not use globals here, make a new buffer.
@@ -517,9 +517,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), true); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(std::string("debug_task_pipeline")), false); },
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Sandbox main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
@@ -1057,9 +1057,16 @@ void Renderer::render_frame(
     }
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed)
     {
+        main_task_graph = create_main_task_graph();
         recreate_framebuffer();
         clear_select_buffers();
-        main_task_graph = create_main_task_graph();
+    }
+    {
+        // std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
+        // main_task_graph = create_main_task_graph();
+        // std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
+        // u32 duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        // std::cout << "tg compile took " << duration << "us" << std::endl;
     }
     daxa::DeviceAddress render_data_device_address =
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
@@ -1163,5 +1170,12 @@ void Renderer::render_frame(
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size);
 
     u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-    main_task_graph.execute({});
+    
+    {
+        std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
+        main_task_graph.execute({});
+        std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
+        u32 duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+        std::cout << "tg execution took " << duration << "us" << std::endl;
+    }
 }

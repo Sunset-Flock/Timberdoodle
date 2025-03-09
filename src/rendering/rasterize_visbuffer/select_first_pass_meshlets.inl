@@ -74,15 +74,7 @@ static constexpr char PRE_POPULATE_MESHLET_INSTANCES_PATH[] =
 static constexpr char PRE_POPULATE_MESHLET_INSTANCES_PATH_HLSL[] =
     "./src/rendering/rasterize_visbuffer/select_first_pass_meshlets.hlsl";
 
-inline auto sfpm_allocate_ent_bitfield_lists() -> daxa::ComputePipelineCompileInfo2
-{
-    return { 
-        .source = daxa::ShaderFile{PRE_POPULATE_MESHLET_INSTANCES_PATH_HLSL}, 
-        .entry_point = "entry_alloc_ent_bitfield_lists", 
-        .push_constant_size = sizeof(AllocEntBitfieldListsPush),
-        .name = "test",
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(sfpm_allocate_ent_bitfield_lists, "./src/rendering/rasterize_visbuffer/select_first_pass_meshlets.hlsl", "entry_alloc_ent_bitfield_lists")
 
 inline auto alloc_entity_to_mesh_instances_offsets_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo
 {

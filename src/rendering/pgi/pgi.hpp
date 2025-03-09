@@ -8,7 +8,8 @@
 #include "../../shader_shared/gpu_work_expansion.inl"
 #include "../tasks/misc.hpp"
 #include "../../scene/scene.hpp"
-#include"pgi_update.inl"
+#include "pgi_update.inl"
+#include "../../daxa_helper.hpp"
 
 struct PGIState
 {
@@ -35,21 +36,21 @@ struct PGIState
 #include "../scene_renderer_context.hpp"
 #include "../../daxa_helper.hpp"
 
+auto pgi_update_probe_irradiance_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
+auto pgi_update_probes_visibility_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
+auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
+auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
+auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
+auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+
 auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo;
 
-auto pgi_update_probe_irradiance_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2;
-
-auto pgi_update_probes_visibility_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2;
-
-auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2;
-
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo;
-
-auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
-
-auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
-
-auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2;
 
 struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
 {

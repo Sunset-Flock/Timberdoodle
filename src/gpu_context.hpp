@@ -5,6 +5,7 @@
 #include "shader_shared/shared.inl"
 #include "shader_shared/globals.inl"
 #include "shader_shared/vsm_shared.inl"
+#include "daxa_helper.hpp"
 
 template<typename T>
 struct CPUDebugDraws

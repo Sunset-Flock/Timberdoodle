@@ -32,20 +32,8 @@ struct AnalyzeVisbufferPush2
 
 #include "../scene_renderer_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo analyze_visbufer_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/analyze_visbuffer.hlsl"},
-            .compile_options = {
-                .language = daxa::ShaderLanguage::SLANG,
-                .create_flags = daxa::ShaderCreateFlagBits::REQUIRE_FULL_SUBGROUPS,
-            },
-        },
-        .push_constant_size = s_cast<u32>(sizeof(AnalyzeVisbufferPush2)),
-        .name = std::string{AnalyzeVisbuffer2H::NAME},
-    };
-};
+MAKE_COMPUTE_COMPILE_INFO(analyze_visbufer_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/analyze_visbuffer.hlsl", "main")
+
 struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
 {
     AttachmentViews views = {};

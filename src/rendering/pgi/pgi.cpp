@@ -1450,38 +1450,13 @@ static const daxa_i32 PROBE_MESH_INDICES[] = {
 
 static constexpr inline char const PGI_SHADER_PATH[] = "./src/rendering/pgi/pgi_debug_draw_probes.hlsl";
 
-auto pgi_update_probe_irradiance_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
-        .entry_point = "entry_update_probe_irradiance",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbeTexelsPush)),
-        .name = std::string{"entry_update_probe_irradiance"},
-    };
-}
+MAKE_COMPUTE_COMPILE_INFO(pgi_update_probe_irradiance_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_irradiance")
+MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_visibility_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_visibility")
+MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe")
+MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pre_update_probes")
 
-auto pgi_update_probes_visibility_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
-        .entry_point = "entry_update_probe_visibility",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbeTexelsPush)),
-        .name = std::string{"entry_update_probe_visibility"},
-    };
-}
-
-auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
-        .entry_point = "entry_update_probe",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpdateProbesPush)),
-        .name = std::string{"entry_update_probe"},
-    };
-}
+MAKE_COMPUTE_COMPILE_INFO(pgi_eval_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "enty_eval_screen_irradiance")
+MAKE_COMPUTE_COMPILE_INFO(pgi_upscale_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "entry_upscale_screen_irradiance")
 
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo
 {
@@ -1538,7 +1513,7 @@ auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelin
     };
 }
 
-daxa::RasterPipelineCompileInfo pgi_draw_debug_probes_compile_info()
+auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
     ret.color_attachments = std::vector{
@@ -1584,39 +1559,6 @@ daxa::RasterPipelineCompileInfo pgi_draw_debug_probes_compile_info()
     ret.push_constant_size = sizeof(PGIDrawDebugProbesPush);
     ret.name = "PGIDrawDebugProbes";
     return ret;
-}
-
-auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_update.hlsl"},
-        .entry_point = "entry_pre_update_probes",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIPreUpdateProbesPush)),
-        .name = std::string{"entry_pre_update_probes"},
-    };
-}
-
-auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl"},
-        .entry_point = "enty_eval_screen_irradiance",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIEvalScreenIrradiancePush)),
-        .name = std::string{"enty_eval_screen_irradiance"},
-    };
-}
-
-auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl"},
-        .entry_point = "entry_upscale_screen_irradiance",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(PGIUpscaleScreenIrradiancePush)),
-        .name = std::string{"entry_upscale_screen_irradiance"},
-    };
 }
 
 void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)

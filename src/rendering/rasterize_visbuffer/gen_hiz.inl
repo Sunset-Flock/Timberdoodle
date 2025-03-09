@@ -75,10 +75,7 @@ struct GenHizPush2
 
 #include "../scene_renderer_context.hpp"
 
-inline auto gen_hiz_pipeline_compile_info2()
-{
-    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/rasterize_visbuffer/gen_hiz.hlsl"}, .entry_point = "entry_gen_hiz", .push_constant_size = sizeof(GenHizPush2), .name = "GenHiz2" };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(gen_hiz_pipeline_compile_info2, "./src/rendering/rasterize_visbuffer/gen_hiz.hlsl", "entry_gen_hiz")
 
 inline auto fill_cull_data(RenderContext const & render_context) -> CullData
 {

@@ -17,16 +17,7 @@ DAXA_DECL_TASK_HEAD_END
 
 #include "../../scene_renderer_context.hpp"
 
-inline auto brdf_fg_compute_pipeline_info() -> daxa::ComputePipelineCompileInfo2
-{
-    return {
-        .source = daxa::ShaderFile{"./src/rendering/path_trace/kajiya/brdf_fg.hlsl"},
-        .entry_point = "main",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = static_cast<u32>(sizeof(BrdfFgH::AttachmentShaderBlob)),
-        .name = std::string{BrdfFgH::NAME},
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(brdf_fg_compute_pipeline_info, "./src/rendering/path_trace/kajiya/brdf_fg.hlsl", "main")
 
 struct BrdfFgTask : BrdfFgH::Task
 {

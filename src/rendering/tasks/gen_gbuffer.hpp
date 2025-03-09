@@ -22,10 +22,7 @@ static constexpr inline daxa::Format GBUFFER_NORMAL_FORMAT = daxa::Format::R32_U
 // Octagedral 24 bit uint encoded float3 shading normal + 8 bit uint unorm encoded roughness float.
 static constexpr inline daxa::Format GBUFFER_SHADING_NORMAL_ROUGHNESS_FORMAT = daxa::Format::R32_UINT;
 
-inline auto gen_gbuffer_pipeline_compile_info()
-{
-    return daxa::ComputePipelineCompileInfo2{ .source = daxa::ShaderFile{"./src/rendering/tasks/gen_gbuffer.hlsl"}, .entry_point = "entry_gen_gbuffer", .push_constant_size = sizeof(GenGbufferPush), .name = "GenGbuffer" };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(gen_gbuffer_pipeline_compile_info, "./src/rendering/tasks/gen_gbuffer.hlsl", "entry_gen_gbuffer")
 
 struct GenGbufferTask : GenGbufferH::Task
 {

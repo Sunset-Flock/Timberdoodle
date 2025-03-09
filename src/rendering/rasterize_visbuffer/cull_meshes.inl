@@ -40,20 +40,7 @@ struct ExpandMeshesToMeshletsPush
 
 static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl";
 
-inline daxa::ComputePipelineCompileInfo expand_meshes_pipeline_compile_info()
-{
-    return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{CULL_MESHES_SHADER_PATH},
-            .compile_options = {
-                .entry_point = "main",
-                .language = daxa::ShaderLanguage::SLANG,
-            },
-        },
-        .push_constant_size = s_cast<u32>(sizeof(ExpandMeshesToMeshletsPush)),
-        .name = std::string{ExpandMeshesToMeshletsH::NAME},
-    };
-}
+inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
 
 struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
 {

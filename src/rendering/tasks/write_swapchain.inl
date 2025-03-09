@@ -29,16 +29,8 @@ struct WriteSwapchainPush
 
 #include "../../gpu_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo2 write_swapchain_pipeline_compile_info2()
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/tasks/write_swapchain.hlsl"},
-        .entry_point = "entry_write_swapchain",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(WriteSwapchainPush)),
-        .name = std::string{WriteSwapchainH::NAME},
-    };
-};
+inline MAKE_COMPUTE_COMPILE_INFO(write_swapchain_pipeline_compile_info2, "./src/rendering/tasks/write_swapchain.hlsl", "entry_write_swapchain")
+
 struct WriteSwapchainTask : WriteSwapchainH::Task
 {
     AttachmentViews views = {};

@@ -21,4 +21,17 @@ namespace tido
     auto is_format_depth_stencil(daxa::Format format) -> bool;
 
     auto compute_shader_info(char const * ident) -> daxa::ComputePipelineCompileInfo2;
-}
+
+#define MAKE_COMPUTE_COMPILE_INFO(NAME, PATH, ENTRY)                                                   \
+    auto NAME() -> daxa::ComputePipelineCompileInfo2 const &                                           \
+    {                                                                                                  \
+        static const daxa::ComputePipelineCompileInfo2 info = []() {                                   \
+            return daxa::ComputePipelineCompileInfo2{                                                  \
+                .source = daxa::ShaderSource{daxa::ShaderFile{PATH}},                                  \
+                .entry_point = std::string(ENTRY),                                                     \
+                .name = (std::filesystem::path(PATH).filename().string() + "::") + std::string(ENTRY), \
+            };                                                                                         \
+        }();                                                                                           \
+        return info;                                                                                   \
+    }
+} // namespace tido

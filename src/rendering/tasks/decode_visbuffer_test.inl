@@ -33,16 +33,8 @@ struct DecodeVisbufferTestPush
 
 #include "../../gpu_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo2 decode_visbuffer_test_pipeline_info2()
-{
-    return daxa::ComputePipelineCompileInfo2{
-        .source = daxa::ShaderFile{"./src/rendering/tasks/decode_visbuffer_test.hlsl"},
-        .entry_point = "entry_decode_visbuffer",
-        .language = daxa::ShaderLanguage::SLANG,
-        .push_constant_size = s_cast<u32>(sizeof(DecodeVisbufferTestPush)),
-        .name = std::string{DecodeVisbufferTestH::NAME},
-    };
-};
+MAKE_COMPUTE_COMPILE_INFO(decode_visbuffer_test_pipeline_info2, "./src/rendering/tasks/decode_visbuffer_test.hlsl", "entry_decode_visbuffer")
+
 struct DecodeVisbufferTestTask : DecodeVisbufferTestH::Task
 {
     AttachmentViews views = {};

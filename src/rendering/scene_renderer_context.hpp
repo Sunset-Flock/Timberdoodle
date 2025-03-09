@@ -5,6 +5,7 @@
 #include <daxa/utils/imgui.hpp>
 
 #include "../scene/scene.hpp"
+#include "../daxa_helper.hpp"
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/readback.inl"
