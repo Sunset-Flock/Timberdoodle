@@ -51,10 +51,10 @@ DAXA_DECL_TASK_HEAD_BEGIN(GenHizH2)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<float>, src)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DIndex<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
-struct GenHizData
+struct GenHizPush2
 {
     GenHizH2::AttachmentShaderBlob attach;
     daxa_RWBufferPtr(daxa_u32) workgroup_finish_counter;
@@ -62,11 +62,6 @@ struct GenHizData
     daxa_u32 mip_count;
     daxa_u32vec2 dst_mip0_size;
     daxa_u32vec2 src_size;
-};
-
-struct GenHizPush2
-{
-    daxa_BufferPtr(GenHizData) data;
 };
 
 #endif // #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
@@ -127,7 +122,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_hiz_pipeline_compile_info2().name));
             auto const dispatch_x = round_up_div(hiz_size.x * 2, GEN_HIZ_WINDOW_X);
             auto const dispatch_y = round_up_div(hiz_size.y * 2, GEN_HIZ_WINDOW_Y);
-            GenHizData data = {
+            GenHizPush2 push = {
                 .attach = ti.attachment_shader_blob,
                 .workgroup_finish_counter = ti.allocator->allocate_fill(0u).value().device_address,
                 .total_workgroup_count = dispatch_x * dispatch_y,
@@ -135,8 +130,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
                 .dst_mip0_size = hiz_size,
                 .src_size = daxa_u32vec2{ ti.info(AT.src).value().size.x, ti.info(AT.src).value().size.y },
             };
-            auto data_alloc = ti.allocator->allocate_fill(data, 8).value();
-            ti.recorder.push_constant(data_alloc.device_address);
+            ti.recorder.push_constant(push);
             
             render_context->render_times.start_gpu_timer(ti.recorder, info.render_time_index);
             ti.recorder.dispatch({ dispatch_x, dispatch_y, 1 });
