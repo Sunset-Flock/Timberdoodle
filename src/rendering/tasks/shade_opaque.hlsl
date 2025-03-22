@@ -462,9 +462,12 @@ void entry_main_cs(
                 ).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
             }
-            const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
-            mapped_normal = mul(tbn, normal_map_value);
-            
+            // mapped_normal = normal_map_value * 0.5 + 0.5;
+            if (dot(normal_map_value, -1) < 0.9999)
+            {
+                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
+                mapped_normal = mul(tbn, normal_map_value);
+            }
         }
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
@@ -587,7 +590,8 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_MAPPED_NORMAL:
             {
-                let color = mapped_normal * 0.5 + 0.5f;
+                let color = clamp(mapped_normal, 0.0, 1.0); // * 0.5 + 0.5f;
+                // let color = mapped_normal * 0.5 + 0.5f;
                 output_value.rgb = color;
                 break;
             }

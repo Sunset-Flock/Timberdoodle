@@ -250,7 +250,7 @@ VisbufferTriangleGeometry visgeo_triangle_data(
 
     if ((mesh.vertex_uvs != Ptr<float2>(0)) && !all(ret.tri_geo_point.world_normal == float3(0,0,0)))
     {
-        ret.tri_geo_point.world_tangent = geom_compute_uv_tangent(world_vertex_positions, vertex_uvs);
+        geom_compute_uv_tangent(world_vertex_positions, vertex_uvs, ret.tri_geo_point.world_tangent, ret.tri_geo_point.world_bitangent);
     }
     else // When no uvs are available we still want a tangent to construct a tbn even if its not aligned to anything
     {

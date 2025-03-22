@@ -126,8 +126,11 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
                 ).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
             }
-            const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, cross(tri_point.world_tangent, tri_point.world_normal), tri_point.world_normal));
-            mapped_normal = mul(tbn, normal_map_value);
+            if (dot(normal_map_value, -1) < 0.9999)
+            {
+                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
+                mapped_normal = mul(tbn, normal_map_value);
+            }
         }
 
         uint packed_mapped_normal = compress_normal_octahedral_32(mapped_normal);
