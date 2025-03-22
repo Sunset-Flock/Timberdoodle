@@ -2,15 +2,11 @@
   "name": "sandbox",
   "version": "0.1.0",
   "dependencies": [
-    {
-      "name": "daxa",
-      "features": [
-        "utils-pipeline-manager-glslang",
-        "utils-pipeline-manager-slang",
-        "utils-task-graph",
-        "utils-imgui"
-      ]
-    },
+    "vulkan-memory-allocator",
+    "vulkan-headers",
+    "vulkan",
+    "glslang",
+    "shader-slang",
     "glfw3",
     {
       "name": "imgui",
@@ -27,10 +23,5 @@
     "nlohmann-json",
     "implot"
   ],
-  "builtin-baseline": "d5ec528843d29e3a52d745a64b469f810b2cedbf",
-  "vcpkg-configuration": {
-    "overlay-ports": [
-      "deps/daxa"
-    ]
-  }
+  "builtin-baseline": "d5ec528843d29e3a52d745a64b469f810b2cedbf"
 }

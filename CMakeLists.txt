@@ -34,6 +34,15 @@ endif()
 # include_directories(${PROJECT_SOURCE_DIR}/deps/meshoptimizer)
 add_subdirectory(${PROJECT_SOURCE_DIR}/deps/meshoptimizer)
 
+set(DAXA_USE_VCPKG false)
+set(DAXA_ENABLE_UTILS_IMGUI true)
+set(DAXA_ENABLE_UTILS_MEM true)
+set(DAXA_ENABLE_UTILS_PIPELINE_MANAGER_GLSLANG true)
+set(DAXA_ENABLE_UTILS_PIPELINE_MANAGER_SLANG true)
+set(DAXA_ENABLE_UTILS_TASK_GRAPH true)
+set(DAXA_ENABLE_TESTS false)
+add_subdirectory(${PROJECT_SOURCE_DIR}/deps/daxa)
+
 add_executable(${PROJECT_NAME} 
     "src/main.cpp"
     "src/window.cpp"
@@ -52,7 +61,6 @@ add_executable(${PROJECT_NAME}
     "src/json_handler.cpp"
 )
 find_package(fmt CONFIG REQUIRED)
-find_package(daxa CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)     
 find_package(fastgltf CONFIG REQUIRED)
 # find_package(meshoptimizer CONFIG REQUIRED)
