@@ -1450,8 +1450,7 @@ static const daxa_i32 PROBE_MESH_INDICES[] = {
 
 static constexpr inline char const PGI_SHADER_PATH[] = "./src/rendering/pgi/pgi_debug_draw_probes.hlsl";
 
-MAKE_COMPUTE_COMPILE_INFO(pgi_update_probe_irradiance_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_irradiance")
-MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_visibility_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_visibility")
+MAKE_COMPUTE_COMPILE_INFO(pgi_update_probe_texels_pipeline_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe_texels")
 MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_update_probe")
 MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pre_update_probes")
 
@@ -1616,29 +1615,27 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
 {
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_texels_pipeline_compile_info().name));
     PGIUpdateProbeTexelsPush push = {};
     push.attach = ti.attachment_shader_blob;
-    {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_irradiance_pipeline_compile_info().name));
-        ti.recorder.push_constant(push);
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
-        ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-            .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
-        });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_IRRADIANCE);
-    }
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_visibility_pipeline_compile_info().name));
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
-            .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
-        });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_VISIBILITY);
-    }
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBE_TEXELS);
+
+    push.update_radiance = true;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch_indirect({
+        .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+        .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
+    });  
+
+    push.update_radiance = false;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch_indirect({
+        .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+        .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
+    });
+
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBE_TEXELS);
 }
 
 void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)

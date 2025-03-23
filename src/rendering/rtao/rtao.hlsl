@@ -14,6 +14,8 @@
 #include "shader_lib/transform.hlsl"
 
 #define PI 3.1415926535897932384626433832795
+#define RTAO_RANGE 2.0f
+#define RTAO_RANGE_FALLOFF 1
 
 [[vk::push_constant]] RayTraceAmbientOcclusionPush rt_ao_push;
 
@@ -77,7 +79,7 @@ void ray_gen()
 
         RayDesc ray = {};
         ray.Origin = sample_pos;
-        ray.TMax = 1.0f;
+        ray.TMax = RTAO_RANGE;
         ray.TMin = 0.0f;
 
         RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];
@@ -188,7 +190,11 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         let luma = (albedo.r + albedo.g + albedo.b) / 3.0f;
 
-        payload.power = lerp(1.0 - square(luma * luma_constant), 0.2f, 0.2f) * square(1.0f - RayTCurrent());
+        payload.power = lerp(1.0 - square(luma * luma_constant), 0.2f, 0.2f) 
+        #if RTAO_RANGE_FALLOFF
+        * sqrt((RTAO_RANGE - RayTCurrent())/RTAO_RANGE)
+        #endif
+        ;
     }
 }
 

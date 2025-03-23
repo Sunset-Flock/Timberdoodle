@@ -498,7 +498,7 @@ void entry_main_cs(
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             ambient_occlusion = AT.ao_image.get().Load(index);
-            ambient_occlusion = pow(ambient_occlusion, 1.2f);
+            ambient_occlusion = pow(ambient_occlusion, 1.5f);
         }
 
         float3 highlight_lighting = {};
@@ -590,8 +590,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_MAPPED_NORMAL:
             {
-                let color = clamp(mapped_normal, 0.0, 1.0); // * 0.5 + 0.5f;
-                // let color = mapped_normal * 0.5 + 0.5f;
+                let color = mapped_normal * 0.5 + 0.5f;
                 output_value.rgb = color;
                 break;
             }

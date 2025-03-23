@@ -208,8 +208,7 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
-        {pgi_update_probe_irradiance_pipeline_compile_info()},
-        {pgi_update_probes_visibility_pipeline_compile_info()},
+        {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},

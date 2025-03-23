@@ -93,10 +93,8 @@ func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 p
 
 [[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
-[shader("compute")]
-[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
 func entry_update_probe_irradiance(
-    int3 dtid : SV_DispatchThreadID,
+    int3 dtid,
 ) 
 {
     let push = update_probe_texels_push;
@@ -158,7 +156,7 @@ func entry_update_probe_irradiance(
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
         float cos_weight = max(0.0f, (cos_wrap_around + dot(trace_direction, probe_texel_normal)) * cos_wrap_around_rcp);
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
-        if (cos_weight > 0.001f)
+        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches are poorly optimized.
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
             cosine_convoluted_trace_result += sample * cos_weight;
@@ -199,10 +197,8 @@ func entry_update_probe_irradiance(
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
-[shader("compute")]
-[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
 func entry_update_probe_visibility(
-    int3 dtid : SV_DispatchThreadID,
+    int3 dtid,
 ) 
 {
     let push = update_probe_texels_push;
@@ -311,7 +307,7 @@ func entry_update_probe_visibility(
             push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_trace_tex_index,0)] = float2(0.05,power_cos_weight);
         }
         #endif
-        if (power_cos_weight > 0.01f)
+        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches are poorly optimized.
         {
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
@@ -367,7 +363,22 @@ func entry_update_probe_visibility(
     }
 }
 
-// Y W B B P K#YWBBPK
+[shader("compute")]
+[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
+func entry_update_probe_texels(
+    int3 dtid : SV_DispatchThreadID,
+) 
+{
+    let push = update_probe_texels_push;
+    if (push.update_radiance)
+    {
+        entry_update_probe_irradiance(dtid);
+    }
+    else
+    {
+        entry_update_probe_visibility(dtid);
+    }
+}
 
 [[vk::push_constant]] PGIUpdateProbesPush update_probes_push;
 
@@ -402,9 +413,8 @@ func update_free_sphere(inout FreeSphere sphere, float3 point)
 #define PGI_PROBE_VIEW_DISTANCE 1.0
 
 [shader("compute")]
-[numthreads(PGI_UPDATE_WG_XY,PGI_UPDATE_WG_XY,PGI_UPDATE_WG_Z)]
+[numthreads(WARP_SIZE,1,1)]
 func entry_update_probe(
-    int3 dtid : SV_DispatchThreadID,
     int group_id : SV_GroupID,
     int group_index : SV_GroupIndex)
 {
@@ -414,7 +424,7 @@ func entry_update_probe(
     uint indirect_index = {};
     int3 probe_index = {};
     {
-        indirect_index = group_id * 64 + group_index;
+        indirect_index = group_id;
         let overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (overhang)
         {
@@ -440,7 +450,7 @@ func entry_update_probe(
 
     PGIProbeInfo probe_info = {}; // The dummy here is intentionally used to query default world space position.
     float3 original_probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
-    probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
+        probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
 
     rand_seed(push.attach.globals.frame_index);
@@ -451,18 +461,26 @@ func entry_update_probe(
     const float max_probe_distance = settings.max_visibility_distance;
     int s = settings.probe_trace_resolution;
     float trace_res_rcp = rcp(float(settings.probe_trace_resolution));
-
-    float3 average_hit_offset = {};
-    float3 average_backface_hit_offset = {};
-
-    float closest_backface_dist = SOME_LARGE_VALUE;
-    float closest_frontface_dist = SOME_LARGE_VALUE;
-    float3 closest_backface_dir = {};
-    float backface_count = {};
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
-    for (int y = 0; y < s; ++y)
-    for (int x = 0; x < s; ++x)
+    let wave_iterations = round_up_div(s*s, WARP_SIZE);
+
+    // Calculated per lane, then averaged over wavefront.
+    float3 lane_average_hit_offset = {};
+    float3 lane_average_backface_hit_offset = {};
+    float lane_closest_backface_dist = SOME_LARGE_VALUE;
+    float lane_closest_frontface_dist = SOME_LARGE_VALUE;
+    float3 lane_closest_backface_dir = {};
+    float lane_backface_count = {};
+    
+    for (int wave_i = 0; wave_i < wave_iterations; ++wave_i)
     {
+        int i = wave_i * WARP_SIZE + group_index;
+        int y = int(float(i) * rcp(float(s))); // Can not be negative, no need to clamp.
+        int x = i - y * s;
+        if (i >= (s*s))
+        {
+            continue;
+        }
         int2 probe_local_texel = int2(x,y);
         int3 texel = trace_base_texel + int3(x,y,0);
         float2 uv = (float2(probe_local_texel) + texel_trace_noise) * trace_res_rcp;
@@ -478,7 +496,7 @@ func entry_update_probe(
 
         probe_space_dist = min(PGI_PROBE_VIEW_DISTANCE, probe_space_dist);
 
-        average_hit_offset += probe_space_ray_dir * max(0.5f, probe_space_dist);
+        lane_average_hit_offset += probe_space_ray_dir * max(0.5f, probe_space_dist);
 
         if (is_backface_hit)
         {
@@ -487,51 +505,65 @@ func entry_update_probe(
             // if they are very deep they have no space to reposition after they cross the surface.
             if (probe_space_dist < PGI_BACKFACE_ESCAPE_RANGE)
             {
-                if (probe_space_dist < closest_backface_dist)
+                if (probe_space_dist < lane_closest_backface_dist)
                 {
-                    closest_backface_dist = probe_space_dist;
-                    closest_backface_dir = probe_space_ray_dir;
+                    lane_closest_backface_dist = probe_space_dist;
+                    lane_closest_backface_dir = probe_space_ray_dir;
                 }
-                average_backface_hit_offset += probe_space_ray_dir * probe_space_dist;
-                backface_count += 1;
+                lane_average_backface_hit_offset += probe_space_ray_dir * probe_space_dist;
+                lane_backface_count += 1;
             }
         }
         else
         {
-            closest_frontface_dist = min(closest_frontface_dist, probe_space_dist);
+            lane_closest_frontface_dist = min(lane_closest_frontface_dist, probe_space_dist);
         }
     }
+
+    let backface_count = WaveActiveSum(lane_backface_count);
+    let wave_lane_closest_backface_dist = WaveActiveMin(lane_closest_backface_dist);
+    let lane_has_min = wave_lane_closest_backface_dist == lane_closest_backface_dist;
+    let elect = firstbitlow(WaveActiveBallot(lane_has_min).x);
+    var closest_backface_dist = WaveShuffle(wave_lane_closest_backface_dist, elect);
+    var closest_backface_dir = WaveShuffle(lane_closest_backface_dir, elect);
+    let closest_frontface_dist = WaveActiveMin(lane_closest_frontface_dist);
+    var average_hit_offset = WaveActiveSum(lane_average_hit_offset);
+    var average_backface_hit_offset = WaveActiveSum(lane_average_backface_hit_offset);
 
     average_hit_offset *= rcp(float(s*s));
     if (backface_count > 0)
     {
         average_backface_hit_offset *= rcp(float(backface_count));
     }
-
+    
     float3 spring_force = {};
-    for (int x = -1; x <= 1; ++x)
-    for (int y = -1; y <= 1; ++y)
-    for (int z = -1; z <= 1; ++z)
+    if (group_index < 6)
     {
+        int x = (group_index == 0 ? 1 : 0) + (group_index == 1 ? -1 : 0);
+        int y = (group_index == 2 ? 1 : 0) + (group_index == 3 ? -1 : 0);
+        int z = (group_index == 4 ? 1 : 0) + (group_index == 5 ? -1 : 0);
         int3 other_probe_index_offset = int3(x,y,z);
         int3 other_probe_index = probe_index + other_probe_index_offset;
         other_probe_index = clamp(other_probe_index, int3(0,0,0), settings.probe_count - 1);
 
-        bool3 sett = other_probe_index_offset != int3(0,0,0);
-
-        if (all(other_probe_index == probe_index) || ((sett.x + sett.y + sett.z) != 1))
-            continue;
-
-        PGIProbeInfo other_info = PGIProbeInfo::load(settings, push.attach.probe_info_copy.get(), other_probe_index);
-
-        float3 equilibrium_diff = lerp(other_info.offset - probe_info.offset, - probe_info.offset, 0.1f);
-        float diff_magnitude = min(1.0f, length(equilibrium_diff));
-        if (length(equilibrium_diff) > 0.0f)
+        if (all(other_probe_index != probe_index))
         {
-            spring_force += equilibrium_diff * diff_magnitude * diff_magnitude * diff_magnitude;
+            PGIProbeInfo other_info = PGIProbeInfo::load(settings, push.attach.probe_info_copy.get(), other_probe_index);
+
+            float3 equilibrium_diff = lerp(other_info.offset - probe_info.offset, - probe_info.offset, 0.1f);
+            float diff_magnitude = min(1.0f, length(equilibrium_diff));
+            if (length(equilibrium_diff) > 0.0f)
+            {
+                spring_force += equilibrium_diff * diff_magnitude * diff_magnitude * diff_magnitude;
+            }
         }
     }
+    spring_force = WaveActiveSum(spring_force);
 
+    if (!WaveIsFirstLane())
+    {
+        return;
+    }
 
     probe_info.validity += 0.05f;
 
@@ -861,7 +893,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         {
             let probe_update_count = min(PGI_MAX_UPDATES_PER_FRAME, push.attach.probe_indirections.probe_update_count);
             let detailed_probe_count = push.attach.probe_indirections.detailed_probe_count;
-            let probe_update_workgroups_x = round_up_div(probe_update_count, 64);
+            let probe_update_workgroups_x = probe_update_count; //round_up_div(probe_update_count, 64);
 
             push.attach.globals.readback.requested_probes = probe_update_count;
 

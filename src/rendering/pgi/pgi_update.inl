@@ -52,6 +52,7 @@ DAXA_DECL_TASK_HEAD_END
 struct PGIUpdateProbeTexelsPush
 {
     PGIUpdateProbeTexelsH::AttachmentShaderBlob attach;
+    bool update_radiance;
 };
 
 DAXA_DECL_TASK_HEAD_BEGIN(PGIUpdateProbesH)

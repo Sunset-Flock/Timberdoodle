@@ -36,9 +36,7 @@ struct PGIState
 #include "../scene_renderer_context.hpp"
 #include "../../daxa_helper.hpp"
 
-auto pgi_update_probe_irradiance_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
-
-auto pgi_update_probes_visibility_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
+auto pgi_update_probe_texels_pipeline_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
 auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 

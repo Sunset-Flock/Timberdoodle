@@ -19,28 +19,31 @@ using HWND = void *;
 #define DAXA_SHADER_INCLUDE_DIR "."
 #endif
 
-template<typename T>
-struct _MAP_Test { constexpr static int I = 0; };
+template <typename T>
+struct _MAP_Test
+{
+    constexpr static int I = 0;
+};
 
-#define TEST(X) _MAP_ ## X::I
+#define TEST(X) _MAP_##X::I
 
 GPUContext::GPUContext(Window const & window)
-    : instance{daxa::create_instance({})}, device{[&](){
+    : instance{daxa::create_instance({})}, device{[&]()
+                                               {
+                                                   auto required_implicit =
+                                                       daxa::ImplicitFeatureFlagBits::BASIC_RAY_TRACING |
+                                                       daxa::ImplicitFeatureFlagBits::MESH_SHADER |
+                                                       daxa::ImplicitFeatureFlagBits::SWAPCHAIN;
 
-        auto required_implicit = 
-            daxa::ImplicitFeatureFlagBits::BASIC_RAY_TRACING |
-            daxa::ImplicitFeatureFlagBits::MESH_SHADER |
-            daxa::ImplicitFeatureFlagBits::SWAPCHAIN;
+                                                   auto device_info = daxa::DeviceInfo2{};
+                                                   device_info.max_allowed_images = 100000;
+                                                   device_info.max_allowed_buffers = 100000;
+                                                   device_info.name = "Sandbox Device";
 
-        auto device_info = daxa::DeviceInfo2{};
-        device_info.max_allowed_images = 100000;
-        device_info.max_allowed_buffers = 100000;
-        device_info.name = "Sandbox Device";
+                                                   device_info = this->instance.choose_device(required_implicit, device_info);
 
-        device_info = this->instance.choose_device(required_implicit, device_info);
-
-        return this->instance.create_device_2(device_info);
-    }()},
+                                                   return this->instance.create_device_2(device_info);
+                                               }()},
       swapchain{this->device.create_swapchain({
           .native_window = glfwGetWin32Window(window.glfw_handle),
           .native_window_platform = daxa::NativeWindowPlatform::WIN32_API,
@@ -59,38 +62,31 @@ GPUContext::GPUContext(Window const & window)
       })},
       pipeline_manager{daxa::PipelineManager{{
           .device = this->device,
-          .shader_compile_options =
-              []()
-          {
-              // msvc time!
-              return daxa::ShaderCompileOptions{
-                  .root_paths =
-                      {
-                          "./src",
-                          DAXA_SHADER_INCLUDE_DIR,
-                      },
-                  .write_out_preprocessed_code = "./preproc",
-                  .write_out_shader_binary = "./spv_raw",
-                  .spirv_cache_folder = "spv",
-                  .language = daxa::ShaderLanguage::GLSL,
-                  .enable_debug_info = true,
-              };
-          }(),
+          .root_paths =
+              {
+                  "./src",
+                  DAXA_SHADER_INCLUDE_DIR,
+              },
+          .write_out_preprocessed_code = "./preproc",
+          .write_out_spirv = "./spv_raw",
+          .spirv_cache_folder = "spv",
           .register_null_pipelines_when_first_compile_fails = true,
+          .default_language = daxa::ShaderLanguage::GLSL,
+          .default_enable_debug_info = true,
           .name = "Sandbox PipelineCompiler",
       }}},
       dummy_tlas_id{
-        device.create_tlas({
-            .size = 1u,
-            .name = "dummy tlas",
-        })},
+          device.create_tlas({
+              .size = 1u,
+              .name = "dummy tlas",
+          })},
       lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})},
-      nearest_clamp_sampler{this->device.create_sampler({  
-        .magnification_filter = daxa::Filter::NEAREST,
-        .minification_filter = daxa::Filter::NEAREST,
-        .mipmap_filter = daxa::Filter::NEAREST,
-        .name = "default nearest clamp sampler",
-    })}
+      nearest_clamp_sampler{this->device.create_sampler({
+          .magnification_filter = daxa::Filter::NEAREST,
+          .minification_filter = daxa::Filter::NEAREST,
+          .mipmap_filter = daxa::Filter::NEAREST,
+          .name = "default nearest clamp sampler",
+      })}
 {
     shader_debug_context.init(device);
 }
