@@ -136,14 +136,14 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
     info.meshlet_expansions = std::array{opaque_expansion, masked_expansion};
 
     info.tg.add_task(ExpandMeshesToMeshletsTask{
-        .views = std::array{
-            ExpandMeshesToMeshletsH::AT.globals | info.globals,
-            ExpandMeshesToMeshletsH::AT.mesh_instances | info.mesh_instances,
-            ExpandMeshesToMeshletsH::AT.opaque_expansion | info.meshlet_expansions[0],
-            ExpandMeshesToMeshletsH::AT.masked_expansion | info.meshlet_expansions[1],
-            ExpandMeshesToMeshletsH::AT.hiz | info.hiz,
-            ExpandMeshesToMeshletsH::AT.hip | info.vsm_hip,
-            ExpandMeshesToMeshletsH::AT.vsm_clip_projections | info.vsm_clip_projections,
+        .views = ExpandMeshesToMeshletsTask::Views{
+            .globals = info.globals,
+            .mesh_instances = info.mesh_instances,
+            .hiz = info.hiz,
+            .hip = info.vsm_hip,
+            .opaque_expansion = info.meshlet_expansions[0],
+            .masked_expansion = info.meshlet_expansions[1],
+            .vsm_clip_projections = info.vsm_clip_projections,
         },
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,

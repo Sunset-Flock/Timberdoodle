@@ -450,18 +450,18 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     });
 
     tg.add_task(ComputeTransmittanceTask{
-        .views = std::array{
-            ComputeTransmittanceH::AT.globals | render_context->tgpu_render_data,
-            ComputeTransmittanceH::AT.transmittance | transmittance,
+        .views = ComputeTransmittanceTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
         },
         .gpu_context = gpu_context,
     });
 
     tg.add_task(ComputeMultiscatteringTask{
-        .views = std::array{
-            ComputeMultiscatteringH::AT.globals | render_context->tgpu_render_data,
-            ComputeMultiscatteringH::AT.transmittance | transmittance,
-            ComputeMultiscatteringH::AT.multiscattering | multiscattering,
+        .views = ComputeMultiscatteringTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
+            .multiscattering = multiscattering,
         },
         .render_context = render_context.get(),
     });
@@ -574,7 +574,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.clear_image({debug_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
 
     tg.add_task(ReadbackTask{
-        .views = std::array{daxa::attachment_view(ReadbackH::AT.globals, render_context->tgpu_render_data)},
+        .views = ReadbackTask::Views{.globals = render_context->tgpu_render_data},
         .shader_debug_context = &gpu_context->shader_debug_context,
     });
     tg.add_task({
@@ -609,16 +609,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_face_normal_image = main_camera_face_normal_image;
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
     tg.add_task(GenGbufferTask{
-        .views = std::array{
-            GenGbufferTask::AT.globals | render_context->tgpu_render_data,
-            GenGbufferTask::AT.debug_image | debug_image,
-            GenGbufferTask::AT.vis_image | main_camera_visbuffer,
-            GenGbufferTask::AT.face_normal_image | view_camera_face_normal_image,
-            GenGbufferTask::AT.detail_normal_image | main_camera_detail_normal_image,
-            GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
-            GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
-            GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
-            GenGbufferTask::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+        .views = GenGbufferTask::Views{
+            .globals = render_context->tgpu_render_data.view(),
+            .debug_image = debug_image,
+            .vis_image = main_camera_visbuffer,
+            .face_normal_image = view_camera_face_normal_image,
+            .detail_normal_image = main_camera_detail_normal_image,
+            .material_manifest = scene->_gpu_material_manifest.view(),
+            .meshes = scene->_gpu_mesh_manifest.view(),
+            .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
+            .instantiated_meshlets = meshlet_instances.view(),
         },
         .render_context = render_context.get(),
     });
@@ -639,16 +639,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .name = "view_camera_detail_normal_image",
         });
         tg.add_task(GenGbufferTask{
-            .views = std::array{
-                GenGbufferTask::AT.globals | render_context->tgpu_render_data,
-                GenGbufferTask::AT.debug_image | debug_image,
-                GenGbufferTask::AT.vis_image | view_camera_visbuffer,
-                GenGbufferTask::AT.face_normal_image | view_camera_face_normal_image,
-                GenGbufferTask::AT.detail_normal_image | view_camera_detail_normal_image,
-                GenGbufferTask::AT.material_manifest | scene->_gpu_material_manifest,
-                GenGbufferTask::AT.instantiated_meshlets | meshlet_instances,
-                GenGbufferTask::AT.meshes | scene->_gpu_mesh_manifest,
-                GenGbufferTask::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
+            .views = GenGbufferTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .debug_image = debug_image,
+                .vis_image = view_camera_visbuffer,
+                .face_normal_image = view_camera_face_normal_image,
+                .detail_normal_image = view_camera_detail_normal_image,
+                .material_manifest = scene->_gpu_material_manifest,
+                .meshes = scene->_gpu_mesh_manifest,
+                .combined_transforms = scene->_gpu_entity_combined_transforms,
+                .instantiated_meshlets = meshlet_instances,
             },
             .render_context = render_context.get(),
         });
@@ -663,20 +663,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
     tg.add_task(ComputeSkyTask{
-        .views = std::array{
-            ComputeSkyH::AT.globals | render_context->tgpu_render_data,
-            ComputeSkyH::AT.transmittance | transmittance,
-            ComputeSkyH::AT.multiscattering | multiscattering,
-            ComputeSkyH::AT.sky | sky,
+        .views = ComputeSkyTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
+            .multiscattering = multiscattering,
+            .sky = sky,
         },
         .render_context = render_context.get(),
     });
     tg.add_task(SkyIntoCubemapTask{
-        .views = std::array{
-            SkyIntoCubemapH::AT.globals | render_context->tgpu_render_data,
-            SkyIntoCubemapH::AT.transmittance | transmittance,
-            SkyIntoCubemapH::AT.sky | sky,
-            SkyIntoCubemapH::AT.ibl_cube | sky_ibl_view,
+        .views = SkyIntoCubemapTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
+            .sky = sky,
+            .ibl_cube = sky_ibl_view,
         },
         .gpu_context = gpu_context,
     });
@@ -735,29 +735,29 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .name = "brdf_fg_lut",
         });
         tg.add_task(BrdfFgTask{
-            .views = std::array{
-                BrdfFgH::AT.globals | render_context->tgpu_render_data,
-                BrdfFgH::AT.output_tex | brdf_fg_lut,
+            .views = BrdfFgTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .output_tex = brdf_fg_lut,
             },
             .render_context = render_context.get(),
         });
 
         tg.add_task(ReferencePathTraceTask{
-            .views = std::array{
-                ReferencePathTraceH::AT.globals | render_context->tgpu_render_data,
-                ReferencePathTraceH::AT.debug_image | debug_image,
-                ReferencePathTraceH::AT.debug_lens_image | debug_lens_image,
-                ReferencePathTraceH::AT.pt_image | color_image,
-                ReferencePathTraceH::AT.history_image | path_trace_history,
-                ReferencePathTraceH::AT.vis_image | view_camera_visbuffer,
-                ReferencePathTraceH::AT.transmittance | transmittance,
-                ReferencePathTraceH::AT.sky | sky,
-                ReferencePathTraceH::AT.sky_ibl | sky_ibl_view,
-                ReferencePathTraceH::AT.brdf_lut | brdf_fg_lut,
-                ReferencePathTraceH::AT.luminance_average | luminance_average,
-                ReferencePathTraceH::AT.tlas | scene->_scene_tlas,
-                ReferencePathTraceH::AT.mesh_instances | scene->mesh_instances_buffer,
-                ReferencePathTraceH::AT.meshlet_instances | meshlet_instances,
+            .views = ReferencePathTraceTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .debug_lens_image = debug_lens_image,
+                .debug_image = debug_image,
+                .pt_image = color_image,
+                .history_image = path_trace_history,
+                .vis_image = view_camera_visbuffer,
+                .transmittance = transmittance,
+                .sky = sky,
+                .sky_ibl = sky_ibl_view,
+                .brdf_lut = brdf_fg_lut,
+                .luminance_average = luminance_average,
+                .meshlet_instances = meshlet_instances,
+                .mesh_instances = scene->mesh_instances_buffer,
+                .tlas = scene->_scene_tlas,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
@@ -783,31 +783,31 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             tg.clear_image({ao_image_raw, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
             tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
             tg.add_task(RayTraceAmbientOcclusionTask{
-                .views = std::array{
-                    RayTraceAmbientOcclusionH::AT.globals | render_context->tgpu_render_data,
-                    RayTraceAmbientOcclusionH::AT.debug_image | debug_image,
-                    RayTraceAmbientOcclusionH::AT.debug_lens_image | debug_lens_image,
-                    RayTraceAmbientOcclusionH::AT.ao_image | ao_image_raw,
-                    RayTraceAmbientOcclusionH::AT.view_cam_visbuffer | main_camera_visbuffer,
-                    RayTraceAmbientOcclusionH::AT.view_cam_depth | main_camera_depth,
-                    RayTraceAmbientOcclusionH::AT.view_cam_detail_normals | main_camera_detail_normal_image,
-                    RayTraceAmbientOcclusionH::AT.sky | sky,
-                    RayTraceAmbientOcclusionH::AT.tlas | scene->_scene_tlas,
-                    RayTraceAmbientOcclusionH::AT.mesh_instances | scene->mesh_instances_buffer,
-                    RayTraceAmbientOcclusionH::AT.meshlet_instances | meshlet_instances,
+                .views = RayTraceAmbientOcclusionTask::Views{
+                    .globals = render_context->tgpu_render_data,
+                    .debug_lens_image = debug_lens_image,
+                    .debug_image = debug_image,
+                    .ao_image = ao_image_raw,
+                    .view_cam_depth = main_camera_depth,
+                    .view_cam_detail_normals = main_camera_detail_normal_image,
+                    .view_cam_visbuffer = main_camera_visbuffer,
+                    .sky = sky,
+                    .meshlet_instances = meshlet_instances,
+                    .mesh_instances = scene->mesh_instances_buffer,
+                    .tlas = scene->_scene_tlas,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
             });
             tg.add_task(RTAODeoinserTask{
-                .views = std::array{
-                    RTAODeoinserTask::AT.globals | render_context->tgpu_render_data,
-                    RTAODeoinserTask::AT.debug_image | debug_image,
-                    RTAODeoinserTask::AT.face_normals | main_camera_face_normal_image,
-                    RTAODeoinserTask::AT.history | rtao_history,
-                    RTAODeoinserTask::AT.depth | main_camera_depth,
-                    RTAODeoinserTask::AT.src | ao_image_raw,
-                    RTAODeoinserTask::AT.dst | ao_image,
+                .views = RTAODeoinserTask::Views{
+                    .globals = render_context->tgpu_render_data,
+                    .debug_image = debug_image,
+                    .face_normals = main_camera_face_normal_image,
+                    .history = rtao_history,
+                    .depth = main_camera_depth,
+                    .src = ao_image_raw,
+                    .dst = ao_image,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
@@ -817,54 +817,54 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         tg.add_task(ShadeOpaqueTask{
-            .views = std::array{
-                ShadeOpaqueH::AT.debug_lens_image | debug_lens_image,
-                ShadeOpaqueH::AT.ao_image | ao_image,
-                ShadeOpaqueH::AT.globals | render_context->tgpu_render_data,
-                ShadeOpaqueH::AT.color_image | color_image,
-                ShadeOpaqueH::AT.vis_image | view_camera_visbuffer,
-                ShadeOpaqueH::AT.transmittance | transmittance,
-                ShadeOpaqueH::AT.sky | sky,
-                ShadeOpaqueH::AT.sky_ibl | sky_ibl_view,
-                ShadeOpaqueH::AT.vsm_page_table | vsm_page_table_view,
-                ShadeOpaqueH::AT.vsm_page_view_pos_row | vsm_page_heigh_offsets_view,
-                ShadeOpaqueH::AT.material_manifest | scene->_gpu_material_manifest,
-                ShadeOpaqueH::AT.instantiated_meshlets | meshlet_instances,
-                ShadeOpaqueH::AT.meshes | scene->_gpu_mesh_manifest,
-                ShadeOpaqueH::AT.combined_transforms | scene->_gpu_entity_combined_transforms,
-                ShadeOpaqueH::AT.luminance_average | luminance_average,
-                ShadeOpaqueH::AT.vsm_memory_block | vsm_state.memory_block,
-                ShadeOpaqueH::AT.vsm_clip_projections | vsm_state.clip_projections,
-                ShadeOpaqueH::AT.vsm_globals | vsm_state.globals,
-                ShadeOpaqueH::AT.vsm_overdraw_debug | vsm_state.overdraw_debug_image,
-                ShadeOpaqueH::AT.vsm_wrapped_pages | vsm_state.free_wrapped_pages_info,
-                ShadeOpaqueH::AT.debug_image | debug_image,
-                ShadeOpaqueH::AT.overdraw_image | overdraw_image,
-                ShadeOpaqueH::AT.tlas | scene->_scene_tlas,
-                ShadeOpaqueH::AT.point_lights | scene->_gpu_point_lights,
-                ShadeOpaqueH::AT.vsm_point_lights | vsm_state.vsm_point_lights,
-                ShadeOpaqueH::AT.mesh_instances | scene->mesh_instances_buffer,
-                ShadeOpaqueH::AT.pgi_screen_irrdiance | pgi_screen_irrdiance,
-                ShadeOpaqueH::AT.depth | view_camera_depth,
+            .views = ShadeOpaqueTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .debug_lens_image = debug_lens_image,
+                .color_image = color_image,
+                .ao_image = ao_image,
+                .vis_image = view_camera_visbuffer,
+                .pgi_screen_irrdiance = pgi_screen_irrdiance,
+                .depth = view_camera_depth,
+                .debug_image = debug_image,
+                .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
+                .transmittance = transmittance,
+                .sky = sky,
+                .sky_ibl = sky_ibl_view,
+                .vsm_page_table = vsm_page_table_view,
+                .vsm_page_view_pos_row = vsm_page_heigh_offsets_view,
+                .vsm_memory_block = vsm_state.memory_block,
+                .overdraw_image = overdraw_image,
+                .material_manifest = scene->_gpu_material_manifest,
+                .instantiated_meshlets = meshlet_instances,
+                .meshes = scene->_gpu_mesh_manifest,
+                .combined_transforms = scene->_gpu_entity_combined_transforms,
+                .luminance_average = luminance_average,
+                .vsm_clip_projections = vsm_state.clip_projections,
+                .vsm_globals = vsm_state.globals,
+                .vsm_point_lights = vsm_state.vsm_point_lights,
+                .vsm_wrapped_pages = vsm_state.free_wrapped_pages_info,
+                .point_lights = scene->_gpu_point_lights,
+                .mesh_instances = scene->mesh_instances_buffer,
+                .tlas = scene->_scene_tlas,
             },
             .render_context = render_context.get(),
         });
     }
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
     tg.add_task(GenLuminanceHistogramTask{
-        .views = std::array{
-            GenLuminanceHistogramH::AT.globals | render_context->tgpu_render_data,
-            GenLuminanceHistogramH::AT.histogram | luminance_histogram,
-            GenLuminanceHistogramH::AT.luminance_average | luminance_average,
-            GenLuminanceHistogramH::AT.color_image | color_image,
+        .views = GenLuminanceHistogramTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .histogram = luminance_histogram,
+            .luminance_average = luminance_average,
+            .color_image = color_image,
         },
         .render_context = render_context.get(),
     });
     tg.add_task(GenLuminanceAverageTask{
-        .views = std::array{
-            GenLuminanceAverageH::AT.globals | render_context->tgpu_render_data,
-            GenLuminanceAverageH::AT.histogram | luminance_histogram,
-            GenLuminanceAverageH::AT.luminance_average | luminance_average,
+        .views = GenLuminanceAverageTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .histogram = luminance_histogram,
+            .luminance_average = luminance_average,
         },
         .gpu_context = gpu_context,
     });
@@ -877,36 +877,36 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.pgi_settings.enabled)
     {
         tg.add_task(PGIDrawDebugProbesTask{
-            .views = std::array{
-                PGIDrawDebugProbesH::AT.globals | render_context->tgpu_render_data,
-                PGIDrawDebugProbesH::AT.luminance_average | luminance_average,
-                PGIDrawDebugProbesH::AT.probe_indirections | pgi_indirections,
-                PGIDrawDebugProbesH::AT.color_image | color_image,
-                PGIDrawDebugProbesH::AT.depth_image | debug_draw_depth,
-                PGIDrawDebugProbesH::AT.probe_radiance | pgi_state.probe_radiance_view,
-                PGIDrawDebugProbesH::AT.probe_visibility | pgi_state.probe_visibility_view,
-                PGIDrawDebugProbesH::AT.probe_info | pgi_state.probe_info_view,
-                PGIDrawDebugProbesH::AT.probe_requests | pgi_state.cell_requests_view,
-                PGIDrawDebugProbesH::AT.tlas | scene->_scene_tlas,
+            .views = PGIDrawDebugProbesTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .luminance_average = luminance_average,
+                .probe_indirections = pgi_indirections,
+                .color_image = color_image,
+                .depth_image = debug_draw_depth,
+                .probe_radiance = pgi_state.probe_radiance_view,
+                .probe_visibility = pgi_state.probe_visibility_view,
+                .probe_info = pgi_state.probe_info_view,
+                .probe_requests = pgi_state.cell_requests_view,
+                .tlas = scene->_scene_tlas,
             },
             .render_context = render_context.get(),
             .pgi_state = &pgi_state,
         });
     }
     tg.add_task(DebugDrawTask{
-        .views = std::array{
-            DebugDrawH::AT.globals | render_context->tgpu_render_data,
-            DebugDrawH::AT.color_image | color_image,
-            DebugDrawH::AT.depth_image | debug_draw_depth,
+        .views = DebugDrawTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .color_image = color_image,
+            .depth_image = debug_draw_depth,
         },
         .render_context = render_context.get(),
     });
     tg.add_task(WriteSwapchainTask{
-        .views = std::array{
-            WriteSwapchainH::AT.globals | render_context->tgpu_render_data,
-            WriteSwapchainH::AT.debug_image | debug_image,
-            WriteSwapchainH::AT.swapchain | swapchain_image,
-            WriteSwapchainH::AT.color_image | color_image,
+        .views = WriteSwapchainTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .debug_image = debug_image,
+            .color_image = color_image,
+            .swapchain = swapchain_image,
         },
         .gpu_context = gpu_context,
     });

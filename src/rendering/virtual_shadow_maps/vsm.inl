@@ -597,26 +597,26 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     });
 
     info.tg->add_task(InvalidatePagesTask{
-        .views = std::array{
-            daxa::attachment_view(InvalidatePagesH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(InvalidatePagesH::AT.mesh_instances, info.mesh_instances),
-            daxa::attachment_view(InvalidatePagesH::AT.meshes, info.meshes),
-            daxa::attachment_view(InvalidatePagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
-            daxa::attachment_view(InvalidatePagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(InvalidatePagesH::AT.free_wrapped_pages_info, info.vsm_state->free_wrapped_pages_info),
-            daxa::attachment_view(InvalidatePagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(InvalidatePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        .views = InvalidatePagesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .mesh_instances = info.mesh_instances,
+            .meshes = info.meshes,
+            .entity_combined_transforms = info.entity_combined_transforms,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .free_wrapped_pages_info = info.vsm_state->free_wrapped_pages_info,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(FreeWrappedPagesTask{
-        .views = std::array{
-            daxa::attachment_view(FreeWrappedPagesH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(FreeWrappedPagesH::AT.free_wrapped_pages_info, info.vsm_state->free_wrapped_pages_info),
-            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(FreeWrappedPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        .views = FreeWrappedPagesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .free_wrapped_pages_info = info.vsm_state->free_wrapped_pages_info,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
         },
         .render_context = info.render_context,
     });
@@ -628,50 +628,50 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .layer_count = 6,
     });
     info.tg->add_task(MarkRequiredPagesTask{
-        .views = std::array{
-            daxa::attachment_view(MarkRequiredPagesH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(MarkRequiredPagesH::AT.g_buffer_depth, info.g_buffer_depth),
-            daxa::attachment_view(MarkRequiredPagesH::AT.g_buffer_geo_normal, info.g_buffer_geo_normal),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
-            daxa::attachment_view(MarkRequiredPagesH::AT.vsm_point_page_table, vsm_point_page_table_view)
+        .views = MarkRequiredPagesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_globals = info.vsm_state->globals,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .vsm_point_lights = info.vsm_state->vsm_point_lights,
+            .g_buffer_depth = info.g_buffer_depth,
+            .g_buffer_geo_normal = info.g_buffer_geo_normal,
+            .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_point_page_table = vsm_point_page_table_view,
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(FindFreePagesTask{
-        .views = std::array{
-            daxa::attachment_view(FindFreePagesH::AT.vsm_free_pages_buffer, info.vsm_state->free_page_buffer),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_not_visited_pages_buffer, info.vsm_state->not_visited_page_buffer),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_find_free_pages_header, info.vsm_state->find_free_pages_header),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_allocate_indirect, info.vsm_state->allocate_indirect),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(FindFreePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
+        .views = FindFreePagesTask::Views{
+            .vsm_find_free_pages_header = info.vsm_state->find_free_pages_header,
+            .vsm_free_pages_buffer = info.vsm_state->free_page_buffer,
+            .vsm_not_visited_pages_buffer = info.vsm_state->not_visited_page_buffer,
+            .vsm_allocate_indirect = info.vsm_state->allocate_indirect,
+            .vsm_clear_indirect = info.vsm_state->clear_indirect,
+            .vsm_clear_dirty_bit_indirect = info.vsm_state->clear_dirty_bit_indirect,
+            .vsm_globals = info.vsm_state->globals,
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(AllocatePagesTask{
-        .views = std::array{
-            daxa::attachment_view(AllocatePagesH::AT.vsm_find_free_pages_header, info.vsm_state->find_free_pages_header),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_free_pages_buffer, info.vsm_state->free_page_buffer),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_not_visited_pages_buffer, info.vsm_state->not_visited_page_buffer),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_allocate_indirect, info.vsm_state->allocate_indirect),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_page_view_pos_row, vsm_page_view_pos_row_view),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(AllocatePagesH::AT.vsm_point_page_table, vsm_point_page_table_view),
+        .views = AllocatePagesTask::Views{
+            .vsm_globals = info.vsm_state->globals,
+            .vsm_find_free_pages_header = info.vsm_state->find_free_pages_header,
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_free_pages_buffer = info.vsm_state->free_page_buffer,
+            .vsm_not_visited_pages_buffer = info.vsm_state->not_visited_page_buffer,
+            .vsm_allocate_indirect = info.vsm_state->allocate_indirect,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_point_page_table = vsm_point_page_table_view,
         },
         .render_context = info.render_context,
     });
@@ -681,21 +681,21 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         info.tg->clear_image({info.vsm_state->overdraw_debug_image, std::array{0u, 0u, 0u, 0u}});
     }
     info.tg->add_task(ClearPagesTask{
-        .views = std::array{
-            daxa::attachment_view(ClearPagesH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(ClearPagesH::AT.vsm_clear_indirect, info.vsm_state->clear_indirect),
-            daxa::attachment_view(ClearPagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(ClearPagesH::AT.vsm_memory, info.vsm_state->memory_block),
+        .views = ClearPagesTask::Views{
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_clear_indirect = info.vsm_state->clear_indirect,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_memory = info.vsm_state->memory_block,
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(GenDirtyBitHizTask{
-        .views = std::array{
-            daxa::attachment_view(GenDirtyBitHizH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(GenDirtyBitHizH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
+        .views = GenDirtyBitHizTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_dirty_bit_hiz = vsm_dirty_bit_hiz_view,
         },
         .render_context = info.render_context,
     });
@@ -719,82 +719,82 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     }
 
     info.tg->add_task(CullAndDrawPagesTask{
-        .views = std::array{
-            daxa::attachment_view(CullAndDrawPagesH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion0, cascade_meshlet_expansions[0][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion0, cascade_meshlet_expansions[0][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion1, cascade_meshlet_expansions[1][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion1, cascade_meshlet_expansions[1][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion2, cascade_meshlet_expansions[2][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion2, cascade_meshlet_expansions[2][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion3, cascade_meshlet_expansions[3][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion3, cascade_meshlet_expansions[3][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion4, cascade_meshlet_expansions[4][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion4, cascade_meshlet_expansions[4][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion5, cascade_meshlet_expansions[5][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion5, cascade_meshlet_expansions[5][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion6, cascade_meshlet_expansions[6][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion6, cascade_meshlet_expansions[6][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion7, cascade_meshlet_expansions[7][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion7, cascade_meshlet_expansions[7][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion8, cascade_meshlet_expansions[8][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion8, cascade_meshlet_expansions[8][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion9, cascade_meshlet_expansions[9][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion9, cascade_meshlet_expansions[9][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion10, cascade_meshlet_expansions[10][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion10, cascade_meshlet_expansions[10][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion11, cascade_meshlet_expansions[11][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion11, cascade_meshlet_expansions[11][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion12, cascade_meshlet_expansions[12][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion12, cascade_meshlet_expansions[12][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion13, cascade_meshlet_expansions[13][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion13, cascade_meshlet_expansions[13][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion14, cascade_meshlet_expansions[14][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion14, cascade_meshlet_expansions[14][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.po2expansion15, cascade_meshlet_expansions[15][0]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.masked_po2expansion15, cascade_meshlet_expansions[15][1]),
-            daxa::attachment_view(CullAndDrawPagesH::AT.meshlet_instances, info.meshlet_instances),
-            daxa::attachment_view(CullAndDrawPagesH::AT.mesh_instances, info.mesh_instances),
-            daxa::attachment_view(CullAndDrawPagesH::AT.meshes, info.meshes),
-            daxa::attachment_view(CullAndDrawPagesH::AT.entity_combined_transforms, info.entity_combined_transforms),
-            daxa::attachment_view(CullAndDrawPagesH::AT.material_manifest, info.material_manifest),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_clip_projections, info.vsm_state->clip_projections),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_dirty_bit_hiz, vsm_dirty_bit_hiz_view),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_memory_block, info.vsm_state->memory_block),
-            daxa::attachment_view(CullAndDrawPagesH::AT.vsm_overdraw_debug, info.vsm_state->overdraw_debug_image),
+        .views = CullAndDrawPagesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .po2expansion0 = cascade_meshlet_expansions[0][0],
+            .masked_po2expansion0 = cascade_meshlet_expansions[0][1],
+            .po2expansion1 = cascade_meshlet_expansions[1][0],
+            .masked_po2expansion1 = cascade_meshlet_expansions[1][1],
+            .po2expansion2 = cascade_meshlet_expansions[2][0],
+            .masked_po2expansion2 = cascade_meshlet_expansions[2][1],
+            .po2expansion3 = cascade_meshlet_expansions[3][0],
+            .masked_po2expansion3 = cascade_meshlet_expansions[3][1],
+            .po2expansion4 = cascade_meshlet_expansions[4][0],
+            .masked_po2expansion4 = cascade_meshlet_expansions[4][1],
+            .po2expansion5 = cascade_meshlet_expansions[5][0],
+            .masked_po2expansion5 = cascade_meshlet_expansions[5][1],
+            .po2expansion6 = cascade_meshlet_expansions[6][0],
+            .masked_po2expansion6 = cascade_meshlet_expansions[6][1],
+            .po2expansion7 = cascade_meshlet_expansions[7][0],
+            .masked_po2expansion7 = cascade_meshlet_expansions[7][1],
+            .po2expansion8 = cascade_meshlet_expansions[8][0],
+            .masked_po2expansion8 = cascade_meshlet_expansions[8][1],
+            .po2expansion9 = cascade_meshlet_expansions[9][0],
+            .masked_po2expansion9 = cascade_meshlet_expansions[9][1],
+            .po2expansion10 = cascade_meshlet_expansions[10][0],
+            .masked_po2expansion10 = cascade_meshlet_expansions[10][1],
+            .po2expansion11 = cascade_meshlet_expansions[11][0],
+            .masked_po2expansion11 = cascade_meshlet_expansions[11][1],
+            .po2expansion12 = cascade_meshlet_expansions[12][0],
+            .masked_po2expansion12 = cascade_meshlet_expansions[12][1],
+            .po2expansion13 = cascade_meshlet_expansions[13][0],
+            .masked_po2expansion13 = cascade_meshlet_expansions[13][1],
+            .po2expansion14 = cascade_meshlet_expansions[14][0],
+            .masked_po2expansion14 = cascade_meshlet_expansions[14][1],
+            .po2expansion15 = cascade_meshlet_expansions[15][0],
+            .masked_po2expansion15 = cascade_meshlet_expansions[15][1],
+            .meshlet_instances = info.meshlet_instances,
+            .mesh_instances = info.mesh_instances,
+            .meshes = info.meshes,
+            .entity_combined_transforms = info.entity_combined_transforms,
+            .material_manifest = info.material_manifest,
+            .vsm_clip_projections = info.vsm_state->clip_projections,
+            .vsm_dirty_bit_hiz = vsm_dirty_bit_hiz_view,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_memory_block = info.vsm_state->memory_block,
+            .vsm_overdraw_debug = info.vsm_state->overdraw_debug_image,
         },
         .render_context = info.render_context,
     });
 
     info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
     info.tg->add_task(DebugVirtualPageTableTask{
-        .views = std::array{
-            daxa::attachment_view(DebugVirtualPageTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, info.vsm_state->globals),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
+        .views = DebugVirtualPageTableTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .vsm_globals = info.vsm_state->globals,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_debug_page_table = info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table,
         },
         .render_context = info.render_context,
     });
 
     info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
     info.tg->add_task(DebugMetaMemoryTableTask{
-        .views = std::array{
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, info.vsm_state->meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
-            daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
+        .views = DebugMetaMemoryTableTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .vsm_page_table = vsm_page_table_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_debug_meta_memory_table = info.render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table,
+            .vsm_point_page_table = vsm_point_page_table_view,
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(ClearDirtyBitTask{
-        .views = std::array{
-            daxa::attachment_view(ClearDirtyBitH::AT.vsm_allocation_requests, info.vsm_state->allocation_requests),
-            daxa::attachment_view(ClearDirtyBitH::AT.vsm_clear_dirty_bit_indirect, info.vsm_state->clear_dirty_bit_indirect),
-            daxa::attachment_view(ClearDirtyBitH::AT.vsm_page_table, vsm_page_table_view),
+        .views = ClearDirtyBitTask::Views{
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_clear_dirty_bit_indirect = info.vsm_state->clear_dirty_bit_indirect,
+            .vsm_page_table = vsm_page_table_view,
         },
         .render_context = info.render_context,
     });

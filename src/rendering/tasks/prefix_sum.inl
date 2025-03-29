@@ -167,12 +167,12 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     info.task_list.add_task(PrefixSumCommandWriteTask{
-        .views = std::array{
-            daxa::attachment_view(PrefixSumCommandWriteH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(PrefixSumCommandWriteH::AT.value_count, info.value_count_buf),
-            daxa::attachment_view(PrefixSumCommandWriteH::AT.upsweep_command0, upsweep0_command_buffer),
-            daxa::attachment_view(PrefixSumCommandWriteH::AT.upsweep_command1, upsweep1_command_buffer),
-            daxa::attachment_view(PrefixSumCommandWriteH::AT.downsweep_command, downsweep_command_buffer),
+        .views = PrefixSumCommandWriteTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .value_count = info.value_count_buf,
+            .upsweep_command0 = upsweep0_command_buffer,
+            .upsweep_command1 = upsweep1_command_buffer,
+            .downsweep_command = downsweep_command_buffer,
         },
         .gpu_context = info.render_context->gpu_context,
         .push = {.uint_offset = info.value_count_uint_offset},
@@ -185,12 +185,12 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     info.task_list.add_task(PrefixSumUpsweepTask{
-        .views = std::array{
-            daxa::attachment_view(PrefixSumUpsweepH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.command, upsweep0_command_buffer),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.src, info.src_buf),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.dst, info.dst_buf),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.block_sums, block_sums_src),
+        .views = PrefixSumUpsweepTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .command = upsweep0_command_buffer,
+            .src = info.src_buf,
+            .dst = info.dst_buf,
+            .block_sums = block_sums_src,
         },
         .gpu_context = info.render_context->gpu_context,
         .range = {
@@ -210,12 +210,12 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     info.task_list.add_task(PrefixSumUpsweepTask{
-        .views = std::array{
-            daxa::attachment_view(PrefixSumUpsweepH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.command, upsweep1_command_buffer),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.src, block_sums_src),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.dst, block_sums_dst),
-            daxa::attachment_view(PrefixSumUpsweepH::AT.block_sums, total_count),
+        .views = PrefixSumUpsweepTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .command = upsweep1_command_buffer,
+            .src = block_sums_src,
+            .dst = block_sums_dst,
+            .block_sums = total_count,
         },
         .gpu_context = info.render_context->gpu_context,
         .range = {
@@ -227,11 +227,11 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     info.task_list.add_task(PrefixSumDownsweepTask{
-        .views = std::array{
-            daxa::attachment_view(PrefixSumDownsweepH::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(PrefixSumDownsweepH::AT.command, downsweep_command_buffer),
-            daxa::attachment_view(PrefixSumDownsweepH::AT.block_sums, block_sums_dst),
-            daxa::attachment_view(PrefixSumDownsweepH::AT.values, info.dst_buf),
+        .views = PrefixSumDownsweepTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .command = downsweep_command_buffer,
+            .block_sums = block_sums_dst,
+            .values = info.dst_buf,
         },
         .gpu_context = info.render_context->gpu_context,
         .range = {

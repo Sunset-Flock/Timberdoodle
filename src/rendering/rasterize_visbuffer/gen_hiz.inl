@@ -110,11 +110,11 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .name = std::string("hiz ") + RenderTimes::to_string(RenderTimes::RenderTimesEnum(info.render_time_index)),
     });
     info.tg.add_task(daxa::InlineTaskWithHead<GenHizH2::Task>{
-        .views = std::array{
-            GenHizH2::AT.globals | info.globals,
-            GenHizH2::AT.debug_image | info.debug_image,
-            GenHizH2::AT.src | info.src,
-            GenHizH2::AT.hiz | *info.hiz,
+        .views = daxa::InlineTaskWithHead<GenHizH2::Task>::Views{
+            .globals = info.globals,
+            .debug_image = info.debug_image,
+            .src = info.src,
+            .hiz = *info.hiz,
         },
         .task = [=, render_context = info.render_context](daxa::TaskInterface ti)
         {

@@ -459,18 +459,18 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
     if (info.render_context->render_data.settings.enable_separate_compute_meshlet_culling)
     {
         info.tg.add_task(CullMeshletsComputeTask{
-            .views = std::array{
-                CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
-                CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
-                CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
-                CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
-                CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
-                CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-                CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
-                CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
-                CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-                CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
-                CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+            .views = CullMeshletsComputeTask::Views{
+                .globals = info.render_context->tgpu_render_data,
+                .hiz = info.hiz,
+                .po2expansion = info.meshlet_cull_po2expansion[0],
+                .masked_po2expansion = info.meshlet_cull_po2expansion[1],
+                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena,
+                .meshlet_instances = info.meshlet_instances,
+                .mesh_instances = info.mesh_instances,
+                .atomic_visbuffer = info.atomic_visbuffer,
+                .overdraw_image = info.overdraw_image,
+                .vis_image = info.vis_image,
+                .depth_image = info.depth_image,
             },
             .render_context = info.render_context,
             .first_pass = info.first_pass,
@@ -482,10 +482,10 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         });
 
         DrawVisbuffer_WriteCommandTask2 write_task = {
-            .views = std::array{
-                DrawVisbuffer_WriteCommandH::AT.globals | info.render_context->tgpu_render_data,
-                DrawVisbuffer_WriteCommandH::AT.meshlet_instances | info.meshlet_instances,
-                DrawVisbuffer_WriteCommandH::AT.draw_commands | draw_commands_array,
+            .views = DrawVisbuffer_WriteCommandTask2::Views{
+                .globals = info.render_context->tgpu_render_data,
+                .meshlet_instances = info.meshlet_instances,
+                .draw_commands = draw_commands_array,
             },
             .gpu_context = info.render_context->gpu_context,
             .push = DrawVisbufferPush_WriteCommand{.pass = pass},
@@ -494,15 +494,15 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
         info.tg.add_task(write_task);
 
         DrawVisbufferTask draw_task = {
-            .views = std::array{
-                DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
-                DrawVisbufferH::AT.draw_commands | draw_commands_array,
-                DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-                DrawVisbufferH::AT.vis_image | info.vis_image,
-                DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-                DrawVisbufferH::AT.depth_image | info.depth_image,
-                DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
-                DrawVisbufferH::AT.hiz | info.hiz,
+            .views = DrawVisbufferTask::Views{
+                .globals = info.render_context->tgpu_render_data,
+                .draw_commands = draw_commands_array,
+                .hiz = info.hiz,
+                .meshlet_instances = info.meshlet_instances,
+                .vis_image = info.vis_image,
+                .atomic_visbuffer = info.atomic_visbuffer,
+                .depth_image = info.depth_image,
+                .overdraw_image = info.overdraw_image,
             },
             .render_context = info.render_context,
             .pass = pass,
@@ -513,18 +513,18 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
     else
     {
         info.tg.add_task(CullMeshletsDrawVisbufferTask{
-            .views = std::array{
-                CullMeshletsDrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
-                CullMeshletsDrawVisbufferH::AT.hiz | info.hiz,
-                CullMeshletsDrawVisbufferH::AT.po2expansion | info.meshlet_cull_po2expansion[0],
-                CullMeshletsDrawVisbufferH::AT.masked_po2expansion | info.meshlet_cull_po2expansion[1],
-                CullMeshletsDrawVisbufferH::AT.first_pass_meshlets_bitfield_arena | info.first_pass_meshlets_bitfield_arena,
-                CullMeshletsDrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-                CullMeshletsDrawVisbufferH::AT.mesh_instances | info.mesh_instances,
-                CullMeshletsDrawVisbufferH::AT.vis_image | info.vis_image,
-                CullMeshletsDrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-                CullMeshletsDrawVisbufferH::AT.depth_image | info.depth_image,
-                CullMeshletsDrawVisbufferH::AT.overdraw_image | info.overdraw_image,
+            .views = CullMeshletsDrawVisbufferTask::Views{
+                .globals = info.render_context->tgpu_render_data,
+                .hiz = info.hiz,
+                .po2expansion = info.meshlet_cull_po2expansion[0],
+                .masked_po2expansion = info.meshlet_cull_po2expansion[1],
+                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena,
+                .meshlet_instances = info.meshlet_instances,
+                .mesh_instances = info.mesh_instances,
+                .atomic_visbuffer = info.atomic_visbuffer,
+                .overdraw_image = info.overdraw_image,
+                .vis_image = info.vis_image,
+                .depth_image = info.depth_image,
             },
             .render_context = info.render_context,
             .first_pass = info.first_pass,
@@ -567,10 +567,10 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     }
 
     DrawVisbuffer_WriteCommandTask2 write_task = {
-        .views = std::array{
-            DrawVisbuffer_WriteCommandH::AT.globals | info.render_context->tgpu_render_data,
-            DrawVisbuffer_WriteCommandH::AT.meshlet_instances | info.meshlet_instances,
-            DrawVisbuffer_WriteCommandH::AT.draw_commands | draw_commands_array,
+        .views = DrawVisbuffer_WriteCommandTask2::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .meshlet_instances = info.meshlet_instances,
+            .draw_commands = draw_commands_array,
         },
         .gpu_context = info.render_context->gpu_context,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass},
@@ -584,15 +584,15 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     }
 
     DrawVisbufferTask draw_task = {
-        .views = std::array{
-            DrawVisbufferH::AT.globals | info.render_context->tgpu_render_data,
-            DrawVisbufferH::AT.draw_commands | draw_commands_array,
-            DrawVisbufferH::AT.meshlet_instances | info.meshlet_instances,
-            DrawVisbufferH::AT.atomic_visbuffer | info.atomic_visbuffer,
-            DrawVisbufferH::AT.vis_image | info.vis_image,
-            DrawVisbufferH::AT.depth_image | info.depth_image,
-            DrawVisbufferH::AT.overdraw_image | info.overdraw_image,
-            DrawVisbufferH::AT.hiz | info.hiz,
+        .views = DrawVisbufferTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .draw_commands = draw_commands_array,
+            .hiz = info.hiz,
+            .meshlet_instances = info.meshlet_instances,
+            .vis_image = info.vis_image,
+            .atomic_visbuffer = info.atomic_visbuffer,
+            .depth_image = info.depth_image,
+            .overdraw_image = info.overdraw_image,
         },
         .render_context = info.render_context,
         .pass = info.pass,

@@ -2058,71 +2058,71 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
     info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
     daxa::TaskImageView probe_info_copy = pgi_create_probe_info_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.add_task(PGIPreUpdateProbesTask{
-        .views = std::array{
-            PGIPreUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
-            PGIPreUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
-            PGIPreUpdateProbesTask::AT.probe_info_copy | probe_info_copy,
-            PGIPreUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
-            PGIPreUpdateProbesTask::AT.probe_indirections | pgi_indirections,
+        .views = PGIPreUpdateProbesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .probe_info = info.pgi_state.probe_info_view,
+            .probe_info_copy = probe_info_copy,
+            .requests = info.pgi_state.cell_requests_view,
+            .probe_indirections = pgi_indirections,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
     daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.add_task(PGITraceProbeRaysTask{
-        .views = std::array{
-            PGITraceProbeRaysTask::AT.globals | info.render_context->tgpu_render_data,
-            PGITraceProbeRaysTask::AT.probe_indirections | pgi_indirections,
-            PGITraceProbeRaysTask::AT.probe_radiance | info.pgi_state.probe_radiance_view,
-            PGITraceProbeRaysTask::AT.probe_visibility | info.pgi_state.probe_visibility_view,
-            PGITraceProbeRaysTask::AT.probe_info | info.pgi_state.probe_info_view,
-            PGITraceProbeRaysTask::AT.probe_requests | info.pgi_state.cell_requests_view,
-            PGITraceProbeRaysTask::AT.tlas | info.tlas,
-            PGITraceProbeRaysTask::AT.sky_transmittance | info.sky_transmittance,
-            PGITraceProbeRaysTask::AT.sky | info.sky,
-            PGITraceProbeRaysTask::AT.trace_result | pgi_trace_result,
-            PGITraceProbeRaysTask::AT.mesh_instances | info.mesh_instances,
+        .views = PGITraceProbeRaysTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .probe_indirections = pgi_indirections,
+            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_visibility = info.pgi_state.probe_visibility_view,
+            .probe_info = info.pgi_state.probe_info_view,
+            .probe_requests = info.pgi_state.cell_requests_view,
+            .sky_transmittance = info.sky_transmittance,
+            .sky = info.sky,
+            .tlas = info.tlas,
+            .trace_result = pgi_trace_result,
+            .mesh_instances = info.mesh_instances,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });    
     //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
     info.tg.add_task(PGIUpdateProbesTask{
-        .views = std::array{
-            PGIUpdateProbesTask::AT.globals | info.render_context->tgpu_render_data,
-            PGIUpdateProbesTask::AT.probe_indirections | pgi_indirections,
-            PGIUpdateProbesTask::AT.probe_info | info.pgi_state.probe_info_view,
-            PGIUpdateProbesTask::AT.probe_info_copy | probe_info_copy,
-            PGIUpdateProbesTask::AT.trace_result | pgi_trace_result,
-            PGIUpdateProbesTask::AT.requests | info.pgi_state.cell_requests_view,
+        .views = PGIUpdateProbesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .probe_indirections = pgi_indirections,
+            .probe_info = info.pgi_state.probe_info_view,
+            .probe_info_copy = probe_info_copy,
+            .trace_result = pgi_trace_result,
+            .requests = info.pgi_state.cell_requests_view,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
     info.tg.add_task(PGIUpdateProbeTexelsTask{
-        .views = std::array{
-            PGIUpdateProbeTexelsTask::AT.globals | info.render_context->tgpu_render_data,
-            PGIUpdateProbeTexelsTask::AT.probe_indirections | pgi_indirections,
-            PGIUpdateProbeTexelsTask::AT.probe_radiance | info.pgi_state.probe_radiance_view,
-            PGIUpdateProbeTexelsTask::AT.probe_visibility | info.pgi_state.probe_visibility_view,
-            PGIUpdateProbeTexelsTask::AT.probe_info | info.pgi_state.probe_info_view,
-            PGIUpdateProbeTexelsTask::AT.trace_result | pgi_trace_result,
+        .views = PGIUpdateProbeTexelsTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .probe_indirections = pgi_indirections,
+            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_visibility = info.pgi_state.probe_visibility_view,
+            .probe_info = info.pgi_state.probe_info_view,
+            .trace_result = pgi_trace_result,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
     auto pgi_screen_irrdiance = pgi_create_screen_irradiance(info.tg, info.render_context->render_data);
     info.tg.add_task(PGIEvalScreenIrradianceTask{
-        .views = std::array{
-            PGIEvalScreenIrradianceH::AT.globals | info.render_context->tgpu_render_data,
-            PGIEvalScreenIrradianceH::AT.probe_info | info.pgi_state.probe_info_view,
-            PGIEvalScreenIrradianceH::AT.probe_requests | info.pgi_state.cell_requests_view,
-            PGIEvalScreenIrradianceH::AT.probe_radiance | info.pgi_state.probe_radiance_view,
-            PGIEvalScreenIrradianceH::AT.probe_visibility | info.pgi_state.probe_visibility_view,
-            PGIEvalScreenIrradianceH::AT.main_cam_depth | info.view_camera_depth,
-            PGIEvalScreenIrradianceH::AT.main_cam_face_normals | info.view_camera_face_normal_image,
-            PGIEvalScreenIrradianceH::AT.main_cam_detail_normals | info.view_camera_detail_normal_image,
-            PGIEvalScreenIrradianceH::AT.irradiance_depth | pgi_screen_irrdiance,
+        .views = PGIEvalScreenIrradianceTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .main_cam_depth = info.view_camera_depth,
+            .main_cam_face_normals = info.view_camera_face_normal_image,
+            .main_cam_detail_normals = info.view_camera_detail_normal_image,
+            .probe_info = info.pgi_state.probe_info_view,
+            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_visibility = info.pgi_state.probe_visibility_view,
+            .probe_requests = info.pgi_state.cell_requests_view,
+            .irradiance_depth = pgi_screen_irrdiance,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,

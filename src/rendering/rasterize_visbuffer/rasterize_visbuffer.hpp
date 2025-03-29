@@ -200,10 +200,10 @@ namespace raster_visbuf
         if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {
             info.tg.add_task(SplitAtomicVisbufferTask{
-                .views = std::array{
-                    SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                    SplitAtomicVisbufferH::AT.visbuffer | ret.main_camera_visbuffer,
-                    SplitAtomicVisbufferH::AT.depth | ret.main_camera_depth,
+                .views = SplitAtomicVisbufferTask::Views{
+                    .atomic_visbuffer = atomic_visbuffer,
+                    .visbuffer = ret.main_camera_visbuffer,
+                    .depth = ret.main_camera_depth,
                 },
                 .gpu_context = info.render_context->gpu_context,
                 .push = SplitAtomicVisbufferPush{.size = info.render_context->render_data.settings.render_target_size},
@@ -259,15 +259,15 @@ namespace raster_visbuf
             auto visible_meshes_bitfield = daxa::NullTaskBuffer;
             info.tg.clear_buffer({.buffer = visible_meshlets_bitfield, .clear_value = 0});
             info.tg.add_task(AnalyzeVisBufferTask2{
-                .views = std::array{
-                    AnalyzeVisbuffer2H::AT.globals | info.render_context->tgpu_render_data,
-                    AnalyzeVisbuffer2H::AT.visbuffer | (info.render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : ret.main_camera_visbuffer),
-                    AnalyzeVisbuffer2H::AT.meshlet_instances | info.meshlet_instances,
-                    AnalyzeVisbuffer2H::AT.mesh_instances | info.scene->mesh_instances_buffer,
-                    AnalyzeVisbuffer2H::AT.meshlet_visibility_bitfield | visible_meshlets_bitfield,
-                    AnalyzeVisbuffer2H::AT.visible_meshlets | info.visible_meshlet_instances,
-                    AnalyzeVisbuffer2H::AT.mesh_visibility_bitfield | visible_meshes_bitfield,
-                    AnalyzeVisbuffer2H::AT.debug_image | info.debug_image,
+                .views = AnalyzeVisBufferTask2::Views{
+                    .globals = info.render_context->tgpu_render_data,
+                    .visbuffer = (info.render_context->render_data.settings.enable_atomic_visbuffer != 0 ? atomic_visbuffer : ret.main_camera_visbuffer),
+                    .meshlet_instances = info.meshlet_instances,
+                    .mesh_instances = info.scene->mesh_instances_buffer,
+                    .meshlet_visibility_bitfield = visible_meshlets_bitfield,
+                    .visible_meshlets = info.visible_meshlet_instances,
+                    .mesh_visibility_bitfield = visible_meshes_bitfield,
+                    .debug_image = info.debug_image,
                 },
                 .render_context = info.render_context.get(),
             });
@@ -276,10 +276,10 @@ namespace raster_visbuf
         if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {
            info.tg.add_task(SplitAtomicVisbufferTask{
-                .views = std::array{
-                    SplitAtomicVisbufferH::AT.atomic_visbuffer | atomic_visbuffer,
-                    SplitAtomicVisbufferH::AT.visbuffer | ret.main_camera_visbuffer,
-                    SplitAtomicVisbufferH::AT.depth | ret.main_camera_depth,
+                .views = SplitAtomicVisbufferTask::Views{
+                    .atomic_visbuffer = atomic_visbuffer,
+                    .visbuffer = ret.main_camera_visbuffer,
+                    .depth = ret.main_camera_depth,
                 },
                 .gpu_context = info.render_context->gpu_context,
                 .push = SplitAtomicVisbufferPush{.size = info.render_context->render_data.settings.render_target_size},
