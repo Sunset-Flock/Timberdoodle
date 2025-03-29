@@ -327,7 +327,7 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const depth_resolution = render_context->gpu_context->device.image_info(ti.get(AT.g_buffer_depth).ids[0]).value().size;
+        auto const depth_resolution = ti.info(AT.g_buffer_depth).value().size;
         auto const dispatch_size = u32vec2{
             (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
             (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
@@ -372,7 +372,7 @@ struct AllocatePagesTask : AllocatePagesH::Task
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_ALLOCATE_PAGES);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.vsm_allocate_indirect).ids[0],
+            .indirect_buffer = ti.id(AT.vsm_allocate_indirect),
             .offset = 0u,
         });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_ALLOCATE_PAGES);
@@ -392,7 +392,7 @@ struct ClearPagesTask : ClearPagesH::Task
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.vsm_clear_indirect).ids[0],
+            .indirect_buffer = ti.id(AT.vsm_clear_indirect),
             .offset = 0u,
         });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
@@ -430,7 +430,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
         auto const memory_block_view = render_context->gpu_context->device.create_image_view({
             .type = daxa::ImageViewType::REGULAR_2D,
             .format = daxa::Format::R32_UINT,
-            .image = ti.get(AT.vsm_memory_block).ids[0],
+            .image = ti.id(AT.vsm_memory_block),
             .name = "vsm memory daxa integer view",
         });
 
@@ -452,22 +452,22 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             daxa::BufferId masked_po2expansion;
             switch(cascade)
             {
-                case 0: po2expansion = ti.get(AT.po2expansion0).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion0).ids[0]; break;
-                case 1: po2expansion = ti.get(AT.po2expansion1).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion1).ids[0]; break;
-                case 2: po2expansion = ti.get(AT.po2expansion2).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion2).ids[0]; break;
-                case 3: po2expansion = ti.get(AT.po2expansion3).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion3).ids[0]; break;
-                case 4: po2expansion = ti.get(AT.po2expansion4).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion4).ids[0]; break;
-                case 5: po2expansion = ti.get(AT.po2expansion5).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion5).ids[0]; break;
-                case 6: po2expansion = ti.get(AT.po2expansion6).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion6).ids[0]; break;
-                case 7: po2expansion = ti.get(AT.po2expansion7).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion7).ids[0]; break;
-                case 8: po2expansion = ti.get(AT.po2expansion8).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion8).ids[0]; break;
-                case 9: po2expansion = ti.get(AT.po2expansion9).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion9).ids[0]; break;
-                case 10: po2expansion = ti.get(AT.po2expansion10).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion10).ids[0]; break;
-                case 11: po2expansion = ti.get(AT.po2expansion11).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion11).ids[0]; break;
-                case 12: po2expansion = ti.get(AT.po2expansion12).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion12).ids[0]; break;
-                case 13: po2expansion = ti.get(AT.po2expansion13).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion13).ids[0]; break;
-                case 14: po2expansion = ti.get(AT.po2expansion14).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion14).ids[0]; break;
-                case 15: po2expansion = ti.get(AT.po2expansion15).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion15).ids[0]; break;
+                case 0: po2expansion = ti.id(AT.po2expansion0); masked_po2expansion = ti.id(AT.masked_po2expansion0); break;
+                case 1: po2expansion = ti.id(AT.po2expansion1); masked_po2expansion = ti.id(AT.masked_po2expansion1); break;
+                case 2: po2expansion = ti.id(AT.po2expansion2); masked_po2expansion = ti.id(AT.masked_po2expansion2); break;
+                case 3: po2expansion = ti.id(AT.po2expansion3); masked_po2expansion = ti.id(AT.masked_po2expansion3); break;
+                case 4: po2expansion = ti.id(AT.po2expansion4); masked_po2expansion = ti.id(AT.masked_po2expansion4); break;
+                case 5: po2expansion = ti.id(AT.po2expansion5); masked_po2expansion = ti.id(AT.masked_po2expansion5); break;
+                case 6: po2expansion = ti.id(AT.po2expansion6); masked_po2expansion = ti.id(AT.masked_po2expansion6); break;
+                case 7: po2expansion = ti.id(AT.po2expansion7); masked_po2expansion = ti.id(AT.masked_po2expansion7); break;
+                case 8: po2expansion = ti.id(AT.po2expansion8); masked_po2expansion = ti.id(AT.masked_po2expansion8); break;
+                case 9: po2expansion = ti.id(AT.po2expansion9); masked_po2expansion = ti.id(AT.masked_po2expansion9); break;
+                case 10: po2expansion = ti.id(AT.po2expansion10); masked_po2expansion = ti.id(AT.masked_po2expansion10); break;
+                case 11: po2expansion = ti.id(AT.po2expansion11); masked_po2expansion = ti.id(AT.masked_po2expansion11); break;
+                case 12: po2expansion = ti.id(AT.po2expansion12); masked_po2expansion = ti.id(AT.masked_po2expansion12); break;
+                case 13: po2expansion = ti.id(AT.po2expansion13); masked_po2expansion = ti.id(AT.masked_po2expansion13); break;
+                case 14: po2expansion = ti.id(AT.po2expansion14); masked_po2expansion = ti.id(AT.masked_po2expansion14); break;
+                case 15: po2expansion = ti.id(AT.po2expansion15); masked_po2expansion = ti.id(AT.masked_po2expansion15); break;
             }
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
             {
@@ -510,7 +510,7 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_DIRY_BITS);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.vsm_clear_dirty_bit_indirect).ids[0],
+            .indirect_buffer = ti.id(AT.vsm_clear_dirty_bit_indirect),
             .offset = 0u,
         });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_DIRY_BITS);

@@ -85,7 +85,7 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
-        auto const color_image_id = ti.get(AT.color_image).ids[0];
+        auto const color_image_id = ti.id(AT.color_image);
         auto const color_image_info = ti.device.image_info(color_image_id).value();
 
         auto alloc = ti.allocator->allocate(sizeof(ShadeOpaqueAttachments));

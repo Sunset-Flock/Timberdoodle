@@ -228,7 +228,7 @@ struct VSMState
             {
                 ti.recorder.clear_image({
                     .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                    .dst_image = ti.get(page_table_array_view).ids[0],
+                    .dst_image = ti.id(page_table_array_view),
                     .dst_slice = daxa::ImageMipArraySlice{
                         .base_array_layer = 0,
                         .layer_count = VSM_CLIP_LEVELS},
@@ -236,7 +236,7 @@ struct VSMState
 
                 ti.recorder.clear_image({
                     .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                    .dst_image = ti.get(meta_memory_table).ids[0],
+                    .dst_image = ti.id(meta_memory_table.view()),
                 });
 
                 for(int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; ++point_light_vsm)

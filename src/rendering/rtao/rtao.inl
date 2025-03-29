@@ -124,11 +124,11 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
     void callback(daxa::TaskInterface ti)
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
-        if (ti.get(AT.tlas).ids[0] != gpu_context->dummy_tlas_id)
+        if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
         {
             RayTraceAmbientOcclusionPush push = { };
             push.attach = ti.attachment_shader_blob;
-            auto const & ao_image = ti.device.image_info(ti.get(AT.ao_image).ids[0]).value();
+            auto const & ao_image = ti.info(AT.ao_image).value();
             auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
             ti.recorder.set_pipeline(*rt_pipeline.pipeline);
             ti.recorder.push_constant(push);

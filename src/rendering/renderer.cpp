@@ -389,10 +389,10 @@ void Renderer::clear_select_buffers()
         },
         .task = [=](daxa::TaskInterface ti)
         {
-            auto mesh_instances_address = ti.device.buffer_device_address(ti.get(meshlet_instances).ids[0]).value();
+            auto mesh_instances_address = ti.device_address(meshlet_instances.view()).value();
             MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
             allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances));
-            auto mesh_instances_prev_address = ti.device.buffer_device_address(ti.get(meshlet_instances_last_frame).ids[0]).value();
+            auto mesh_instances_prev_address = ti.device_address(meshlet_instances_last_frame.view()).value();
             MeshletInstancesBufferHead mesh_instances_prev_reset = make_meshlet_instance_buffer_head(mesh_instances_prev_address);
             allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
         },
@@ -919,9 +919,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .task = [=, this](daxa::TaskInterface ti)
         {
             ImGui::Render();
-            auto size = ti.device.image_info(ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0]).value().size;
+            auto size = ti.info(swapchain_image.view()).value().size;
             imgui_renderer->record_commands(
-                ImGui::GetDrawData(), ti.recorder, ti.get(daxa::TaskImageAttachmentIndex(0)).ids[0], size.x, size.y);
+                ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y);
         },
         .name = "ImGui Draw",
     });

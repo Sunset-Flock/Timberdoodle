@@ -17,7 +17,7 @@ inline void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
             auto alloc = ti.allocator->allocate_fill(clear_value).value();
             ti.recorder.copy_buffer_to_buffer({
                 .src_buffer = ti.allocator->buffer(),
-                .dst_buffer = ti.get(buffer).ids[0],
+                .dst_buffer = ti.id(buffer),
                 .src_offset = alloc.buffer_offset,
                 .dst_offset = offset,
                 .size = sizeof(T),
@@ -30,7 +30,6 @@ inline void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, 
 template<typename T>
 inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBufferAttachmentInfo dst, u32 dst_offset = 0)
 {
-    auto address = ti.device.buffer_device_address(dst.ids[0]).value();
     auto alloc = ti.allocator->allocate_fill(value).value();
     ti.recorder.copy_buffer_to_buffer({
         .src_buffer = ti.allocator->buffer(),
@@ -91,7 +90,7 @@ struct SimpleIndirectComputeTask : HeadTaskT
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(this->AT.command).ids[0],
+            .indirect_buffer = ti.id(this->AT.command),
         });
     }
 };

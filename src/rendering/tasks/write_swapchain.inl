@@ -38,9 +38,9 @@ struct WriteSwapchainTask : WriteSwapchainH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(write_swapchain_pipeline_compile_info2().name));
-        u32 const dispatch_x = round_up_div(ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size.x, WRITE_SWAPCHAIN_WG_X);
-        u32 const dispatch_y = round_up_div(ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size.y, WRITE_SWAPCHAIN_WG_Y);
-        auto size = ti.device.image_info(ti.get(AT.swapchain).ids[0]).value().size;
+        u32 const dispatch_x = round_up_div(ti.info(AT.swapchain).value().size.x, WRITE_SWAPCHAIN_WG_X);
+        u32 const dispatch_y = round_up_div(ti.info(AT.swapchain).value().size.y, WRITE_SWAPCHAIN_WG_Y);
+        auto size = ti.info(AT.swapchain).value().size;
         WriteSwapchainPush push{.size = { size.x, size.y } };
         push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);

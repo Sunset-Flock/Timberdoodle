@@ -225,7 +225,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
 
-        bool const atomic_visbuffer = !ti.get(AT.atomic_visbuffer).ids[0].is_empty();
+        bool const atomic_visbuffer = !ti.id(AT.atomic_visbuffer).is_empty();
         bool const compute_raster = atomic_visbuffer;
         if (compute_raster)
         {
@@ -245,14 +245,14 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 };
                 ti.recorder.push_constant(push);
                 ti.recorder.dispatch_indirect({
-                    .indirect_buffer = ti.get(AT.draw_commands).ids[0],
+                    .indirect_buffer = ti.id(AT.draw_commands),
                     .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
                 });
             }
         }
         else
         {
-            auto [x, y, z] = ti.device.image_info(ti.get(AT.depth_image).ids[0]).value().size;
+            auto [x, y, z] = ti.device.image_info(ti.id(AT.depth_image)).value().size;
             auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
             daxa::RenderPassBeginInfo render_pass_begin_info = {
                 .render_area = daxa::Rect2D{.width = x, .height = y},
@@ -261,7 +261,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
             {
                 render_pass_begin_info.depth_attachment =
                     daxa::RenderAttachmentInfo{
-                        .image_view = ti.get(AT.depth_image).ids[0].default_view(),
+                        .image_view = ti.id(AT.depth_image).default_view(),
                         .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                         .load_op = load_op,
                         .store_op = daxa::AttachmentStoreOp::STORE,
@@ -269,7 +269,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                     };
                 render_pass_begin_info.color_attachments.push_back(
                     daxa::RenderAttachmentInfo{
-                        .image_view = ti.get(AT.vis_image).ids[0].default_view(),
+                        .image_view = ti.id(AT.vis_image).default_view(),
                         .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                         .load_op = load_op,
                         .store_op = daxa::AttachmentStoreOp::STORE,
@@ -302,7 +302,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
                 };
                 render_cmd.push_constant(push);
                 render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = ti.get(AT.draw_commands).ids[0],
+                    .indirect_buffer = ti.id(AT.draw_commands),
                     .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
                     .draw_count = 1,
                     .stride = sizeof(DispatchIndirectStruct),
@@ -324,8 +324,8 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
     void callback(daxa::TaskInterface ti)
     {
         auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        bool const atomic_visbuffer = !ti.get(AT.atomic_visbuffer).ids[0].is_empty();
-        auto [x, y, z] = ti.device.image_info(ti.get(AT.vis_image).ids[0]).value().size;
+        bool const atomic_visbuffer = !ti.id(AT.atomic_visbuffer).is_empty();
+        auto [x, y, z] = ti.info(AT.vis_image).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
             .render_area = daxa::Rect2D{.width = x, .height = y},
         };
@@ -333,7 +333,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         {
             render_pass_begin_info.depth_attachment =
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.depth_image).ids[0].default_view(),
+                    .image_view = ti.view(AT.depth_image),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -341,7 +341,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
                 };
             render_pass_begin_info.color_attachments.push_back(
                 daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.vis_image).ids[0].default_view(),
+                    .image_view = ti.view(AT.vis_image),
                     .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                     .load_op = load_op,
                     .store_op = daxa::AttachmentStoreOp::STORE,
@@ -357,7 +357,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
-            auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
+            auto buffer = ti.id(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion);
             auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
                 .atomic_visbuffer = atomic_visbuffer,
                 .task_shader_cull = true, 
@@ -406,7 +406,7 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
         
         for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++opaque_draw_list_type)
         {
-            auto buffer = ti.get(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion).ids[0];
+            auto buffer = ti.id(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion);
             for (u32 i = 0; i < 1; ++i)
             {
                 CullMeshletsDrawVisbufferPush push = {

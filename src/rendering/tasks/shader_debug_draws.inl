@@ -197,7 +197,7 @@ struct DebugDrawTask : DebugDrawH::Task
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        auto const colorImageSize = ti.device.image_info(ti.get(AT.color_image).ids[0]).value().size;
+        auto const colorImageSize = ti.info(AT.color_image).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
@@ -326,7 +326,7 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
             });
         }
 
-        if (ti.get(src).ids[0].is_empty())
+        if (ti.id(src).is_empty())
         {
             return;
         }
@@ -334,7 +334,7 @@ void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::Compute
         // First frame this is always unfroozen, so we always initialize the image.
         if (!state.freeze_image)
         {
-            daxa::ImageId src_id = ti.get(src).ids[0];          // either src image id or frozen image id
+            daxa::ImageId src_id = ti.id(src);          // either src image id or frozen image id
             daxa::ImageInfo src_info = ti.info(src).value();    // either src image info ir frozen image info
             tido::ScalarKind scalar_kind = tido::scalar_kind_of_format(src_info.format);
 

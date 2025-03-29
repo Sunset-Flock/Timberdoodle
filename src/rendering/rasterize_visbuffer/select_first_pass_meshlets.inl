@@ -131,7 +131,7 @@ struct AllocMeshletInstBitfieldsTask : AllocMeshletInstBitfieldsH::Task
 
         if (render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0)
         {
-            ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AllocMeshletInstBitfieldsH::AT.command).ids[0]});
+            ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(AllocMeshletInstBitfieldsH::AT.command)});
         }
         else
         {
@@ -166,7 +166,7 @@ struct WriteFirstPassMeshletsAndBitfieldsTask : WriteFirstPassMeshletsAndBitfiel
         };
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_SELECT_MESHLETS);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(WriteFirstPassMeshletsAndBitfieldsH::AT.command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(WriteFirstPassMeshletsAndBitfieldsH::AT.command)});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_FIRST_PASS_SELECT_MESHLETS);
     }
 };

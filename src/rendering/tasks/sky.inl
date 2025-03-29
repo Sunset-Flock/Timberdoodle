@@ -93,7 +93,7 @@ struct ComputeMultiscatteringTask : ComputeMultiscatteringH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const multiscattering_size = render_context->gpu_context->device.image_info(ti.get(AT.multiscattering).ids[0]).value().size;
+        auto const multiscattering_size = ti.info(AT.multiscattering).value().size;
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
         ComputeMultiscatteringH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
@@ -108,7 +108,7 @@ struct ComputeSkyTask : ComputeSkyH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        auto const sky_size = render_context->gpu_context->device.image_info(ti.get(AT.sky).ids[0]).value().size;
+        auto const sky_size = ti.info(AT.sky).value().size;
         auto const dispatch_size = u32vec2{
             (sky_size.x + SKY_X - 1) / SKY_X,
             (sky_size.y + SKY_Y - 1) / SKY_Y,

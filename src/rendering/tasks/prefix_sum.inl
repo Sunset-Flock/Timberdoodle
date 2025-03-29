@@ -101,7 +101,7 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweepH::Task
         PrefixSumUpsweepPush push{ .range = range };
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AT.command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(AT.command)});
     }
 };
 
@@ -129,7 +129,7 @@ struct PrefixSumDownsweepTask : PrefixSumDownsweepH::Task
         PrefixSumUpsweepPush push{ .range = range };
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.get(AT.command).ids[0]});
+        ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(AT.command)});
     }
 };
 

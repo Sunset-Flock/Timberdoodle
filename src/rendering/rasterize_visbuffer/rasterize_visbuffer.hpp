@@ -127,7 +127,7 @@ namespace raster_visbuf
             },
             .task = [=](daxa::TaskInterface ti)
             {
-                auto mesh_instances_address = ti.device.buffer_device_address(ti.get(info.meshlet_instances).ids[0]).value();
+                auto mesh_instances_address = ti.device_address(info.meshlet_instances).value();
                 MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
                 allocate_fill_copy(ti, mesh_instances_reset, ti.get(info.meshlet_instances));
             },

@@ -1564,11 +1564,11 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
 {
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
-    auto const colorImageSize = ti.device.image_info(ti.get(AT.color_image).ids[0]).value().size;
+    auto const colorImageSize = ti.info(AT.color_image).value().size;
     daxa::RenderPassBeginInfo render_pass_begin_info{
         .depth_attachment =
             daxa::RenderAttachmentInfo{
-                .image_view = ti.get(AT.depth_image).view_ids[0],
+                .image_view = ti.view(AT.depth_image),
                 .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
@@ -1578,7 +1578,7 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
     };
     render_pass_begin_info.color_attachments = {
         daxa::RenderAttachmentInfo{
-            .image_view = ti.get(AT.color_image).view_ids[0],
+            .image_view = ti.view(AT.color_image),
             .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
             .load_op = daxa::AttachmentLoadOp::LOAD,
             .store_op = daxa::AttachmentStoreOp::STORE,
@@ -1601,7 +1601,7 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
 
     {
         render_cmd.draw_indirect({
-            .draw_command_buffer = ti.get(AT.probe_indirections).ids[0],
+            .draw_command_buffer = ti.id(AT.probe_indirections),
             .indirect_buffer_offset = offsetof(PGIIndirections, probe_debug_draw_dispatch),
             .draw_count = 1,
             .is_indexed = true,
@@ -1624,14 +1624,14 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
     push.update_radiance = true;
     ti.recorder.push_constant(push);
     ti.recorder.dispatch_indirect({
-        .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+        .indirect_buffer = ti.id(AT.probe_indirections),
         .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
     });  
 
     push.update_radiance = false;
     ti.recorder.push_constant(push);
     ti.recorder.dispatch_indirect({
-        .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+        .indirect_buffer = ti.id(AT.probe_indirections),
         .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
     });
 
@@ -1650,7 +1650,7 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
         push.attach = ti.attachment_shader_blob;
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
         ti.recorder.dispatch_indirect({
-            .indirect_buffer = ti.get(AT.probe_indirections).ids[0],
+            .indirect_buffer = ti.id(AT.probe_indirections),
             .offset = offsetof(PGIIndirections, probe_update_dispatch),
         });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
