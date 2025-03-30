@@ -19,7 +19,7 @@ namespace raster_visbuf
     {
         return tg.create_transient_image({
             .format = daxa::Format::R32_UINT,
-            .size = { 
+            .size = {
                 render_context.render_data.settings.render_target_size.x,
                 render_context.render_data.settings.render_target_size.y,
                 1,
@@ -32,7 +32,7 @@ namespace raster_visbuf
     {
         return tg.create_transient_image({
             .format = daxa::Format::R64_UINT,
-            .size = { 
+            .size = {
                 render_context.render_data.settings.render_target_size.x,
                 render_context.render_data.settings.render_target_size.y,
                 1,
@@ -46,7 +46,7 @@ namespace raster_visbuf
         daxa::Format format = render_context.render_data.settings.enable_atomic_visbuffer ? daxa::Format::R32_SFLOAT : daxa::Format::D32_SFLOAT;
         return tg.create_transient_image({
             .format = format,
-            .size = { 
+            .size = {
                 render_context.render_data.settings.render_target_size.x,
                 render_context.render_data.settings.render_target_size.y,
                 1,
@@ -57,9 +57,9 @@ namespace raster_visbuf
 
     struct TaskDrawVisbufferAllInfo
     {
-        daxa::TaskGraph& tg;
-        std::unique_ptr<RenderContext>& render_context;
-        Scene* scene;
+        daxa::TaskGraph & tg;
+        std::unique_ptr<RenderContext> & render_context;
+        Scene * scene;
         daxa::TaskBufferView meshlet_instances;
         daxa::TaskBufferView meshlet_instances_last_frame;
         daxa::TaskBufferView visible_meshlet_instances;
@@ -70,9 +70,9 @@ namespace raster_visbuf
     {
         daxa::TaskImageView main_camera_visbuffer;
         daxa::TaskImageView main_camera_depth;
-        daxa::TaskImageView view_camera_visbuffer;  // 
-        daxa::TaskImageView view_camera_depth;      // View Camera is either observer or main camera
-        daxa::TaskImageView view_camera_overdraw;   // 
+        daxa::TaskImageView view_camera_visbuffer; //
+        daxa::TaskImageView view_camera_depth;     // View Camera is either observer or main camera
+        daxa::TaskImageView view_camera_overdraw;  //
     };
     inline auto task_draw_visbuffer_all(TaskDrawVisbufferAllInfo const info) -> TaskDrawVisbufferAllOut
     {
@@ -121,18 +121,15 @@ namespace raster_visbuf
         // === Render Visbuffer ===
 
         // Clear out counters for current meshlet instance lists.
-        info.tg.add_task({
-            .attachments = {
-                daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.meshlet_instances),
-            },
-            .task = [=](daxa::TaskInterface ti)
-            {
-                auto mesh_instances_address = ti.device_address(info.meshlet_instances).value();
-                MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
-                allocate_fill_copy(ti, mesh_instances_reset, ti.get(info.meshlet_instances));
-            },
-            .name = "clear meshlet instance buffer",
-        });
+        info.tg.add_task(daxa::InlineTask{"clear meshlet instance buffer"}
+                .tf.writes(info.meshlet_instances)
+                .executes(
+                    [=](daxa::TaskInterface ti)
+                    {
+                        auto mesh_instances_address = ti.device_address(info.meshlet_instances).value();
+                        MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
+                        allocate_fill_copy(ti, mesh_instances_reset, ti.get(info.meshlet_instances));
+                    }));
 
         daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
         task_select_first_pass_meshlets(SelectFirstPassMeshletsInfo{
@@ -176,7 +173,7 @@ namespace raster_visbuf
                 .globals = info.render_context->tgpu_render_data,
                 .mesh_instances = info.scene->mesh_instances_buffer,
                 .meshlet_expansions = opaque_meshlet_expansions,
-            });        
+            });
 
             task_cull_and_draw_visbuffer({
                 .render_context = info.render_context.get(),
@@ -195,7 +192,6 @@ namespace raster_visbuf
                 .overdraw_image = ret.view_camera_overdraw,
             });
         }
-
 
         if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {
@@ -275,7 +271,7 @@ namespace raster_visbuf
 
         if (info.render_context->render_data.settings.enable_atomic_visbuffer != 0)
         {
-           info.tg.add_task(SplitAtomicVisbufferTask{
+            info.tg.add_task(SplitAtomicVisbufferTask{
                 .views = SplitAtomicVisbufferTask::Views{
                     .atomic_visbuffer = atomic_visbuffer,
                     .visbuffer = ret.main_camera_visbuffer,
@@ -298,7 +294,7 @@ namespace raster_visbuf
         {
             auto const observer_depth = info.tg.create_transient_image({
                 .format = daxa::Format::D32_SFLOAT,
-                .size = { 
+                .size = {
                     info.render_context->render_data.settings.render_target_size.x,
                     info.render_context->render_data.settings.render_target_size.y,
                     1,
@@ -306,8 +302,8 @@ namespace raster_visbuf
                 .name = "observer view_camera_depth",
             });
             auto const observer_visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context, "observer view_camera_visbuffer");
-            
-            info.tg.clear_image({observer_depth, daxa::DepthValue{0.0f,0u}});
+
+            info.tg.clear_image({observer_depth, daxa::DepthValue{0.0f, 0u}});
             info.tg.clear_image({observer_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
 
             if (info.render_context->render_data.settings.observer_draw_first_pass)
@@ -358,4 +354,4 @@ namespace raster_visbuf
 
         return ret;
     }
-}
+} // namespace raster_visbuf

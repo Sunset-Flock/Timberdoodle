@@ -15,7 +15,7 @@
 DAXA_DECL_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz) // OPTIONAL
+DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)       // OPTIONAL
 DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D_ARRAY, hip) // OPTIONAL
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
 DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
@@ -27,7 +27,7 @@ struct ExpandMeshesToMeshletsPush
 {
     ExpandMeshesToMeshletsH::AttachmentShaderBlob attach;
     daxa::b32 cull_meshes;
-    daxa::b32 cull_against_last_frame;  /// WARNING: only supported for non vsm path!
+    daxa::b32 cull_against_last_frame; /// WARNING: only supported for non vsm path!
     // Only used for vsms:
     daxa::u32 cascade;
     daxa_BufferPtr(GPUMesh) meshes;
@@ -42,7 +42,7 @@ static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/
 
 inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
 
-struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
+    struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
@@ -95,7 +95,7 @@ struct TaskExpandMeshesToMeshletsInfo
 void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
     bool const prefix_sum_expansion = info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
-    
+
     auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES) : Po2PackedWorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES);
     auto opaque_expansion = info.tg.create_transient_buffer({
         .size = expansion_size,
@@ -105,34 +105,30 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         .size = expansion_size,
         .name = info.buffer_name_prefix + "masked_meshlet_expansion_buffer" + std::to_string(rand()),
     });
-    info.tg.add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, opaque_expansion),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, masked_expansion),
-        },
-        .task = [=](daxa::TaskInterface ti)
-        {
-            if (prefix_sum_expansion)
-            {
-                allocate_fill_copy(
-                    ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
-                    ti.get(opaque_expansion));
-                allocate_fill_copy(
-                    ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
-                    ti.get(masked_expansion));
-            }
-            else
-            {
-                allocate_fill_copy(
-                    ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
-                    ti.get(opaque_expansion));
-                allocate_fill_copy(
-                    ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
-                    ti.get(masked_expansion));
-            }
-        },
-        .name = std::string("clear work expansion buffer") + std::to_string(rand()),
-    });
+    info.tg.add_task(daxa::InlineTask{std::string("clear work expansion buffer") + std::to_string(rand())}
+            .tf.writes(opaque_expansion, masked_expansion)
+            .executes(
+                [=](daxa::TaskInterface ti)
+                {
+                    if (prefix_sum_expansion)
+                    {
+                        allocate_fill_copy(
+                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti.get(opaque_expansion));
+                        allocate_fill_copy(
+                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti.get(masked_expansion));
+                    }
+                    else
+                    {
+                        allocate_fill_copy(
+                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti.get(opaque_expansion));
+                        allocate_fill_copy(
+                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti.get(masked_expansion));
+                    }
+                }));
     info.meshlet_expansions = std::array{opaque_expansion, masked_expansion};
 
     info.tg.add_task(ExpandMeshesToMeshletsTask{

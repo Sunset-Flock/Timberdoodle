@@ -7,8 +7,8 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
-    #include "../../shader_shared/gpu_work_expansion.inl"
-    #include "../rasterize_visbuffer/cull_meshes.inl"
+#include "../../shader_shared/gpu_work_expansion.inl"
+#include "../rasterize_visbuffer/cull_meshes.inl"
 #endif
 
 #define INVALIDATE_PAGES_X_DISPATCH 256
@@ -121,65 +121,64 @@ struct GenDirtyBitHizPush
     daxa_u32 mip_count;
 };
 
-
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
-    DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion0)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion1)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion2)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion3)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion4)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion5)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion6)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion7)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion8)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion9)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion10)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion11)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion12)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion13)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion14)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion15)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion15)
-    // Draw Attachments:
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
-    // Vsm Attachments:
-    DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
-    DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
-    DAXA_DECL_TASK_HEAD_END
-    struct CullAndDrawPagesPush
-    {
-        #if !(DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
-            daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
-        #endif
-        daxa_u32 draw_list_type;
-        daxa_u32 bucket_index;
-        daxa_u32 cascade;
-        daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
-    };
+DAXA_DECL_TASK_HEAD_BEGIN(CullAndDrawPagesH)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion0)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion1)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion2)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion3)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion4)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion5)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion5)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion6)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion6)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion7)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion7)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion8)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion8)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion9)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion9)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion10)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion10)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion11)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion11)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion12)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion12)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion13)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion13)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion14)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion14)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, po2expansion15)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_u64, masked_po2expansion15)
+// Draw Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMesh), meshes)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transforms)
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(GPUMaterial), material_manifest)
+// Vsm Attachments:
+DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_SAMPLED, REGULAR_2D_ARRAY, vsm_dirty_bit_hiz)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_ONLY, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_memory_block)
+DAXA_TH_IMAGE_ID(GRAPHICS_SHADER_STORAGE_READ_WRITE, REGULAR_2D, vsm_overdraw_debug)
+DAXA_DECL_TASK_HEAD_END
+struct CullAndDrawPagesPush
+{
+#if !(DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
+    daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
+#endif
+    daxa_u32 draw_list_type;
+    daxa_u32 bucket_index;
+    daxa_u32 cascade;
+    daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
+};
 #endif
 
 DAXA_DECL_TASK_HEAD_BEGIN(ClearDirtyBitH)
@@ -211,18 +210,9 @@ DAXA_DECL_TASK_HEAD_END
 #include <glm/gtx/vector_angle.hpp>
 #include "../scene_renderer_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_pages.glsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main")
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_pages.glsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
 
-static constexpr inline char const CULL_AND_DRAW_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_pages.hlsl";
+    static constexpr inline char const CULL_AND_DRAW_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_pages.hlsl";
 inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_pages_base_pipeline_compile_info()
 {
     return {
@@ -445,29 +435,77 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .slope_factor = render_context->render_data.vsm_settings.slope_bias,
         });
         auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPagesH::AttachmentShaderBlob)).value();
-        *reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
+        *reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob *>(attachment_alloc.host_address) = ti.attachment_shader_blob;
         for (u32 cascade = 0; cascade < 16; ++cascade)
         {
             daxa::BufferId po2expansion;
             daxa::BufferId masked_po2expansion;
-            switch(cascade)
+            switch (cascade)
             {
-                case 0: po2expansion = ti.id(AT.po2expansion0); masked_po2expansion = ti.id(AT.masked_po2expansion0); break;
-                case 1: po2expansion = ti.id(AT.po2expansion1); masked_po2expansion = ti.id(AT.masked_po2expansion1); break;
-                case 2: po2expansion = ti.id(AT.po2expansion2); masked_po2expansion = ti.id(AT.masked_po2expansion2); break;
-                case 3: po2expansion = ti.id(AT.po2expansion3); masked_po2expansion = ti.id(AT.masked_po2expansion3); break;
-                case 4: po2expansion = ti.id(AT.po2expansion4); masked_po2expansion = ti.id(AT.masked_po2expansion4); break;
-                case 5: po2expansion = ti.id(AT.po2expansion5); masked_po2expansion = ti.id(AT.masked_po2expansion5); break;
-                case 6: po2expansion = ti.id(AT.po2expansion6); masked_po2expansion = ti.id(AT.masked_po2expansion6); break;
-                case 7: po2expansion = ti.id(AT.po2expansion7); masked_po2expansion = ti.id(AT.masked_po2expansion7); break;
-                case 8: po2expansion = ti.id(AT.po2expansion8); masked_po2expansion = ti.id(AT.masked_po2expansion8); break;
-                case 9: po2expansion = ti.id(AT.po2expansion9); masked_po2expansion = ti.id(AT.masked_po2expansion9); break;
-                case 10: po2expansion = ti.id(AT.po2expansion10); masked_po2expansion = ti.id(AT.masked_po2expansion10); break;
-                case 11: po2expansion = ti.id(AT.po2expansion11); masked_po2expansion = ti.id(AT.masked_po2expansion11); break;
-                case 12: po2expansion = ti.id(AT.po2expansion12); masked_po2expansion = ti.id(AT.masked_po2expansion12); break;
-                case 13: po2expansion = ti.id(AT.po2expansion13); masked_po2expansion = ti.id(AT.masked_po2expansion13); break;
-                case 14: po2expansion = ti.id(AT.po2expansion14); masked_po2expansion = ti.id(AT.masked_po2expansion14); break;
-                case 15: po2expansion = ti.id(AT.po2expansion15); masked_po2expansion = ti.id(AT.masked_po2expansion15); break;
+                case 0:
+                    po2expansion = ti.id(AT.po2expansion0);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion0);
+                    break;
+                case 1:
+                    po2expansion = ti.id(AT.po2expansion1);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion1);
+                    break;
+                case 2:
+                    po2expansion = ti.id(AT.po2expansion2);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion2);
+                    break;
+                case 3:
+                    po2expansion = ti.id(AT.po2expansion3);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion3);
+                    break;
+                case 4:
+                    po2expansion = ti.id(AT.po2expansion4);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion4);
+                    break;
+                case 5:
+                    po2expansion = ti.id(AT.po2expansion5);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion5);
+                    break;
+                case 6:
+                    po2expansion = ti.id(AT.po2expansion6);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion6);
+                    break;
+                case 7:
+                    po2expansion = ti.id(AT.po2expansion7);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion7);
+                    break;
+                case 8:
+                    po2expansion = ti.id(AT.po2expansion8);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion8);
+                    break;
+                case 9:
+                    po2expansion = ti.id(AT.po2expansion9);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion9);
+                    break;
+                case 10:
+                    po2expansion = ti.id(AT.po2expansion10);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion10);
+                    break;
+                case 11:
+                    po2expansion = ti.id(AT.po2expansion11);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion11);
+                    break;
+                case 12:
+                    po2expansion = ti.id(AT.po2expansion12);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion12);
+                    break;
+                case 13:
+                    po2expansion = ti.id(AT.po2expansion13);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion13);
+                    break;
+                case 14:
+                    po2expansion = ti.id(AT.po2expansion14);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion14);
+                    break;
+                case 15:
+                    po2expansion = ti.id(AT.po2expansion15);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion15);
+                    break;
             }
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
             {
@@ -579,22 +617,16 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .base_array_layer = 0,
         .layer_count = VSM_CLIP_LEVELS,
     });
-    info.tg->add_task({
-        .attachments = {
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->clip_projections),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->free_wrapped_pages_info),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->globals),
-            daxa::inl_attachment(daxa::TaskBufferAccess::TRANSFER_WRITE, info.vsm_state->vsm_point_lights),
-        },
-        .task = [info](daxa::TaskInterface ti)
-        {
-            allocate_fill_copy(ti, info.vsm_state->clip_projections_cpu, ti.get(info.vsm_state->clip_projections));
-            allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
-            allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
-            allocate_fill_copy(ti, info.vsm_state->point_lights_cpu, ti.get(info.vsm_state->vsm_point_lights));
-        },
-        .name = "vsm setup task",
-    });
+    info.tg->add_task(daxa::InlineTask{"vsm setup task"}
+            .tf.writes(info.vsm_state->clip_projections, info.vsm_state->free_wrapped_pages_info, info.vsm_state->globals, info.vsm_state->vsm_point_lights)
+            .executes(
+                [info](daxa::TaskInterface ti)
+                {
+                    allocate_fill_copy(ti, info.vsm_state->clip_projections_cpu, ti.get(info.vsm_state->clip_projections));
+                    allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
+                    allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
+                    allocate_fill_copy(ti, info.vsm_state->point_lights_cpu, ti.get(info.vsm_state->vsm_point_lights));
+                }));
 
     info.tg->add_task(InvalidatePagesTask{
         .views = InvalidatePagesTask::Views{
@@ -713,7 +745,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .globals = info.render_context->tgpu_render_data,
             .mesh_instances = info.mesh_instances,
             .meshlet_expansions = cascade_meshlet_expansions[cascade],
-            .dispatch_clear = {0,1,1},
+            .dispatch_clear = {0, 1, 1},
             .buffer_name_prefix = std::string("vsm cascade ") + std::to_string(cascade) + ' ',
         });
     }
@@ -827,12 +859,12 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         auto const clip_scale = std::pow(2.0f, s_cast<f32>(clip));
         auto const near_far_clip_scale = info.use_fixed_near_far ? 1.0f : clip_scale;
         auto clip_projection = glm::ortho(
-            -info.clip_0_scale * clip_scale, // left
-            info.clip_0_scale * clip_scale,  // right
-            -info.clip_0_scale * clip_scale, // bottom
-            info.clip_0_scale * clip_scale,  // top
-            info.clip_0_near * near_far_clip_scale,   // near
-            info.clip_0_far * near_far_clip_scale     // far
+            -info.clip_0_scale * clip_scale,        // left
+            info.clip_0_scale * clip_scale,         // right
+            -info.clip_0_scale * clip_scale,        // bottom
+            info.clip_0_scale * clip_scale,         // top
+            info.clip_0_near * near_far_clip_scale, // near
+            info.clip_0_far * near_far_clip_scale   // far
         );
         // Switch from OpenGL default to Vulkan default (invert the Y clip coordinate)
         clip_projection[1][1] *= -1.0;
@@ -905,9 +937,9 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         clip_camera.bottom_plane_normal = glm::normalize(
             glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
-        const f32 near_plane = info.clip_0_near * curr_near_far_clip_scale;
-        const f32 far_plane = info.clip_0_far * curr_near_far_clip_scale;
-        const f32 near_to_far_range = far_plane - near_plane;
+        f32 const near_plane = info.clip_0_near * curr_near_far_clip_scale;
+        f32 const far_plane = info.clip_0_far * curr_near_far_clip_scale;
+        f32 const near_to_far_range = far_plane - near_plane;
         clip_projections.at(clip) = VSMClipProjection{
             .page_offset = {
                 (-s_cast<daxa_i32>(ndc_page_scaled_aligned_target_pos.x)),
@@ -994,7 +1026,7 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
         auto const inverse_view = info.light->inverse_view_matrices[cube_face];
         ShaderDebugBoxDraw box_draw = {};
         box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face/ 6.0f, 1.0f, 1.0f)));
+        box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face / 6.0f, 1.0f, 1.0f)));
         for (i32 vertex = 0; vertex < 8; vertex++)
         {
             auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);

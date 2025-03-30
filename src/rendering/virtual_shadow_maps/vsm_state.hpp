@@ -42,35 +42,36 @@ struct VSMState
     std::array<VSMPointLight, MAX_POINT_LIGHTS> point_lights_cpu = {};
 
     VSMGlobals globals_cpu = {};
-    void update_vsm_lights(const std::vector<ActivePointLight> & active_lights) 
+    void update_vsm_lights(std::vector<ActivePointLight> const & active_lights)
     {
         // TODO(msakmary) Might be broken idk how cubemaps actually work
         constexpr std::array<f32vec3, 6> cubemap_dirs = {
-            f32vec3{ 1.0f,  0.0f,  0.0f},
-            f32vec3{-1.0f,  0.0f,  0.0f},
-            f32vec3{ 0.0f,  1.0f,  0.0f},
-            f32vec3{ 0.0f, -1.0f,  0.0f},
-            f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 0.0f,  0.0f, -1.0f},
+            f32vec3{1.0f, 0.0f, 0.0f},
+            f32vec3{-1.0f, 0.0f, 0.0f},
+            f32vec3{0.0f, 1.0f, 0.0f},
+            f32vec3{0.0f, -1.0f, 0.0f},
+            f32vec3{0.0f, 0.0f, 1.0f},
+            f32vec3{0.0f, 0.0f, -1.0f},
         };
         constexpr std::array<f32vec3, 6> cubemap_ups = {
-            f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 0.0f,  0.0f,  1.0f},
-            f32vec3{ 0.0f,  1.0f,  0.0f},
-            f32vec3{ 0.0f,  1.0f,  0.0f},
+            f32vec3{0.0f, 0.0f, 1.0f},
+            f32vec3{0.0f, 0.0f, 1.0f},
+            f32vec3{0.0f, 0.0f, 1.0f},
+            f32vec3{0.0f, 0.0f, 1.0f},
+            f32vec3{0.0f, 1.0f, 0.0f},
+            f32vec3{0.0f, 1.0f, 0.0f},
         };
 
         DBG_ASSERT_TRUE_M(active_lights.size() == MAX_POINT_LIGHTS, "FIXME(msakmary)");
-        for(int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
+        for (int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
         {
             auto & vsm_point_light = point_lights_cpu.at(point_light_idx);
             auto & active_light = active_lights.at(point_light_idx);
             vsm_point_light.light = active_light.point_light_ptr;
             vsm_point_light.page_table = point_page_tables.get_state().images[point_light_idx].default_view();
 
-            for(i32 i = 0; i < 6; ++i){
+            for (i32 i = 0; i < 6; ++i)
+            {
                 vsm_point_light.view_matrices[i] = glm::lookAt(active_light.position, active_light.position + cubemap_dirs.at(i), cubemap_ups.at(i));
                 vsm_point_light.inverse_view_matrices[i] = glm::inverse(vsm_point_light.view_matrices[i]);
             }
@@ -180,27 +181,23 @@ struct VSMState
 
         std::array<daxa::ImageId, MAX_POINT_LIGHTS> page_image_ids{};
 
-        const u32 mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
-        for(int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; point_light_vsm++)
+        u32 const mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
+        for (int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; point_light_vsm++)
         {
-            page_image_ids.at(point_light_vsm) = gpu_context->device.create_image({
-                .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
+            page_image_ids.at(point_light_vsm) = gpu_context->device.create_image({.flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
                 .mip_level_count = mip_levels,
                 .array_layer_count = 6,
-                .usage = 
+                .usage =
                     daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                     daxa::ImageUsageFlagBits::SHADER_STORAGE |
                     daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = fmt::format("vsm point table {} phys image", point_light_vsm)
-            });
+                .name = fmt::format("vsm point table {} phys image", point_light_vsm)});
         }
 
-        point_page_tables = daxa::TaskImage({
-            .initial_images = { .images = page_image_ids },
-            .name = "vsm point tables"
-        });
+        point_page_tables = daxa::TaskImage({.initial_images = {.images = page_image_ids},
+            .name = "vsm point tables"});
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = gpu_context->device,
@@ -211,49 +208,44 @@ struct VSMState
         upload_task_graph.use_persistent_image(point_page_tables);
 
         auto const page_table_array_view = page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const point_table_array_view = point_page_tables.view().view({
-            .base_mip_level = 0,
+        auto const point_table_array_view = point_page_tables.view().view({.base_mip_level = 0,
             .level_count = mip_levels - 1,
             .base_array_layer = 0,
-            .layer_count = 6
-        });
+            .layer_count = 6});
 
-        upload_task_graph.add_task({
-            .attachments = {
-                daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view),
-                daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, daxa::ImageViewType::REGULAR_2D_ARRAY, point_table_array_view),
-                daxa::inl_attachment(daxa::TaskImageAccess::TRANSFER_WRITE, meta_memory_table),
-            },
-            .task = [&](daxa::TaskInterface ti)
-            {
-                ti.recorder.clear_image({
-                    .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                    .dst_image = ti.id(page_table_array_view),
-                    .dst_slice = daxa::ImageMipArraySlice{
-                        .base_array_layer = 0,
-                        .layer_count = VSM_CLIP_LEVELS},
-                });
+        upload_task_graph.add_task(daxa::InlineTask{"Upload VSM Constants"}
+                .tf.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_table_array_view)
+                .tf.writes(meta_memory_table)
+                .executes(
+                    [&](daxa::TaskInterface ti)
+                    {
+                        ti.recorder.clear_image({
+                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
+                            .dst_image = ti.id(page_table_array_view),
+                            .dst_slice = daxa::ImageMipArraySlice{
+                                .base_array_layer = 0,
+                                .layer_count = VSM_CLIP_LEVELS},
+                        });
 
-                ti.recorder.clear_image({
-                    .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                    .dst_image = ti.id(meta_memory_table.view()),
-                });
+                        ti.recorder.clear_image({
+                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
+                            .dst_image = ti.id(meta_memory_table.view()),
+                        });
 
-                for(int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; ++point_light_vsm)
-                {
-                    ti.recorder.clear_image({
-                        .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                        .dst_image = ti.get(point_table_array_view).ids[point_light_vsm],
-                        .dst_slice = daxa::ImageMipArraySlice{
-                            .base_mip_level = 0,
-                            .level_count = mip_levels - 1,
-                            .base_array_layer = 0,
-                            .layer_count = 6,
-                        },
-                    });
-                }
-            },
-        });
+                        for (int point_light_vsm = 0; point_light_vsm < MAX_POINT_LIGHTS; ++point_light_vsm)
+                        {
+                            ti.recorder.clear_image({
+                                .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
+                                .dst_image = ti.get(point_table_array_view).ids[point_light_vsm],
+                                .dst_slice = daxa::ImageMipArraySlice{
+                                    .base_mip_level = 0,
+                                    .level_count = mip_levels - 1,
+                                    .base_array_layer = 0,
+                                    .layer_count = 6,
+                                },
+                            });
+                        }
+                    }));
         upload_task_graph.submit({});
         upload_task_graph.complete({});
         upload_task_graph.execute({});
@@ -266,13 +258,13 @@ struct VSMState
         gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
-        for(i32 i = 0; i < MAX_POINT_LIGHTS; ++i)
+        for (i32 i = 0; i < MAX_POINT_LIGHTS; ++i)
         {
             gpu_context->device.destroy_image(point_page_tables.get_state().images[i]);
         }
     }
 
-    void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
+    void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
     {
         free_wrapped_pages_info = tg.create_transient_buffer({
             .size = static_cast<daxa_u32>(sizeof(FreeWrappedPagesInfo) * VSM_CLIP_LEVELS),
@@ -343,14 +335,14 @@ struct VSMState
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
                 .name = "vsm overdraw debug image",
-            }); 
+            });
         }
 
         tg.clear_buffer({.buffer = allocation_requests, .clear_value = 0});
         tg.clear_buffer({.buffer = find_free_pages_header, .clear_value = 0});
     }
 
-    void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const& rgd)
+    void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
     {
         free_wrapped_pages_info = daxa::NullTaskBuffer;
         allocation_requests = daxa::NullTaskBuffer;
