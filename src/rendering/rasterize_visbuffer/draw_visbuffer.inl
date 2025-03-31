@@ -15,29 +15,29 @@
 
 #define COMPUTE_RASTERIZE_WORKGROUP_X 64
 
-DAXA_DECL_TASK_HEAD_BEGIN(SplitAtomicVisbufferH)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, atomic_visbuffer)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, visbuffer)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_WRITE_ONLY, REGULAR_2D, depth)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(SplitAtomicVisbufferH)
+DAXA_TH_IMAGE_ID(READ, REGULAR_2D, atomic_visbuffer)
+DAXA_TH_IMAGE_ID(WRITE, REGULAR_2D, visbuffer)
+DAXA_TH_IMAGE_ID(WRITE, REGULAR_2D, depth)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), draw_commands)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(DrawVisbuffer_WriteCommandH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(daxa_u32), draw_commands)
 DAXA_DECL_TASK_HEAD_END
 
 // When drawing triangles, this draw command has triangle ids appended to the end of the command.
-DAXA_DECL_TASK_HEAD_BEGIN(DrawVisbufferH)
+DAXA_DECL_RASTER_TASK_HEAD_BEGIN(DrawVisbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER(READ, draw_commands)
+DAXA_TH_BUFFER(INDIRECT_COMMAND_READ, draw_commands)
 // Used by observer to cull:
-DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
-DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer)
+DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, atomic_visbuffer)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
-DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image)
+DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_DECL_TASK_HEAD_END
 
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
@@ -45,15 +45,15 @@ DAXA_DECL_TASK_HEAD_END
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
-DAXA_TH_IMAGE_ID(SHADER_SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion)
 DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
-DAXA_TH_IMAGE_ID(SHADER_STORAGE_READ_WRITE, REGULAR_2D, overdraw_image) // Optional
+DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
+DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, overdraw_image) // Optional
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image) // Optional
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image) // Optional
 DAXA_DECL_TASK_HEAD_END
@@ -458,19 +458,20 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
 
     if (info.render_context->render_data.settings.enable_separate_compute_meshlet_culling)
     {
+        auto const stage = daxa::TaskStage::COMPUTE_SHADER;
         info.tg.add_task(CullMeshletsComputeTask{
             .views = CullMeshletsComputeTask::Views{
-                .globals = info.render_context->tgpu_render_data,
-                .hiz = info.hiz,
-                .po2expansion = info.meshlet_cull_po2expansion[0],
-                .masked_po2expansion = info.meshlet_cull_po2expansion[1],
-                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena,
-                .meshlet_instances = info.meshlet_instances,
-                .mesh_instances = info.mesh_instances,
-                .atomic_visbuffer = info.atomic_visbuffer,
-                .overdraw_image = info.overdraw_image,
-                .vis_image = info.vis_image,
-                .depth_image = info.depth_image,
+                .globals = info.render_context->tgpu_render_data.view().override_stage(stage),
+                .hiz = info.hiz.override_stage(stage),
+                .po2expansion = info.meshlet_cull_po2expansion[0].override_stage(stage),
+                .masked_po2expansion = info.meshlet_cull_po2expansion[1].override_stage(stage),
+                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
+                .meshlet_instances = info.meshlet_instances.override_stage(stage),
+                .mesh_instances = info.mesh_instances.override_stage(stage),
+                .atomic_visbuffer = info.atomic_visbuffer.override_stage(stage),
+                .overdraw_image = info.overdraw_image.override_stage(stage),
+                .vis_image = info.vis_image.override_stage(stage),
+                .depth_image = info.depth_image.override_stage(stage),
             },
             .render_context = info.render_context,
             .first_pass = info.first_pass,
@@ -512,17 +513,18 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
     }
     else
     {
+        auto const stage = daxa::TaskStage::RASTER_SHADER;
         info.tg.add_task(CullMeshletsDrawVisbufferTask{
             .views = CullMeshletsDrawVisbufferTask::Views{
-                .globals = info.render_context->tgpu_render_data,
-                .hiz = info.hiz,
-                .po2expansion = info.meshlet_cull_po2expansion[0],
-                .masked_po2expansion = info.meshlet_cull_po2expansion[1],
-                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena,
-                .meshlet_instances = info.meshlet_instances,
-                .mesh_instances = info.mesh_instances,
-                .atomic_visbuffer = info.atomic_visbuffer,
-                .overdraw_image = info.overdraw_image,
+                .globals = info.render_context->tgpu_render_data.view().override_stage(stage),
+                .hiz = info.hiz.override_stage(stage),
+                .po2expansion = info.meshlet_cull_po2expansion[0].override_stage(stage),
+                .masked_po2expansion = info.meshlet_cull_po2expansion[1].override_stage(stage),
+                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
+                .meshlet_instances = info.meshlet_instances.override_stage(stage),
+                .mesh_instances = info.mesh_instances.override_stage(stage),
+                .atomic_visbuffer = info.atomic_visbuffer.override_stage(stage),
+                .overdraw_image = info.overdraw_image.override_stage(stage),
                 .vis_image = info.vis_image,
                 .depth_image = info.depth_image,
             },
