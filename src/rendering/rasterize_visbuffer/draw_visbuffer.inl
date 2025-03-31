@@ -43,17 +43,17 @@ DAXA_DECL_TASK_HEAD_END
 #if DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL
 
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
-DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(SHADER::READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion)
-DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_IMAGE_ID(SHADER::SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_BUFFER_PTR(SHADER::READ, daxa_u64, po2expansion)
+DAXA_TH_BUFFER_PTR(SHADER::READ, daxa_u64, masked_po2expansion)
+DAXA_TH_BUFFER_PTR(SHADER::READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
 // Draw Attachments:
-DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
-DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, overdraw_image) // Optional
+DAXA_TH_BUFFER_PTR(SHADER::READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(SHADER::READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_IMAGE_ID(SHADER::READ_WRITE, REGULAR_2D, atomic_visbuffer) // Optional
+DAXA_TH_IMAGE_ID(SHADER::READ_WRITE, REGULAR_2D, overdraw_image) // Optional
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image) // Optional
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image) // Optional
 DAXA_DECL_TASK_HEAD_END
@@ -525,8 +525,8 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .mesh_instances = info.mesh_instances.override_stage(stage),
                 .atomic_visbuffer = info.atomic_visbuffer.override_stage(stage),
                 .overdraw_image = info.overdraw_image.override_stage(stage),
-                .vis_image = info.vis_image,
-                .depth_image = info.depth_image,
+                .vis_image = info.vis_image.override_stage(stage),
+                .depth_image = info.depth_image.override_stage(stage),
             },
             .render_context = info.render_context,
             .first_pass = info.first_pass,
