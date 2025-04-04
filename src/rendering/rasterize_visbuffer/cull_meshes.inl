@@ -12,15 +12,15 @@
 
 #define CULL_MESHES_WORKGROUP_X 128
 
-DAXA_DECL_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, hiz)       // OPTIONAL
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D_ARRAY, hip) // OPTIONAL
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)       // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, hip) // OPTIONAL
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
 // TODO REMOVE, PUT IN VSM GLOBALS
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_DECL_TASK_HEAD_END
 
 struct ExpandMeshesToMeshletsPush

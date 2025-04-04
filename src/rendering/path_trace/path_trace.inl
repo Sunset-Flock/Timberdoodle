@@ -16,21 +16,21 @@
 #define REF_PT_X 8
 #define REF_PT_Y 8
 
-DAXA_DECL_TASK_HEAD_BEGIN(ReferencePathTraceH)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, pt_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DId<daxa_f32vec4>, history_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_u32>, vis_image)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, transmittance)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, CUBE, sky_ibl)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, brdf_lut)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_TLAS_ID(RAY_TRACING_SHADER_READ, tlas)
+DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(ReferencePathTraceH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_ID(READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, pt_image)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_f32vec4>, history_image)
+DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, vis_image)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, transmittance)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(SAMPLED, CUBE, sky_ibl)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, brdf_lut)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), luminance_average)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_TLAS_ID(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct ReferencePathTraceAttachments

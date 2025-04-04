@@ -18,17 +18,17 @@ struct PGIIndirections
     daxa_u32 probe_update_count;
 };
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
-DAXA_TH_BUFFER_PTR(GRAPHICS_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), luminance_average)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
-DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)
-DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
-DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(GRAPHICS_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_u32>, probe_requests)
-DAXA_TH_TLAS_ID(GRAPHICS_SHADER_READ, tlas)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, probe_requests)
+DAXA_TH_TLAS_ID(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIDrawDebugProbesPush
@@ -40,13 +40,13 @@ struct PGIDrawDebugProbesPush
 #define PGI_UPDATE_WG_XY 8
 #define PGI_UPDATE_WG_Z 1
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIUpdateProbeTexelsH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_radiance)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec2>, probe_visibility)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbeTexelsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbeTexelsPush
@@ -55,13 +55,13 @@ struct PGIUpdateProbeTexelsPush
     bool update_radiance;
 };
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIUpdateProbesH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info_copy)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbesH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info_copy)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbesPush
@@ -69,18 +69,18 @@ struct PGIUpdateProbesPush
     PGIUpdateProbesH::AttachmentShaderBlob attach;
 };
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGITraceProbeLightingH)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky_transmittance)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky)
-DAXA_TH_TLAS_ID(RAY_TRACING_SHADER_READ, tlas)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(PGITraceProbeLightingH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky_transmittance)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGITraceProbeLightingPush
@@ -91,12 +91,12 @@ struct PGITraceProbeLightingPush
 
 #define PGI_PRE_UPDATE_XYZ 4
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIPreUpdateProbesH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info_copy)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(PGIIndirections), probe_indirections)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIPreUpdateProbesH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info_copy)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, requests)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(PGIIndirections), probe_indirections)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIPreUpdateProbesPush
@@ -109,17 +109,17 @@ struct PGIPreUpdateProbesPush
 #define PGI_EVAL_SCREEN_IRRADIANCE_XY 8
 #define PGI_EVAL_SCREEN_IRRADIANCE_Z 1
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIEvalScreenIrradianceH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, main_cam_depth)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_face_normals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, probe_requests)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, irradiance_depth)
-// DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_u32>, normals)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIEvalScreenIrradianceH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, main_cam_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_face_normals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, probe_requests)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, irradiance_depth)
+// DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, normals)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIEvalScreenIrradiancePush
@@ -132,13 +132,13 @@ struct PGIEvalScreenIrradiancePush
 #define PGI_UPSCALE_SCREEN_IRRADIANCE_XY 8
 #define PGI_UPSCALE_SCREEN_IRRADIANCE_Z 1
 
-DAXA_DECL_TASK_HEAD_BEGIN(PGIUpscaleScreenIrradianceH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, main_cam_depth)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, half_irradiance_depth)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, half_normals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, full_res_pgi_irradiance)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpscaleScreenIrradianceH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, main_cam_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, half_irradiance_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, half_normals)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, full_res_pgi_irradiance)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpscaleScreenIrradiancePush

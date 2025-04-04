@@ -9,11 +9,11 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(WriteSwapchainH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec4>, color_image)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, swapchain)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(WriteSwapchainH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, color_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, swapchain)
 DAXA_DECL_TASK_HEAD_END
 
 struct WriteSwapchainPush

@@ -13,10 +13,10 @@
 #define GEN_HIZ_WINDOW_X 64
 #define GEN_HIZ_WINDOW_Y 64
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenHizTH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_SAMPLED, REGULAR_2D, src)
-DAXA_TH_IMAGE_ID_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenHizTH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, src)
+DAXA_TH_IMAGE_ID_MIP_ARRAY(READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
 struct GenHizPush
@@ -47,11 +47,11 @@ struct GenHizPush
 // NOTE: The src image will be treated as if it was sized to the next power of two in size. A 1440x2560p image will be treated as a 2048x4098 image!
 // In total a 64x64 sample area is tapped in the first level. This may differ for non power of two depth sizes, these will be oversampled.
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenHizH2)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<float>, src)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(COMPUTE_SHADER_STORAGE_READ_WRITE, daxa::RWTexture2DIndex<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenHizH2)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<float>, src)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DIndex<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
 struct GenHizPush2

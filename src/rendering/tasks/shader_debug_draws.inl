@@ -7,7 +7,7 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/debug.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(DebugDrawH)
+DAXA_DECL_RASTER_TASK_HEAD_BEGIN(DebugDrawH)
 DAXA_TH_BUFFER_PTR(VERTEX_SHADER_READ_WRITE, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)

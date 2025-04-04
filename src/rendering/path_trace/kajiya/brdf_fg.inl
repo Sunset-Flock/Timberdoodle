@@ -8,9 +8,9 @@
 #include "../../../shader_shared/shared.inl"
 #include "../../../shader_shared/globals.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(BrdfFgH)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec4>, output_tex)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(BrdfFgH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, output_tex)
 DAXA_DECL_TASK_HEAD_END
 
 #if defined(__cplusplus)

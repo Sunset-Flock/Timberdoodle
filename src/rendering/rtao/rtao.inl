@@ -18,18 +18,18 @@
 #define RTAO_DENOISER_X 8
 #define RTAO_DENOISER_Y 8
 
-DAXA_DECL_TASK_HEAD_BEGIN(RayTraceAmbientOcclusionH)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32>, ao_image)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_u32>, view_cam_detail_normals)
-DAXA_TH_IMAGE_TYPED(RAY_TRACING_SHADER_STORAGE_READ_ONLY, daxa::RWTexture2DId<daxa_u32>, view_cam_visbuffer)
-DAXA_TH_IMAGE_ID(RAY_TRACING_SHADER_SAMPLED, REGULAR_2D, sky)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(RAY_TRACING_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_TLAS_ID(RAY_TRACING_SHADER_READ, tlas)
+DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RayTraceAmbientOcclusionH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_ID(READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, ao_image)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
+DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_detail_normals)
+DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_visbuffer)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_TLAS_ID(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct RayTraceAmbientOcclusionPush
@@ -37,14 +37,14 @@ struct RayTraceAmbientOcclusionPush
     RayTraceAmbientOcclusionH::AttachmentShaderBlob attach;
 };
 
-DAXA_DECL_TASK_HEAD_BEGIN(RTAODenoiserH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_u32>, face_normals)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32vec2>, history)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_SAMPLED, daxa::Texture2DId<daxa_f32>, src)
-DAXA_TH_IMAGE_TYPED(COMPUTE_SHADER_STORAGE_WRITE_ONLY, daxa::RWTexture2DId<daxa_f32vec2>, dst);
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RTAODenoiserH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, face_normals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec2>, history)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, src)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, dst);
 DAXA_DECL_TASK_HEAD_END
 
 struct RTAODenoiserPush

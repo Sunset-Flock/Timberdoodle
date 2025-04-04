@@ -165,6 +165,28 @@ Renderer::~Renderer()
     this->gpu_context->device.collect_garbage();
 }
 
+// struct PipelineCompileInfos
+// {
+//     InlineArray<daxa::RasterPipelineCompileInfo, 64> rasters = {};
+//     u32 const RPID_DRAW_VISBUFFER_0 = rasters.add(draw_visbuffer_mesh_shader_pipelines[0]);
+//     u32 const RPID_DRAW_VISBUFFER_1 = rasters.add(draw_visbuffer_mesh_shader_pipelines[1]);
+//     u32 const RPID_DRAW_VISBUFFER_2 = rasters.add(draw_visbuffer_mesh_shader_pipelines[2]);
+//     u32 const RPID_DRAW_VISBUFFER_3 = rasters.add(draw_visbuffer_mesh_shader_pipelines[3]);
+//     u32 const RPID_DRAW_VISBUFFER_4 = rasters.add(draw_visbuffer_mesh_shader_pipelines[4]);
+//     u32 const RPID_DRAW_VISBUFFER_5 = rasters.add(draw_visbuffer_mesh_shader_pipelines[5]);
+//     u32 const RPID_DRAW_VISBUFFER_6 = rasters.add(draw_visbuffer_mesh_shader_pipelines[6]);
+//     u32 const RPID_DRAW_VISBUFFER_7 = rasters.add(draw_visbuffer_mesh_shader_pipelines[7]);
+//     u32 const RPID_CULL_DRAW_PAGES_0 = rasters.add();
+//     u32 const RPID_CULL_DRAW_PAGES_1 = rasters.add();
+//     u32 const RPID_DRAW_SHADER_DEBUG_LINES = rasters.add();
+//     u32 const RPID_DRAW_SHADER_DEBUG_CIRCLES = rasters.add();
+//     u32 const RPID_DRAW_SHADER_DEBUG_RECTANGLES = rasters.add();
+//     u32 const RPID_DRAW_SHADER_DEBUG_AABBS = rasters.add();
+//     u32 const RPID_DRAW_SHADER_DEBUG_BOXES = rasters.add();
+//     u32 const RPID_PGI_DRAW_DEBUG_PROBES = rasters.add();
+//     u32 const RPID_COUNT = rasters.add();
+// };
+
 void Renderer::compile_pipelines()
 {
     auto add_if_not_present = [&](auto & map, auto & list, auto compile_info)
@@ -386,7 +408,7 @@ void Renderer::clear_select_buffers()
     tg.use_persistent_buffer(meshlet_instances);
     tg.use_persistent_buffer(meshlet_instances_last_frame);
     tg.add_task(daxa::InlineTask{"clear meshlet instance buffers"}
-            .tf.writes(meshlet_instances, meshlet_instances_last_frame)
+            .transfer.writes(meshlet_instances, meshlet_instances_last_frame)
             .executes(
                 [=](daxa::TaskInterface ti)
                 {

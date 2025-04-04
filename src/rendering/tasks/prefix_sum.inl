@@ -17,27 +17,27 @@ struct DispatchIndirectValueCount
 };
 DAXA_DECL_BUFFER_PTR(DispatchIndirectValueCount)
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumCommandWriteH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), value_count)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command0)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command1)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), downsweep_command)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PrefixSumCommandWriteH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), value_count)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command0)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), upsweep_command1)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(DispatchIndirectValueCount), downsweep_command)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumUpsweepH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), src)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), dst)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), block_sums)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PrefixSumUpsweepH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), src)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(daxa_u32), dst)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(daxa_u32), block_sums)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(PrefixSumDownsweepH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), block_sums)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(daxa_u32), values)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PrefixSumDownsweepH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectValueCount), command)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), block_sums)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(daxa_u32), values)
 DAXA_DECL_TASK_HEAD_END
 
 struct PrefixSumWriteCommandPush

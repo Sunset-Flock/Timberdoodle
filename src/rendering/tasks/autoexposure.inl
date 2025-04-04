@@ -4,17 +4,17 @@
 #include <daxa/utils/task_graph.inl>
 #include "../../shader_shared/globals.inl"
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceHistogramH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_BufferPtr(daxa_u32), histogram)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_f32), luminance_average)
-DAXA_TH_IMAGE_ID(COMPUTE_SHADER_STORAGE_READ_ONLY, REGULAR_2D, color_image)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceHistogramH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_BufferPtr(daxa_u32), histogram)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), luminance_average)
+DAXA_TH_IMAGE_ID(READ, REGULAR_2D, color_image)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(GenLuminanceAverageH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(daxa_u32), histogram)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_BufferPtr(daxa_f32), luminance_average)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceAverageH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), histogram)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(daxa_f32), luminance_average)
 DAXA_DECL_TASK_HEAD_END
 
 #define LUM_HISTOGRAM_BIN_COUNT 256

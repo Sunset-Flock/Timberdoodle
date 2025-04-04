@@ -16,35 +16,35 @@
 // - Goes over all opaque mesh instance draws
 // - Allocates a list with an entry for every mesh for each entity
 // - This dispatch also writes the indirect command buffer used for the following two passes.
-DAXA_DECL_TASK_HEAD_BEGIN(AllocEntBitfieldListsH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, SFPMBitfieldRef, bitfield_arena)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(AllocEntBitfieldListsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, bitfield_arena)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(DispatchIndirectStruct), command)
 DAXA_DECL_TASK_HEAD_END
 
 // - Goes over all visible meshlets from last frame
 // - Allocates a bitfield for every mesh instance
-DAXA_DECL_TASK_HEAD_BEGIN(AllocMeshletInstBitfieldsH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER(COMPUTE_SHADER_READ, command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances_prev)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, SFPMBitfieldRef, bitfield_arena)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(AllocMeshletInstBitfieldsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER(INDIRECT_COMMAND_READ, command)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances_prev)
+DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, bitfield_arena)
 DAXA_DECL_TASK_HEAD_END
 
 // - Goes over all visible meshlets from last frame again
 // - Sets bits for all previously visible meshlets
 // - prepopulates meshlet instances with previously visible meshlets
-DAXA_DECL_TASK_HEAD_BEGIN(WriteFirstPassMeshletsAndBitfieldsH)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER(COMPUTE_SHADER_READ, command)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances_prev)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE, SFPMBitfieldRef, bitfield_arena)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(WriteFirstPassMeshletsAndBitfieldsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER(INDIRECT_COMMAND_READ, command)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VisibleMeshletList), visible_meshlets_prev)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances_prev)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(MeshletInstancesBufferHead), meshlet_instances)
+DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, bitfield_arena)
 DAXA_DECL_TASK_HEAD_END
 
 struct AllocEntBitfieldListsPush

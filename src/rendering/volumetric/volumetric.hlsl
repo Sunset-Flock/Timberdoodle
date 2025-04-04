@@ -10,12 +10,12 @@
 #include "../../shader_shared/volumetric.inl"
 
 
-DAXA_DECL_TASK_HEAD_BEGIN(VolUpdateFroxels)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(VolUpdateFroxels)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_DECL_TASK_HEAD_END
 
-DAXA_DECL_TASK_HEAD_BEGIN(VolRaymarchFroxels)
-DAXA_TH_BUFFER_PTR(COMPUTE_SHADER_READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(VolRaymarchFroxels)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_DECL_TASK_HEAD_END
 
 #if !defined(__cplusplus)
