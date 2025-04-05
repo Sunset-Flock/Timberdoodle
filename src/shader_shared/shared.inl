@@ -182,6 +182,8 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO 21
 #define DEBUG_DRAW_MODE_ALL_DIFFUSE 22
 #define DEBUG_DRAW_MODE_LOD 23
+#define DEBUG_DRAW_SHADE_OPAQUE_CLOCKS 24
+#define DEBUG_DRAW_PGI_EVAL_CLOCKS 25
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -202,7 +204,7 @@ struct Settings
     daxa_i32 debug_draw_mode;
     daxa_i32 ao_mode;
     daxa_i32 ao_samples;
-    daxa_f32 debug_overdraw_scale;
+    daxa_f32 debug_visualization_scale;
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
@@ -235,7 +237,7 @@ struct Settings
           debug_draw_mode{0},
           ao_mode{AO_MODE_RT},
           ao_samples{1},
-          debug_overdraw_scale{0.1},
+          debug_visualization_scale{0.1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
           enable_triangle_cull{1},

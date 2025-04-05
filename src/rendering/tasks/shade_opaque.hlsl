@@ -339,6 +339,8 @@ void entry_main_cs(
 {
     let push = push_opaque;
 
+    let clk_start = clockARB();
+
     if (svdtid.x == 0 && svdtid.y == 0)
     {
         push.attachments.attachments.globals.readback.first_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[0];
@@ -524,7 +526,7 @@ void entry_main_cs(
                 if (AT.overdraw_image.value != 0)
                 {
                     let value = Texture2D<uint>::get(AT.overdraw_image)[index].x;
-                    let scaled_value = float(value) * AT.globals->settings.debug_overdraw_scale;
+                    let scaled_value = float(value) * AT.globals->settings.debug_visualization_scale;
                     let color = TurboColormap(scaled_value);
                     output_value.rgb = color;
                 }
@@ -670,6 +672,22 @@ void entry_main_cs(
         const float3 total_direct_illuminance = sun_direct_illuminance + atmosphere_direct_illuminnace;
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
+    }
+
+    switch(push.attachments.attachments.globals.settings.debug_draw_mode)
+    {
+        case DEBUG_DRAW_SHADE_OPAQUE_CLOCKS:
+        {
+            let clk_end = clockARB();
+            output_value.rgb = TurboColormap(float(clk_end - clk_start) * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale);
+            break;
+        }
+        case DEBUG_DRAW_PGI_EVAL_CLOCKS:
+        {
+            let dgb_img_v = RWTexture2D<float4>::get(push.attachments.attachments.debug_image)[index];
+            output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale);
+            break;
+        }
     }
     
     //const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;

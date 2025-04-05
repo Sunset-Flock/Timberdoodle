@@ -134,6 +134,7 @@ struct TaskPGIAllInfo
     daxa::TaskTlas tlas = {};
     daxa::TaskImageView sky_transmittance = {};
     daxa::TaskImageView sky = {};
+    daxa::TaskImageView debug_image = {};
 };
 struct TaskPGIAllOut
 {

@@ -1208,9 +1208,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "INDIRECT_DIFFUSE_AO", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                 "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
                 "LOD", // DEBUG_DRAW_MODE_LOD
+                "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
+                "PGI_EVAL_CLOCKS", // DEBUG_DRAW_PGI_EVAL_CLOCKS
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
-            ImGui::InputFloat("debug visualization overdraw scale", &render_data.settings.debug_overdraw_scale);
+            ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
             ImGui::InputInt("override_lod", &render_data.settings.lod_override);
             ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
             ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");

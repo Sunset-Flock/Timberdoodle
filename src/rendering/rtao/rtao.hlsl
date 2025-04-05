@@ -307,7 +307,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             acceptance = 0.0f;
         }
         //accepted_history_ao = push.attach.history.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), pixel_prev_uv, 0.0f).x;
-        push.attach.debug_image.get()[index].xy = interpolated_ao;
+        //push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
     float exp_average = lerp(1.0f, 0.02f, acceptance);

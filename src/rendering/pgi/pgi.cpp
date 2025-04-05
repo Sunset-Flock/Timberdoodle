@@ -2115,6 +2115,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
     info.tg.add_task(PGIEvalScreenIrradianceTask{
         .views = PGIEvalScreenIrradianceTask::Views{
             .globals = info.render_context->tgpu_render_data,
+            .debug_image = info.debug_image,
             .main_cam_depth = info.view_camera_depth,
             .main_cam_face_normals = info.view_camera_face_normal_image,
             .main_cam_detail_normals = info.view_camera_detail_normal_image,

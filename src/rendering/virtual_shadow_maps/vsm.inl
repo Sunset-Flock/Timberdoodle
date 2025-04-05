@@ -617,8 +617,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .base_array_layer = 0,
         .layer_count = VSM_CLIP_LEVELS,
     });
-    info.tg->add_task(daxa::InlineTask{"vsm setup task"}
-            .tf.writes(info.vsm_state->clip_projections, info.vsm_state->free_wrapped_pages_info, info.vsm_state->globals, info.vsm_state->vsm_point_lights)
+    info.tg->add_task(daxa::InlineTask::Transfer("vsm setup task")
+            .writes(info.vsm_state->clip_projections, info.vsm_state->free_wrapped_pages_info, info.vsm_state->globals, info.vsm_state->vsm_point_lights)
             .executes(
                 [info](daxa::TaskInterface ti)
                 {

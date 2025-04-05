@@ -111,6 +111,7 @@ struct PGIPreUpdateProbesPush
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIEvalScreenIrradianceH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, main_cam_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_face_normals)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)

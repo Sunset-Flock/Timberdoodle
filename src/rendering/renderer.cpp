@@ -407,8 +407,8 @@ void Renderer::clear_select_buffers()
     }};
     tg.use_persistent_buffer(meshlet_instances);
     tg.use_persistent_buffer(meshlet_instances_last_frame);
-    tg.add_task(daxa::InlineTask{"clear meshlet instance buffers"}
-            .transfer.writes(meshlet_instances, meshlet_instances_last_frame)
+    tg.add_task(daxa::InlineTask::Transfer("clear meshlet instance buffers")
+            .writes(meshlet_instances, meshlet_instances_last_frame)
             .executes(
                 [=](daxa::TaskInterface ti)
                 {
@@ -457,8 +457,8 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(transmittance);
     tg.use_persistent_image(multiscattering);
 
-    tg.add_task(daxa::InlineTask{"update sky settings globals"}
-            .tf.writes(render_context->tgpu_render_data)
+    tg.add_task(daxa::InlineTask::Transfer("update sky settings globals")
+            .writes(render_context->tgpu_render_data)
             .executes(
                 [&](daxa::TaskInterface ti)
                 {
@@ -597,8 +597,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .views = ReadbackTask::Views{.globals = render_context->tgpu_render_data},
         .shader_debug_context = &gpu_context->shader_debug_context,
     });
-    tg.add_task(daxa::InlineTask{"update global buffers"}
-            .tf.writes(render_context->tgpu_render_data)
+    tg.add_task(daxa::InlineTask::Transfer("update global buffers")
+            .writes(render_context->tgpu_render_data)
             .executes(
                 [=](daxa::TaskInterface ti)
                 {
@@ -741,7 +741,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
     if (render_context->render_data.pgi_settings.enabled)
     {
-        auto ret = task_pgi_all({tg, render_context.get(), pgi_state, main_camera_depth, main_camera_face_normal_image, main_camera_detail_normal_image, scene->mesh_instances_buffer, scene->_scene_tlas, transmittance, sky});
+        auto ret = task_pgi_all({
+            tg, 
+            render_context.get(), 
+            pgi_state, 
+            main_camera_depth, 
+            main_camera_face_normal_image, 
+            main_camera_detail_normal_image, 
+            scene->mesh_instances_buffer, 
+            scene->_scene_tlas, 
+            transmittance, 
+            sky,
+            debug_image,
+        });
         pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
     }

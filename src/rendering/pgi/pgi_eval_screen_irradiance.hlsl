@@ -19,6 +19,8 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
 {
     let push = enty_eval_screen_irradiance_push;
 
+    let clk_start = clockARB();
+
     if (any(dtid >= push.irradiance_image_size))
     {
         return;
@@ -58,6 +60,12 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.irradiance_depth.get()[dtid] = float4(pgi_irradiance, depth);
     //push.attach.normals.get()[dtid] = compress_normal_octahedral_32(normal);
+
+    let clk_end = clockARB();
+    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_PGI_EVAL_CLOCKS)
+    {
+        push.attach.debug_image.get()[dtid] = float4((clk_end - clk_start),0,0,0);
+    }
 }
 
 [[vk::push_constant]] PGIUpscaleScreenIrradiancePush enty_upscale_screen_irradiance_push;
