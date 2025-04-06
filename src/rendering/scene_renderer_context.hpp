@@ -167,11 +167,11 @@ namespace RenderTimes
         GroupNames{
             "PGI",
             {
-                "PGI_TRACE_SHADE_RAYS",
-                "PGI_PRE_UPDATE_PROBES",
-                "PGI_UPDATE_PROBES",
-                "PGI_UPDATE_PROBE_TEXELS",
-                "PGI_EVAL_SCREEN_IRRADIANCE",
+                "TRACE_SHADE_RAYS",
+                "PRE_UPDATE_PROBES",
+                "UPDATE_PROBES",
+                "UPDATE_PROBE_TEXELS",
+                "EVAL_SCREEN_IRRADIANCE",
             },
         },
     };
@@ -331,7 +331,8 @@ namespace RenderTimes
     template <daxa::StringLiteral GROUP, daxa::StringLiteral NAME>
     static consteval auto index() -> u32
     {
-        return flat_timing_index<GROUP, NAME>();
+        constexpr u32 i = flat_timing_index<GROUP, NAME>();
+        return i;
     }
 
     template <daxa::StringLiteral GROUP>
