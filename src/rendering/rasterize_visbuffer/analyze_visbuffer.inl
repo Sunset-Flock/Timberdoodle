@@ -50,9 +50,9 @@ struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
         auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
         auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);
         
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_ANALYZE);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VISBUFFER_ANALYZE);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
     }
 };
 #endif

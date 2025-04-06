@@ -107,7 +107,7 @@ void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .format = daxa::Format::R32_SFLOAT,
         .size = {hiz_size.x, hiz_size.y, 1},
         .mip_level_count = mip_count,
-        .name = std::string("hiz ") + RenderTimes::to_string(RenderTimes::RenderTimesEnum(info.render_time_index)),
+        .name = std::string("hiz ") + std::string(RenderTimes::timing_name(info.render_time_index)),
     });
     info.tg.add_task(daxa::InlineTaskWithHead<GenHizH2::Task>{
         .views = daxa::InlineTaskWithHead<GenHizH2::Task>::Views{

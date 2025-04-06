@@ -160,7 +160,7 @@ namespace raster_visbuf
         else
         {
             daxa::TaskImageView first_pass_hiz = {};
-            task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::VISBUFFER_FIRST_PASS_GEN_HIZ});
+            task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::index<"VISBUFFER","FIRST_PASS_GEN_HIZ">()});
 
             std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
             tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -168,7 +168,7 @@ namespace raster_visbuf
                 .tg = info.tg,
                 .cull_meshes = true,
                 .cull_against_last_frame = true,
-                .render_time_index = RenderTimes::VISBUFFER_FIRST_PASS_CULL_MESHES,
+                .render_time_index = RenderTimes::index<"VISBUFFER","FIRST_PASS_CULL_MESHES">(),
                 .hiz = first_pass_hiz,
                 .globals = info.render_context->tgpu_render_data,
                 .mesh_instances = info.scene->mesh_instances_buffer,
@@ -215,7 +215,7 @@ namespace raster_visbuf
         }
 
         daxa::TaskImageView hiz = {};
-        task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::VISBUFFER_SECOND_PASS_GEN_HIZ});
+        task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::index<"VISBUFFER","SECOND_PASS_GEN_HIZ">()});
 
         std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
@@ -223,7 +223,7 @@ namespace raster_visbuf
             .tg = info.tg,
             .cull_meshes = true,
             .cull_against_last_frame = false,
-            .render_time_index = RenderTimes::VISBUFFER_SECOND_PASS_CULL_MESHES,
+            .render_time_index = RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_MESHES">(),
             .hiz = hiz,
             .globals = info.render_context->tgpu_render_data,
             .mesh_instances = info.scene->mesh_instances_buffer,

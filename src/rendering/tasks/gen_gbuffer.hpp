@@ -40,10 +40,10 @@ struct GenGbufferTask : GenGbufferH::Task
         push.inv_size = {1.0f / push.size.x, 1.0f / push.size.y};
         ti.recorder.push_constant(push);
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::SHADE_GBUFFER);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_GBUFFER","SHADE_GBUFFER">());
         u32 const dispatch_x = round_up_div(info.size.x, GEN_GBUFFER_X);
         u32 const dispatch_y = round_up_div(info.size.y, GEN_GBUFFER_Y);
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::SHADE_GBUFFER);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_GBUFFER","SHADE_GBUFFER">());
     }
 };

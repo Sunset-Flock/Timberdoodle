@@ -100,9 +100,9 @@ struct ShadeOpaqueTask : ShadeOpaqueH::Task
         u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
         u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::SHADE_OPAQUE);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
         ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::SHADE_OPAQUE);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
     }
 };
 #endif

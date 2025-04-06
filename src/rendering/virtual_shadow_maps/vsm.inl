@@ -288,9 +288,9 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
         ti.recorder.push_constant(push);
         u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_PAGES_X_DISPATCH);
         u32 const y_dispatch = (VSM_PAGE_TABLE_RESOLUTION * VSM_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_INVALIDATE_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","INVALIDATE_PAGES">());
         ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_INVALIDATE_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","INVALIDATE_PAGES">());
     }
 };
 
@@ -304,9 +304,9 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
         FreeWrappedPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_FREE_WRAPPED_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
         ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_FREE_WRAPPED_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
     }
 };
 
@@ -325,9 +325,9 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_mark_required_pages_pipeline_compile_info().name));
         MarkRequiredPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_MARK_REQUIRED_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","MARK_REQUIRED_PAGES">());
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_MARK_REQUIRED_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","MARK_REQUIRED_PAGES">());
     }
 };
 
@@ -344,9 +344,9 @@ struct FindFreePagesTask : FindFreePagesH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
         FindFreePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_FIND_FREE_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FIND_FREE_PAGES">());
         ti.recorder.dispatch({dispatch_x_size, 1, 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_FIND_FREE_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FIND_FREE_PAGES">());
     }
 };
 
@@ -360,12 +360,12 @@ struct AllocatePagesTask : AllocatePagesH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
         AllocatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_ALLOCATE_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","ALLOCATE_PAGES">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.vsm_allocate_indirect),
             .offset = 0u,
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_ALLOCATE_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","ALLOCATE_PAGES">());
     }
 };
 
@@ -380,12 +380,12 @@ struct ClearPagesTask : ClearPagesH::Task
         ClearPagesPush push = {};
         push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CLEAR_PAGES">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.vsm_clear_indirect),
             .offset = 0u,
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CLEAR_PAGES">());
     }
 };
 
@@ -404,9 +404,9 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
         };
         push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_GEN_DIRY_BIT_HIZ);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
         ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_GEN_DIRY_BIT_HIZ);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
     }
 };
 
@@ -424,7 +424,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .name = "vsm memory daxa integer view",
         });
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_PAGES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_AND_DRAW_PAGES">());
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
             .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
         });
@@ -531,7 +531,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             }
         }
         ti.recorder = std::move(render_cmd).end_renderpass();
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CULL_AND_DRAW_PAGES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_AND_DRAW_PAGES">());
         ti.recorder.destroy_image_view_deferred(memory_block_view);
     }
 };
@@ -546,12 +546,12 @@ struct ClearDirtyBitTask : ClearDirtyBitH::Task
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_clear_dirty_bit_pipeline_compile_info().name));
         ClearDirtyBitH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_DIRY_BITS);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CLEAR_DIRY_BITS">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.vsm_clear_dirty_bit_indirect),
             .offset = 0u,
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::VSM_CLEAR_DIRY_BITS);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CLEAR_DIRY_BITS">());
     }
 };
 

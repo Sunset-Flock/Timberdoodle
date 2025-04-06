@@ -213,11 +213,11 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
         if (pass == VISBUF_FIRST_PASS)
         {
-            render_time_index = RenderTimes::VISBUFFER_FIRST_PASS_DRAW;
+            render_time_index = RenderTimes::index<"VISBUFFER","FIRST_PASS_DRAW">();
         }
         if (pass == VISBUF_SECOND_PASS)
         {
-            render_time_index = RenderTimes::VISBUFFER_SECOND_PASS_DRAW;
+            render_time_index = RenderTimes::index<"VISBUFFER","SECOND_PASS_DRAW">();
         }
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
@@ -347,7 +347,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
             );
         }
 
-        u32 render_time_index = first_pass ? RenderTimes::VISBUFFER_FIRST_PASS_CULL_AND_DRAW : RenderTimes::VISBUFFER_SECOND_PASS_CULL_AND_DRAW; 
+        u32 render_time_index = first_pass ? RenderTimes::index<"VISBUFFER","FIRST_PASS_CULL_AND_DRAW">() : RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_AND_DRAW">(); 
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
@@ -397,7 +397,7 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_meshlets_compute_pipeline_compile_info().name));
 
-        u32 render_time_index = first_pass ? RenderTimes::VISBUFFER_FIRST_PASS_CULL_MESHLETS_COMPUTE : RenderTimes::VISBUFFER_SECOND_PASS_CULL_MESHLETS_COMPUTE; 
+        u32 render_time_index = first_pass ? RenderTimes::index<"VISBUFFER","FIRST_PASS_CULL_MESHLETS_COMPUTE">() : RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_MESHLETS_COMPUTE">(); 
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         

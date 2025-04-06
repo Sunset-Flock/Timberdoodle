@@ -130,7 +130,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
-    
+
     // Clear Select Render Data
     render_context.render_data.hovered_entity_index = ~0u;
     render_context.render_data.selected_entity_index = ~0u;
@@ -247,265 +247,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (widget_renderer_statistics)
     {
-        static float t = 0;
-        t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
-        bool auto_reset_timings = false;
-        if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            // Calculate Statistics:
-            u32 mesh_instance_count = render_context.mesh_instance_counts.mesh_instance_count;
-            u32 first_pass_meshes_post_cull = render_context.general_readback.first_pass_mesh_count_post_cull[0] + render_context.general_readback.first_pass_mesh_count_post_cull[1];
-            u32 first_pass_meshlets_pre_cull = render_context.general_readback.first_pass_meshlet_count_pre_cull[0] + render_context.general_readback.first_pass_meshlet_count_pre_cull[1];
-            u32 first_pass_meshlets_post_cull = render_context.general_readback.first_pass_meshlet_count_post_cull;
-            u32 second_pass_meshes_post_cull = render_context.general_readback.second_pass_mesh_count_post_cull[0] + render_context.general_readback.second_pass_mesh_count_post_cull[1];
-            u32 second_pass_meshlets_pre_cull = render_context.general_readback.second_pass_meshlet_count_pre_cull[0] + render_context.general_readback.second_pass_meshlet_count_pre_cull[1];
-            u32 second_pass_meshlets_post_cull = render_context.general_readback.second_pass_meshlet_count_post_cull;
-            u32 total_meshlets_drawn = first_pass_meshlets_post_cull + second_pass_meshlets_post_cull;
-            
-            u32 used_dynamic_section_sfpm_bitfield = (render_context.general_readback.sfpm_bitfield_arena_requested * 4) / 1000;
-            u32 dynamic_section_sfpm_bitfield_size = (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4  - (4 * MAX_ENTITIES)) / 1000;
-            struct VisbufferPipelineStat
-            {
-                char const * name = {};
-                char const * unit = {};
-                u32 value = {};
-                u32 max_value = {};
-            };
-            std::array visbuffer_pipeline_stats = {
-                VisbufferPipelineStat{"Mesh Instances Pre Cull", "", mesh_instance_count, MAX_MESH_INSTANCES},
-                VisbufferPipelineStat{"First Pass Meshes Post Cull", "", first_pass_meshes_post_cull, MAX_MESH_INSTANCES},
-                VisbufferPipelineStat{"Second Pass Meshes Post Cull", "", second_pass_meshes_post_cull, MAX_MESH_INSTANCES},
-                VisbufferPipelineStat{"First Pass Meshlets Pre Cull", "", first_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
-                VisbufferPipelineStat{"First Pass Meshlets Post Cull", "", first_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Second Pass Meshlets Pre Cull", "", second_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
-                VisbufferPipelineStat{"Second Pass Meshlets Post Cull", "", second_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
-                VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
-            };
-            ImGui::SeparatorText("Visbuffer Pipeline Statistics");
-            {
-                if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
-                {
-                    ImGui::TableSetupColumn("Value Name", {});
-                    ImGui::TableSetupColumn("Value", {});
-                    ImGui::TableSetupColumn("Value Max", {});
-                    ImGui::TableSetupColumn("Value %", {});
-                    ImGui::TableHeadersRow();
-                    for (auto const& stat : visbuffer_pipeline_stats)
-                    {
-                        f32 const percentage = static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f;
-                        if (percentage > 100.0f)
-                        {
-                            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
-                        }
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text(stat.name);
-                        ImGui::TableSetColumnIndex(1);
-                        ImGui::Text("%i%s", stat.value, stat.unit);
-                        ImGui::TableSetColumnIndex(2);
-                        ImGui::Text("%i%s", stat.max_value, stat.unit);
-                        ImGui::TableSetColumnIndex(3);
-                        ImGui::Text("%f%%", percentage);
-                        if (percentage > 100.0f)
-                        {
-                            ImGui::PopStyleColor();
-                        }
-                    }
-                    ImGui::EndTable();
-                }
-                if (ImGui::BeginTable("Visbuffer GPU Time Metrics", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
-                {
-                    ImGui::TableSetupColumn("Timing", {});
-                    ImGui::TableSetupColumn("Value", {});
-                    ImGui::TableSetupColumn("Value Smooth", {});
-                    ImGui::TableHeadersRow();
-                    u64 total = {};
-                    u64 total_smooth = {};
-                    for (auto const& visbuffer_render_time : RenderTimes::GROUP_RENDER_TIMES[RenderTimes::GROUP_VISBUFFER])
-                    {
-                        bool skip = render_context.render_times.get(visbuffer_render_time) == 0;
-                        ImGui::TableNextRow();
-                        ImGui::TableSetColumnIndex(0);
-                        ImGui::Text("%s", RenderTimes::to_string(visbuffer_render_time));
-                        ImGui::TableSetColumnIndex(1);
-                        if (skip)
-                            ImGui::Text("-");
-                        else
-                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get(visbuffer_render_time)) * 0.001f);
-                        ImGui::TableSetColumnIndex(2);
-                        if (skip)
-                            ImGui::Text("-");
-                        else
-                            ImGui::Text("%fmics", static_cast<f32>(render_context.render_times.get_smooth(visbuffer_render_time)) * 0.001f);
-                        total += render_context.render_times.get(visbuffer_render_time);
-                        total_smooth += render_context.render_times.get_smooth(visbuffer_render_time);
-                    }
-                    ImGui::TableNextRow();
-                    ImGui::TableSetColumnIndex(0);
-                    ImGui::Text("VISBUFFER_TOTAL");
-                    ImGui::TableSetColumnIndex(1);
-                    ImGui::Text("%fmics", static_cast<f32>(total) * 0.001f);
-                    ImGui::TableSetColumnIndex(2);
-                    ImGui::Text("%fmics", static_cast<f32>(total_smooth) * 0.001f);
-                    ImGui::EndTable();
-                }
-            }
-            ImGui::SeparatorText("Timings");
-            if (gather_perm_measurements)
-            {
-                if (ImGui::Button("Stop gathering")) { gather_perm_measurements = false; }
-            }
-            else
-            {
-                if (ImGui::Button("Start gathering"))
-                {
-                    gather_perm_measurements = true;
-                    auto_reset_timings = true;
-                }
-            }
-
-            ImGui::SameLine();
-            if (ImGui::Button("Reset timings") || auto_reset_timings)
-            {
-                t = 0;
-                for (i32 i = 0; i < render_times_history.scrolling_ewa.size(); i++)
-                {
-                    render_times_history.scrolling_ewa.at(i).erase();
-                    render_times_history.scrolling_mean.at(i).erase();
-                    render_times_history.scrolling_raw.at(i).erase();
-                }
-            }
-            ImGui::SameLine();
-            ImGui::Checkbox("Show entire measured interval", &show_entire_interval);
-
-            // ==== update scrolling times for render time groups =====
-
-            f32 const rolling_mean_weight = s_cast<f32>(render_times_history.mean_sample_count) / s_cast<f32>(render_times_history.mean_sample_count + 1);
-            f32 const ewa_weight = 0.95f;
-            for (u32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; ++group_i)
-            {    
-                std::span<RenderTimes::RenderTimesEnum const> group_times = RenderTimes::GROUP_RENDER_TIMES[group_i];
-
-                f32 raw = 0.0f;
-                for (auto time : group_times)
-                {
-                    raw += static_cast<u32>(render_context.render_times.get(time)) * 0.001f; 
-                }
-                render_times_history.scrolling_raw.at(group_i).add_point(ImVec2(t, raw));
-
-                f32 const new_rolling_average = render_times_history.scrolling_mean.at(group_i).back().y * rolling_mean_weight + raw * (1.0f - rolling_mean_weight);
-                render_times_history.scrolling_mean.at(group_i).add_point(ImVec2(t, new_rolling_average));
-
-                f32 const new_ewa = render_times_history.scrolling_ewa.at(group_i).back().y * ewa_weight + (1.0f - ewa_weight) * raw;
-                render_times_history.scrolling_ewa.at(group_i).add_point(ImVec2(t, new_ewa));
-            }
-            render_times_history.mean_sample_count += 1;
-
-            // ========================================================
-
-            static i32 selected_item = 0;
-            std::array<char const *, 3> items = {"exp. weight average", "rolling average", "raw values"};
-            if (ImGui::BeginCombo("##combo", items.at(selected_item)))
-            {
-                for (int i = 0; i < 3; i++)
-                {
-                    bool is_selected = (selected_item == i);
-                    if (ImGui::Selectable(items[i], is_selected))
-                    {
-                        selected_item = i;
-                    }
-                    if (is_selected)
-                    {
-                        ImGui::SetItemDefaultFocus();
-                    }
-                }
-                ImGui::EndCombo();
-            }
-            static bool calculate_percentiles = false;
-            if (selected_item == 2)
-            {
-                ImGui::SameLine();
-                ImGui::Checkbox("calculate percentiles", &calculate_percentiles);
-            }
-            else
-            {
-                calculate_percentiles = false;
-            }
-
-            for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
-            {
-                if (selected_item == 0) { 
-                    ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
-                        fmt::format("{} ewa: ", 
-                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
-                        render_times_history.scrolling_ewa.at(group_i).back().y).c_str()
-                    ); 
-                }
-                else if (selected_item == 1) 
-                { 
-                    ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
-                        fmt::format("{} average: ", 
-                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
-                        render_times_history.scrolling_mean.at(group_i).back().y).c_str()
-                    ); 
-                }
-                else
-                {
-                    ImGui::TextUnformatted(
-                        fmt::format("{:<30} {:>10.2f} us", 
-                        fmt::format("{} raw: ", 
-                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(group_i))).c_str(), 
-                        render_times_history.scrolling_raw.at(group_i).back().y).c_str()
-                    );
-                    if (calculate_percentiles)
-                    {
-                        auto sorted_values = render_times_history.scrolling_raw.at(group_i).data;
-                        std::sort(sorted_values.begin(), sorted_values.end(),
-                            [](auto const & a, auto const & b) -> bool
-                            { return a.y < b.y; });
-                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
-                        ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
-                    }
-                }
-            }
-
-            static float history = 20.0f;
-            if (ImPlot::BeginPlot("##Scrolling"))
-            {
-                decltype(render_times_history.scrolling_ewa) * measurements_scrolling_selected = {};
-                if (selected_item == 0) { measurements_scrolling_selected = &render_times_history.scrolling_ewa; }
-                else if (selected_item == 1) { measurements_scrolling_selected = &render_times_history.scrolling_mean; }
-                else { measurements_scrolling_selected = &render_times_history.scrolling_raw; }
-                ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
-                if (!show_entire_interval)
-                {
-                    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
-                }
-                else
-                {
-                    ImPlot::SetupAxisLimits(ImAxis_X1, measurements_scrolling_selected->at(0).front().x, measurements_scrolling_selected->at(0).back().x, ImGuiCond_Always);
-                }
-                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
-                ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
-                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
-                for (i32 i = 0; i < measurements_scrolling_selected->size(); i++)
-                {
-                    ImPlot::PlotLine(
-                        RenderTimes::to_string(RenderTimes::RenderGroupTimesEnum(i)),
-                        &measurements_scrolling_selected->at(i).data[0].x,
-                        &measurements_scrolling_selected->at(i).data[0].y,
-                        measurements_scrolling_selected->at(i).data.size(),
-                        0,
-                        measurements_scrolling_selected->at(i).offset,
-                        2 * sizeof(f32));
-                }
-                ImPlot::EndPlot();
-            }
-        }
-        ImGui::End();
+        ui_render_statistics(scene, render_context, app_state);
     }
     if (widget_scene_interface)
     {
@@ -533,8 +275,8 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_context.render_data.settings.draw_from_observer);
                 ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
                 app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
-                ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool*>(&render_context.render_data.settings.observer_draw_first_pass));
-                ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool*>(&render_context.render_data.settings.observer_draw_second_pass));
+                ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_first_pass));
+                ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_second_pass));
                 auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_context.render_data.settings).view);
                 ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
             }
@@ -1184,33 +926,33 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{
-                "NONE", // DEBUG_DRAW_MODE_NONE
-                "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
+                "NONE",                 // DEBUG_DRAW_MODE_NONE
+                "OVERDRAW",             // DEBUG_DRAW_MODE_OVERDRAW
                 "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
-                "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
-                "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
-                "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
-                "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
-                "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
-                "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
-                "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
-                "DEPTH", // DEBUG_DRAW_MODE_DEPTH
-                "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
-                "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
-                "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                "FACE_TANGENT", // DEBUG_DRAW_MODE_FACE_TANGENT
-                "SMOOTH_TANGENT", // DEBUG_DRAW_MODE_SMOOTH_TANGENT
-                "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                "AMBIENT_OCCLUSION", // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
-                "INDIRECT_DIFFUSE_AO", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                "LOD", // DEBUG_DRAW_MODE_LOD
-                "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
-                "PGI_EVAL_CLOCKS", // DEBUG_DRAW_PGI_EVAL_CLOCKS
-                "RTAO_TRACE_CLOCKS", // DEBUG_DRAW_RTAO_TRACE_CLOCKS
+                "MESHLET_INSTANCE_ID",  // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                "ENTITY_ID",            // DEBUG_DRAW_MODE_ENTITY_ID
+                "MESH_ID",              // DEBUG_DRAW_MODE_MESH_ID
+                "MESH_GROUP_ID",        // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                "MESH_LOD",             // DEBUG_DRAW_MODE_MESH_LOD
+                "VSM_OVERDRAW",         // DEBUG_DRAW_MODE_VSM_OVERDRAW
+                "VSM_CLIP_LEVEL",       // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                "VSM_POINT_LEVEL",      // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                "DEPTH",                // DEBUG_DRAW_MODE_DEPTH
+                "ALBEDO",               // DEBUG_DRAW_MODE_ALBEDO
+                "FACE_NORMAL",          // DEBUG_DRAW_MODE_FACE_NORMAL
+                "SMOOTH_NORMAL",        // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                "MAPPED_NORMAL",        // DEBUG_DRAW_MODE_MAPPED_NORMAL
+                "FACE_TANGENT",         // DEBUG_DRAW_MODE_FACE_TANGENT
+                "SMOOTH_TANGENT",       // DEBUG_DRAW_MODE_SMOOTH_TANGENT
+                "DIRECT_DIFFUSE",       // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                "INDIRECT_DIFFUSE",     // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                "AMBIENT_OCCLUSION",    // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
+                "INDIRECT_DIFFUSE_AO",  // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                "ALL_DIFFUSE",          // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                "LOD",                  // DEBUG_DRAW_MODE_LOD
+                "SHADE_OPAQUE_CLOCKS",  // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
+                "PGI_EVAL_CLOCKS",      // DEBUG_DRAW_PGI_EVAL_CLOCKS
+                "RTAO_TRACE_CLOCKS",    // DEBUG_DRAW_RTAO_TRACE_CLOCKS
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
@@ -1218,7 +960,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
             ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
             ImGui::SeparatorText("Misc");
-            ImGui::Checkbox("decompose scene", r_cast< bool*>(&app_state.decompose_bistro));
+            ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::SeparatorText("Features");
             if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
             {
@@ -1236,9 +978,9 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Text("Requested Probes %i / %i = %f %%", render_context.general_readback.requested_probes, total_probes, float(render_context.general_readback.requested_probes) / float(total_probes) * 100.0f);
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 auto update_rates = std::array{
-                    "FULL", // PGI_UPDATE_RATE_FULL
-                    "1_OF_2", // PGI_UPDATE_RATE_1_OF_2
-                    "1_OF_8", // PGI_UPDATE_RATE_1_OF_8
+                    "FULL",    // PGI_UPDATE_RATE_FULL
+                    "1_OF_2",  // PGI_UPDATE_RATE_1_OF_2
+                    "1_OF_8",  // PGI_UPDATE_RATE_1_OF_8
                     "1_OF_16", // PGI_UPDATE_RATE_1_OF_16
                     "1_OF_32", // PGI_UPDATE_RATE_1_OF_32
                     "1_OF_64", // PGI_UPDATE_RATE_1_OF_64
@@ -1247,17 +989,17 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
                 ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
                 auto debug_daw_modes = std::array{
-                    "OFF", // PGI_DEBUG_PROBE_DRAW_MODE_OFF
-                    "IRRADIANCE", // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
-                    "DISTANCE", // PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE
+                    "OFF",         // PGI_DEBUG_PROBE_DRAW_MODE_OFF
+                    "IRRADIANCE",  // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
+                    "DISTANCE",    // PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE
                     "UNCERTAINTY", // PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY
-                    "TEXEL", // PGI_DEBUG_PROBE_DRAW_MODE_TEXEL
-                    "UV", // PGI_DEBUG_PROBE_DRAW_MODE_UV
-                    "NORMAL", // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
-                    "HYSTERESIS", // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
+                    "TEXEL",       // PGI_DEBUG_PROBE_DRAW_MODE_TEXEL
+                    "UV",          // PGI_DEBUG_PROBE_DRAW_MODE_UV
+                    "NORMAL",      // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
+                    "HYSTERESIS",  // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
                 ImGui::Combo("Debug Draw Mode", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
-                ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool*>(&render_data.pgi_settings.debug_probe_influence));
+                ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_probe_influence));
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
                 ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
@@ -1269,6 +1011,274 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
             }
+        }
+    }
+    ImGui::End();
+}
+
+void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+{
+    // Calculate Statistics:
+    u32 mesh_instance_count = render_context.mesh_instance_counts.mesh_instance_count;
+    u32 first_pass_meshes_post_cull = render_context.general_readback.first_pass_mesh_count_post_cull[0] + render_context.general_readback.first_pass_mesh_count_post_cull[1];
+    u32 first_pass_meshlets_pre_cull = render_context.general_readback.first_pass_meshlet_count_pre_cull[0] + render_context.general_readback.first_pass_meshlet_count_pre_cull[1];
+    u32 first_pass_meshlets_post_cull = render_context.general_readback.first_pass_meshlet_count_post_cull;
+    u32 second_pass_meshes_post_cull = render_context.general_readback.second_pass_mesh_count_post_cull[0] + render_context.general_readback.second_pass_mesh_count_post_cull[1];
+    u32 second_pass_meshlets_pre_cull = render_context.general_readback.second_pass_meshlet_count_pre_cull[0] + render_context.general_readback.second_pass_meshlet_count_pre_cull[1];
+    u32 second_pass_meshlets_post_cull = render_context.general_readback.second_pass_meshlet_count_post_cull;
+    u32 total_meshlets_drawn = first_pass_meshlets_post_cull + second_pass_meshlets_post_cull;
+
+    u32 used_dynamic_section_sfpm_bitfield = (render_context.general_readback.sfpm_bitfield_arena_requested * 4) / 1000;
+    u32 dynamic_section_sfpm_bitfield_size = (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4 - (4 * MAX_ENTITIES)) / 1000;
+    struct VisbufferPipelineStat
+    {
+        char const * name = {};
+        char const * unit = {};
+        u32 value = {};
+        u32 max_value = {};
+    };
+    std::array visbuffer_pipeline_stats = {
+        VisbufferPipelineStat{"Mesh Instances Pre Cull", "", mesh_instance_count, MAX_MESH_INSTANCES},
+        VisbufferPipelineStat{"First Pass Meshes Post Cull", "", first_pass_meshes_post_cull, MAX_MESH_INSTANCES},
+        VisbufferPipelineStat{"Second Pass Meshes Post Cull", "", second_pass_meshes_post_cull, MAX_MESH_INSTANCES},
+        VisbufferPipelineStat{"First Pass Meshlets Pre Cull", "", first_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
+        VisbufferPipelineStat{"First Pass Meshlets Post Cull", "", first_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
+        VisbufferPipelineStat{"Second Pass Meshlets Pre Cull", "", second_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
+        VisbufferPipelineStat{"Second Pass Meshlets Post Cull", "", second_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
+        VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
+        VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
+    };
+    if (ImGui::CollapsingHeader("Visbuffer Pipeline Statistics"))
+    {
+        if (ImGui::BeginTable("Visbuffer GPU Buffer Metrics", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+        {
+            ImGui::TableSetupColumn("Value Name", {});
+            ImGui::TableSetupColumn("Value", {});
+            ImGui::TableSetupColumn("Value Max", {});
+            ImGui::TableSetupColumn("Value %", {});
+            ImGui::TableHeadersRow();
+            for (auto const & stat : visbuffer_pipeline_stats)
+            {
+                f32 const percentage = static_cast<f32>(stat.value) / static_cast<f32>(stat.max_value) * 100.0f;
+                if (percentage > 100.0f)
+                {
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
+                }
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::Text(stat.name);
+                ImGui::TableSetColumnIndex(1);
+                ImGui::Text("%i%s", stat.value, stat.unit);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::Text("%i%s", stat.max_value, stat.unit);
+                ImGui::TableSetColumnIndex(3);
+                ImGui::Text("%f%%", percentage);
+                if (percentage > 100.0f)
+                {
+                    ImGui::PopStyleColor();
+                }
+            }
+            ImGui::EndTable();
+        }
+    }
+}
+
+
+void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+{
+    static float t = 0;
+    t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
+    bool auto_reset_timings = false;
+    if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
+    {
+        ImGui::SeparatorText("GPU Group Timings");
+        {
+            if (gather_perm_measurements)
+            {
+                if (ImGui::Button("Stop gathering")) { gather_perm_measurements = false; }
+            }
+            else
+            {
+                if (ImGui::Button("Start gathering"))
+                {
+                    gather_perm_measurements = true;
+                    auto_reset_timings = true;
+                }
+            }
+
+            ImGui::SameLine();
+            if (ImGui::Button("Reset timings") || auto_reset_timings)
+            {
+                t = 0;
+                for (i32 i = 0; i < render_times_history.scrolling_ewa.size(); i++)
+                {
+                    render_times_history.scrolling_ewa.at(i).erase();
+                    render_times_history.scrolling_mean.at(i).erase();
+                    render_times_history.scrolling_raw.at(i).erase();
+                }
+            }
+            ImGui::SameLine();
+            ImGui::Checkbox("Show entire measured interval", &show_entire_interval);
+
+            // ==== update scrolling times for render time groups =====
+
+            f32 const rolling_mean_weight = s_cast<f32>(render_times_history.mean_sample_count) / s_cast<f32>(render_times_history.mean_sample_count + 1);
+            f32 const ewa_weight = 0.95f;
+            for (u32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; ++group_i)
+            {
+                u32 group_first_idx = RenderTimes::group_first_flat_index(group_i);
+                u32 group_size = RenderTimes::group_size(group_i);
+
+                f32 raw = 0.0f;
+                for (u32 time = group_first_idx; time < (group_first_idx + group_size); ++time)
+                {
+                    raw += static_cast<u32>(render_context.render_times.get(time)) * 0.001f;
+                }
+                render_times_history.scrolling_raw.at(group_i).add_point(ImVec2(t, raw));
+
+                f32 const new_rolling_average = render_times_history.scrolling_mean.at(group_i).back().y * rolling_mean_weight + raw * (1.0f - rolling_mean_weight);
+                render_times_history.scrolling_mean.at(group_i).add_point(ImVec2(t, new_rolling_average));
+
+                f32 const new_ewa = render_times_history.scrolling_ewa.at(group_i).back().y * ewa_weight + (1.0f - ewa_weight) * raw;
+                render_times_history.scrolling_ewa.at(group_i).add_point(ImVec2(t, new_ewa));
+            }
+            render_times_history.mean_sample_count += 1;
+
+            // ========================================================
+
+            static i32 selected_item = 0;
+            std::array<char const *, 3> items = {"exp. weight average", "rolling average", "raw values"};
+            if (ImGui::BeginCombo("##combo", items.at(selected_item)))
+            {
+                for (int i = 0; i < 3; i++)
+                {
+                    bool is_selected = (selected_item == i);
+                    if (ImGui::Selectable(items[i], is_selected))
+                    {
+                        selected_item = i;
+                    }
+                    if (is_selected)
+                    {
+                        ImGui::SetItemDefaultFocus();
+                    }
+                }
+                ImGui::EndCombo();
+            }
+            static bool calculate_percentiles = false;
+            if (selected_item == 2)
+            {
+                ImGui::SameLine();
+                ImGui::Checkbox("calculate percentiles", &calculate_percentiles);
+            }
+            else
+            {
+                calculate_percentiles = false;
+            }
+
+            static float history = 20.0f;
+            if (ImPlot::BeginPlot("##Scrolling"))
+            {
+                decltype(render_times_history.scrolling_ewa) * measurements_scrolling_selected = {};
+                if (selected_item == 0) { measurements_scrolling_selected = &render_times_history.scrolling_ewa; }
+                else if (selected_item == 1) { measurements_scrolling_selected = &render_times_history.scrolling_mean; }
+                else { measurements_scrolling_selected = &render_times_history.scrolling_raw; }
+                ImPlot::SetupAxes("Timeline", "Execution time", ImPlotAxisFlags_None, ImPlotAxisFlags_None);
+                if (!show_entire_interval)
+                {
+                    ImPlot::SetupAxisLimits(ImAxis_X1, t - history, t, ImGuiCond_Always);
+                }
+                else
+                {
+                    ImPlot::SetupAxisLimits(ImAxis_X1, measurements_scrolling_selected->at(0).front().x, measurements_scrolling_selected->at(0).back().x, ImGuiCond_Always);
+                }
+                ImPlot::SetupAxisLimits(ImAxis_Y1, 0, 5000);
+                ImPlot::SetupAxisFormat(ImAxis_Y1, "%.0f us");
+                ImPlot::SetupAxisFormat(ImAxis_X1, "%.0fs");
+                for (i32 i = 0; i < measurements_scrolling_selected->size(); i++)
+                {
+                    ImPlot::PlotLine(
+                        std::string(RenderTimes::group_name(i)).c_str(),
+                        &measurements_scrolling_selected->at(i).data[0].x,
+                        &measurements_scrolling_selected->at(i).data[0].y,
+                        measurements_scrolling_selected->at(i).data.size(),
+                        0,
+                        measurements_scrolling_selected->at(i).offset,
+                        2 * sizeof(f32));
+                }
+                ImPlot::EndPlot();
+            }
+
+            for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
+            {
+                std::string_view timing_unit = {};
+                decltype(render_times_history.scrolling_ewa) * data = {};
+                if (selected_item == 0)
+                {
+                    timing_unit = "ewa";
+                    data = &render_times_history.scrolling_ewa;
+                }
+                else if (selected_item == 1)
+                {
+                    timing_unit = "average";
+                    data = &render_times_history.scrolling_mean;
+                }
+                else
+                {
+                    timing_unit = "raw";
+                    data = &render_times_history.scrolling_raw;
+                }
+                bool open = ImGui::CollapsingHeader(fmt::format("{:<30}",
+                    fmt::format("{} {}: ",
+                        RenderTimes::group_name(group_i), timing_unit.data())
+                        .c_str())
+                        .c_str());
+                ImGui::SameLine();
+                ImGui::Text(fmt::format("{:>10.2f} us", data->at(group_i).back().y).c_str());
+                if (open)
+                {
+                    if (ImGui::BeginTable("Detail Timings", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                    {
+                        ImGui::TableSetupColumn("Timing", {});
+                        ImGui::TableSetupColumn("Value", {});
+                        ImGui::TableSetupColumn("Value Smooth", {});
+                        ImGui::TableHeadersRow();
+                        for (auto in_group_i = 0; in_group_i < RenderTimes::group_size(group_i); ++in_group_i)
+                        {
+                            u32 timing_index = RenderTimes::group_first_flat_index(group_i) + in_group_i;
+                            std::string_view name = RenderTimes::group_names(group_i)[in_group_i];
+
+                            bool skip = render_context.render_times.get(timing_index) == 0;
+                            ImGui::TableNextRow();
+                            ImGui::TableSetColumnIndex(0);
+                            ImGui::Text("%s", name.data());
+                            ImGui::TableSetColumnIndex(1);
+                            if (skip)
+                                ImGui::Text("-");
+                            else
+                                ImGui::Text("%fus", static_cast<f32>(render_context.render_times.get(timing_index)) * 0.001f);
+                            ImGui::TableSetColumnIndex(2);
+                            if (skip)
+                                ImGui::Text("-");
+                            else
+                                ImGui::Text("%fus", static_cast<f32>(render_context.render_times.get_smooth(timing_index)) * 0.001f);
+                        }
+                        ImGui::EndTable();
+                    }
+                }
+                if (calculate_percentiles)
+                {
+                    auto sorted_values = render_times_history.scrolling_raw.at(group_i).data;
+                    std::sort(sorted_values.begin(), sorted_values.end(),
+                        [](auto const & a, auto const & b) -> bool
+                        { return a.y < b.y; });
+                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
+                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
+                }
+            }
+        }
+        ImGui::SeparatorText("Utalizations");
+        {
+            ui_visbuffer_pipeline_statistics(scene, render_context, app_state);
         }
     }
     ImGui::End();

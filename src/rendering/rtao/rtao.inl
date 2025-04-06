@@ -123,7 +123,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
         if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
         {
             RayTraceAmbientOcclusionPush push = { };
@@ -139,7 +139,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
                 .shader_binding_table = rt_pipeline.sbt,
             });
         }
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
     }
 };
 
@@ -152,7 +152,7 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION_DENOISE);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","DENOISE">());
         auto info = ti.info(AT.src).value();
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
         ti.recorder.push_constant(RTAODenoiserPush{
@@ -165,7 +165,7 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
             round_up_div(info.size.x, RTAO_DENOISER_X),
             round_up_div(info.size.y, RTAO_DENOISER_Y),
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION_DENOISE);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","DENOISE">());
     }
 };
 

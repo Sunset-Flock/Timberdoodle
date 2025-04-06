@@ -1619,7 +1619,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
     PGIUpdateProbeTexelsPush push = {};
     push.attach = ti.attachment_shader_blob;
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBE_TEXELS);
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
 
     push.update_radiance = true;
     ti.recorder.push_constant(push);
@@ -1635,7 +1635,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
         .offset = offsetof(PGIIndirections, probe_visibility_update_dispatch),
     });
 
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBE_TEXELS);
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
 }
 
 void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
@@ -1648,12 +1648,12 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_compile_info().name));
         ti.recorder.push_constant(push);
         push.attach = ti.attachment_shader_blob;
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.probe_indirections),
             .offset = offsetof(PGIIndirections, probe_update_dispatch),
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_UPDATE_PROBES);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
     }
 }
 
@@ -1673,9 +1673,9 @@ void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
     push.workgroups_finished = reinterpret_cast<u32*>(ti.allocator->allocate_fill(0u).value().device_address);
     push.total_workgroups = dispatch_x * dispatch_y * dispatch_z;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_PRE_UPDATE_PROBES);
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
     ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_PRE_UPDATE_PROBES);
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
 }
 
 void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
@@ -1690,12 +1690,12 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
     ti.recorder.trace_rays_indirect({
         .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
         .shader_binding_table = pipeline.sbt,
     });
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_TRACE_SHADE_RAYS);
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
 }
 
 void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
@@ -1716,9 +1716,9 @@ void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
     auto const dispatch_x = round_up_div(push.irradiance_image_size.x, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     auto const dispatch_y = round_up_div(push.irradiance_image_size.y, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::PGI_EVAL_SCREEN_IRRADIANCE);
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
     ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
-    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::PGI_EVAL_SCREEN_IRRADIANCE);
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
 }
 
 void PGIUpscaleScreenIrradianceTask::callback(daxa::TaskInterface ti)
