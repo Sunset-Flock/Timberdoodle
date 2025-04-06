@@ -54,6 +54,7 @@ struct RayPayload
 [shader("raygeneration")]
 void ray_gen()
 {
+    let clk_start = clockARB();
     let push = rt_ao_push;
     const int2 index = DispatchRaysIndex().xy;
     const float2 screen_uv = index * push.attach.globals->settings.render_target_size_inv;
@@ -99,6 +100,11 @@ void ray_gen()
         let ao_value = 1.0f - ao_factor * rcp(AO_RAY_COUNT);
         push.attach.ao_image.get()[index.xy] = ao_value;
         //push.attach.debug_image.get()[index.xy] = float4(ao_value.xxx, 1.0f);
+    }
+    let clk_end = clockARB();
+    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_RTAO_TRACE_CLOCKS)
+    {
+        push.attach.debug_image.get()[index] = float4((clk_end - clk_start),0,0,0);
     }
 }
 

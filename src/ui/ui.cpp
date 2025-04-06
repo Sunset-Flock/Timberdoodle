@@ -1210,6 +1210,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "LOD", // DEBUG_DRAW_MODE_LOD
                 "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
                 "PGI_EVAL_CLOCKS", // DEBUG_DRAW_PGI_EVAL_CLOCKS
+                "RTAO_TRACE_CLOCKS", // DEBUG_DRAW_RTAO_TRACE_CLOCKS
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);

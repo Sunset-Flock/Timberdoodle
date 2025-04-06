@@ -683,21 +683,13 @@ void entry_main_cs(
             break;
         }
         case DEBUG_DRAW_PGI_EVAL_CLOCKS:
+        case DEBUG_DRAW_RTAO_TRACE_CLOCKS:
         {
             let dgb_img_v = RWTexture2D<float4>::get(push.attachments.attachments.debug_image)[index];
             output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale);
             break;
         }
     }
-    
-    //const uint thread_seed = (index.x * AT.globals->settings.render_target_size.y + index.y) * AT.globals.frame_index;
-    //rand_seed(thread_seed);
-    //let sun_direction = AT.globals->sky_settings.sun_direction;
-    //VolumetricResult volumetric = volumetric_extinction_inscatter(camera_position, primary_ray, world_space_depth, daxa::acceleration_structures[AT.tlas.index()], sun_direction);
-    //let endpoint = camera_position + primary_ray * world_space_depth;
-    //output_value.rgb = output_value.rgb * volumetric.transmittance + volumetric.inscattering;
-
-    //RWTexture2D<float4>::get(AT.debug_image)[index] = float4(frac(endpoint), 1.0f);
 
     const float exposure = compute_exposure(deref(AT.luminance_average));
     float3 exposed_color = output_value.rgb * exposure;

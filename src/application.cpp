@@ -45,7 +45,7 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf"; 
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf"; 
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies3.gltf";
@@ -61,7 +61,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
