@@ -85,6 +85,50 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
     return ret;
 }
 
+func evaluate_material_coarse(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
+{
+    GPUMaterial material = {};
+    if (tri_geo.material_index == INVALID_MANIFEST_INDEX)
+    {
+        material = GPU_MATERIAL_FALLBACK;
+    }
+    else
+    {
+        material = globals.scene.materials[tri_geo.material_index];
+    }
+
+    MaterialPointData ret = {};
+    ret.position = tri_point.world_position;
+    ret.geometry_normal = tri_point.face_normal;
+    ret.face_normal = tri_point.face_normal;
+    ret.normal = tri_point.face_normal;
+
+    ret.emissive = material.emissive_color;
+    ret.alpha = 1.0f;
+    ret.albedo = material.base_color;
+    if (!material.diffuse_texture_id.is_empty())
+    {
+        float4 diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), float2(0.0f,0.0f), 16.0f);
+        ret.albedo *= diffuse_fetch.rgb;
+        ret.alpha = diffuse_fetch.a;
+    }
+
+    if (material.alpha_discard_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_ALPHA_DISCARD | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
+    if (material.blend_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_BLEND | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
+    if (material.double_sided_enabled)
+    {
+        ret.material_flags = ret.material_flags | MATERIAL_FLAG_DOUBLE_SIDED;
+    }
+
+    return ret;
+}
+
 float3 get_sun_direct_lighting(
     RenderGlobalData* globals, 
     daxa_ImageViewId sky_transmittance,

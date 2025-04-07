@@ -160,7 +160,7 @@ void entry_ray_gen()
     RayPayload payload;
     payload.probe_index = probe_index;
 
-    TraceRay(push.attach.tlas.get(), {}, ~0, 0, 0, 0, ray, payload);
+    TraceRay(push.attach.tlas.get(), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
 
     RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
@@ -170,16 +170,16 @@ void entry_ray_gen()
 [shader("anyhit")]
 void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    let push = pgi_trace_probe_lighting_push;
-    if (!rt_is_alpha_hit(
-        push.attach.globals,
-        push.attach.mesh_instances,
-        push.scene.meshes,
-        push.scene.materials,
-        attr.barycentrics))
-    {
-        IgnoreHit();
-    }
+    // let push = pgi_trace_probe_lighting_push;
+    // if (!rt_is_alpha_hit(
+    //     push.attach.globals,
+    //     push.attach.mesh_instances,
+    //     push.scene.meshes,
+    //     push.scene.materials,
+    //     attr.barycentrics))
+    // {
+    //     IgnoreHit();
+    // }
 }
 
 [shader("closesthit")]
@@ -209,7 +209,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             push.scene.mesh_groups,
             push.scene.entity_combined_transforms
         );
-        MaterialPointData material_point = evaluate_material(
+        MaterialPointData material_point = evaluate_material_coarse(
             push.attach.globals,
             tri_geo,
             tri_point
@@ -226,22 +226,23 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 payload.probe_index);
 
             request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
-            if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 50) // simpler lighting model for far rays to avoid expensive divergence
-            {
-                payload.color_depth.rgb = pgi_sample_irradiance_nearest(
-                    push.attach.globals, 
-                    push.attach.globals.pgi_settings, 
-                    material_point.position, 
-                    material_point.geometry_normal, 
-                    material_point.geometry_normal, 
-                    WorldRayDirection(), 
-                    push.attach.probe_radiance.get(), 
-                    push.attach.probe_visibility.get(), 
-                    push.attach.probe_info.get(), 
-                    push.attach.probe_requests.get(), 
-                    request_mode);
-            }
-            else
+            // TODO: REPLACE HIT SHADING EVAL WITH RADIANCE SAMPLE OF PROBES
+            // if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 50) // simpler lighting model for far rays to avoid expensive divergence
+            // {
+            //     payload.color_depth.rgb = pgi_sample_irradiance_nearest(
+            //         push.attach.globals, 
+            //         push.attach.globals.pgi_settings, 
+            //         material_point.position, 
+            //         material_point.geometry_normal, 
+            //         material_point.geometry_normal, 
+            //         WorldRayDirection(), 
+            //         push.attach.probe_radiance.get(), 
+            //         push.attach.probe_visibility.get(), 
+            //         push.attach.probe_info.get(), 
+            //         push.attach.probe_requests.get(), 
+            //         request_mode);
+            // }
+            // else
             {
                 PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
                 payload.color_depth.rgb = shade_material(
