@@ -517,8 +517,9 @@ void entry_main_cs(
 
         let shaded_color = albedo.rgb * lighting;
 
+        let id_fizz = 0.172426234237f;
+
         float3 dummy_color = float3(1,0,1);
-        uint id_to_visualize = ~0u;
         switch(AT.globals->settings.debug_draw_mode)
         {
             case DEBUG_DRAW_MODE_OVERDRAW:
@@ -532,14 +533,30 @@ void entry_main_cs(
                 }
                 break;
             }
-            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index * 10 + meshlet_triangle_index; break;
-            case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID: id_to_visualize = tri_geo.entity_index * 100 + meshlet_index; break;
-            case DEBUG_DRAW_MODE_ENTITY_ID: id_to_visualize = tri_geo.entity_index; break;
-            case DEBUG_DRAW_MODE_MESH_ID: id_to_visualize = tri_geo.mesh_index; break;
+            case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID:
+            {
+                output_value.rgb = hsv2rgb(float3(frac(float(meshlet_triangle_index) * id_fizz), 1, 1));
+                break;
+            }
+            case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID:
+            {
+                output_value.rgb = hsv2rgb(float3(frac(float(meshlet_index) * id_fizz), 1, float(meshlet_triangle_index) * rcp(MAX_TRIANGLES_PER_MESHLET) * 0.6f + 0.4f));
+                break;
+            }
+            case DEBUG_DRAW_MODE_ENTITY_ID:
+            {
+                output_value.rgb = hsv2rgb(float3(frac(float(tri_geo.entity_index) * id_fizz), 1, 1));
+                break;
+            }
+            case DEBUG_DRAW_MODE_MESH_ID:
+            {
+                output_value.rgb = hsv2rgb(float3(frac(float(tri_geo.mesh_index) * id_fizz), 1, 1));
+                break;
+            }
             case DEBUG_DRAW_MODE_MESH_GROUP_ID:
             {
                 uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
-                id_to_visualize = mesh_group_index;
+                output_value.rgb = hsv2rgb(float3(frac(float(mesh_group_index) * id_fizz), 1, 1));
                 break;
             }
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
@@ -642,10 +659,6 @@ void entry_main_cs(
             default:
             output_value.rgb = shaded_color;
             break;
-        }
-        if (id_to_visualize != ~0u)
-        {
-            output_value.rgb = hsv2rgb(float3(frac(float(id_to_visualize) * 7.1323f), 1, 1));
         }
     }
     else 
