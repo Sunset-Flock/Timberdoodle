@@ -567,7 +567,7 @@ void closest_hit(inout GbufferRayPayload payload, in BuiltInTriangleIntersection
         AT.globals.scene.mesh_groups,
         AT.globals.scene.entity_combined_transforms
     );
-    MaterialPointData material_point = evaluate_material(
+    MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
         AT.globals,
         tri_geo,
         tri_point

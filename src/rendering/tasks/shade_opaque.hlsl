@@ -15,6 +15,7 @@
 #include "shader_lib/transform.hlsl"
 
 
+
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
 #define AT deref(push_opaque.attachments).attachments
@@ -331,6 +332,27 @@ float3 point_lights_contribution(float3 normal, float3 world_position, float3 vi
     return total_contribution;
 }
 
+struct VsmLightVisibilityTester : LightVisibilityTesterI
+{
+    RaytracingAccelerationStructure tlas;
+    RenderGlobalData* globals;
+    float2 screen_uv;
+    float depth;
+    float sun_light(MaterialPointData material_point, float3 incoming_ray)
+    {
+        const float3 sun_direction = AT.globals->sky_settings.sun_direction;
+        const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.0, 1.0);
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, material_point.position, sun_norm_dot) : 1.0f;
+        const float final_shadow = sun_norm_dot * shadow.x;
+
+        return final_shadow;
+    }
+    float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
+    {
+        return 0.0f;
+    }
+}
+
 [numthreads(SHADE_OPAQUE_WG_X, SHADE_OPAQUE_WG_Y, 1)]
 [shader("compute")]
 void entry_main_cs(
@@ -421,57 +443,20 @@ void entry_main_cs(
 
         world_space_depth = length(tri_point.world_position - camera_position);
 
-        float3 mapped_normal = tri_point.world_normal;
         GPUMaterial material = GPU_MATERIAL_FALLBACK;
         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
             material = AT.material_manifest[tri_geo.material_index];
         }
 
-        if (material.alpha_discard_enabled)
-        {
-            tri_point.world_normal = tri_point.face_normal;
-        }
-
-        float3 albedo = float3(material.base_color);
-        if(material.diffuse_texture_id.value != 0)
-        {
-            albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
-                // SamplerState::get(AT.globals->samplers.nearest_repeat_ani),
-                SamplerState::get(AT.globals->samplers.linear_repeat_ani),
-                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-            ).rgb;
-        }
-
-        if(material.normal_texture_id.value != 0)
-        {
-            float3 normal_map_value = float3(0);
-            if(material.normal_compressed_bc5_rg)
-            {
-                const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(AT.globals->samplers.normals),
-                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                ).rg;
-                const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
-                const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
-                normal_map_value = float3(rescaled_normal_rg, normal_b);
-            }
-            else
-            {
-                const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(AT.globals->samplers.normals),
-                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                ).rgb;
-                normal_map_value = raw * 2.0f - 1.0f;
-            }
-            // mapped_normal = normal_map_value * 0.5 + 0.5;
-            if (dot(normal_map_value, -1) < 0.9999)
-            {
-                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
-                mapped_normal = mul(tbn, normal_map_value);
-            }
-        }
-
+        MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
+            AT.globals,
+            tri_geo,
+            tri_point
+        );
+        let mapped_normal = material_point.normal;
+        let albedo = material_point.albedo;
+        
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(mapped_normal, sun_direction), 0.0, 1.0);
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
@@ -577,7 +562,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
-                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, tri_point.world_normal);
+                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, material_point.normal);
                 let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
                 output_value.rgb = debug_albedo;
                 // output_value.rgb = vsm_debug_color;

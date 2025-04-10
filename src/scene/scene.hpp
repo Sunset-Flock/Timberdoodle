@@ -299,7 +299,6 @@ struct Scene
 
     // Populated by process entities every frame
     CPUMeshInstanceCounts cpu_mesh_instance_counts = {};                            // Useful for cpu driven dispatches and draws. Only really need counts on cpu.
-    std::vector<RenderEntityId> blas_build_requests = {};
     daxa::TaskBuffer mesh_instances_buffer = {};
     bool entities_changed = {};
     auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;

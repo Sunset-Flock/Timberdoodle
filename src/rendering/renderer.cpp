@@ -1204,6 +1204,6 @@ void Renderer::render_frame(
         main_task_graph.execute({});
         std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
         u32 duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        std::cout << "tg execution took " << duration << "us" << std::endl;
+        // std::cout << "tg execution took " << duration << "us" << std::endl;
     }
 }

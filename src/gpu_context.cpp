@@ -60,7 +60,7 @@ GPUContext::GPUContext(Window const & window)
           .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
           .name = "Sandbox Swapchain",
       })},
-      pipeline_manager{daxa::PipelineManager{{
+      pipeline_manager{daxa::PipelineManager{daxa::PipelineManagerInfo2{
           .device = this->device,
           .root_paths =
               {

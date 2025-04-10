@@ -1441,11 +1441,6 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
             // Process all fully loaded mesh groups
             if (is_mesh_group_loaded)
             {
-                if (mesh_group.blas.is_empty())
-                {
-                    blas_build_requests.push_back(_render_entities.id_from_index(entity_i));
-                }
-
                 auto const mesh_lod_group_indices_meshgroup_offset = mesh_group.mesh_lod_group_manifest_indices_array_offset;
                 for (u32 in_mesh_group_index = 0; in_mesh_group_index < mesh_group.mesh_lod_group_count; in_mesh_group_index++)
                 {

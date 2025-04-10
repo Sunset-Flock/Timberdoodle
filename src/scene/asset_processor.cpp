@@ -991,7 +991,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         else
         {
-
+#pragma region LOD_GENERATION
             const u32 lod_index_count = round_up_div(prev_lod_index_buffer.size(), 3 * 2) * 3u;
             simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
@@ -1022,7 +1022,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * std::pow(sqrt(2.0f), lod);
             // - We bias the weight towards the normal a little here with a factor of 2
             // - Typically normals are a little more important for visual error than position as they effect the shading more.
-            f32 const MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR = 2.0f;
+            f32 const MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR = 3.0f;
             f32 const lod_normal_weight = MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR;
             /// ===== Estimate Average Vertex Distance For LOD ====
 
@@ -1042,22 +1042,24 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
                 &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), 
                 attributes_normals_uvs.data(), sizeof(f32) * 5, attribute_weights, 5, nullptr,
                 lod_index_count, target_error, options, &result_error);
+            result_error *= (1.0f / (1.0f + MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR)); // renormalize error based on normal importance boost
             lod_error = lods[lod-1].lod_error + result_error;
-            if (result_index_count > lod_index_count || result_index_count < 12 || result_error > max_acceptable_error)
+            if (result_index_count > (lod_index_count + lod_index_count / 2) || result_index_count < 12 || result_error > max_acceptable_error)
             {
                 break;
             }
             index_buffer->resize(result_index_count);
+#pragma endregion
         }
         prev_lod_index_buffer = *index_buffer;
 
+#pragma region MESH OPTIMIZATION
         std::vector<u32> vertex_remap = {};
         std::vector<u32> remapped_index_buffer = {};
         vertex_remap.resize(vert_positions.size());
         remapped_index_buffer.resize(index_buffer->size());
 
         usize unique_vertices = meshopt_optimizeVertexFetchRemap(vertex_remap.data(), index_buffer->data(), index_buffer->size(), vert_positions.size());
-
         std::vector<glm::vec3> remapped_vert_positions = {};
         std::vector<glm::vec3> remapped_vert_normals = {};
         std::vector<glm::vec2> remapped_vert_texcoord0 = {};
@@ -1080,7 +1082,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         std::vector<glm::vec3>& optimized_vert_normals = remapped_vert_normals;
         std::vector<glm::vec2>& optimized_vert_texcoord0 = remapped_vert_texcoord0;
         u32 const vertex_count = unique_vertices;
+#pragma endregion
 
+#pragma region MESHLET GENERATION
         size_t max_meshlets = meshopt_buildMeshletsBound(index_buffer->size(), MAX_VERTICES, MAX_TRIANGLES);
         std::vector<meshopt_Meshlet> meshlets(max_meshlets);
         std::vector<u32> meshlet_indirect_vertices(max_meshlets * MAX_VERTICES);
@@ -1146,6 +1150,8 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         meshlet_indirect_vertices.resize(last.vertex_offset + last.vertex_count);
         meshlet_micro_indices.resize(last.triangle_offset + ((last.triangle_count * 3 + 3) & ~3));
         meshlets.resize(meshlet_count);
+
+#pragma endregion
 
         u32 total_mesh_buffer_size =
             sizeof(Meshlet) * meshlet_count +

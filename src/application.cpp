@@ -58,10 +58,11 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_icelandrock\\Icelandic_Mossy_Rock_Formation_sktsW_Raw.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "jungle_pack\\JungleRuins_Main_c.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -212,6 +213,8 @@ void Application::update()
 
     cmd_lists.at(cmd_list_count++) = _scene->create_tlas_from_mesh_instances(frame_mesh_instances);
     _gpu_context->device.submit_commands({.command_lists = std::span{cmd_lists.data(), cmd_list_count}});
+
+
     
     cmd_list_count = 0;
     cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
@@ -219,6 +222,8 @@ void Application::update()
         .command_lists = std::span{cmd_lists.data(), cmd_list_count},
         .signal_binary_semaphores = std::span{ &_renderer->render_context->lighting_phase_wait, 1 }
     });
+
+    _gpu_context->device.wait_idle();
 
     // ===== Update GPU Scene Buffers =====
 

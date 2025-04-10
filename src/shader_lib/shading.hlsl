@@ -14,7 +14,12 @@
 
 // DO NOT INCLUDE VSM SHADING NOR RAY TRACED SHADING HEADERS HERE!
 
-func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
+static const uint SHADING_QUALITY_NONE = 0;
+static const uint SHADING_QUALITY_LOW = 1;
+static const uint SHADING_QUALITY_HIGH = 2;
+typedef uint ShadingQuality;
+
+func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
 {
     GPUMaterial material = {};
     if (tri_geo.material_index == INVALID_MANIFEST_INDEX)
@@ -28,89 +33,63 @@ func evaluate_material(RenderGlobalData* globals, TriangleGeometry tri_geo, Tria
 
     MaterialPointData ret = {};
     ret.position = tri_point.world_position;
-    ret.geometry_normal = tri_point.world_normal;
-    ret.face_normal = tri_point.face_normal;
 
     ret.emissive = material.emissive_color;
     ret.alpha = 1.0f;
     ret.albedo = material.base_color;
     if (!material.diffuse_texture_id.is_empty())
     {
-        float4 diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(globals.samplers.linear_repeat_ani.get(), tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy);
-        ret.albedo *= diffuse_fetch.rgb;
-        ret.alpha = diffuse_fetch.a;
-    }
-
-    ret.normal = tri_point.world_normal;
-    if(material.normal_texture_id.value != 0)
-    {
-        float3 normal_map_value = float3(0);
-        if(material.normal_compressed_bc5_rg)
+        float4 diffuse_fetch = float4(0,0,0,0);
+        if (SHADING_QUALITY > SHADING_QUALITY_LOW)
         {
-            const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                globals->samplers.normals.get(),
-                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-            ).rg;
-            const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
-            const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
-            normal_map_value = float3(rescaled_normal_rg, normal_b);
+            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(globals.samplers.linear_repeat_ani.get(), tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy);
         }
         else
         {
-            const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                globals->samplers.normals.get(),
-                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-            ).rgb;
-            normal_map_value = raw * 2.0f - 1.0f;
+            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), float2(0,0), 16.0f);
         }
-        if (dot(normal_map_value, -1) < 0.9999)
+        ret.albedo *= diffuse_fetch.rgb;
+        ret.alpha = diffuse_fetch.a;
+    }
+
+    if (SHADING_QUALITY > SHADING_QUALITY_LOW)
+    {
+        ret.geometry_normal = tri_point.world_normal;
+        ret.face_normal = tri_point.face_normal;
+        ret.normal = tri_point.world_normal;
+        if(material.normal_texture_id.value != 0)
         {
-            const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
-            ret.normal = mul(tbn, normal_map_value);
+            float3 normal_map_value = float3(0);
+            if(material.normal_compressed_bc5_rg)
+            {
+                const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
+                    globals->samplers.normals.get(),
+                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
+                ).rg;
+                const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
+                const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
+                normal_map_value = float3(rescaled_normal_rg, normal_b);
+            }
+            else
+            {
+                const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
+                    globals->samplers.normals.get(),
+                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
+                ).rgb;
+                normal_map_value = raw * 2.0f - 1.0f;
+            }
+            if (dot(normal_map_value, -1) < 0.9999)
+            {
+                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
+                ret.normal = mul(tbn, normal_map_value);
+            }
         }
-    }
-    if (material.alpha_discard_enabled)
-    {
-        ret.material_flags = ret.material_flags | MATERIAL_FLAG_ALPHA_DISCARD | MATERIAL_FLAG_DOUBLE_SIDED;
-    }
-    if (material.blend_enabled)
-    {
-        ret.material_flags = ret.material_flags | MATERIAL_FLAG_BLEND | MATERIAL_FLAG_DOUBLE_SIDED;
-    }
-    if (material.double_sided_enabled)
-    {
-        ret.material_flags = ret.material_flags | MATERIAL_FLAG_DOUBLE_SIDED;
-    }
-
-    return ret;
-}
-
-func evaluate_material_coarse(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
-{
-    GPUMaterial material = {};
-    if (tri_geo.material_index == INVALID_MANIFEST_INDEX)
-    {
-        material = GPU_MATERIAL_FALLBACK;
     }
     else
     {
-        material = globals.scene.materials[tri_geo.material_index];
-    }
-
-    MaterialPointData ret = {};
-    ret.position = tri_point.world_position;
-    ret.geometry_normal = tri_point.face_normal;
-    ret.face_normal = tri_point.face_normal;
-    ret.normal = tri_point.face_normal;
-
-    ret.emissive = material.emissive_color;
-    ret.alpha = 1.0f;
-    ret.albedo = material.base_color;
-    if (!material.diffuse_texture_id.is_empty())
-    {
-        float4 diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), float2(0.0f,0.0f), 16.0f);
-        ret.albedo *= diffuse_fetch.rgb;
-        ret.alpha = diffuse_fetch.a;
+        ret.geometry_normal = tri_point.face_normal;
+        ret.face_normal = tri_point.face_normal;
+        ret.normal = tri_point.face_normal;
     }
 
     if (material.alpha_discard_enabled)
@@ -158,8 +137,7 @@ float3 get_sun_direct_lighting(
     return direct_sun_illuminance;
 }
 
-__generic<LIGHT_VIS_TESTER_T : LightVisibilityTesterI>
-func shade_material(
+func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVisibilityTesterI>(
     RenderGlobalData* globals, 
     daxa_ImageViewId sky_transmittance,
     daxa_ImageViewId sky,
@@ -206,20 +184,37 @@ func shade_material(
     }
 
     // Indirect Diffuse
-    if (all(material_point.emissive == float3(0,0,0)))
     {
-        float3 global_illumination = pgi_sample_irradiance_nearest(
-            globals, 
-            globals.pgi_settings, 
-            material_point.position, 
-            material_point.geometry_normal, 
-            material_point.geometry_normal, 
-            incoming_ray, probe_irradiance, 
-            probe_visibility, 
-            probe_infos, 
-            probe_requests, 
-            pgi_request_mode);
-        diffuse_light += global_illumination;
+        float3 indirect_diffuse = float3(0,0,0);
+        if (SHADING_QUALITY == SHADING_QUALITY_LOW)
+        {
+            indirect_diffuse = pgi_sample_irradiance_nearest(
+                globals, 
+                globals.pgi_settings, 
+                material_point.position, 
+                material_point.geometry_normal, 
+                material_point.geometry_normal, 
+                incoming_ray, probe_irradiance, 
+                probe_visibility, 
+                probe_infos, 
+                probe_requests, 
+                pgi_request_mode);
+        }
+        if (SHADING_QUALITY == SHADING_QUALITY_HIGH)
+        {
+            indirect_diffuse = pgi_sample_irradiance(
+                globals, 
+                globals.pgi_settings, 
+                material_point.position, 
+                material_point.geometry_normal, 
+                material_point.geometry_normal, 
+                incoming_ray, probe_irradiance, 
+                probe_visibility, 
+                probe_infos, 
+                probe_requests, 
+                pgi_request_mode);
+        }
+        diffuse_light += indirect_diffuse;
     }
 
     // Emissive

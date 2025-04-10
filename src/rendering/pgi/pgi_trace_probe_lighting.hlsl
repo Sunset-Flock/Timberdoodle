@@ -189,7 +189,35 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
 
     payload.hit = true;
 
-    if (true)
+    PGISettings pgi_settings = push.attach.globals.pgi_settings;
+    float3 hit_position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+
+    uint request_mode = pgi_get_probe_request_mode(
+        push.attach.globals,
+        push.attach.globals.pgi_settings,
+        push.attach.probe_requests.get(),
+        payload.probe_index);
+    request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
+    // let in_pgi_volume = all(hit_position > pgi_settings.window_base_position) && all(hit_position < (pgi_settings.window_base_position + pgi_settings.probe_spacing * pgi_settings.probe_count));
+    // let pgi_require_hq_eval = RayTCurrent() < push.attach.globals.pgi_settings.probe_spacing.x * 30;
+    // if (false && in_pgi_volume && !pgi_require_hq_eval)
+    // {
+    //     payload.color_depth.rgb = pgi_sample_irradiance_nearest(
+    //         push.attach.globals, 
+    //         push.attach.globals.pgi_settings, 
+    //         WorldRayOrigin() + WorldRayDirection() * RayTCurrent(), 
+    //         -WorldRayDirection(), 
+    //         -WorldRayDirection(), 
+    //         WorldRayDirection(), 
+    //         push.attach.probe_radiance.get(), 
+    //         push.attach.probe_visibility.get(), 
+    //         push.attach.probe_info.get(), 
+    //         push.attach.probe_requests.get(), 
+    //         request_mode,
+    //         true);
+    //     payload.color_depth.a = RayTCurrent();
+    // }
+    // else
     {
         MeshInstance* mi = push.attach.mesh_instances.instances;
         TriangleGeometry tri_geo = rt_get_triangle_geo(
@@ -209,7 +237,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             push.scene.mesh_groups,
             push.scene.entity_combined_transforms
         );
-        MaterialPointData material_point = evaluate_material_coarse(
+        MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
             push.attach.globals,
             tri_geo,
             tri_point
@@ -219,47 +247,21 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         payload.color_depth.rgb = float3(0,0,0);
         if (!backface)
         {
-            uint request_mode = pgi_get_probe_request_mode(
-                push.attach.globals,
-                push.attach.globals.pgi_settings,
+            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+            payload.color_depth.rgb = shade_material<SHADING_QUALITY_LOW>(
+                push.attach.globals, 
+                push.attach.sky_transmittance,
+                push.attach.sky,
+                material_point, 
+                WorldRayOrigin(),
+                WorldRayDirection(), 
+                light_vis_tester, 
+                push.attach.probe_radiance.get(), 
+                push.attach.probe_visibility.get(), 
+                push.attach.probe_info.get(),
                 push.attach.probe_requests.get(),
-                payload.probe_index);
-
-            request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
-            // TODO: REPLACE HIT SHADING EVAL WITH RADIANCE SAMPLE OF PROBES
-            // if (RayTCurrent() > push.attach.globals.pgi_settings.probe_spacing.x * 50) // simpler lighting model for far rays to avoid expensive divergence
-            // {
-            //     payload.color_depth.rgb = pgi_sample_irradiance_nearest(
-            //         push.attach.globals, 
-            //         push.attach.globals.pgi_settings, 
-            //         material_point.position, 
-            //         material_point.geometry_normal, 
-            //         material_point.geometry_normal, 
-            //         WorldRayDirection(), 
-            //         push.attach.probe_radiance.get(), 
-            //         push.attach.probe_visibility.get(), 
-            //         push.attach.probe_info.get(), 
-            //         push.attach.probe_requests.get(), 
-            //         request_mode);
-            // }
-            // else
-            {
-                PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
-                payload.color_depth.rgb = shade_material(
-                    push.attach.globals, 
-                    push.attach.sky_transmittance,
-                    push.attach.sky,
-                    material_point, 
-                    WorldRayOrigin(),
-                    WorldRayDirection(), 
-                    light_vis_tester, 
-                    push.attach.probe_radiance.get(), 
-                    push.attach.probe_visibility.get(), 
-                    push.attach.probe_info.get(),
-                    push.attach.probe_requests.get(),
-                    request_mode
-                ).rgb;
-            }
+                request_mode
+            ).rgb;
 
             payload.color_depth.a = RayTCurrent();
         }
@@ -268,33 +270,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         {
             payload.color_depth.a = -RayTCurrent();
         }
-    }
-    else
-    {
-        MeshInstance* mi = push.attach.mesh_instances.instances;
-        TriangleGeometry tri_geo = rt_get_triangle_geo(
-            attr.barycentrics,
-            InstanceID(),
-            GeometryIndex(),
-            PrimitiveIndex(),
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
-            mi
-        );
-        TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
-            tri_geo,
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
-            push.scene.entity_combined_transforms
-        );
-        PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals );
-        MaterialPointData material_point = {};
-        material_point.position = WorldRayDirection() * RayTCurrent() + WorldRayOrigin();
-        material_point.geometry_normal = tri_point.face_normal;
-        float sun_vis = light_vis_tester.sun_light(material_point, WorldRayDirection());
-        payload.color_depth.a = RayTCurrent();
     }
 
 }

@@ -10,7 +10,6 @@
 #include "../../shader_lib/pgi.hlsl"
 #include "../../shader_lib/misc.hlsl"
 #include "../../shader_lib/debug.glsl"
-#include "../../shader_lib/shading.hlsl"
 #include "../../shader_lib/raytracing.hlsl"
 #include "../../shader_lib/SH.hlsl"
 
