@@ -460,6 +460,10 @@ void entry_main_cs(
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(mapped_normal, sun_direction), 0.0, 1.0);
         float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
+        if (AT.globals->vsm_settings.shadow_everything == 1)
+        {
+            shadow = 0.0f;
+        }
         const float final_shadow = sun_norm_dot * shadow.x;
 
         float3 point_lights_direct = point_lights_contribution(mapped_normal, tri_point.world_position, primary_ray, AT.point_lights);
@@ -469,10 +473,30 @@ void entry_main_cs(
             sun_direction, atmo_position);
 
         float3 indirect_lighting = {};        
-        if (AT.globals.pgi_settings.enabled && (AT.globals.settings.draw_from_observer == 0))
+        if (AT.globals.pgi_settings.enabled)
         {
-            float3 pgi_irradiance = push.attachments.attachments.pgi_screen_irrdiance.get()[index].rgb;
-            indirect_lighting = pgi_irradiance;
+            if (AT.globals.settings.draw_from_observer == 1)
+            {
+                float3 pgi_irradiance = pgi_sample_irradiance(
+                    AT.globals,
+                    AT.globals.pgi_settings,
+                    tri_point.world_position,
+                    tri_point.world_normal,
+                    material_point.normal,
+                    primary_ray,
+                    AT.pgi_radiance.get(),
+                    AT.pgi_visibility.get(),
+                    AT.pgi_info.get(),
+                    AT.pgi_requests.get(),
+                    PGI_PROBE_REQUEST_MODE_NONE
+                );
+                indirect_lighting = pgi_irradiance;
+            }
+            else
+            {
+                float3 pgi_irradiance = push.attachments.attachments.pgi_screen_irrdiance.get()[index].rgb;
+                indirect_lighting = pgi_irradiance;
+            }
         }
         else
         {
@@ -502,7 +526,6 @@ void entry_main_cs(
 
         let shaded_color = albedo.rgb * lighting;
 
-        let id_fizz = 0.172426234237f;
 
         float3 dummy_color = float3(1,0,1);
         switch(AT.globals->settings.debug_draw_mode)
@@ -520,28 +543,34 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID:
             {
-                output_value.rgb = hsv2rgb(float3(frac(float(meshlet_triangle_index) * id_fizz), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index), 1, 1));
                 break;
             }
             case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID:
             {
-                output_value.rgb = hsv2rgb(float3(frac(float(meshlet_index) * id_fizz), 1, float(meshlet_triangle_index) * rcp(MAX_TRIANGLES_PER_MESHLET) * 0.6f + 0.4f));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_index), 1, IdFloatScramble(meshlet_triangle_index) * 0.6f + 0.4f));
                 break;
             }
             case DEBUG_DRAW_MODE_ENTITY_ID:
             {
-                output_value.rgb = hsv2rgb(float3(frac(float(tri_geo.entity_index) * id_fizz), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.entity_index), 1, 1));
                 break;
             }
             case DEBUG_DRAW_MODE_MESH_ID:
             {
-                output_value.rgb = hsv2rgb(float3(frac(float(tri_geo.mesh_index) * id_fizz), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.mesh_index), 1, 1));
                 break;
             }
             case DEBUG_DRAW_MODE_MESH_GROUP_ID:
             {
                 uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
-                output_value.rgb = hsv2rgb(float3(frac(float(mesh_group_index) * id_fizz), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(mesh_group_index), 1, 1));
+                break;
+            }
+            case DEBUG_DRAW_MODE_MESH_LOD:
+            {
+                uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
+                output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP));
                 break;
             }
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
@@ -632,12 +661,6 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_ALL_DIFFUSE:
             {
                 output_value.rgb = directional_light_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_LOD:
-            {
-                uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
-                output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP));
                 break;
             }
             case DEBUG_DRAW_MODE_NONE:

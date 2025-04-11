@@ -14,6 +14,7 @@
 #define MESH_SHADER_WORKGROUP_X 32
 #define MESHLET_CULL_WORKGROUP_X 128
 #define CULLING_DEBUG_DRAWS 1
+#define MAX_GPU_FRAMES_IN_FLIGHT 2
 
 #define TIDO_COMMA ,
 
@@ -130,6 +131,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 struct VSMSettings
 {
     daxa_i32 enable;
+    daxa_i32 shadow_everything;
     daxa_u32 force_clip_level;
     daxa_u32 enable_caching;
     daxa_i32 forced_clip_level;
@@ -143,6 +145,7 @@ struct VSMSettings
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },
+          shadow_everything{ 0 },
           force_clip_level{ 0 },
           enable_caching{ 1 },
           forced_clip_level{ 0 },
@@ -181,10 +184,9 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_AMBIENT_OCCLUSION 20
 #define DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO 21
 #define DEBUG_DRAW_MODE_ALL_DIFFUSE 22
-#define DEBUG_DRAW_MODE_LOD 23
-#define DEBUG_DRAW_SHADE_OPAQUE_CLOCKS 24
-#define DEBUG_DRAW_PGI_EVAL_CLOCKS 25
-#define DEBUG_DRAW_RTAO_TRACE_CLOCKS 26
+#define DEBUG_DRAW_SHADE_OPAQUE_CLOCKS 23
+#define DEBUG_DRAW_PGI_EVAL_CLOCKS 24
+#define DEBUG_DRAW_RTAO_TRACE_CLOCKS 25
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1

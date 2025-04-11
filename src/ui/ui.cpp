@@ -164,73 +164,12 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_interface);
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
-            ImGui::MenuItem("VSM Debug Menu", NULL, &vsm_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::MenuItem("TaskGraphDebugUi", NULL, &tg_debug_ui);
             ImGui::MenuItem("Imgui Demo", NULL, &demo_window);
             ImGui::EndMenu();
         }
         ImGui::EndMainMenuBar();
-    }
-    if (vsm_debug_menu)
-    {
-        if (ImGui::Begin("VSM Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
-            bool force_clip_level = s_cast<bool>(render_context.render_data.vsm_settings.force_clip_level);
-            bool enable_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_caching);
-            ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
-            {
-                ImGui::Text("Draw cascade frustum");
-                ImGui::SetWindowFontScale(0.5);
-                for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
-                {
-                    ImGui::Checkbox(fmt::format("##clips{}", clip).c_str(), &render_context.draw_clip_frustum.at(clip));
-                    ImGui::SameLine();
-                }
-                ImGui::SetWindowFontScale(1.0);
-            }
-            ImGui::EndChild();
-
-            ImGui::Checkbox("Enable VSM", &enable);
-            ImGui::Checkbox("Force clip level", &force_clip_level);
-            ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, 0);
-            ImGui::Checkbox("Enable caching", &enable_caching);
-            auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
-            ImGui::Checkbox("Use fixed near far", &use_fixed_near_far);
-            render_context.render_data.vsm_settings.fixed_near_far = use_fixed_near_far;
-            ImGui::SliderFloat("Clip 0 scale", &render_context.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
-            ImGui::SliderFloat("Clip selection bias", &render_context.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
-            ImGui::SliderFloat("Slope bias", &render_context.render_data.vsm_settings.slope_bias, 0.0, 10.0);
-            ImGui::SliderFloat("Constant bias", &render_context.render_data.vsm_settings.constant_bias, 0.0, 20.0);
-            ImGui::BeginDisabled(!force_clip_level);
-            i32 forced_clip_level = render_context.render_data.vsm_settings.forced_clip_level;
-            ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
-            ImGui::EndDisabled();
-
-            ImGui::InputInt("Debug cubemap face", &render_context.debug_frustum);
-            ImGui::Checkbox("Visualize point frustum", &render_context.visualize_frustum);
-            render_context.debug_frustum = glm::clamp(render_context.debug_frustum, -1, 5);
-
-            render_context.render_data.vsm_settings.enable = enable;
-            render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
-            render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
-            render_context.render_data.vsm_settings.enable_caching = enable_caching;
-
-            ImGui::Image(
-                imgui_renderer.create_texture_id({
-                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
-                }),
-                ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
-            ImGui::Image(
-                imgui_renderer.create_texture_id({
-                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
-                }),
-                ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
-        }
-        ImGui::End();
     }
     if (widget_settings)
     {
@@ -949,7 +888,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "AMBIENT_OCCLUSION",    // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
                 "INDIRECT_DIFFUSE_AO",  // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                 "ALL_DIFFUSE",          // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                "LOD",                  // DEBUG_DRAW_MODE_LOD
                 "SHADE_OPAQUE_CLOCKS",  // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
                 "PGI_EVAL_CLOCKS",      // DEBUG_DRAW_PGI_EVAL_CLOCKS
                 "RTAO_TRACE_CLOCKS",    // DEBUG_DRAW_RTAO_TRACE_CLOCKS
@@ -1010,6 +948,65 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
                 ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
+            }
+            if (ImGui::CollapsingHeader("VSM Settings"))
+            {
+                bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
+                bool shadow_everything = s_cast<bool>(render_context.render_data.vsm_settings.shadow_everything);
+                bool force_clip_level = s_cast<bool>(render_context.render_data.vsm_settings.force_clip_level);
+                bool enable_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_caching);
+                ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
+                {
+                    ImGui::Text("Draw cascade frustum");
+                    ImGui::SetWindowFontScale(0.5);
+                    for (i32 clip = 0; clip < VSM_CLIP_LEVELS; clip++)
+                    {
+                        ImGui::Checkbox(fmt::format("##clips{}", clip).c_str(), &render_context.draw_clip_frustum.at(clip));
+                        ImGui::SameLine();
+                    }
+                    ImGui::SetWindowFontScale(1.0);
+                }
+                ImGui::EndChild();
+
+                ImGui::Checkbox("Enable VSM", &enable);
+                ImGui::Checkbox("Shadow everything", &shadow_everything);
+                ImGui::Checkbox("Force clip level", &force_clip_level);
+                ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, 0);
+                ImGui::Checkbox("Enable caching", &enable_caching);
+                auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
+                ImGui::Checkbox("Use fixed near far", &use_fixed_near_far);
+                render_context.render_data.vsm_settings.fixed_near_far = use_fixed_near_far;
+                ImGui::SliderFloat("Clip 0 scale", &render_context.render_data.vsm_settings.clip_0_frustum_scale, 0.1f, 20.0f);
+                ImGui::SliderFloat("Clip selection bias", &render_context.render_data.vsm_settings.clip_selection_bias, -0.5f, 2.0f);
+                ImGui::SliderFloat("Slope bias", &render_context.render_data.vsm_settings.slope_bias, 0.0, 10.0);
+                ImGui::SliderFloat("Constant bias", &render_context.render_data.vsm_settings.constant_bias, 0.0, 20.0);
+                ImGui::BeginDisabled(!force_clip_level);
+                i32 forced_clip_level = render_context.render_data.vsm_settings.forced_clip_level;
+                ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
+                ImGui::EndDisabled();
+
+                ImGui::InputInt("Debug cubemap face", &render_context.debug_frustum);
+                ImGui::Checkbox("Visualize point frustum", &render_context.visualize_frustum);
+                render_context.debug_frustum = glm::clamp(render_context.debug_frustum, -1, 5);
+
+                render_context.render_data.vsm_settings.enable = enable;
+                render_context.render_data.vsm_settings.shadow_everything = shadow_everything;
+                render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
+                render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
+                render_context.render_data.vsm_settings.enable_caching = enable_caching;
+
+                ImGui::Image(
+                    imgui_renderer.create_texture_id({
+                        .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                        .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                    }),
+                    ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
+                ImGui::Image(
+                    imgui_renderer.create_texture_id({
+                        .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                        .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                    }),
+                    ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
             }
         }
     }
@@ -1082,7 +1079,6 @@ void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderConte
         }
     }
 }
-
 
 void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
 {

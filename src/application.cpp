@@ -45,7 +45,7 @@ Application::Application()
     std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf"; 
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf"; 
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies3.gltf";
@@ -58,7 +58,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_icelandrock\\Icelandic_Mossy_Rock_Formation_sktsW_Raw.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
@@ -125,10 +125,14 @@ auto Application::run() -> i32
                 app_state.cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
                 app_state.camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
 
-            _renderer->render_frame(
+            bool const execute_frame = _renderer->prepare_frame(
                 camera_info,
                 app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
                 app_state.delta_time);
+            if (execute_frame)
+            {
+                _renderer->main_task_graph.execute({});
+            }
         }
         _gpu_context->device.collect_garbage();
     }

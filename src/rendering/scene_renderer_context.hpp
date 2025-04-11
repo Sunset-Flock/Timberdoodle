@@ -384,7 +384,7 @@ namespace RenderTimes
         constexpr u32 gidx = group_index<GROUP>();
         if constexpr (gidx != std::numeric_limits<u32>::max())
         {
-            return std::span{ GROUPS[gidx].timing_names.data(), GROUPS[gidx].timing_names.size() };
+            return std::span{GROUPS[gidx].timing_names.data(), GROUPS[gidx].timing_names.size()};
         }
         return std::span<TimingName>{};
     }
@@ -393,7 +393,7 @@ namespace RenderTimes
     {
         if (gidx < GROUP_COUNT)
         {
-            return std::span{ GROUPS[gidx].timing_names.data(), GROUPS[gidx].timing_names.size() };
+            return std::span{GROUPS[gidx].timing_names.data(), GROUPS[gidx].timing_names.size()};
         }
         return std::span<TimingName>{};
     }
@@ -422,7 +422,7 @@ namespace RenderTimes
 
         void init(daxa::Device & device, u32 frames_in_flight)
         {
-            query_version_count = frames_in_flight + 1;
+            query_version_count = frames_in_flight;
             timeline_query_pool = device.create_timeline_query_pool({
                 .query_count = 2 * FLAT_TIMINGS_COUNT * query_version_count,
                 .name = "render times query pool",
@@ -485,7 +485,6 @@ namespace RenderTimes
             }
             write_timestamp(recorder, render_time_index * 2);
             timer_set[render_time_index] = true;
-            auto const query_pool_offset = FLAT_TIMINGS_COUNT * 2 * query_version_index;
         }
         void end_gpu_timer(auto & recorder, u32 render_time_index)
         {
@@ -494,7 +493,6 @@ namespace RenderTimes
                 return;
             }
             write_timestamp(recorder, render_time_index * 2 + 1);
-            auto const query_pool_offset = FLAT_TIMINGS_COUNT * 2 * query_version_index;
         }
         auto get(u32 render_time_index) -> u64
         {

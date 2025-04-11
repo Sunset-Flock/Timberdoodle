@@ -107,14 +107,15 @@ struct ShaderDebugDrawContext
         });
 
         readback_queue = device.create_buffer({
-            .size = sizeof(ShaderDebugOutput) * 4 /*4 is a save value for all kinds of frames in flight setups*/,
+            .size = sizeof(ShaderDebugOutput) * (MAX_GPU_FRAMES_IN_FLIGHT + 1),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
             .name = "shader debug readback queue",
         });
     }
 
-    void update(daxa::Device & device, daxa_u32vec2 render_target_size, i32vec2 window_size)
+    void update(daxa::Device & device, daxa_u32vec2 render_target_size, i32vec2 window_size, u32 renderer_frame_index)
     {
+        frame_index = renderer_frame_index;
         i32 const res_factor = static_cast<u32>(render_target_size.y) / window_size.y;
         i32 const actual_detector_size = res_factor * detector_window_size;
         if (actual_detector_size != old_detector_rt_size)
@@ -145,15 +146,23 @@ struct ShaderDebugDrawContext
         shader_debug_input.texel_detector_window_half_size = actual_detector_size / 2;
         shader_debug_input.texel_detector_pos.x = detector_window_position.x * res_factor;
         shader_debug_input.texel_detector_pos.y = detector_window_position.y * res_factor;
-        frame_index += 1;
+
+        // Readback
+        {
+            u32 const readback_index = frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
+            auto& readback_buffer_ref = device.buffer_host_address_as<ShaderDebugOutput>(readback_queue).value()[readback_index];
+            shader_debug_output = readback_buffer_ref;  // read back from previous frame
+            readback_buffer_ref = {};                   // clear for next frame
+        }
     }
     
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
+        u32 const readback_index = frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
         u32 buffer_mem_offset = sizeof(ShaderDebugBufferHead);
         auto head = ShaderDebugBufferHead{
             .cpu_input = shader_debug_input,
-            .gpu_output = {},
+            .gpu_output = device.device_address(readback_queue).value() + sizeof(ShaderDebugOutput) * readback_index,
         };
 
         auto update_debug_draws = [&](auto& draws, auto& cpu_draws)
@@ -191,7 +200,7 @@ struct ShaderDebugDrawContext
             if (upload_size > 0)
             {
                 u32 const buffer_offset = draws.draws - device.device_address(buffer).value();
-                auto stage_line_draws = allocator.allocate(upload_size,4).value();
+                auto stage_line_draws = allocator.allocate(upload_size).value();
                 std::memcpy(stage_line_draws.host_address, cpu_draws.cpu_draws.data(), upload_size);
                 recorder.copy_buffer_to_buffer({
                     .src_buffer = allocator.buffer(),
@@ -222,14 +231,14 @@ struct ReadbackTask : ReadbackH::Task
     ShaderDebugDrawContext * shader_debug_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        // Copy out the debug output from 4 frames ago
+        u32 const index = (shader_debug_context->frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1));
         std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
         // Set the currently recording frame to write its debug output to the slot we just read from.
         ti.recorder.copy_buffer_to_buffer({
             .src_buffer = shader_debug_context->buffer,
             .dst_buffer = shader_debug_context->readback_queue,
             .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
-            .dst_offset = sizeof(ShaderDebugOutput) * (shader_debug_context->frame_index % 4),
+            .dst_offset = sizeof(ShaderDebugOutput) * index,
             .size = sizeof(ShaderDebugOutput),
         });
     }

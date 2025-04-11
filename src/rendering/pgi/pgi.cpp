@@ -2132,5 +2132,9 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
     TaskPGIAllOut ret = {};
     ret.pgi_indirections = pgi_indirections;
     ret.pgi_screen_irradiance = pgi_screen_irrdiance;
+    ret.pgi_radiance = info.pgi_state.probe_radiance_view;
+    ret.pgi_visibility = info.pgi_state.probe_visibility_view;
+    ret.pgi_info = info.pgi_state.probe_info_view;
+    ret.pgi_requests = info.pgi_state.cell_requests_view;
     return ret;
 }

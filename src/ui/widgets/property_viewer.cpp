@@ -304,7 +304,16 @@ namespace tido
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
 
                             ImGui::Text("Entity Id %i", scene_interface.picked_entity);
-                            ImGui::Text("Interesting Picked Info");
+
+                            if (scene_interface.picked_entity != ~0)
+                            {
+                                auto ent_slot = scene._render_entities.slot_by_index(scene_interface.picked_entity);
+    
+                                auto mesh_group_manifest_index = scene._render_entities.slot_by_index(scene_interface.picked_entity)->mesh_group_manifest_index.value();
+                                auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
+                                
+                                ImGui::Text(fmt::format("MeshGroup: {} (idx: {})", mesh_group.name, mesh_group_manifest_index).c_str());
+                            }
                             
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);

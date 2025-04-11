@@ -140,5 +140,9 @@ struct TaskPGIAllOut
 {
     daxa::TaskBufferView pgi_indirections = {};
     daxa::TaskImageView pgi_screen_irradiance = {};
+    daxa::TaskImageView pgi_radiance = {};
+    daxa::TaskImageView pgi_visibility = {};
+    daxa::TaskImageView pgi_info = {};
+    daxa::TaskImageView pgi_requests = {};
 };
 auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut;

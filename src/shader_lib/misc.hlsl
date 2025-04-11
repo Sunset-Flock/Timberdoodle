@@ -52,6 +52,12 @@ float3 hsv2rgb(float3 c) {
     return c.z * lerp(k.xxx, clamp(p - k.xxx, 0.0, 1.0), c.y);
 }
 
+float IdFloatScramble(uint id)
+{
+    let SCRAMBLE = 0.172426234237f;
+    return frac(float(id) * SCRAMBLE);
+}
+
 static uint _rand_state;
 void rand_seed(uint seed) {
     _rand_state = seed;

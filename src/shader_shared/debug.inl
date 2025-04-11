@@ -73,6 +73,7 @@ struct ShaderDebugOutput
     daxa_u32 exceeded_aabb_draw_capacity;
     daxa_u32 exceeded_box_draw_capacity;
 };
+DAXA_DECL_BUFFER_PTR(ShaderDebugOutput);
 
 #define DebugDraws(DRAW_TYPE) DebugDraws_ ## DRAW_TYPE
 #define DECL_DEBUG_DRAWS(DRAW_TYPE)\
@@ -98,7 +99,7 @@ struct ShaderDebugBufferHead
     DebugDraws(ShaderDebugAABBDraw) aabb_draws;
     DebugDraws(ShaderDebugBoxDraw) box_draws;
     ShaderDebugInput cpu_input;
-    ShaderDebugOutput gpu_output;
+    daxa_RWBufferPtr(ShaderDebugOutput) gpu_output;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)
 

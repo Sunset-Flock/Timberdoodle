@@ -54,7 +54,7 @@ Renderer::Renderer(
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     luminance_average = create_task_buffer(gpu_context, sizeof(f32), "luminance average", "luminance_average");
     general_readback_buffer = gpu_context->device.create_buffer({
-        .size = sizeof(ReadbackValues) * 4,
+        .size = sizeof(ReadbackValues) * (MAX_GPU_FRAMES_IN_FLIGHT + 1),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "general readback buffer",
     });
@@ -739,6 +739,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskBufferView pgi_indirections = {};
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_radiance = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_visibility = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_info = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_requests = daxa::NullTaskImage;
     if (render_context->render_data.pgi_settings.enabled)
     {
         auto ret = task_pgi_all({
@@ -756,6 +760,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
         pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
+        pgi_radiance = ret.pgi_radiance;
+        pgi_visibility = ret.pgi_visibility;
+        pgi_info = ret.pgi_info;
+        pgi_requests = ret.pgi_requests;
     }
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
@@ -876,6 +884,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .vsm_wrapped_pages = vsm_state.free_wrapped_pages_info,
                 .point_lights = scene->_gpu_point_lights,
                 .mesh_instances = scene->mesh_instances_buffer,
+                .pgi_radiance = pgi_radiance,
+                .pgi_visibility = pgi_visibility,
+                .pgi_info = pgi_info,
+                .pgi_requests = pgi_requests,
                 .tlas = scene->_scene_tlas,
             },
             .render_context = render_context.get(),
@@ -943,8 +955,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
-            .ca.reads_writes(swapchain_image)
-            .fs.samples(debug_lens_image)
+            .color_attachment.reads_writes(swapchain_image)
+            .fragment_shader.samples(debug_lens_image)
             .executes(
                 [=, this](daxa::TaskInterface ti)
                 {
@@ -954,29 +966,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                         ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y);
                 }));
 
-    tg.add_task(daxa::InlineTask{"general readback"}
-            .tf.reads(render_context->tgpu_render_data)
-            .executes(
-                [=, this](daxa::TaskInterface ti)
-                {
-                    u32 const index = render_context->render_data.frame_index % 4;
-
-                    render_context->general_readback = ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
-                    ti.device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
-                }));
-
     tg.submit({});
     tg.present({});
     tg.complete({});
     return tg;
 }
 
-void Renderer::render_frame(
+auto Renderer::prepare_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
-    f32 const delta_time)
+    f32 const delta_time) -> bool
 {
-    if (window->size.x == 0 || window->size.y == 0) { return; }
+    if (window->size.x == 0 || window->size.y == 0) 
+    { 
+        return false;
+    }
 
     // Calculate frame relevant values.
     u32 const flight_frame_index = gpu_context->swapchain.current_cpu_timeline_value() % (gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
@@ -1098,9 +1102,14 @@ void Renderer::render_frame(
     daxa::DeviceAddress render_data_device_address =
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
 
-    render_context->render_data.readback =
-        gpu_context->device.buffer_device_address(general_readback_buffer).value() +
-        sizeof(ReadbackValues) * (render_context->render_data.frame_index % 4);
+    // Do General Readback
+    {
+        u32 const index = render_context->render_data.frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
+        render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
+        render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
+        render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
+    }
+
     if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name
@@ -1181,7 +1190,10 @@ void Renderer::render_frame(
     });
 
     auto new_swapchain_image = gpu_context->swapchain.acquire_next_image();
-    if (new_swapchain_image.is_empty()) { return; }
+    if (new_swapchain_image.is_empty()) 
+    { 
+        return false;
+    }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
     meshlet_instances.swap_buffers(meshlet_instances_last_frame);
 
@@ -1195,15 +1207,7 @@ void Renderer::render_frame(
         .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
     });
 
-    gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size);
+    gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);
 
-    u32 const fif_index = render_context->render_data.frame_index % (render_context->gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
-
-    {
-        std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
-        main_task_graph.execute({});
-        std::chrono::time_point<std::chrono::steady_clock> end = std::chrono::steady_clock::now();
-        u32 duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-        // std::cout << "tg execution took " << duration << "us" << std::endl;
-    }
+    return true;
 }

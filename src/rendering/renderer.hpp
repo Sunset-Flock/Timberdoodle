@@ -70,10 +70,11 @@ struct Renderer
     auto create_main_task_graph() -> daxa::TaskGraph;
     auto create_sky_lut_task_graph() -> daxa::TaskGraph;
     void recreate_sky_luts();
-    void render_frame(
+    // Return value determines if the frame should be executed.
+    auto prepare_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
-        f32 const delta_time);
+        f32 const delta_time) -> bool;
     void readback_statistics(daxa::TaskGraph & tg);
 
     daxa::TaskBuffer zero_buffer = {};
