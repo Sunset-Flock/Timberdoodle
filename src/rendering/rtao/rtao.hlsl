@@ -14,7 +14,7 @@
 #include "shader_lib/transform.hlsl"
 
 #define PI 3.1415926535897932384626433832795
-#define RTAO_RANGE 2.0f
+#define RTAO_RANGE 1.5f
 #define RTAO_RANGE_FALLOFF 1
 
 [[vk::push_constant]] RayTraceAmbientOcclusionPush rt_ao_push;
@@ -173,30 +173,17 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         payload.power = 1.0f - square(luma_constant);
 
-        if ((mesh.vertex_uvs == Ptr<float2>(0)) || material.diffuse_texture_id.is_empty())
+        if (material.diffuse_texture_id.is_empty())
         {
             return;
         }
 
-        const int primitive_indices[3] = {
-            mesh.primitive_indices[3 * primitive_index],
-            mesh.primitive_indices[3 * primitive_index + 1],
-            mesh.primitive_indices[3 * primitive_index + 2],
-        };
-
-        const float2 uvs[3] = {
-            mesh.vertex_uvs[primitive_indices[0]],
-            mesh.vertex_uvs[primitive_indices[1]],
-            mesh.vertex_uvs[primitive_indices[2]],
-        };
-        const float2 interp_uv = uvs[0] + attr.barycentrics.x * (uvs[1] - uvs[0]) + attr.barycentrics.y* (uvs[2] - uvs[0]);
-
         let albedo_tex = Texture2D<float3>::get(material.diffuse_texture_id);
-        let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), interp_uv, 5).rgb;
+        let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), float2(0,0), 16).rgb;
 
         let luma = (albedo.r + albedo.g + albedo.b) / 3.0f;
 
-        payload.power = lerp(1.0 - square(luma * luma_constant), 0.2f, 0.2f) 
+        payload.power = 1.0f - square(square(luma))
         #if RTAO_RANGE_FALLOFF
         * sqrt((RTAO_RANGE - RayTCurrent())/RTAO_RANGE)
         #endif

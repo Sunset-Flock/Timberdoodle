@@ -509,7 +509,7 @@ void entry_main_cs(
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             ambient_occlusion = AT.ao_image.get().Load(index);
-            ambient_occlusion = pow(ambient_occlusion, 1.5f);
+            ambient_occlusion = pow(ambient_occlusion, 1.1f);
         }
 
         float3 highlight_lighting = {};
