@@ -558,7 +558,7 @@ func pgi_sample_irradiance_nearest(
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position)));
+    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position))) + 1;
     if (settings.debug_force_cascade != -1)
     {
         cascade = settings.debug_force_cascade;
@@ -572,6 +572,7 @@ func pgi_sample_irradiance_nearest(
     int3 closest_probe = int3(floor(grid_coord_shifted));
     
 
+    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode, cascade - 1);
     pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode, cascade);
     
     float3 cell_size = settings.cascades[cascade].probe_spacing;

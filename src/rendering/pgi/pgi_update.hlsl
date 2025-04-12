@@ -180,15 +180,18 @@ func entry_update_probe_irradiance(
         hysteresis += clamp(factor, -0.02f, 0.02f);
         hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
-    if (probe_info.validity == 0.0f)
+    hysteresis = clamp(hysteresis, 0.75f, 0.99f);
+    float blend = hysteresis;
+    if (probe_info.validity < 0.5f)
     {
-        hysteresis = 0.0f;
+        blend = 0.0f;
+        hysteresis = 0.9f;
     }
     // Perform blend in perceptual space. Reduces noise and increased convergence from bright to drark drastically.
-    new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), prev_frame_texel.a), 5.0f);
+    new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), blend), 5.0f);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
-    float4 value = float4(new_radiance, clamp(hysteresis, 0.75f, 0.99f));
+    float4 value = float4(new_radiance, hysteresis);
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
 }
 
@@ -343,7 +346,7 @@ func entry_update_probe_visibility(
         float ray_to_texel_ratio = float(settings.probe_trace_resolution) / float(settings.probe_visibility_resolution);
         update_factor *= ray_to_texel_ratio;
 
-        if (probe_info.validity == 0.0f)
+        if (probe_info.validity < 0.5f)
         {
             update_factor = 1.0f;
         }
