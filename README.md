@@ -151,16 +151,13 @@ References:
 
 Based on [RTXGI-DDGI](https://github.com/NVIDIAGameWorks/RTXGI-DDGI).
 
-The world is covered in an irradiance volume represented as a probe grid. Rays are shot from each probe, consine convolved and written to the texels of the probe. 
-Each probe is also calculating a visibility term via a statistical depthmap (average depth and depth variance per texel) to avoid leaking.
-In practice this works well and can be used as a unified indirect lighting model as it is volumetric and can be applied to all dynamic, static and volumetric rendering.
+The basic idea is to cover the world in an irradiance volume made up of world space probes. 
+Rays are shot from each probe in real time, calculating a depth and irradiance map for each probe.
+Then, any point in the world can be shaded by fetching the 8 closest probes, testing for visibility and interpolating their irradiance.
 
-There are a few key improvements made to improve the performance and scaling of DDGI:
-* Variable Probe update rate based on budget
-* depth convolution uses cos(dot(N,RAY_DIR))^25 to weigh ray contributions for visibility, drastically decreasing leaks
-* probes are not classified as useful via heuristic but instead are requested by shaded pixels and probe ray hits instead.
-* better automatic probe repositioning. PGI also consideres the average free direction and the grids distortion in addition to the closest back and frontface. This is the biggest improvement over the base DDGI in terms of quality. In models like bistro and sponza, the PGI repositioning leaves no visible artifacts while the default DDGI repositioning leaves many "blind spots" causing ugly missinterpolations.
-* more robust hysteresis estimation and strong luminance clamping allows PGI to converge faster in challenging scenarios like bistros emissive lights.
-* half resolution probe evaluation. The irradiance volume requires 8 probes to be read, that is 8 bisibility and 8 irradiance samples. That is very expensive and even on a RTX4080 leads to up to 0.4ms evaluation time at full resolution. PGI instead evaluates the probes at half res and then uses a depth aware upscale to save performance.
-* (TODO) only requested probes are allocated
-* (TODO) Cascades allow for much greater view distance
+PGI in timberdoodle makes a few improvements over the base DDGI algorithm:
+* Variable Probe update rate: Tido only updates a fraction of probes each frame.
+* Tighter depth test: Depth convolution uses cos(dot(N,RAY_DIR))^50 to weigh ray contributions for visibility, drastically reducing leaks.
+* Sparsity: Probes are requested from shaded screen pixels and probe trace hits. Allows for one indirection for requests screen pixel -> probe -> probe. This reduces the number of active probes by orders of magnitude. 
+* Smarter probe repositioning: PGI also consideres the average free direction and the grids distortion in addition to the closest back and frontface. This is the biggest improvement over the base DDGI in terms of quality. In models like bistro and sponza, the PGI repositioning leaves no visible artifacts while the default DDGI repositioning leaves many "blind spots" causing ugly missinterpolations.
+* Robuster hysteresis estimation: Allows PGI to converge faster in challenging scenarios like bistros emissive lights.
