@@ -18,6 +18,7 @@ struct PGIIndirections
     daxa_u32 probe_update_count;
 };
 
+
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), luminance_average)

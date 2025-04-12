@@ -187,6 +187,9 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_SHADE_OPAQUE_CLOCKS 23
 #define DEBUG_DRAW_PGI_EVAL_CLOCKS 24
 #define DEBUG_DRAW_RTAO_TRACE_CLOCKS 25
+#define DEBUG_DRAW_PGI_CASCADE_SMOOTH 26
+#define DEBUG_DRAW_PGI_CASCADE_ABSOLUTE 27
+#define DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF 28
 
 #define AO_MODE_NONE 0
 #define AO_MODE_RT 1
@@ -410,6 +413,16 @@ SHARED_FUNCTION daxa_u32 round_up_to_po2(daxa_u32 value)
     #endif
 
     return 1u << (msb_index(value_m1) + 1u);
+}
+
+SHARED_FUNCTION daxa_i32 lowp_i32_as_f32_div(daxa_i32 v, daxa_i32 d)
+{
+    return daxa_i32(daxa_f32(v) / daxa_f32(d));
+}
+
+SHARED_FUNCTION daxa_u32 lowp_u32_as_f32_div(daxa_u32 v, daxa_u32 d)
+{
+    return daxa_u32(daxa_f32(v) / daxa_f32(d));
 }
 
 struct DrawIndexedIndirectStruct

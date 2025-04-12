@@ -1,4 +1,5 @@
 #include "pgi.hpp"
+#include <iostream>
 
 static const daxa_f32vec3 PROBE_MESH_POSITIONS[] = {
     daxa_f32vec3{ 0.000000, 0.555570, 0.831470 },
@@ -1613,13 +1614,13 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
 
 void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
 {
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_texels_pipeline_compile_info().name));
     PGIUpdateProbeTexelsPush push = {};
     push.attach = ti.attachment_shader_blob;
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
 
     push.update_radiance = true;
     ti.recorder.push_constant(push);
@@ -1640,6 +1641,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
 
 void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
 {
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     {
@@ -1648,17 +1650,17 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probes_compile_info().name));
         ti.recorder.push_constant(push);
         push.attach = ti.attachment_shader_blob;
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.probe_indirections),
             .offset = offsetof(PGIIndirections, probe_update_dispatch),
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
     }
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
 }
 
 void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
 {
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_pre_update_probes_compute_compile_info().name));
@@ -1673,13 +1675,13 @@ void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
     push.workgroups_finished = reinterpret_cast<u32*>(ti.allocator->allocate_fill(0u).value().device_address);
     push.total_workgroups = dispatch_x * dispatch_y * dispatch_z;
     ti.recorder.push_constant(push);
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
     ti.recorder.dispatch({dispatch_x,dispatch_y,dispatch_z});
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
 }
 
 void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
 {
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     auto& pipeline = gpu_context->ray_tracing_pipelines.at(pgi_trace_probe_lighting_pipeline_compile_info().name);
@@ -1690,7 +1692,6 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
     ti.recorder.trace_rays_indirect({
         .indirect_device_address = ti.device_address(AT.probe_indirections).value() + offsetof(PGIIndirections, probe_trace_dispatch),
         .shader_binding_table = pipeline.sbt,
@@ -1700,6 +1701,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
 
 void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
 {
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_eval_screen_irradiance_compute_compile_info().name));
@@ -1716,7 +1718,6 @@ void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
     auto const dispatch_x = round_up_div(push.irradiance_image_size.x, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     auto const dispatch_y = round_up_div(push.irradiance_image_size.y, PGI_EVAL_SCREEN_IRRADIANCE_XY);
     
-    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
     ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
 }
@@ -1743,6 +1744,7 @@ auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const
         prev.probe_count.x != curr.probe_count.x ||
         prev.probe_count.y != curr.probe_count.y ||
         prev.probe_count.z != curr.probe_count.z ||
+        prev.cascade_count != curr.cascade_count ||
         prev.probe_irradiance_resolution != curr.probe_irradiance_resolution ||
         prev.probe_trace_resolution != curr.probe_trace_resolution ||
         prev.probe_visibility_resolution != curr.probe_visibility_resolution ||
@@ -1758,6 +1760,7 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
     render_data.pgi_settings.probe_count_log2.x = msb_index(render_data.pgi_settings.probe_count.x); // As the probe count is a po2, msb gives the exact log2.
     render_data.pgi_settings.probe_count_log2.y = msb_index(render_data.pgi_settings.probe_count.y); // As the probe count is a po2, msb gives the exact log2.
     render_data.pgi_settings.probe_count_log2.z = msb_index(render_data.pgi_settings.probe_count.z); // As the probe count is a po2, msb gives the exact log2.
+    render_data.pgi_settings.cascade_count = std::clamp(render_data.pgi_settings.cascade_count, 1, PGI_MAX_CASCADES);
 
     auto constrain_resolution = [&](auto resolution) {
         auto valid_resolutions = std::array{ 48, 24, 16, 12, 8, 6, 4 };
@@ -1775,36 +1778,48 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
     render_data.pgi_settings.probe_irradiance_resolution = constrain_resolution(render_data.pgi_settings.probe_irradiance_resolution);
     render_data.pgi_settings.probe_visibility_resolution = constrain_resolution(render_data.pgi_settings.probe_visibility_resolution);
 
-    render_data.pgi_settings.probe_spacing = {
-        static_cast<f32>(render_data.pgi_settings.probe_range.x) / static_cast<f32>(render_data.pgi_settings.probe_count.x - 1),
-        static_cast<f32>(render_data.pgi_settings.probe_range.y) / static_cast<f32>(render_data.pgi_settings.probe_count.y - 1),
-        static_cast<f32>(render_data.pgi_settings.probe_range.z) / static_cast<f32>(render_data.pgi_settings.probe_count.z - 1),
-    };    
-    render_data.pgi_settings.probe_spacing_rcp = {
-        1.0f / static_cast<f32>(render_data.pgi_settings.probe_spacing.x),
-        1.0f / static_cast<f32>(render_data.pgi_settings.probe_spacing.y),
-        1.0f / static_cast<f32>(render_data.pgi_settings.probe_spacing.z),
-    };
-    render_data.pgi_settings.max_visibility_distance = glm::length(glm::vec3{
-        render_data.pgi_settings.probe_spacing.x,
-        render_data.pgi_settings.probe_spacing.y,
-        render_data.pgi_settings.probe_spacing.z,
-    }) * 1.01f;
-    render_data.pgi_settings.window_to_stable_index_offset = {
-        static_cast<i32>(std::floor(render_data.camera.position.x * render_data.pgi_settings.probe_spacing_rcp.x)),
-        static_cast<i32>(std::floor(render_data.camera.position.y * render_data.pgi_settings.probe_spacing_rcp.y)),
-        static_cast<i32>(std::floor(render_data.camera.position.z * render_data.pgi_settings.probe_spacing_rcp.z)),
-    };
-    render_data.pgi_settings.window_base_position = {
-        (render_data.pgi_settings.window_to_stable_index_offset.x - (render_data.pgi_settings.probe_count.x / 2) + 1) * render_data.pgi_settings.probe_spacing.x,
-        (render_data.pgi_settings.window_to_stable_index_offset.y - (render_data.pgi_settings.probe_count.y / 2) + 1) * render_data.pgi_settings.probe_spacing.y,
-        (render_data.pgi_settings.window_to_stable_index_offset.z - (render_data.pgi_settings.probe_count.z / 2) + 1) * render_data.pgi_settings.probe_spacing.z,
-    };
-    render_data.pgi_settings.window_movement_frame_to_frame = {
-        render_data.pgi_settings.window_to_stable_index_offset.x - prev_settings.window_to_stable_index_offset.x,
-        render_data.pgi_settings.window_to_stable_index_offset.y - prev_settings.window_to_stable_index_offset.y,
-        render_data.pgi_settings.window_to_stable_index_offset.z - prev_settings.window_to_stable_index_offset.z,
-    };
+    for (u32 c = 0; c < render_data.pgi_settings.cascade_count; ++c)
+    {
+        PGICascade& cascade = render_data.pgi_settings.cascades[c];
+        PGICascade const& prev_cascade = prev_settings.cascades[c];
+        cascade.probe_spacing = {
+            static_cast<f32>(render_data.pgi_settings.probe_range.x * s_cast<f32>(1u << c)) / static_cast<f32>(render_data.pgi_settings.probe_count.x - 1),
+            static_cast<f32>(render_data.pgi_settings.probe_range.y * s_cast<f32>(1u << c)) / static_cast<f32>(render_data.pgi_settings.probe_count.y - 1),
+            static_cast<f32>(render_data.pgi_settings.probe_range.z * s_cast<f32>(1u << c)) / static_cast<f32>(render_data.pgi_settings.probe_count.z - 1),
+        };    
+        cascade.probe_spacing_rcp = {
+            1.0f / static_cast<f32>(cascade.probe_spacing.x),
+            1.0f / static_cast<f32>(cascade.probe_spacing.y),
+            1.0f / static_cast<f32>(cascade.probe_spacing.z),
+        };
+        cascade.max_visibility_distance = glm::length(glm::vec3{
+            cascade.probe_spacing.x,
+            cascade.probe_spacing.y,
+            cascade.probe_spacing.z,
+        }) * 1.01f;
+        cascade.window_to_stable_index_offset = {
+            static_cast<i32>(std::floor(render_data.camera.position.x * cascade.probe_spacing_rcp.x)),
+            static_cast<i32>(std::floor(render_data.camera.position.y * cascade.probe_spacing_rcp.y)),
+            static_cast<i32>(std::floor(render_data.camera.position.z * cascade.probe_spacing_rcp.z)),
+        };
+        cascade.window_base_position = {
+            (cascade.window_to_stable_index_offset.x - (render_data.pgi_settings.probe_count.x / 2) + 1) * cascade.probe_spacing.x,
+            (cascade.window_to_stable_index_offset.y - (render_data.pgi_settings.probe_count.y / 2) + 1) * cascade.probe_spacing.y,
+            (cascade.window_to_stable_index_offset.z - (render_data.pgi_settings.probe_count.z / 2) + 1) * cascade.probe_spacing.z,
+        };
+        cascade.window_movement_frame_to_frame = {
+            cascade.window_to_stable_index_offset.x - prev_cascade.window_to_stable_index_offset.x,
+            cascade.window_to_stable_index_offset.y - prev_cascade.window_to_stable_index_offset.y,
+            cascade.window_to_stable_index_offset.z - prev_cascade.window_to_stable_index_offset.z,
+        };
+    }
+    //auto const & cas = render_data.pgi_settings.cascades;
+    //std::cout << fmt::format("basepositions: c0 ({:10.7},{:10.7},{:10.7}), c1 ({:10.7},{:10.7},{:10.7}), c2 ({:10.7},{:10.7},{:10.7}), c3 ({:10.7},{:10.7},{:10.7})",
+    //    cas[0].window_base_position.x, cas[0].window_base_position.y, cas[0].window_base_position.z, 
+    //    cas[1].window_base_position.x, cas[1].window_base_position.y, cas[1].window_base_position.z, 
+    //    cas[2].window_base_position.x, cas[2].window_base_position.y, cas[2].window_base_position.z, 
+    //    cas[3].window_base_position.x, cas[3].window_base_position.y, cas[3].window_base_position.z
+    //) << std::endl;
     
     render_data.pgi_settings.probe_count_rcp = {
         1.0f / static_cast<float>(render_data.pgi_settings.probe_count.x),
@@ -1866,7 +1881,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
             static_cast<u32>(settings.probe_count.y * (settings.probe_irradiance_resolution + 2)),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
@@ -1881,7 +1896,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
             static_cast<u32>(settings.probe_count.y * (settings.probe_visibility_resolution + 2)),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
@@ -1896,7 +1911,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
             static_cast<u32>(settings.probe_count.y),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
@@ -1911,7 +1926,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
             static_cast<u32>(settings.probe_count.y),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
@@ -1936,10 +1951,10 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
-    probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
-    probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
-    cell_requests_view = this->cell_requests.view().view({.layer_count = static_cast<u32>(settings.probe_count.z)});
+    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
+    probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
+    probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
+    cell_requests_view = this->cell_requests.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
 
     daxa::TaskGraph tg{{
         .device = device,
@@ -2011,7 +2026,7 @@ auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings, P
             static_cast<u32>(settings.probe_count.y),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
         .name = "pgi probe info tex prev frame",
     });
 }

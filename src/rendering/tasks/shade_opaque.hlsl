@@ -663,6 +663,69 @@ void entry_main_cs(
                 output_value.rgb = directional_light_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
+            case DEBUG_DRAW_PGI_CASCADE_SMOOTH:
+            case DEBUG_DRAW_PGI_CASCADE_ABSOLUTE:
+            case DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF:
+            {
+                uint pgi_absolute_cascade = 0;
+                bool pgi_is_center_8 = false;
+                bool pgi_checker = false;
+                float pgi_color_mul = 1.0f;
+                PGISettings * pgi = &AT.globals.pgi_settings;
+                for (int cascade = 0; cascade < pgi.cascade_count; ++cascade)
+                {
+                    let in_cascade = pgi_is_pos_in_cascade(AT.globals.pgi_settings, material_point.position, cascade);
+                    if (in_cascade)
+                    {
+                        pgi_absolute_cascade = cascade;
+                        float3 grid_coord = pgi_grid_coord_of_position(*pgi, material_point.position, cascade);
+                        int3 base_probe = int3(floor(grid_coord));
+                        pgi_is_center_8 = any(base_probe >= pgi.probe_count/2-1 && base_probe < pgi.probe_count/2);
+                        let stable_index = pgi_probe_to_stable_index(*pgi, base_probe, cascade);
+                        pgi_checker = ((uint(stable_index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.z + int(~0u >> 2)) & 0x1) != 0);
+                        if (pgi_is_center_8)
+                        {
+                            pgi_color_mul *= 0.25f;
+                        }
+                        if (pgi_checker)
+                        {
+                            pgi_color_mul *= 0.75f;
+                        }
+
+                        break;
+                    }
+                }
+                float smooth_cascade = pgi_select_cascade_smooth_spherical(AT.globals.pgi_settings, material_point.position - AT.globals.camera.position);
+                switch(AT.globals->settings.debug_draw_mode)
+                {
+                    case DEBUG_DRAW_PGI_CASCADE_SMOOTH:
+                    {
+                        float3 cascade_color = TurboColormap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
+                        output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
+                        break;
+                    }
+                    case DEBUG_DRAW_PGI_CASCADE_ABSOLUTE:
+                    {
+                        float3 cascade_color = TurboColormap(float(pgi_absolute_cascade) * rcp(12)) * pgi_color_mul;
+                        output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
+                        break;
+                    }
+                    case DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF:
+                    {
+                        if (smooth_cascade < float(pgi_absolute_cascade))
+                        {
+                            output_value.rgb = lerp(shaded_color * float3(1,0,0), float3(1,0,0), 0.4f) * pgi_color_mul;
+                        }
+                        else
+                        {
+                            float3 cascade_color = TurboColormap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
+                            output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
+                        }
+                        break;
+                    }
+                }
+                break;
+            }           
             case DEBUG_DRAW_MODE_NONE:
             default:
             output_value.rgb = shaded_color;

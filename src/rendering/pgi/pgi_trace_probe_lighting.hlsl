@@ -97,11 +97,8 @@ void entry_ray_gen()
         probe_texel.x = local_index - settings.probe_trace_resolution * probe_texel.y;
 
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
-        probe_index = int3(
-            (indirect_package >> 0) & ((1u << 10u) - 1),
-            (indirect_package >> 10) & ((1u << 10u) - 1),
-            (indirect_package >> 20) & ((1u << 10u) - 1),
-        );
+        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
+        probe_index = probe_index_cascade.xyz;
     }
 
     uint frame_index = push.attach.globals.frame_index;
@@ -135,7 +132,7 @@ void entry_ray_gen()
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
         float2 vis = pgi_sample_probe_visibility(push.attach.globals,settings, tangent, push.attach.probe_visibility.get(), stable_index);
 
-        float offset_len = clamp(settings.probe_spacing.x * 0.5f * 0.33f, 0.01f, vis.x * 0.8f) * rand();
+        float offset_len = clamp(settings.cascades[0].probe_spacing.x * 0.5f * 0.33f, 0.01f, vis.x * 0.8f) * rand();
         float3 offset = tangent * offset_len;
         sample_origin += offset;
 

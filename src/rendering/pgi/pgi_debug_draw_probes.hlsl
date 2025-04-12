@@ -31,18 +31,15 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
     
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
-    position *= 0.03f * settings.max_visibility_distance;
+    position *= 0.03f * settings.cascades[0].max_visibility_distance;
 
     int3 probe_index = {};
     {
         uint indirect_index = instance_index;
         // We want to draw all active probes, not only the updated probes:
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + PGI_MAX_UPDATES_PER_FRAME];
-        probe_index = int3(
-            (indirect_package >> 0) & ((1u << 10u) - 1),
-            (indirect_package >> 10) & ((1u << 10u) - 1),
-            (indirect_package >> 20) & ((1u << 10u) - 1),
-        );
+        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
+        probe_index = probe_index_cascade.xyz;
     }
 
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
