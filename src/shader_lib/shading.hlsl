@@ -190,7 +190,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         {
             indirect_diffuse = pgi_sample_irradiance_nearest(
                 globals, 
-                globals.pgi_settings, 
+                &globals.pgi_settings, 
                 material_point.position, 
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 
@@ -204,7 +204,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         {
             indirect_diffuse = pgi_sample_irradiance(
                 globals, 
-                globals.pgi_settings, 
+                &globals.pgi_settings, 
                 material_point.position, 
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 

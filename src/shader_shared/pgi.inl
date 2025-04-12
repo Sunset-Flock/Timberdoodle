@@ -39,6 +39,7 @@ struct PGISettings
 {
     daxa_b32 enabled TIDO_DEFAULT_VALUE(true);
     daxa_i32 update_rate TIDO_DEFAULT_VALUE(PGI_UPDATE_RATE_1_OF_8);
+    daxa_i32 debug_force_cascade TIDO_DEFAULT_VALUE(-1);
     daxa_i32 debug_probe_draw_mode TIDO_DEFAULT_VALUE(PGI_DEBUG_PROBE_DRAW_MODE_OFF);
     daxa_b32 debug_probe_influence TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning TIDO_DEFAULT_VALUE(false);
@@ -50,12 +51,13 @@ struct PGISettings
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
     daxa_b32 probe_repositioning_spring_force TIDO_DEFAULT_VALUE(true);
     daxa_i32 cascade_count TIDO_DEFAULT_VALUE(8);
+    daxa_f32 cascade_blend TIDO_DEFAULT_VALUE(0.3f);
     // Non photorealistic factor.
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
     daxa_f32 cos_wrap_around TIDO_DEFAULT_VALUE(0.0f);
-    daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(64 TIDO_COMMA 64 TIDO_COMMA 32);
-    daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(64 TIDO_COMMA 64 TIDO_COMMA 32);
+    daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
+    daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
     daxa_i32vec3 debug_probe_index TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 0);
     // Calculated by Renderer
     daxa_f32vec3 probe_count_rcp;

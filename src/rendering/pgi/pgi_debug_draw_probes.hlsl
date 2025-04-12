@@ -18,7 +18,7 @@ struct DrawDebugProbesVertexToPixel
     float4 position : SV_Position;
     float3 probe_position;
     float3 normal;
-    nointerpolation uint3 probe_index;
+    nointerpolation int4 probe_index;
 };
 
 [[vk::push_constant]] PGIDrawDebugProbesPush draw_debug_probe_p;
@@ -27,23 +27,22 @@ struct DrawDebugProbesVertexToPixel
 func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> DrawDebugProbesVertexToPixel
 {
     let push = draw_debug_probe_p;
-    PGISettings settings = push.attach.globals.pgi_settings;
-    
-    var position = push.probe_mesh_positions[vertex_index];
-    var normal = position;
-    position *= 0.03f * settings.cascades[0].max_visibility_distance;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
 
-    int3 probe_index = {};
+    int4 probe_index = {};
     {
         uint indirect_index = instance_index;
         // We want to draw all active probes, not only the updated probes:
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + PGI_MAX_UPDATES_PER_FRAME];
-        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
-        probe_index = probe_index_cascade.xyz;
+        probe_index = pgi_unpack_indirect_probe(indirect_package);
     }
+    
+    var position = push.probe_mesh_positions[vertex_index];
+    var normal = position;
+    position *= 0.03f * settings.cascades[probe_index.w].max_visibility_distance;
 
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
     position += probe_position;
 
     float4x4* viewproj = Ptr<float4x4>(0);
@@ -90,7 +89,7 @@ float compute_exposure(PostprocessSettings post_settings, float average_luminanc
 func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) -> DrawDebugProbesFragmentOut
 {
     let push = draw_debug_probe_p;
-    PGISettings settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
     int3 stable_index = pgi_probe_to_stable_index(settings, vertToPix.probe_index);
     
 

@@ -1669,7 +1669,7 @@ void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
     auto const z = render_data.pgi_settings.probe_count.z;
     auto const dispatch_x = round_up_div(x, PGI_PRE_UPDATE_XYZ);
     auto const dispatch_y = round_up_div(y, PGI_PRE_UPDATE_XYZ);
-    auto const dispatch_z = round_up_div(z, PGI_PRE_UPDATE_XYZ);
+    auto const dispatch_z = round_up_div(z * render_data.pgi_settings.cascade_count, PGI_PRE_UPDATE_XYZ);
     PGIPreUpdateProbesPush push = {};
     push.attach = ti.attachment_shader_blob;
     push.workgroups_finished = reinterpret_cast<u32*>(ti.allocator->allocate_fill(0u).value().device_address);

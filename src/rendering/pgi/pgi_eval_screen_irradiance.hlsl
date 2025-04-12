@@ -46,7 +46,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
 
     float3 pgi_irradiance = pgi_sample_irradiance(
         push.attach.globals,
-        push.attach.globals.pgi_settings,
+        &push.attach.globals.pgi_settings,
         ws_position,
         face_normal,
         detail_normal,

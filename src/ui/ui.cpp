@@ -919,6 +919,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Text("Requested Probes %i / %i = %f %%", render_context.general_readback.requested_probes, total_probes, float(render_context.general_readback.requested_probes) / float(total_probes) * 100.0f);
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 ImGui::InputInt("Cascade Count", &render_data.pgi_settings.cascade_count);
+                ImGui::SliderFloat("Cascade Blend", &render_data.pgi_settings.cascade_blend, 0.0f, 1.0f);
                 auto update_rates = std::array{
                     "FULL",    // PGI_UPDATE_RATE_FULL
                     "1_OF_2",  // PGI_UPDATE_RATE_1_OF_2
@@ -941,6 +942,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "HYSTERESIS",  // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
                 ImGui::Combo("Debug Draw Mode", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
+                ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
                 ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_probe_influence));
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));

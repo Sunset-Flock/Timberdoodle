@@ -97,11 +97,11 @@ func entry_update_probe_irradiance(
 ) 
 {
     let push = update_probe_texels_push;
-    PGISettings settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
     let probe_texel_res = settings.probe_irradiance_resolution;
 
     uint indirect_index = {};
-    int3 probe_index = {};
+    int4 probe_index = {};
     int2 probe_texel = {};
     {
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_irradiance_resolution)));
@@ -114,21 +114,20 @@ func entry_update_probe_irradiance(
             return;
         }
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
-        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
-        probe_index = probe_index_cascade.xyz;
+        probe_index = pgi_unpack_indirect_probe(indirect_package);
         probe_texel.x = dtid.x - int(settings.probe_irradiance_resolution * indirect_index_x);
         probe_texel.y = dtid.y - int(settings.probe_irradiance_resolution * indirect_index_y);
     }
     
     uint frame_index = push.attach.globals.frame_index;
 
-    if (any(greaterThanEqual(probe_index, settings.probe_count)))
+    if (any(greaterThanEqual(probe_index.xyz, settings.probe_count)))
     {
         return;
     }
     
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
     float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal(probe_texel_uv);
 
@@ -198,11 +197,11 @@ func entry_update_probe_visibility(
 ) 
 {
     let push = update_probe_texels_push;
-    PGISettings settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
     let probe_texel_res = settings.probe_visibility_resolution;
 
     uint indirect_index = {};
-    int3 probe_index = {};
+    int4 probe_index = {};
     int2 probe_texel = {};
     {
         uint probes_in_column = uint(float(48) * rcp(float(settings.probe_visibility_resolution)));
@@ -215,21 +214,20 @@ func entry_update_probe_visibility(
             return;
         }
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
-        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
-        probe_index = probe_index_cascade.xyz;
+        probe_index = pgi_unpack_indirect_probe(indirect_package);
         probe_texel.x = dtid.x - settings.probe_visibility_resolution * indirect_index_x;
         probe_texel.y = dtid.y - settings.probe_visibility_resolution * indirect_index_y;
     }
 
     uint frame_index = push.attach.globals.frame_index;
 
-    if (any(greaterThanEqual(probe_index, settings.probe_count)))
+    if (any(greaterThanEqual(probe_index.xyz, settings.probe_count)))
     {
         return;
     }
     
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
     float2 probe_texel_min_uv = (float2(probe_texel)) * rcp(probe_texel_res);
     float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
     float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
@@ -243,7 +241,7 @@ func entry_update_probe_visibility(
     int valid_trace_count = 0;
     uint3 trace_result_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
-    const float max_depth = settings.cascades[0].max_visibility_distance;
+    const float max_depth = settings.cascades[probe_index.w].max_visibility_distance;
     float2 prev_frame_visibility = push.attach.probe_visibility.get()[probe_texture_index];
     float acc_cos_weights = {};
     int s = settings.probe_trace_resolution;
@@ -412,10 +410,10 @@ func entry_update_probe(
     int group_index : SV_GroupIndex)
 {
     let push = update_probes_push;
-    PGISettings settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
 
     uint indirect_index = {};
-    int3 probe_index = {};
+    int4 probe_index = {};
     {
         indirect_index = group_id;
         let overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
@@ -425,13 +423,12 @@ func entry_update_probe(
         }
 
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
-        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
-        probe_index = probe_index_cascade.xyz;
+        probe_index = pgi_unpack_indirect_probe(indirect_package);
     }
 
     int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
 
-    if (any(greaterThanEqual(probe_index, settings.probe_count)))
+    if (any(greaterThanEqual(probe_index.xyz, settings.probe_count)))
     {
         return;
     }
@@ -448,7 +445,7 @@ func entry_update_probe(
     // As the offset is in "probe space" (-1 to 1 in xyz between probes), we convert all directions and values into probe space as well.
     const float SOME_LARGE_VALUE = 10000.0f;
     float2 texel_trace_noise = pgi_probe_trace_noise(probe_index, push.attach.globals.frame_index);
-    const float max_probe_distance = settings.cascades[0].max_visibility_distance;
+    const float max_probe_distance = settings.cascades[probe_index.w].max_visibility_distance;
     int s = settings.probe_trace_resolution;
     float trace_res_rcp = rcp(float(settings.probe_trace_resolution));
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
@@ -479,10 +476,10 @@ func entry_update_probe(
         float trace_result_a = trace_result_tex[texel].a;
         bool is_backface_hit = trace_result_a < 0.0f;
         float trace_distance = (is_backface_hit ? -trace_result_a : trace_result_a);
-        float3 probe_space_hit_position_no_offset = trace_distance * ray_dir * settings.cascades[0].probe_spacing_rcp;
+        float3 probe_space_hit_position_no_offset = trace_distance * ray_dir * settings.cascades[probe_index.w].probe_spacing_rcp;
         float3 probe_space_hit_position = probe_space_hit_position_no_offset + probe_info.offset;
         float probe_space_dist = length(probe_space_hit_position_no_offset);
-        float3 probe_space_ray_dir = normalize(ray_dir * settings.cascades[0].probe_spacing_rcp);
+        float3 probe_space_ray_dir = normalize(ray_dir * settings.cascades[probe_index.w].probe_spacing_rcp);
 
         probe_space_dist = min(PGI_PROBE_VIEW_DISTANCE, probe_space_dist);
 
@@ -533,8 +530,8 @@ func entry_update_probe(
         int y = (group_index == 2 ? 1 : 0) + (group_index == 3 ? -1 : 0);
         int z = (group_index == 4 ? 1 : 0) + (group_index == 5 ? -1 : 0);
         int3 other_probe_index_offset = int3(x,y,z);
-        int3 other_probe_index = probe_index + other_probe_index_offset;
-        other_probe_index = clamp(other_probe_index, int3(0,0,0), settings.probe_count - 1);
+        int4 other_probe_index = probe_index + int4(other_probe_index_offset, 0);
+        other_probe_index.xyz = clamp(other_probe_index.xyz, int3(0,0,0), settings.probe_count - 1);
 
         if (all(other_probe_index != probe_index))
         {
@@ -626,19 +623,19 @@ func entry_update_probe(
         ShaderDebugLineDraw backface_force = {};
         backface_force.color = float3(0.5,0,0);
         backface_force.start = probe_position;
-        backface_force.end = probe_position + closest_backface_dir * backface_escape_distance * settings.cascades[0].probe_spacing;
+        backface_force.end = probe_position + closest_backface_dir * backface_escape_distance * settings.cascades[probe_index.w].probe_spacing;
         debug_draw_line(push.attach.globals.debug, backface_force);
 
         ShaderDebugLineDraw frontface_force = {};
         frontface_force.color = float3(0,0.5,0);
         frontface_force.start = probe_position;
-        frontface_force.end = probe_position + estimated_freedom_direction * frontface_repulse_distance * settings.cascades[0].probe_spacing;
+        frontface_force.end = probe_position + estimated_freedom_direction * frontface_repulse_distance * settings.cascades[probe_index.w].probe_spacing;
         debug_draw_line(push.attach.globals.debug, frontface_force);
 
         ShaderDebugLineDraw spring_force = {};
         spring_force.color = float3(0,0,0.5);
         spring_force.start = probe_position;
-        spring_force.end = probe_position + spring_force_dir * spring_force_distance * settings.cascades[0].probe_spacing;
+        spring_force.end = probe_position + spring_force_dir * spring_force_distance * settings.cascades[probe_index.w].probe_spacing;
         debug_draw_line(push.attach.globals.debug, spring_force);
     }
 
@@ -649,8 +646,8 @@ func entry_update_probe(
     }
     
     // When the window moves, the probe data on the new border must be invalidated.
-    int3 prev_frame_probe_index = pgi_probe_index_to_prev_frame(settings, probe_index);
-    bool prev_frame_invalid = any(prev_frame_probe_index < int3(0,0,0) || prev_frame_probe_index >= (settings.probe_count));
+    int4 prev_frame_probe_index = pgi_probe_index_to_prev_frame(settings, probe_index);
+    bool prev_frame_invalid = any(prev_frame_probe_index.xyz < int3(0,0,0) || prev_frame_probe_index.xyz >= (settings.probe_count));
     if (prev_frame_invalid)
     {
         probe_info.validity = 0.0f;
@@ -671,7 +668,7 @@ func entry_update_probe(
 
     // Border brobes must not converge in position as they need the surrounding probes to find their proper location.
     let border_flux = 1;
-    let is_border_probe = any(probe_index < border_flux.xxx || probe_index >= (settings.probe_count - border_flux.xxx));
+    let is_border_probe = any(probe_index.xyz < border_flux.xxx || probe_index.xyz >= (settings.probe_count - border_flux.xxx));
     if (is_border_probe)
     {
         probe_info.validity = 0.0f;
@@ -687,22 +684,22 @@ func entry_update_probe(
 func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : SV_GroupIndex)
 {
     let push = pre_update_probes_push;
-    let settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
     let cascade = lowp_i32_as_f32_div(dtid.z, settings.probe_count.z);
-    int3 probe_index = int3(dtid.xy, dtid.z - settings.probe_count.z * cascade);
+    int4 probe_index = int4(dtid.xy, dtid.z - settings.probe_count.z * cascade, cascade);
     int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
 
-    if (any(probe_index >= settings.probe_count))
+    if (any(probe_index.xyz >= settings.probe_count))
     {
         return;
     }
 
-    if (cascade > 0)
+    if (cascade > settings.cascade_count)
     {
         return;
     }
 
-    int3 prev_frame_probe_index = pgi_probe_index_to_prev_frame(settings, probe_index);
+    int4 prev_frame_probe_index = pgi_probe_index_to_prev_frame(settings, probe_index);
 
     // The last probe in each dimension is never a base probe.
     // We clear these probes request counter to 0.
@@ -730,7 +727,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
 
     // New probes are those that came into existence due to the window moving to a new location.
     // Any probes that occupy space that was not taken in the prior frame are new.
-    let is_new_probe = any(prev_frame_probe_index < int3(0,0,0)) || any(prev_frame_probe_index >= (settings.probe_count));
+    let is_new_probe = any(prev_frame_probe_index.xyz < int3(0,0,0)) || any(prev_frame_probe_index.xyz >= (settings.probe_count));
 
     let fetch = push.attach.probe_info.get()[stable_index];
     PGIProbeInfo probe_info = PGIProbeInfo(fetch.xyz, fetch.a);
@@ -752,8 +749,8 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
         for (int y = 0; y < 2; ++y)
         for (int z = 0; z < 2; ++z)
         {
-            let other_probe = max(int3(0,0,0), probe_index - int3(x,y,z));
-            int3 other_probe_prev_frame = pgi_probe_index_to_prev_frame(settings, other_probe);
+            let other_probe = int4(max(int3(0,0,0), probe_index.xyz - int3(x,y,z)), probe_index.w);
+            int4 other_probe_prev_frame = pgi_probe_index_to_prev_frame(settings, other_probe);
             let other_probe_is_new_base_probe = !pgi_is_cell_base_probe(settings, other_probe_prev_frame);
             if (other_probe_is_new_base_probe)
             {
@@ -823,13 +820,13 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     if (update)
     {
         // We need a list of all updated probes 
-        ((uint*)(push.attach.probe_indirections + 1))[update_index] = pgi_pack_indirect_probe(int4(probe_index, cascade));
+        ((uint*)(push.attach.probe_indirections + 1))[update_index] = pgi_pack_indirect_probe(probe_index);
     }
 
     if (requested)
     {
         // We need a list of all active probes 
-        ((uint*)(push.attach.probe_indirections + 1))[request_index + PGI_MAX_UPDATES_PER_FRAME] = pgi_pack_indirect_probe(int4(probe_index, cascade));
+        ((uint*)(push.attach.probe_indirections + 1))[request_index + PGI_MAX_UPDATES_PER_FRAME] = pgi_pack_indirect_probe(probe_index);
     }
 
     if (!requested)
@@ -845,10 +842,10 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
     {
         for (int other_i = 0; other_i < 3; ++other_i)
         {
-            int3 other_probe_index = probe_index;
+            int4 other_probe_index = probe_index;
             other_probe_index[other_i] += 1;
             
-            let other_index_in_range = all(other_probe_index >= int3(0,0,0) && other_probe_index < settings.probe_count);
+            let other_index_in_range = all(other_probe_index.xyz >= int3(0,0,0) && other_probe_index.xyz < settings.probe_count);
             if (!other_index_in_range)
                 continue;
 

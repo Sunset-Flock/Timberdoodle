@@ -479,7 +479,7 @@ void entry_main_cs(
             {
                 float3 pgi_irradiance = pgi_sample_irradiance(
                     AT.globals,
-                    AT.globals.pgi_settings,
+                    &AT.globals.pgi_settings,
                     tri_point.world_position,
                     tri_point.world_normal,
                     material_point.normal,
@@ -674,14 +674,14 @@ void entry_main_cs(
                 PGISettings * pgi = &AT.globals.pgi_settings;
                 for (int cascade = 0; cascade < pgi.cascade_count; ++cascade)
                 {
-                    let in_cascade = pgi_is_pos_in_cascade(AT.globals.pgi_settings, material_point.position, cascade);
+                    let in_cascade = pgi_is_pos_in_cascade(pgi, material_point.position, cascade);
                     if (in_cascade)
                     {
                         pgi_absolute_cascade = cascade;
-                        float3 grid_coord = pgi_grid_coord_of_position(*pgi, material_point.position, cascade);
-                        int3 base_probe = int3(floor(grid_coord));
-                        pgi_is_center_8 = any(base_probe >= pgi.probe_count/2-1 && base_probe < pgi.probe_count/2);
-                        let stable_index = pgi_probe_to_stable_index(*pgi, base_probe, cascade);
+                        float3 grid_coord = pgi_grid_coord_of_position(pgi, material_point.position, cascade);
+                        int4 base_probe = int4(floor(grid_coord), cascade);
+                        pgi_is_center_8 = any(base_probe.xyz >= pgi.probe_count/2-1 && base_probe.xyz < pgi.probe_count/2);
+                        let stable_index = pgi_probe_to_stable_index(pgi, base_probe);
                         pgi_checker = ((uint(stable_index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.z + int(~0u >> 2)) & 0x1) != 0);
                         if (pgi_is_center_8)
                         {
@@ -695,7 +695,7 @@ void entry_main_cs(
                         break;
                     }
                 }
-                float smooth_cascade = pgi_select_cascade_smooth_spherical(AT.globals.pgi_settings, material_point.position - AT.globals.camera.position);
+                float smooth_cascade = pgi_select_cascade_smooth_spherical(pgi, material_point.position - AT.globals.camera.position);
                 switch(AT.globals->settings.debug_draw_mode)
                 {
                     case DEBUG_DRAW_PGI_CASCADE_SMOOTH:

@@ -42,7 +42,7 @@ struct RayPayload
 {
     bool hit;
     float4 color_depth;
-    int3 probe_index;
+    int4 probe_index;
 }
 
 struct PGILightVisibilityTester : LightVisibilityTesterI
@@ -84,11 +84,11 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
 void entry_ray_gen()
 {
     let push = pgi_trace_probe_lighting_push;
-    PGISettings settings = push.attach.globals.pgi_settings;
+    PGISettings* settings = &push.attach.globals.pgi_settings;
     int3 dtid = DispatchRaysIndex().xyz;
 
     uint indirect_index = {};
-    int3 probe_index = {};
+    int4 probe_index = {};
     int2 probe_texel = {};
     {
         indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
@@ -97,8 +97,7 @@ void entry_ray_gen()
         probe_texel.x = local_index - settings.probe_trace_resolution * probe_texel.y;
 
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
-        int4 probe_index_cascade = pgi_unpack_indirect_probe(indirect_package);
-        probe_index = probe_index_cascade.xyz;
+        probe_index = pgi_unpack_indirect_probe(indirect_package);
     }
 
     uint frame_index = push.attach.globals.frame_index;
@@ -109,7 +108,7 @@ void entry_ray_gen()
 
     PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
 
-    float3 probe_position = pgi_probe_index_to_worldspace(push.attach.globals.pgi_settings, probe_info, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
 
     uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
@@ -186,12 +185,12 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
 
     payload.hit = true;
 
-    PGISettings pgi_settings = push.attach.globals.pgi_settings;
+    PGISettings* pgi_settings = &push.attach.globals.pgi_settings;
     float3 hit_position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
 
     uint request_mode = pgi_get_probe_request_mode(
         push.attach.globals,
-        push.attach.globals.pgi_settings,
+        pgi_settings,
         push.attach.probe_requests.get(),
         payload.probe_index);
     request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 

@@ -63,7 +63,7 @@ struct PGIProbeInfo
         return PGIProbeInfo(float3(0,0,0),0);
     }
 
-    static func load(PGISettings settings, Texture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    static func load(PGISettings* settings, Texture2DArray<float4> probe_info_tex, int4 probe_index) -> PGIProbeInfo
     {
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
         PGIProbeInfo ret = {};
@@ -73,7 +73,7 @@ struct PGIProbeInfo
         return ret;
     }
 
-    static func load(PGISettings settings, RWTexture2DArray<float4> probe_info_tex, int3 probe_index) -> PGIProbeInfo
+    static func load(PGISettings* settings, RWTexture2DArray<float4> probe_info_tex, int4 probe_index) -> PGIProbeInfo
     {
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
         PGIProbeInfo ret = {};
@@ -84,7 +84,7 @@ struct PGIProbeInfo
     }
 }
 
-uint2 pgi_indirect_index_to_trace_tex_offset(PGISettings settings, uint indirect_index)
+uint2 pgi_indirect_index_to_trace_tex_offset(PGISettings* settings, uint indirect_index)
 {
     uint row = indirect_index / PGI_TRACE_TEX_PROBES_X;
     uint col = indirect_index - (row * PGI_TRACE_TEX_PROBES_X);
@@ -96,33 +96,36 @@ uint2 pgi_indirect_index_to_trace_tex_offset(PGISettings settings, uint indirect
 
 // The base probe of a cell is the probe with the smallest probe index.
 // There are probe-count-1 cells, so any probe except for the last probe in each dimension is a base probe.
-bool pgi_is_cell_base_probe(PGISettings settings, int3 probe_index)
+bool pgi_is_cell_base_probe(PGISettings* settings, int4 probe_index)
 { 
-    return all(probe_index >= 0) && all(probe_index < (settings.probe_count-1));
+    return all(probe_index.xyz >= 0) && all(probe_index.xyz < (settings.probe_count-1));
 }
 
-int3 pgi_probe_index_to_prev_frame(PGISettings settings, int3 probe_index)
+int4 pgi_probe_index_to_prev_frame(PGISettings* settings, int4 probe_index)
 {
     // As the window moves, the probe indices are going the opposite direction
-    return probe_index + settings.cascades[0].window_movement_frame_to_frame;
+    let cascade = probe_index.w;
+    return int4(probe_index.xyz + settings.cascades[cascade].window_movement_frame_to_frame, cascade);
 }
 
-float3 pgi_probe_index_to_worldspace(PGISettings settings, PGIProbeInfo probe_info, int3 probe_index)
+float3 pgi_probe_index_to_worldspace(PGISettings* settings, PGIProbeInfo probe_info, int4 probe_index)
 {
-    return (float3(probe_index) + probe_info.offset) * settings.cascades[0].probe_spacing + settings.cascades[0].window_base_position;
+    let cascade = probe_index.w;
+    return (float3(probe_index.xyz) + probe_info.offset) * settings.cascades[cascade].probe_spacing + settings.cascades[cascade].window_base_position;
 }
 
-int3 pgi_probe_to_stable_index(PGISettings settings, int3 probe_index, int cascade = 0)
+int3 pgi_probe_to_stable_index(PGISettings* settings, int4 probe_index)
 {
     // This bitmasking for modulo works only due to the probe count always beeing a power of two.
-    return (probe_index + settings.cascades[cascade].window_to_stable_index_offset) & (settings.probe_count-1);
+    let cascade = probe_index.w;
+    return ((probe_index.xyz + settings.cascades[cascade].window_to_stable_index_offset) & (settings.probe_count-1)) + int3(0,0,settings.probe_count.z * cascade);
 }
 
 static const bool HAS_BORDER = true;
 static const bool NO_BORDER = false;
 
 // The Texel res for trace, color and depth texture is different. Must pass the corresponding size here.
-uint3 pgi_probe_texture_base_offset<let HAS_BORDER: bool>(PGISettings settings, int texel_res, int3 probe_index)
+uint3 pgi_probe_texture_base_offset<let HAS_BORDER: bool>(PGISettings* settings, int texel_res, int4 probe_index)
 {
     int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
     let probe_texture_base_xy = stable_index.xy * (texel_res + (HAS_BORDER ? 2 : 0)) + (HAS_BORDER ? 1 : 0);
@@ -142,7 +145,7 @@ float3 pgi_probe_uv_to_probe_normal(float2 uv)
     return unmap_octahedral(uv);
 }
 
-float2 pgi_probe_trace_noise(int3 probe_index, int frame_index)
+float2 pgi_probe_trace_noise(int4 probe_index, int frame_index)
 {
     const uint seed = (probe_index.x * 1823754 + probe_index.y * 5232 + probe_index.z * 21 + frame_index);
     rand_seed(seed);
@@ -154,7 +157,7 @@ static bool debug_pixel = false;
 
 func pgi_sample_probe_irradiance(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     float3 shading_normal,
     Texture2DArray<float4> probes,
     int3 stable_index) -> float4
@@ -174,7 +177,7 @@ func pgi_sample_probe_irradiance(
 
 func pgi_sample_probe_visibility(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     float3 shading_normal,
     Texture2DArray<float2> probe_visibility,
     int3 stable_index) -> float2 // returns visibility (x) and certainty (y)
@@ -205,7 +208,7 @@ func pgi_sample_probe_visibility(
 
 // Moves the sample position back along view ray and offset by normal based on probe grid density.
 // Greatly reduces self shadowing for corners.
-func pgi_calc_biased_sample_position(PGISettings settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
+func pgi_calc_biased_sample_position(PGISettings* settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
 {
     const float BIAS_FACTOR = 0.2f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
@@ -220,17 +223,18 @@ func pgi_calc_biased_sample_position(PGISettings settings, float3 position, floa
 // This typically yields a lot fewer probe requests while not causing any new artifacts.
 func pgi_request_probes(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     RWTexture2DArray<uint> probe_requests,
     float3 position,
-    uint probe_request_mode)
+    uint probe_request_mode,
+    int cascade)
 {
     const bool direct_request_mode = probe_request_mode == PGI_PROBE_REQUEST_MODE_DIRECT;
     const bool indirect_request_mode = probe_request_mode == PGI_PROBE_REQUEST_MODE_INDIRECT;
     
-    const float3 request_grid_coord = (position - settings.cascades[0].window_base_position) * settings.cascades[0].probe_spacing_rcp;
-    const int3 request_base_probe = int3(floor(request_grid_coord));
-    if ((direct_request_mode || indirect_request_mode) && all(request_base_probe >= int3(0,0,0) && request_base_probe < (settings.probe_count - int3(1,1,1))))
+    const float3 request_grid_coord = (position - settings.cascades[cascade].window_base_position) * settings.cascades[cascade].probe_spacing_rcp;
+    const int4 request_base_probe = int4(floor(request_grid_coord), cascade);
+    if ((direct_request_mode || indirect_request_mode) && all(request_base_probe.xyz >= int3(0,0,0) && request_base_probe.xyz < (settings.probe_count - int3(1,1,1))))
     {
         int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, request_base_probe);
         uint request_package = probe_requests[base_probe_stable_index];
@@ -250,11 +254,11 @@ func pgi_request_probes(
 
 func pgi_get_probe_request_mode(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     RWTexture2DArray<uint> probe_requests,
-    int3 probe_index) -> uint
+    int4 probe_index) -> uint
 {
-    if (all(probe_index >= int3(0,0,0) && probe_index < (settings.probe_count - int3(1,1,1))))
+    if (all(probe_index.xyz >= int3(0,0,0) && probe_index.xyz < (settings.probe_count - int3(1,1,1))))
     {
         int3 base_probe_stable_index = pgi_probe_to_stable_index(settings, probe_index);
         uint request_package = probe_requests[base_probe_stable_index];
@@ -273,7 +277,7 @@ func pgi_get_probe_request_mode(
     return PGI_PROBE_REQUEST_MODE_NONE;
 }
 
-func pgi_grid_coord_of_position(PGISettings settings, float3 position, int cascade) -> float3
+func pgi_grid_coord_of_position(PGISettings* settings, float3 position, int cascade) -> float3
 {
     float3 grid_coord = (position - settings.cascades[cascade].window_base_position) * settings.cascades[cascade].probe_spacing_rcp;
     return grid_coord;
@@ -281,7 +285,7 @@ func pgi_grid_coord_of_position(PGISettings settings, float3 position, int casca
 
 func pgi_sample_irradiance(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     float3 position,
     float3 geo_normal,
     float3 shading_normal, 
@@ -290,24 +294,98 @@ func pgi_sample_irradiance(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    int probe_request_mode
-) -> float3 {
+    int probe_request_mode) -> float3
+{
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position)));
-    if (cascade > 0)
+    float cascade = pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position);
+    if (settings.debug_force_cascade != -1)
+    {
+        cascade = settings.debug_force_cascade;
+    }
+    if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
     }
 
-    float3 grid_coord = pgi_grid_coord_of_position(settings, visibility_sample_position, 0);
+    let lower_cascade = floor(cascade);
+    float4 lower_cascade_result = pgi_sample_irradiance_cascade(
+        globals,
+        settings,
+        position,
+        geo_normal,
+        shading_normal,
+        view_direction,
+        probes,
+        probe_visibility,
+        probe_infos,
+        probe_requests,
+        probe_request_mode,
+        lower_cascade
+    );
+    float3 color = lower_cascade_result.rgb;
+    float weight = lower_cascade_result.w;
+
+    // color = TurboColormap(float(lower_cascade) * rcp(12));
+
+    let higher_cascade = ceil(cascade);
+    let two_cascades = lower_cascade != higher_cascade;
+    if (two_cascades)
+    {
+        float4 higher_cascade_result = pgi_sample_irradiance_cascade(
+            globals,
+            settings,
+            position,
+            geo_normal,
+            shading_normal,
+            view_direction,
+            probes,
+            probe_visibility,
+            probe_infos,
+            probe_requests,
+            probe_request_mode,
+            higher_cascade
+        );
+
+        let lower_cascade_color = color;
+        let higher_cascade_color = higher_cascade_result.rgb;
+        // let higher_cascade_color = TurboColormap(float(higher_cascade) * rcp(12));
+        let cascade_blend = frac(cascade);
+
+
+        let lower_cascade_weight = weight * (1.0f - cascade_blend);
+        let higher_cascade_weight = higher_cascade_result.w * cascade_blend;
+        let weight_sum = lower_cascade_weight + higher_cascade_weight;
+        color = (lower_cascade_color * lower_cascade_weight + higher_cascade_color * higher_cascade_weight) * rcp(weight_sum);
+    }
+
+    return color;
+}
+
+func pgi_sample_irradiance_cascade(
+    RenderGlobalData* globals,
+    PGISettings* settings,
+    float3 position,
+    float3 geo_normal,
+    float3 shading_normal, 
+    float3 view_direction,
+    Texture2DArray<float4> probes,
+    Texture2DArray<float2> probe_visibility,
+    Texture2DArray<float4> probe_infos,
+    RWTexture2DArray<uint> probe_requests,
+    int probe_request_mode,
+    int cascade
+) -> float4 {
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
+
+    float3 grid_coord = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade);
     int3 base_probe = int3(floor(grid_coord));
 
-    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
+    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode, cascade);
 
     float3 grid_interpolants = frac(grid_coord);
     
-    float3 cell_size = settings.cascades[0].probe_spacing;
+    float3 cell_size = settings.cascades[cascade].probe_spacing;
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0.00001f;
@@ -316,10 +394,10 @@ func pgi_sample_irradiance(
         int x = int((probe >> 0u) & 0x1u);
         int y = int((probe >> 1u) & 0x1u);
         int z = int((probe >> 2u) & 0x1u);
-        int3 probe_index = base_probe + int3(x,y,z);
+        int4 probe_index = int4(base_probe + int3(x,y,z), cascade);
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
 
-        if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
+        if (all(probe_index.xyz >= int3(0,0,0)) && all(probe_index.xyz < settings.probe_count))
         {
             float probe_weight = 1.0f;
 
@@ -457,17 +535,17 @@ func pgi_sample_irradiance(
 
     if (weight_accum == 0)
     {
-        return float3(0,0,0);
+        return float4(0,0,0,0);
     }
     else
     {
-        return clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f);
+        return float4(clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f), weight_accum);
     }
 }
 
 func pgi_sample_irradiance_nearest(
     RenderGlobalData* globals,
-    PGISettings settings,
+    PGISettings* settings,
     float3 position,
     float3 geo_normal,
     float3 shading_normal,
@@ -479,18 +557,24 @@ func pgi_sample_irradiance_nearest(
     int probe_request_mode
 ) -> float3 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
-    float3 grid_coord_shifted = pgi_grid_coord_of_position(settings, visibility_sample_position, 0) + 0.5f; // shifting here to get the closest probe and not the base probe
-    int3 closest_probe = int3(floor(grid_coord_shifted));
-    
+
     int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position)));
-    if (cascade > 0)
+    if (settings.debug_force_cascade != -1)
+    {
+        cascade = settings.debug_force_cascade;
+    }
+    if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
     }
 
-    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode);
+    float3 grid_coord_shifted = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade) + 0.5f; // shifting here to get the closest probe and not the base probe
+    int3 closest_probe = int3(floor(grid_coord_shifted));
     
-    float3 cell_size = settings.cascades[0].probe_spacing;
+
+    pgi_request_probes(globals, settings, probe_requests, position, probe_request_mode, cascade);
+    
+    float3 cell_size = settings.cascades[cascade].probe_spacing;
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0.2f; // heavily underestimate light to prevent leaks
@@ -499,10 +583,10 @@ func pgi_sample_irradiance_nearest(
         int x = int((probe >> 0u) & 0x1u);
         int y = int((probe >> 1u) & 0x1u);
         int z = int((probe >> 2u) & 0x1u);
-        int3 probe_index = closest_probe + int3(x,y,z);
+        int4 probe_index = int4(closest_probe + int3(x,y,z), cascade);
         int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
 
-        if (all(probe_index >= int3(0,0,0)) && all(probe_index < settings.probe_count))
+        if (all(probe_index.xyz >= int3(0,0,0)) && all(probe_index.xyz < settings.probe_count))
         {
             float probe_weight = 1.0f;
 
@@ -650,20 +734,20 @@ func pgi_sample_irradiance_nearest(
     }
 }
 
-func pgi_select_cascade_smooth_spherical(PGISettings settings, /*viewrel = worldpos - campos*/ float3 viewrel_position) -> float
+func pgi_select_cascade_smooth_spherical(PGISettings* settings, /*viewrel = worldpos - campos*/ float3 viewrel_position) -> float
 {
     float3 cascade0_safe_range = settings.cascades[0].probe_spacing * float3(settings.probe_count/2 - 2);
     float3 normalized_manhattan_cascade0_center_dist = viewrel_position * rcp(cascade0_safe_range);
     float normalized_cascade0_center_dist = length(normalized_manhattan_cascade0_center_dist);
 
-    float blend_area_percentage = 0.98f;
+    float blend_area_percentage = 1.0f - settings.cascade_blend;
     float cascade = max(0.0f, log2(normalized_cascade0_center_dist) + 1.0f);
     float cascade_blend = smoothstep(floor(cascade) + blend_area_percentage, ceil(cascade), cascade);
     float selected_cascade = lerp(floor(cascade), ceil(cascade), cascade_blend);
     return selected_cascade;
 }
 
-func pgi_is_pos_in_cascade(PGISettings settings, /*viewrel = worldpos - campos*/ float3 world_position, int cascade) -> bool
+func pgi_is_pos_in_cascade(PGISettings* settings, /*viewrel = worldpos - campos*/ float3 world_position, int cascade) -> bool
 {
     float3 grid_coord = pgi_grid_coord_of_position(settings, world_position, cascade);
     int3 base_probe = int3(floor(grid_coord));
