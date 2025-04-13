@@ -138,4 +138,5 @@ struct UIEngine
 
         void ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
         void ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
+        void ui_pgi_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
 };

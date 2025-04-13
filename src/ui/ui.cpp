@@ -865,35 +865,35 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
         ImGui::SeparatorText("Debug Visualizations");
         {
             auto modes = std::array{
-                "NONE",                 // DEBUG_DRAW_MODE_NONE
-                "OVERDRAW",             // DEBUG_DRAW_MODE_OVERDRAW
-                "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
-                "MESHLET_INSTANCE_ID",  // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
-                "ENTITY_ID",                    // DEBUG_DRAW_MODE_ENTITY_ID
-                "MESH_ID",                      // DEBUG_DRAW_MODE_MESH_ID
-                "MESH_GROUP_ID",                // DEBUG_DRAW_MODE_MESH_GROUP_ID
-                "MESH_LOD",                     // DEBUG_DRAW_MODE_MESH_LOD
-                "VSM_OVERDRAW",                 // DEBUG_DRAW_MODE_VSM_OVERDRAW
-                "VSM_CLIP_LEVEL",               // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                "VSM_POINT_LEVEL",              // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
-                "DEPTH",                        // DEBUG_DRAW_MODE_DEPTH
-                "ALBEDO",                       // DEBUG_DRAW_MODE_ALBEDO
-                "FACE_NORMAL",                  // DEBUG_DRAW_MODE_FACE_NORMAL
-                "SMOOTH_NORMAL",                // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                "MAPPED_NORMAL",                // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                "FACE_TANGENT",                 // DEBUG_DRAW_MODE_FACE_TANGENT
-                "SMOOTH_TANGENT",               // DEBUG_DRAW_MODE_SMOOTH_TANGENT
-                "DIRECT_DIFFUSE",               // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                "INDIRECT_DIFFUSE",             // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                "AMBIENT_OCCLUSION",            // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
-                "INDIRECT_DIFFUSE_AO",          // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                "ALL_DIFFUSE",                  // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                "SHADE_OPAQUE_CLOCKS",          // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
-                "PGI_EVAL_CLOCKS",              // DEBUG_DRAW_PGI_EVAL_CLOCKS
-                "RTAO_TRACE_CLOCKS",            // DEBUG_DRAW_RTAO_TRACE_CLOCKS
-                "PGI_CASCADE_SMOOTH",           // DEBUG_DRAW_PGI_CASCADE_SMOOTH
-                "PGI_CASCADE_ABSOLUTE",         // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
-                "PGI_CASCADE_SMOOTH_ABS_DIFF",  // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
+                "NONE",                        // DEBUG_DRAW_MODE_NONE
+                "OVERDRAW",                    // DEBUG_DRAW_MODE_OVERDRAW
+                "TRIANGLE_INSTANCE_ID",        // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
+                "MESHLET_INSTANCE_ID",         // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
+                "MESH_ID",                     // DEBUG_DRAW_MODE_MESH_ID
+                "MESH_GROUP_ID",               // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                "MESH_LOD",                    // DEBUG_DRAW_MODE_MESH_LOD
+                "VSM_OVERDRAW",                // DEBUG_DRAW_MODE_VSM_OVERDRAW
+                "VSM_CLIP_LEVEL",              // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                "VSM_POINT_LEVEL",             // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                "DEPTH",                       // DEBUG_DRAW_MODE_DEPTH
+                "ALBEDO",                      // DEBUG_DRAW_MODE_ALBEDO
+                "FACE_NORMAL",                 // DEBUG_DRAW_MODE_FACE_NORMAL
+                "SMOOTH_NORMAL",               // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                "MAPPED_NORMAL",               // DEBUG_DRAW_MODE_MAPPED_NORMAL
+                "FACE_TANGENT",                // DEBUG_DRAW_MODE_FACE_TANGENT
+                "SMOOTH_TANGENT",              // DEBUG_DRAW_MODE_SMOOTH_TANGENT
+                "DIRECT_DIFFUSE",              // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                "AMBIENT_OCCLUSION",           // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
+                "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
+                "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_PGI_EVAL_CLOCKS
+                "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_RTAO_TRACE_CLOCKS
+                "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_PGI_CASCADE_SMOOTH
+                "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
+                "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
@@ -915,8 +915,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
-                u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z * render_data.pgi_settings.cascade_count;
-                ImGui::Text("Requested Probes %i / %i = %f %%", render_context.general_readback.requested_probes, total_probes, float(render_context.general_readback.requested_probes) / float(total_probes) * 100.0f);
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 ImGui::InputInt("Cascade Count", &render_data.pgi_settings.cascade_count);
                 ImGui::SliderFloat("Cascade Blend", &render_data.pgi_settings.cascade_blend, 0.0f, 1.0f);
@@ -1083,6 +1081,29 @@ void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderConte
             }
             ImGui::EndTable();
         }
+    }
+}
+
+void UIEngine::ui_pgi_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+{
+    if (ImGui::CollapsingHeader("Probe Global Illumination Statistics"))
+    {
+        auto & render_data = render_context.render_data;
+        u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z * render_data.pgi_settings.cascade_count;
+        static u32 updated_probes = 0;
+        static u32 ray_count = 0;
+        if ((render_data.frame_index % 61) == 0)
+        {
+            updated_probes = render_context.general_readback.requested_probes;
+            ray_count = render_data.pgi_settings.probe_trace_resolution * render_data.pgi_settings.probe_trace_resolution * render_context.general_readback.requested_probes;
+        }
+        ImGui::Text(fmt::format("Total Probe Count {}", total_probes).c_str());
+        ImGui::Text(fmt::format("PGI Updated Probes {:>7} / {:>7} = {}",
+            updated_probes,
+            total_probes,
+            float(updated_probes) / float(total_probes) * 100.0f)
+                .c_str());
+        ImGui::Text(fmt::format("Rays Shoot this frame {}",ray_count).c_str());
     }
 }
 
@@ -1281,6 +1302,7 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
         ImGui::SeparatorText("Utalizations");
         {
             ui_visbuffer_pipeline_statistics(scene, render_context, app_state);
+            ui_pgi_statistics(scene, render_context, app_state);
         }
     }
     ImGui::End();

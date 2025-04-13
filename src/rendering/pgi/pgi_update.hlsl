@@ -184,8 +184,22 @@ func entry_update_probe_irradiance(
     float blend = hysteresis;
     if (probe_info.validity < 0.5f)
     {
+        if (probe_index.w + 1 < settings.cascade_count)
+        {
+            int4 higher_cascade_probe = ((probe_index.xyz - int3(settings.probe_count/2)/2 + settings.probe_count/2), probe_index.w + 1);
+            
+            PGIProbeInfo higher_probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), higher_cascade_probe);
+            
+            if (higher_probe_info.validity > 1.0f)
+            {
+                int3 higher_cascade_probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, higher_cascade_probe);
+                int3 higher_cascade_probe_texture_index = higher_cascade_probe_texture_base_index + int3(probe_texel, 0);
+                float3 higher_probe_irrad = push.attach.probe_radiance.get()[higher_cascade_probe_texture_index].rgb;
+                new_radiance = higher_probe_irrad;
+            }
+        }
         blend = 0.0f;
-        hysteresis = 0.9f;
+        hysteresis = 0.5f;
     }
     // Perform blend in perceptual space. Reduces noise and increased convergence from bright to drark drastically.
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), blend), 5.0f);

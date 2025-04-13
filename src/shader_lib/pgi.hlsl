@@ -592,9 +592,16 @@ func pgi_sample_irradiance_nearest(
             float probe_weight = 1.0f;
 
             PGIProbeInfo probe_info = PGIProbeInfo::load(settings, probe_infos, probe_index);
-            if (probe_info.validity < 0.5f)
+            if (probe_info.validity < 1.0f)
             {
-                probe_weight = 0.0f;
+                if (probe_info.validity < 0.5f)
+                {
+                    probe_weight = 0.0f;
+                }
+                else
+                {
+                    probe_weight *= square(probe_info.validity);
+                }
             }
 
             float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
