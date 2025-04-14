@@ -84,9 +84,9 @@ The lod is selected based on a rough pixel error metric. Each each lod's boundin
 The projected bounding boxes pixel size is multiplied with the estimated error calculated by the mesh lod generation. The lod with the highest error that still falls under ~1 pixel error is selected.
 This scheme is usually good enough to ensure that lod changes are not visible.
 
-After the lod is selected, a instance of the mesh is pushed into drawlists. Which drawlists it goes into depends on the material.
+After the lod is selected, a instance of the mesh is pushed into drawlist buffers.
 
-For rasterization, this is all the cpu does for individual mesh processing, all commands recorded to draw the mesh instances later are all batch processing all mesh instances.
+For rasterization, this is all the cpu does for individual mesh processing, all commands recorded to draw the mesh instances later are batch processing mesh instances all at once. No individual drawcalls/dispatches instances of anything.
 
 The generated drawlists are also used to generate a list of blases for the tlas of the raytracing acceleration structure. 
 
@@ -95,7 +95,7 @@ This is the one of the main reasons tido performs lod selection on the cpu, as i
 #### Draw Pass / Mega Drawcall
 
 Reguardless of mesh instance count, tido can draw all geometry "in one drawcall". This means extremely low cpu overhead for any amount of geometry on the screen.
-This way of drawing geometry reduces gpu state switches to a minimum. That yields great performance, especially for very large triangle and instance counts.
+This way of drawing geometry also reduces gpu state switches to a minimum. That yields great performance, especially for very large triangle and instance counts.
 
 To achieve this, tido must perform multiple phases of "work expansion":
 1. a compute shader goes over all mesh instances
