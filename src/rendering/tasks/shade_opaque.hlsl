@@ -543,34 +543,34 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID:
             {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index), 1, 1)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID:
             {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_index), 1, IdFloatScramble(meshlet_triangle_index) * 0.6f + 0.4f));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_index), 1, IdFloatScramble(meshlet_triangle_index) * 0.2f + 0.8f)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_ENTITY_ID:
             {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.entity_index), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.entity_index), 1, 1)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_MESH_ID:
             {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.mesh_index), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.mesh_index), 1, 1)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_MESH_GROUP_ID:
             {
                 uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(mesh_group_index), 1, 1));
+                output_value.rgb = hsv2rgb(float3(IdFloatScramble(mesh_group_index), 1, 1)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_MESH_LOD:
             {
                 uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
-                output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP));
+                output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP)) * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
