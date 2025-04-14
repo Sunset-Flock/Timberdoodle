@@ -148,6 +148,7 @@ References:
 
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/shaded.png)
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/probes.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/pgi_cascades.png)
 
 Based on [RTXGI-DDGI](https://github.com/NVIDIAGameWorks/RTXGI-DDGI).
 
@@ -156,8 +157,9 @@ Rays are shot from each probe in real time, calculating a depth and irradiance m
 Then, any point in the world can be shaded by fetching the 8 closest probes, testing for visibility and interpolating their irradiance.
 
 PGI in timberdoodle makes a few improvements over the base DDGI algorithm:
-* Variable Probe update rate: Tido only updates a fraction of probes each frame.
+* Variable Probe update rate: Instead of tracing rays for every probe each frame, tido only updates parts of the probes each frame, default is 1 in 8.
 * Tighter depth test: Depth convolution uses cos(dot(N,RAY_DIR))^50 to weigh ray contributions for visibility, drastically reducing leaks.
 * Sparsity: Probes are requested from shaded screen pixels and probe trace hits. Allows for one indirection for requests screen pixel -> probe -> probe. This reduces the number of active probes by orders of magnitude. 
 * Smarter probe repositioning: PGI also consideres the average free direction and the grids distortion in addition to the closest back and frontface. This is the biggest improvement over the base DDGI in terms of quality. In models like bistro and sponza, the PGI repositioning leaves no visible artifacts while the default DDGI repositioning leaves many "blind spots" causing ugly missinterpolations.
 * Robuster hysteresis estimation: Allows PGI to converge faster in challenging scenarios like bistros emissive lights.
+* Cascades/Clips: Tido generates multiple cascades of probes around the player, each beeing 2x the size of the previous. Per default each cascade has at most 32^3 probes and there are 8 cascades.

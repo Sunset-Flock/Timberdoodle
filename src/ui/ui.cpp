@@ -897,10 +897,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
+            ImGui::SeparatorText("Misc");
             ImGui::InputInt("override_lod", &render_data.settings.lod_override);
             ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
             ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
-            ImGui::SeparatorText("Misc");
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::SeparatorText("Features");
             if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
@@ -916,6 +916,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
+                ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
+                ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
                 ImGui::InputInt("Cascade Count", &render_data.pgi_settings.cascade_count);
                 ImGui::SliderFloat("Cascade Blend", &render_data.pgi_settings.cascade_blend, 0.0f, 1.0f);
                 auto update_rates = std::array{
@@ -927,8 +929,49 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "1_OF_64", // PGI_UPDATE_RATE_1_OF_64
                 };
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), update_rates.size());
-                ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
-                ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
+                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_irradiance_resolution);
+                ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
+                ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
+                ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
+                ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
+                ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
+                ImGui::SeparatorText("Debug");
+                ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_probe_influence));
+                ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
+                ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
+                ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
+                {
+                    static i32 pgi_debug_draw_mode = 0;
+                    auto modes = std::array{
+                        "NONE",                        // DEBUG_DRAW_MODE_NONE
+                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_PGI_EVAL_CLOCKS
+                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_PGI_CASCADE_SMOOTH
+                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
+                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_PGI_EVAL_CLOCKS,
+                        DEBUG_DRAW_PGI_CASCADE_SMOOTH,
+                        DEBUG_DRAW_PGI_CASCADE_ABSOLUTE,
+                        DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF,
+                    };
+                    bool const set = ImGui::Combo("pgi debug visualization", &pgi_debug_draw_mode, modes.data(), modes.size());
+                    if (set)
+                    {
+                        render_data.settings.debug_draw_mode = mode_mappings[pgi_debug_draw_mode];
+                    }
+                    if (mode_mappings[pgi_debug_draw_mode] != render_data.settings.debug_draw_mode)
+                    {
+                        pgi_debug_draw_mode = 0;
+                    }
+                }
                 auto debug_daw_modes = std::array{
                     "OFF",         // PGI_DEBUG_PROBE_DRAW_MODE_OFF
                     "IRRADIANCE",  // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
@@ -939,18 +982,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "NORMAL",      // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
                     "HYSTERESIS",  // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
-                ImGui::Combo("Debug Draw Mode", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
+                ImGui::Combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
-                ImGui::Checkbox("Debug Draw Probe Influence", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_probe_influence));
-                ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
-                ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
-                ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
-                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_irradiance_resolution);
-                ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
-                ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
-                ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
-                ImGui::InputFloat3("Probe range", &render_data.pgi_settings.probe_range.x);
-                ImGui::InputInt3("Probe Count", &render_data.pgi_settings.probe_count.x);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
@@ -1088,22 +1121,36 @@ void UIEngine::ui_pgi_statistics(Scene const & scene, RenderContext & render_con
 {
     if (ImGui::CollapsingHeader("Probe Global Illumination Statistics"))
     {
+        u32 heavy_ray_count = 512000;
+        u32 super_heavy_ray_count = 1024000;
         auto & render_data = render_context.render_data;
         u32 total_probes = render_data.pgi_settings.probe_count.x * render_data.pgi_settings.probe_count.y * render_data.pgi_settings.probe_count.z * render_data.pgi_settings.cascade_count;
         static u32 updated_probes = 0;
         static u32 ray_count = 0;
-        if ((render_data.frame_index % 61) == 0)
+        if ((render_data.frame_index % 11) == 0)
         {
             updated_probes = render_context.general_readback.requested_probes;
             ray_count = render_data.pgi_settings.probe_trace_resolution * render_data.pgi_settings.probe_trace_resolution * render_context.general_readback.requested_probes;
         }
         ImGui::Text(fmt::format("Total Probe Count {}", total_probes).c_str());
-        ImGui::Text(fmt::format("PGI Updated Probes {:>7} / {:>7} = {}",
+        ImGui::Text(fmt::format("PGI Updated Probes {:>7} / {:>7} = {}%%",
             updated_probes,
             total_probes,
             float(updated_probes) / float(total_probes) * 100.0f)
                 .c_str());
+        if (ray_count > super_heavy_ray_count)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 0.0f, 0.0f, 1.0f)));
+        }
+        else if (ray_count > heavy_ray_count)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 0.0f, 1.0f)));
+        }
         ImGui::Text(fmt::format("Rays Shoot this frame {}",ray_count).c_str());
+        if (ray_count > heavy_ray_count)
+        {
+            ImGui::PopStyleColor(1);
+        }
     }
 }
 

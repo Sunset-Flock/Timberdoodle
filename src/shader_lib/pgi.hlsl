@@ -208,11 +208,11 @@ func pgi_sample_probe_visibility(
 
 // Moves the sample position back along view ray and offset by normal based on probe grid density.
 // Greatly reduces self shadowing for corners.
-func pgi_calc_biased_sample_position(PGISettings* settings, float3 position, float3 geo_normal, float3 view_direction) -> float3
+func pgi_calc_biased_sample_position(PGISettings* settings, float3 position, float3 geo_normal, float3 view_direction, uint cascade) -> float3
 {
     const float BIAS_FACTOR = 0.2f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
-    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.cascades[0].probe_spacing * BIAS_FACTOR;
+    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.cascades[cascade].probe_spacing * BIAS_FACTOR;
 }
 
 #define PGI_PROBE_REQUEST_MODE_DIRECT 0
@@ -296,13 +296,7 @@ func pgi_sample_irradiance(
     RWTexture2DArray<uint> probe_requests,
     int probe_request_mode) -> float3
 {
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
-
-    float cascade = pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position);
-    if (settings.debug_force_cascade != -1)
-    {
-        cascade = settings.debug_force_cascade;
-    }
+    float cascade = pgi_select_cascade_smooth_spherical(settings, position - globals.camera.position);
     if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
@@ -376,7 +370,7 @@ func pgi_sample_irradiance_cascade(
     int probe_request_mode,
     int cascade
 ) -> float4 {
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction, cascade);
 
     float3 grid_coord = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade);
     int3 base_probe = int3(floor(grid_coord));
@@ -556,17 +550,14 @@ func pgi_sample_irradiance_nearest(
     RWTexture2DArray<uint> probe_requests,
     int probe_request_mode
 ) -> float3 {
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction);
 
-    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, visibility_sample_position - globals.camera.position))) + 1;
-    if (settings.debug_force_cascade != -1)
-    {
-        cascade = settings.debug_force_cascade;
-    }
+    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, position - globals.camera.position))) + 1;
     if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
     }
+
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction, cascade);
 
     float3 grid_coord_shifted = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade) + 0.5f; // shifting here to get the closest probe and not the base probe
     int3 closest_probe = int3(floor(grid_coord_shifted));
@@ -744,6 +735,10 @@ func pgi_sample_irradiance_nearest(
 
 func pgi_select_cascade_smooth_spherical(PGISettings* settings, /*viewrel = worldpos - campos*/ float3 viewrel_position) -> float
 {
+    if (settings.debug_force_cascade != -1)
+    {
+        return float(settings.debug_force_cascade);
+    }
     float3 cascade0_safe_range = settings.cascades[0].probe_spacing * float3(settings.probe_count/2 - 2);
     float3 normalized_manhattan_cascade0_center_dist = viewrel_position * rcp(cascade0_safe_range);
     float normalized_cascade0_center_dist = length(normalized_manhattan_cascade0_center_dist);
@@ -757,6 +752,10 @@ func pgi_select_cascade_smooth_spherical(PGISettings* settings, /*viewrel = worl
 
 func pgi_is_pos_in_cascade(PGISettings* settings, /*viewrel = worldpos - campos*/ float3 world_position, int cascade) -> bool
 {
+    if (settings.debug_force_cascade != -1)
+    {
+        return cascade == settings.debug_force_cascade;
+    }
     float3 grid_coord = pgi_grid_coord_of_position(settings, world_position, cascade);
     int3 base_probe = int3(floor(grid_coord));
     return all(base_probe >= int3(0,0,0)) && all(base_probe < (settings.probe_count-1));
