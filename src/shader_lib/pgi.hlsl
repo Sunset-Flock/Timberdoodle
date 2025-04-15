@@ -210,7 +210,7 @@ func pgi_sample_probe_visibility(
 // Greatly reduces self shadowing for corners.
 func pgi_calc_biased_sample_position(PGISettings* settings, float3 position, float3 geo_normal, float3 view_direction, uint cascade) -> float3
 {
-    const float BIAS_FACTOR = 0.2f;
+    const float BIAS_FACTOR = 0.25f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
     return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.cascades[cascade].probe_spacing * BIAS_FACTOR;
 }
@@ -302,7 +302,7 @@ func pgi_sample_irradiance(
         return float3(0,0,0);
     }
 
-    let lower_cascade = floor(cascade);
+    let lower_cascade = int(floor(cascade));
     float4 lower_cascade_result = pgi_sample_irradiance_cascade(
         globals,
         settings,
@@ -322,7 +322,7 @@ func pgi_sample_irradiance(
 
     // color = TurboColormap(float(lower_cascade) * rcp(12));
 
-    let higher_cascade = ceil(cascade);
+    let higher_cascade = int(ceil(cascade));
     let two_cascades = lower_cascade != higher_cascade;
     if (two_cascades)
     {

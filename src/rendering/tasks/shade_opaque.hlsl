@@ -412,6 +412,7 @@ void entry_main_cs(
     let primary_ray = normalize(pixel_index_to_world_space(camera, index, nonlinear_depth) - camera.position);
     float world_space_depth = 0.0f;
 
+    float ambient_occlusion = 1.0f;
     if(triangle_id_valid)
     {
         daxa_BufferPtr(MeshletInstancesBufferHead) instantiated_meshlets = AT.instantiated_meshlets;
@@ -504,7 +505,7 @@ void entry_main_cs(
             indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
         }
 
-        float ambient_occlusion = 1.0f;
+        ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
@@ -583,7 +584,7 @@ void entry_main_cs(
             {
                 if (AT.globals->vsm_settings.enable != 0)
                 {
-                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
+                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position) * ambient_occlusion;
                     let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
                     output_value.rgb = debug_albedo;
                 }
@@ -591,7 +592,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
-                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, material_point.normal);
+                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, material_point.normal) * ambient_occlusion;
                 let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
                 output_value.rgb = debug_albedo;
                 // output_value.rgb = vsm_debug_color;
@@ -757,20 +758,20 @@ void entry_main_cs(
         output_value.rgb = total_direct_illuminance;
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
-
+        
     switch(push.attachments.attachments.globals.settings.debug_draw_mode)
     {
         case DEBUG_DRAW_SHADE_OPAQUE_CLOCKS:
         {
             let clk_end = clockARB();
-            output_value.rgb = TurboColormap(float(clk_end - clk_start) * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale);
+            output_value.rgb = TurboColormap(float(clk_end - clk_start) * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
             break;
         }
         case DEBUG_DRAW_PGI_EVAL_CLOCKS:
         case DEBUG_DRAW_RTAO_TRACE_CLOCKS:
         {
             let dgb_img_v = RWTexture2D<float4>::get(push.attachments.attachments.debug_image)[index];
-            output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale);
+            output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
             break;
         }
     }
