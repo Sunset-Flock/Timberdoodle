@@ -37,8 +37,6 @@ struct ExpandMeshesToMeshletsPush
     daxa_BufferPtr(ExpandMeshesToMeshletsAttachments) attachments;
     daxa::b32 cull_meshes;
     daxa::b32 cull_against_last_frame;  /// WARNING: only supported for non vsm path!
-    // Only used for vsms:
-    daxa::u32 cascade;
     daxa_BufferPtr(GPUMesh) meshes;
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
     daxa::i32 mip_level;
@@ -71,14 +69,14 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
     RenderContext * render_context = {};
     bool cull_meshes = {};
     bool cull_against_last_frame = {};
-    // only used for vsm cull:
-    u32 cascade = {};
     u32 render_time_index = ~0u;
     bool is_point_light = {};
+    bool is_directional_light = {};
     i32 mip_level = {};
 
     void callback(daxa::TaskInterface ti)
     {
+        DBG_ASSERT_TRUE_M(!(is_point_light && is_directional_light), "Cannot be both directional and point light");
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
 
         auto alloc = ti.allocator->allocate(sizeof(ExpandMeshesToMeshletsAttachments));
@@ -87,7 +85,6 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
             .attachments = alloc->device_address,
             .cull_meshes = cull_meshes,
             .cull_against_last_frame = cull_against_last_frame,
-            .cascade = cascade,
             .meshes = render_context->render_data.scene.meshes,
             .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
             .mip_level = mip_level,
@@ -98,15 +95,19 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
             render_context->mesh_instance_counts.prepass_instance_counts[1];
         total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
 
-        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+        daxa::DispatchInfo dispatch_info = {round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1};
         if(is_point_light)
         {
-            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 6, render_context->render_data.vsm_settings.point_light_count});
+            dispatch_info.y = 6; // Mip count
+            dispatch_info.z = render_context->render_data.vsm_settings.point_light_count;
         }
-        else 
+        else if (is_directional_light) 
         {
-            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1});
+            dispatch_info.y = VSM_CLIP_LEVELS;
         }
+
+        render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
+        ti.recorder.dispatch(dispatch_info);
         render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
 };
@@ -122,8 +123,8 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
     // Used for VSM point page culling:
     daxa::TaskImageView vsm_point_hip = daxa::NullTaskImage;
-    daxa::u32 vsm_cascade = {};
     bool is_point_light = false;
+    bool is_directional_light = false;
     daxa::i32 mip_level = {-1};
     daxa::TaskBufferView vsm_clip_projections = daxa::NullTaskBuffer;
     daxa::TaskBufferView vsm_point_lights = daxa::NullTaskBuffer;
@@ -193,9 +194,9 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,
         .cull_against_last_frame = info.cull_against_last_frame,
-        .cascade = info.vsm_cascade,
         .render_time_index = info.render_time_index,
         .is_point_light = info.is_point_light,
+        .is_directional_light = info.is_directional_light,
         .mip_level = info.mip_level
     });
 }

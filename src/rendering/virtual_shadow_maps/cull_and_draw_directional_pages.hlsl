@@ -13,8 +13,8 @@
 
 uint64_t get_expansion_buffer()
 {
-    uint64_t* expansion_array = &vsm_push.attachments.po2expansion0;
-    return expansion_array[vsm_push.draw_list_type + 2 * vsm_push.cascade];
+    uint64_t* expansion_array = &vsm_push.attachments.po2expansion;
+    return expansion_array[vsm_push.draw_list_type];
 }
 
 [shader("amplification")]
@@ -25,17 +25,18 @@ func directional_vsm_entry_task(
 )
 {
     let push = vsm_push;
-    let clip_level = push.cascade;
 
     uint64_t expansion = get_expansion_buffer();
     MeshletInstance instanced_meshlet;
-    let valid_meshlet = get_meshlet_instance_from_workitem(
+    VSMDirectionalIndirections indirections;
+    let valid_meshlet = get_vsm_directional_meshlet_instance_from_work_item(
         push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
         svtid.x,
-        instanced_meshlet
+        instanced_meshlet,
+        indirections,
     );
     
     bool draw_meshlet = valid_meshlet;
@@ -45,19 +46,18 @@ func directional_vsm_entry_task(
     if (valid_meshlet)
     {
         draw_meshlet = draw_meshlet && !is_meshlet_occluded_vsm(
-            deref_i(push.attachments.vsm_clip_projections, clip_level).camera,
+            deref_i(push.attachments.vsm_clip_projections, indirections.cascade).camera,
             instanced_meshlet,
             push.attachments.entity_combined_transforms,
             push.attachments.meshes,
             push.attachments.vsm_dirty_bit_hiz,
-            clip_level
+            indirections.cascade
         );
     }
 
     CullMeshletsDrawPagesPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(draw_meshlet).x;
-    payload.task_shader_vsm_meta_info = clip_level;
     let surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(draw_meshlet ? 1u : 0u);
@@ -101,13 +101,15 @@ func directional_vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimit
 
     uint64_t expansion = get_expansion_buffer();
     MeshletInstance meshlet_inst;
-    let valid_meshlet = get_meshlet_instance_from_workitem(
+    VSMDirectionalIndirections indirections;
+    let valid_meshlet = get_vsm_directional_meshlet_instance_from_work_item(
         push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
         meshlet_cull_arg_index,
-        meshlet_inst
+        meshlet_inst,
+        indirections,
     );
     
     let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
@@ -118,9 +120,9 @@ func directional_vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimit
         out_primitives,
         push.attachments.entity_combined_transforms,
         push.attachments.meshes,
-        payload.task_shader_vsm_meta_info,
+        pack_vsm_directional_light_indirections(indirections),
         cull_backfaces,
-        push.attachments.vsm_clip_projections[payload.task_shader_vsm_meta_info].camera,
+        push.attachments.vsm_clip_projections[indirections.cascade].camera,
         meshlet_inst,
         push.attachments.vsm_dirty_bit_hiz
     );
@@ -159,9 +161,10 @@ void directional_vsm_entry_fragment_opaque(
 {
     let push = vsm_push;
     const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
+    let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
-        {prim.vsm_meta_info, virtual_uv},
+        {indirections.cascade, virtual_uv},
         push.attachments.vsm_clip_projections);
 
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
@@ -188,9 +191,10 @@ void directional_vsm_entry_fragment_masked(
 {
     let push = vsm_push;
     const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
+    let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
-        {prim.vsm_meta_info, virtual_uv},
+        {indirections.cascade, virtual_uv},
         push.attachments.vsm_clip_projections);
 
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;

@@ -6,8 +6,6 @@ struct CullMeshletsDrawPagesPayload
 {
     uint task_shader_wg_meshlet_args_offset;
     uint task_shader_surviving_meshlets_mask;
-    // TODO: remove.
-    uint task_shader_vsm_meta_info;
     uint enable_backface_culling;
 };
 
@@ -171,7 +169,8 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             float2 base_resolution;
             if(is_directional_vsm) 
             {
-                array_index = vsm_meta_info;
+                VSMDirectionalIndirections indirections = unpack_vsm_directional_light_indirections(vsm_meta_info);
+                array_index = indirections.cascade;
                 base_resolution = float2(camera.screen_size >> 1);
             }
             else 
