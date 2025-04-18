@@ -73,7 +73,7 @@ func point_vsm_entry_task(
         if (instanced_meshlet.material_index != INVALID_MANIFEST_INDEX)
         {
             GPUMaterial material = push.attachments.material_manifest[instanced_meshlet.material_index];
-            enable_backface_culling = !material.alpha_discard_enabled;
+            enable_backface_culling = !material.alpha_discard_enabled && !material.double_sided_enabled;
         }
     }
     payload.enable_backface_culling = WaveActiveBallot(enable_backface_culling).x;
