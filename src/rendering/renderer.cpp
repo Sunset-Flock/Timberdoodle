@@ -1015,6 +1015,8 @@ auto Renderer::prepare_frame(
         return false;
     }
 
+    render_context->render_data.vsm_settings.point_light_count = scene->_point_lights.size();
+
     // Calculate frame relevant values.
     u32 const flight_frame_index = gpu_context->swapchain.current_cpu_timeline_value() % (gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -1066,7 +1068,7 @@ auto Renderer::prepare_frame(
             }
         }
 
-        vsm_state.update_vsm_lights(scene->_active_point_lights);
+        vsm_state.update_vsm_lights(scene->_point_lights);
         CameraInfo real_camera_info = camera_info;
         if(render_context->debug_frustum >= 0) {
             real_camera_info = vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)).face_cameras[render_context->debug_frustum];
@@ -1199,7 +1201,7 @@ auto Renderer::prepare_frame(
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
-    vsm_state.update_vsm_lights(scene->_active_point_lights);
+    vsm_state.update_vsm_lights(scene->_point_lights);
     if (render_context->visualize_frustum)
     {
         debug_draw_point_frusti(DebugDrawPointFrusiInfo{

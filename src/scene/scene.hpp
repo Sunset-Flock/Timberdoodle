@@ -111,7 +111,7 @@ struct MeshGroupManifestEntry
     std::string name = {};
 };
 
-struct ActivePointLight
+struct PointLight
 {
     f32vec3 position;
     f32vec3 color;
@@ -146,6 +146,7 @@ struct RenderEntity
     std::optional<u32> mesh_group_manifest_index = {};
     EntityType type = EntityType::UNKNOWN;
     std::string name = {};
+    std::optional<u32> light_index = {};
     bool dirty = {};
 };
 
@@ -236,7 +237,7 @@ struct Scene
     std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
     std::vector<u32> _mesh_lod_group_manifest_indices = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
-    std::vector<ActivePointLight> _active_point_lights = {};
+    std::vector<PointLight> _point_lights = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
     u32 _new_mesh_lod_group_manifest_entries = {};

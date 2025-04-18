@@ -380,10 +380,10 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
     return sum / PCF_NUM_SAMPLES;
 }
 
-float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUPointLight * lights)
+float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUPointLight * lights, uint light_count)
 {
     float3 total_contribution = float3(0.0);
-    for(int light_index = 0; light_index < MAX_POINT_LIGHTS; light_index++)
+    for(int light_index = 0; light_index < light_count; light_index++)
     {
         GPUPointLight light = lights[light_index];
         const float3 position_to_light = normalize(light.position - world_position);
@@ -541,7 +541,7 @@ void entry_main_cs(
         }
         const float final_shadow = sun_norm_dot * shadow.x;
 
-        float3 point_lights_direct = point_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.point_lights);
+        float3 point_lights_direct = point_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.point_lights, AT.globals.vsm_settings.point_light_count);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,

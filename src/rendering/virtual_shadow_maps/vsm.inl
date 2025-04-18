@@ -537,7 +537,7 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
         GenPointDirtyBitHizPush push = {.attachments = attachment_alloc.device_address};
         ti.recorder.push_constant(push);
         // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
-        ti.recorder.dispatch({dispatch_x, dispatch_y, MAX_POINT_LIGHTS * 6 * 6});
+        ti.recorder.dispatch({dispatch_x, dispatch_y, render_context->render_data.vsm_settings.point_light_count * 6 * 6});
     }
 };
 
