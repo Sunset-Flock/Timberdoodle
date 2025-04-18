@@ -53,14 +53,20 @@ void main(uint3 thread_id : SV_DispatchThreadID)
 
     if (AT.vsm_clip_projections && push.cull_meshes && AT.hip.value != 0)
     {
+        let cascade = thread_id.y;
+        const VSMDirectionalIndirections indirections = VSMDirectionalIndirections(
+            cascade,                // cascade
+            mesh_instance_index     // mesh_instance_index
+        );
+        source_mesh_instance_index = pack_vsm_directional_light_indirections(indirections);
         if (is_mesh_occluded_vsm(
-            AT.vsm_clip_projections[push.cascade].camera,
+            AT.vsm_clip_projections[cascade].camera,
             mesh_instance,
             mesh,
             push.entity_combined_transforms,
             push.meshes,
             AT.hip,
-            push.cascade))
+            cascade))
         {
             return;
         }
@@ -94,8 +100,6 @@ void main(uint3 thread_id : SV_DispatchThreadID)
         {
             return;
         }
-
-        let unpacked_indirections = unpack_vsm_point_light_indirections(source_mesh_instance_index);
     }
 
     let vsm = !AT.hip.is_empty() || (push.mip_level != -1);

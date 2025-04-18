@@ -817,6 +817,49 @@ struct CullMeshletsDrawVisbufferPayload
     uint enable_hiz_triangle_culling;
 };
 
+// TODO: This should not be three functions but only one. (Maybe make it a template?)
+bool get_vsm_directional_meshlet_instance_from_work_item(
+    bool prefix_sum_expansion,
+    uint64_t expansion_buffer_ptr,
+    MeshInstancesBufferHead * mesh_instances,
+    GPUMesh * meshes,
+    uint thread_index, 
+    out MeshletInstance meshlet_instance,
+    out VSMDirectionalIndirections indirections
+)
+{
+    DstItemInfo workitem;
+    bool valid_meshlet = false;
+    if (prefix_sum_expansion)
+    {
+        PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = prefix_sum_expansion_get_workitem(prefix_expansion, thread_index, workitem);
+    }
+    else
+    {
+        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2packed_expansion_get_workitem(po2packed_expansion, thread_index, workitem);
+    }
+    if (valid_meshlet)
+    {
+        indirections = unpack_vsm_directional_light_indirections(workitem.src_item_index);
+        MeshInstance mesh_instance = mesh_instances.instances[indirections.mesh_instance_index];
+        const uint mesh_index = mesh_instance.mesh_index;
+        GPUMesh mesh = meshes[mesh_index];    
+        if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
+        {
+            return false;
+        }
+        meshlet_instance.entity_index = mesh_instance.entity_index;
+        meshlet_instance.in_mesh_group_index = mesh_instance.in_mesh_group_index;
+        meshlet_instance.material_index = mesh.material_index;
+        meshlet_instance.mesh_index = mesh_index;
+        meshlet_instance.meshlet_index = workitem.in_expansion_index;
+        meshlet_instance.mesh_instance_index = indirections.mesh_instance_index;
+    }
+    return valid_meshlet;
+}
+
 bool get_vsm_point_meshlet_instance_from_work_item(
     bool prefix_sum_expansion,
     uint64_t expansion_buffer_ptr,

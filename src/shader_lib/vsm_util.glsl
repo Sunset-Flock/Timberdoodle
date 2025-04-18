@@ -253,6 +253,29 @@ float3 ray_plane_intersection(float3 ray_direction, float3 ray_origin, float3 pl
     return 0.0f;
 }
 
+
+struct VSMDirectionalIndirections
+{
+    uint cascade;
+    uint mesh_instance_index;
+};
+
+uint pack_vsm_directional_light_indirections(const VSMDirectionalIndirections indirections)
+{
+    uint packed_value = 0;
+    packed_value |= ((indirections.cascade             & n_mask(4)) << 28);
+    packed_value |= ((indirections.mesh_instance_index & n_mask(28)) << 0);
+    return packed_value;
+}
+
+VSMDirectionalIndirections unpack_vsm_directional_light_indirections(const uint packed_value)
+{
+    VSMDirectionalIndirections indirections;
+    indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(28));
+    indirections.cascade              = daxa_i32((packed_value >> 28) & n_mask(4));
+    return indirections;
+}
+
 struct VSMPointIndirections
 {
     uint mip_level;
@@ -271,7 +294,7 @@ uint pack_vsm_point_light_indirections(const VSMPointIndirections indirections)
     return packed_value;
 }
 
-VSMPointIndirections unpack_vsm_point_light_indirections(uint packed_value)
+VSMPointIndirections unpack_vsm_point_light_indirections(const uint packed_value)
 {
     VSMPointIndirections indirections;
     indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(17));

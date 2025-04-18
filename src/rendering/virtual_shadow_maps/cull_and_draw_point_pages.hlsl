@@ -62,7 +62,6 @@ func point_vsm_entry_task(
     CullMeshletsDrawPagesPayload payload;
     payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;
-    payload.task_shader_vsm_meta_info = 0;
     let surviving_meshlet_count = WaveActiveSum(valid_meshlet ? 1u : 0u);
     // When not occluded, this value determines the new packed index for each thread in the wave:
     let local_survivor_index = WavePrefixSum(valid_meshlet ? 1u : 0u);

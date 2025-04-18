@@ -130,41 +130,10 @@ struct GenPointDirtyBitHizPush
 {
     daxa_BufferPtr(GenPointDirtyBitHizH::AttachmentShaderBlob) attachments;
 };
-
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(CullAndDrawPagesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion0)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion0)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion1)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion1)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion2)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion2)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion3)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion3)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion4)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion4)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion5)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion5)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion6)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion6)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion7)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion7)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion8)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion8)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion9)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion9)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion10)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion10)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion11)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion11)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion12)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion12)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion13)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion13)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion14)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion14)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion15)
-DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion15)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
@@ -182,8 +151,6 @@ struct CullAndDrawPagesPush
 {
     daxa_BufferPtr(CullAndDrawPagesH::AttachmentShaderBlob) attachments;
     daxa_u32 draw_list_type;
-    daxa_u32 bucket_index;
-    daxa_u32 cascade;
     daxa::RWTexture2DId<daxa::u32> daxa_uint_vsm_memory_view;
 };
 
@@ -566,97 +533,25 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .slope_factor = render_context->render_data.vsm_settings.slope_bias,
         });
         auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPagesH::AttachmentShaderBlob)).value();
-        *reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob *>(attachment_alloc.host_address) = ti.attachment_shader_blob;
-        for (u32 cascade = 0; cascade < 16; ++cascade)
+        *reinterpret_cast<CullAndDrawPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
         {
-            daxa::BufferId po2expansion;
-            daxa::BufferId masked_po2expansion;
-            switch (cascade)
-            {
-                case 0:
-                    po2expansion = ti.id(AT.po2expansion0);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion0);
-                    break;
-                case 1:
-                    po2expansion = ti.id(AT.po2expansion1);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion1);
-                    break;
-                case 2:
-                    po2expansion = ti.id(AT.po2expansion2);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion2);
-                    break;
-                case 3:
-                    po2expansion = ti.id(AT.po2expansion3);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion3);
-                    break;
-                case 4:
-                    po2expansion = ti.id(AT.po2expansion4);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion4);
-                    break;
-                case 5:
-                    po2expansion = ti.id(AT.po2expansion5);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion5);
-                    break;
-                case 6:
-                    po2expansion = ti.id(AT.po2expansion6);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion6);
-                    break;
-                case 7:
-                    po2expansion = ti.id(AT.po2expansion7);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion7);
-                    break;
-                case 8:
-                    po2expansion = ti.id(AT.po2expansion8);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion8);
-                    break;
-                case 9:
-                    po2expansion = ti.id(AT.po2expansion9);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion9);
-                    break;
-                case 10:
-                    po2expansion = ti.id(AT.po2expansion10);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion10);
-                    break;
-                case 11:
-                    po2expansion = ti.id(AT.po2expansion11);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion11);
-                    break;
-                case 12:
-                    po2expansion = ti.id(AT.po2expansion12);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion12);
-                    break;
-                case 13:
-                    po2expansion = ti.id(AT.po2expansion13);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion13);
-                    break;
-                case 14:
-                    po2expansion = ti.id(AT.po2expansion14);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion14);
-                    break;
-                case 15:
-                    po2expansion = ti.id(AT.po2expansion15);
-                    masked_po2expansion = ti.id(AT.masked_po2expansion15);
-                    break;
-            }
-            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
-            {
-                auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? po2expansion : masked_po2expansion;
-                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_directional_pages_pipelines[opaque_draw_list_type].name));
-                CullAndDrawPagesPush push = {
-                    .attachments = attachment_alloc.device_address,
-                    .draw_list_type = opaque_draw_list_type,
-                    .cascade = cascade,
-                    .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
-                };
-                render_cmd.push_constant(push);
-                render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = buffer,
-                    .offset = 0,
-                    .draw_count = 1,
-                    .stride = sizeof(DispatchIndirectStruct),
-                });
-            }
+            auto buffer = opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? ti.id(AT.po2expansion) : ti.id(AT.masked_po2expansion);
+            render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(cull_and_draw_directional_pages_pipelines[opaque_draw_list_type].name));
+            CullAndDrawPagesPush push = {
+                .attachments = attachment_alloc.device_address,
+                .draw_list_type = opaque_draw_list_type,
+                .daxa_uint_vsm_memory_view = static_cast<daxa_ImageViewId>(memory_block_view),
+            };
+            render_cmd.push_constant(push);
+            render_cmd.draw_mesh_tasks_indirect({
+                .indirect_buffer = buffer,
+                .offset = 0,
+                .draw_count = 1,
+                .stride = sizeof(DispatchIndirectStruct),
+            });
         }
+
         ti.recorder = std::move(render_cmd).end_renderpass();
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES">());
         ti.recorder.destroy_image_view_deferred(memory_block_view);
@@ -688,7 +583,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
                 .clamp = 0.0,
                 .slope_factor = render_context->render_data.vsm_settings.slope_bias,
             });
-            auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPagesH::AttachmentShaderBlob)).value();
+            auto attachment_alloc = ti.allocator->allocate(sizeof(CullAndDrawPointPagesH::AttachmentShaderBlob)).value();
             *reinterpret_cast<CullAndDrawPointPagesH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
 
             daxa::BufferId po2expansion;
@@ -953,59 +848,26 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context
     });
 
-    std::array<std::array<daxa::TaskBufferView, 2>, 16> directional_cascade_meshlet_expansions = {};
-    for (u32 cascade = 0; cascade < 16; ++cascade)
-    {
-        tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
-            .render_context = info.render_context,
-            .tg = *info.tg,
-            .cull_meshes = true,
-            .vsm_hip = info.vsm_state->dirty_pages_hiz,
-            .vsm_cascade = cascade,
-            .vsm_clip_projections = info.vsm_state->clip_projections,
-            .globals = info.render_context->tgpu_render_data,
-            .mesh_instances = info.mesh_instances,
-            .meshlet_expansions = directional_cascade_meshlet_expansions[cascade],
-            .dispatch_clear = {0, 1, 1},
-            .buffer_name_prefix = std::string("vsm cascade ") + std::to_string(cascade) + ' ',
-        });
-    }
+    std::array<daxa::TaskBufferView, 2> directional_cascade_meshlet_expansions = {};
+    tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
+        .render_context = info.render_context,
+        .tg = *info.tg,
+        .cull_meshes = true,
+        .vsm_hip = info.vsm_state->dirty_pages_hiz,
+        .is_directional_light = true,
+        .vsm_clip_projections = info.vsm_state->clip_projections,
+        .globals = info.render_context->tgpu_render_data,
+        .mesh_instances = info.mesh_instances,
+        .meshlet_expansions = directional_cascade_meshlet_expansions,
+        .dispatch_clear = {0, 1, 1},
+        .buffer_name_prefix = std::string("vsm directional"),
+    });
 
     info.tg->add_task(CullAndDrawPagesTask{
         .views = CullAndDrawPagesTask::Views{
             .globals = info.render_context->tgpu_render_data,
-            .po2expansion0 = directional_cascade_meshlet_expansions[0][0],
-            .masked_po2expansion0 = directional_cascade_meshlet_expansions[0][1],
-            .po2expansion1 = directional_cascade_meshlet_expansions[1][0],
-            .masked_po2expansion1 = directional_cascade_meshlet_expansions[1][1],
-            .po2expansion2 = directional_cascade_meshlet_expansions[2][0],
-            .masked_po2expansion2 = directional_cascade_meshlet_expansions[2][1],
-            .po2expansion3 = directional_cascade_meshlet_expansions[3][0],
-            .masked_po2expansion3 = directional_cascade_meshlet_expansions[3][1],
-            .po2expansion4 = directional_cascade_meshlet_expansions[4][0],
-            .masked_po2expansion4 = directional_cascade_meshlet_expansions[4][1],
-            .po2expansion5 = directional_cascade_meshlet_expansions[5][0],
-            .masked_po2expansion5 = directional_cascade_meshlet_expansions[5][1],
-            .po2expansion6 = directional_cascade_meshlet_expansions[6][0],
-            .masked_po2expansion6 = directional_cascade_meshlet_expansions[6][1],
-            .po2expansion7 = directional_cascade_meshlet_expansions[7][0],
-            .masked_po2expansion7 = directional_cascade_meshlet_expansions[7][1],
-            .po2expansion8 = directional_cascade_meshlet_expansions[8][0],
-            .masked_po2expansion8 = directional_cascade_meshlet_expansions[8][1],
-            .po2expansion9 = directional_cascade_meshlet_expansions[9][0],
-            .masked_po2expansion9 = directional_cascade_meshlet_expansions[9][1],
-            .po2expansion10 = directional_cascade_meshlet_expansions[10][0],
-            .masked_po2expansion10 = directional_cascade_meshlet_expansions[10][1],
-            .po2expansion11 = directional_cascade_meshlet_expansions[11][0],
-            .masked_po2expansion11 = directional_cascade_meshlet_expansions[11][1],
-            .po2expansion12 = directional_cascade_meshlet_expansions[12][0],
-            .masked_po2expansion12 = directional_cascade_meshlet_expansions[12][1],
-            .po2expansion13 = directional_cascade_meshlet_expansions[13][0],
-            .masked_po2expansion13 = directional_cascade_meshlet_expansions[13][1],
-            .po2expansion14 = directional_cascade_meshlet_expansions[14][0],
-            .masked_po2expansion14 = directional_cascade_meshlet_expansions[14][1],
-            .po2expansion15 = directional_cascade_meshlet_expansions[15][0],
-            .masked_po2expansion15 = directional_cascade_meshlet_expansions[15][1],
+            .po2expansion = directional_cascade_meshlet_expansions[0],
+            .masked_po2expansion = directional_cascade_meshlet_expansions[1],
             .meshlet_instances = info.meshlet_instances,
             .mesh_instances = info.mesh_instances,
             .meshes = info.meshes,
@@ -1016,17 +878,6 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_page_table = vsm_page_table_view,
             .vsm_memory_block = info.vsm_state->memory_block,
             .vsm_overdraw_debug = info.vsm_state->overdraw_debug_image,
-        },
-        .render_context = info.render_context,
-    });
-
-    info.tg->clear_image({info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-    info.tg->add_task(DebugVirtualPageTableTask{
-        .views = DebugVirtualPageTableTask::Views{
-            .globals = info.render_context->tgpu_render_data,
-            .vsm_globals = info.vsm_state->globals,
-            .vsm_page_table = vsm_page_table_view,
-            .vsm_debug_page_table = info.render_context->gpu_context->shader_debug_context.vsm_debug_page_table,
         },
         .render_context = info.render_context,
     });
