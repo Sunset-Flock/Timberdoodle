@@ -130,7 +130,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
 
-        for(int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
+        for(int point_light_idx = 0; point_light_idx < mark_pages_push.globals.vsm_settings.point_light_count; ++point_light_idx)
         {
             const float2 screen_space_uv = float2(svdtid.xy) * mark_pages_push.globals.settings.render_target_size_inv;
 

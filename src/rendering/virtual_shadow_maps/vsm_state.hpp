@@ -44,7 +44,7 @@ struct VSMState
     std::array<VSMPointLight, MAX_POINT_LIGHTS> point_lights_cpu = {};
 
     VSMGlobals globals_cpu = {};
-    void update_vsm_lights(const std::vector<ActivePointLight> & active_lights) 
+    void update_vsm_lights(const std::vector<PointLight> & active_lights) 
     {
         // TODO(msakmary) Might be broken idk how cubemaps actually work
         constexpr std::array<f32vec3, 6> cubemap_dirs = {
@@ -64,8 +64,8 @@ struct VSMState
             f32vec3{ 0.0f,  1.0f,  0.0f},
         };
 
-        DBG_ASSERT_TRUE_M(active_lights.size() >= MAX_POINT_LIGHTS, "FIXME(msakmary)");
-        for(int point_light_idx = 0; point_light_idx < MAX_POINT_LIGHTS; ++point_light_idx)
+        DBG_ASSERT_TRUE_M(active_lights.size() <= MAX_POINT_LIGHTS, "FIXME(msakmary)");
+        for(int point_light_idx = 0; point_light_idx < active_lights.size(); ++point_light_idx)
         {
             auto & vsm_point_light = point_lights_cpu.at(point_light_idx);
             auto & active_light = active_lights.at(point_light_idx);

@@ -101,7 +101,7 @@ struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
         if(is_point_light)
         {
-            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 6, MAX_POINT_LIGHTS});
+            ti.recorder.dispatch(daxa::DispatchInfo{round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 6, render_context->render_data.vsm_settings.point_light_count});
         }
         else 
         {
