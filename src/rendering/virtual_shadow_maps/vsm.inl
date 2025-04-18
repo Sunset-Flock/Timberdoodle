@@ -39,7 +39,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transfo
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(FreeWrappedPagesH)
@@ -47,7 +47,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(MarkRequiredPagesH)
@@ -60,7 +60,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, g_buffer_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, g_buffer_geo_normal)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 #endif
@@ -88,7 +88,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_in
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 
@@ -247,7 +247,7 @@ DAXA_DECL_TASK_HEAD_END
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(DebugMetaMemoryTableH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, vsm_meta_memory_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
 DAXA_DECL_TASK_HEAD_END

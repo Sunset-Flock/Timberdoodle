@@ -59,7 +59,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         const uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(free_memory_page_coords) | allocated_mask();
 
         // Write this into the respective page table.
-        uint packed_meta_memory_page_entry = 0;
+        uint64_t packed_meta_memory_page_entry = 0;
         if(is_point_light)
         {
             const uint point_page_array_index = get_vsm_point_page_array_idx(request.coords.z, request.point_light_index);
@@ -82,7 +82,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
 
         // Write the packed coordinates of the virtual vsm page into the meta memory entry.
-        const uint alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
+        const uint64_t alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
         allocate_pages_push.vsm_meta_memory_table.get()[free_memory_page_coords] = alloc_packed_meta_memory_page_entry;
     }
     // If there are not enough free pages we need to free some cached pages and allocate into them instead.
@@ -90,7 +90,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
     {
         // Get meta information about the page owning the previous allocation.
         const int2 not_visited_memory_page_coords = allocate_pages_push.vsm_not_visited_pages_buffer[free_pages_shifted_index].coords;
-        const uint meta_entry = allocate_pages_push.vsm_meta_memory_table.get()[not_visited_memory_page_coords];
+        const uint64_t meta_entry = allocate_pages_push.vsm_meta_memory_table.get()[not_visited_memory_page_coords];
 
         const uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(not_visited_memory_page_coords) | allocated_mask();
 
@@ -108,7 +108,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             allocate_pages_push.vsm_page_table.get()[owning_vsm_coords] = 0u;
         }
 
-        uint packed_meta_memory_page_entry = 0;
+        uint64_t packed_meta_memory_page_entry = 0;
         if(is_point_light)
         {
 
@@ -131,7 +131,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
 
         // Write the packed coordinates of the virtual vsm page into the meta memory entry.
-        const uint alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
+        const uint64_t alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
         allocate_pages_push.vsm_meta_memory_table.get()[not_visited_memory_page_coords] = alloc_packed_meta_memory_page_entry;
     }
     // If we have no pages to free (ie we ran out of memory) mark this page as allocation failed.

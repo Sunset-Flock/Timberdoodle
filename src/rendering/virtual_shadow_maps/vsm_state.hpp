@@ -172,7 +172,7 @@ struct VSMState
                 .images = std::array{
                     gpu_context->device.create_image({
                         .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
-                        .format = daxa::Format::R32_UINT,
+                        .format = daxa::Format::R64_UINT,
                         .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
