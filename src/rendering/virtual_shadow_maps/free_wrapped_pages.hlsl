@@ -19,7 +19,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         ((clear_offset.y > 0) && (vsm_page_coords.y < clear_offset.y)) || 
         ((clear_offset.y < 0) && (vsm_page_coords.y > VSM_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1)));
 
-    const bool enable_caching = free_wrapped_pages_push.globals.vsm_settings.enable_caching != 0u;
+    const bool enable_caching = free_wrapped_pages_push.globals.vsm_settings.enable_directional_caching != 0u;
     const bool sun_moved = free_wrapped_pages_push.globals.vsm_settings.sun_moved != 0u;
 
     const int3 vsm_wrapped_page_coords = vsm_page_coords_to_wrapped_coords(vsm_page_coords, free_wrapped_pages_push.vsm_clip_projections);

@@ -47,10 +47,11 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
             {
                 const PointLightCoords coords = get_vsm_point_light_coords_from_meta_entry(meta_entry);
                 const uint point_page_array_index = get_vsm_point_page_array_idx(coords.face_index, coords.point_light_index);
-#if 0
-                push.vsm_point_page_table[coords.mip_level].get()[int3(coords.texel_coords, point_page_array_index)] = 0;
-                push.vsm_meta_memory_table.get()[svdtid.xy] = 0;
-#endif
+                if(push.globals.vsm_settings.enable_point_caching == 0)
+                {
+                    push.vsm_point_page_table[coords.mip_level].get()[int3(coords.texel_coords, point_page_array_index)] = 0;
+                    push.vsm_meta_memory_table.get()[svdtid.xy] = 0;
+                }
                 let entry = push.vsm_point_page_table[coords.mip_level].get()[int3(coords.texel_coords, point_page_array_index)];
                 let reset_entry = entry & (~dirty_mask());
                 push.vsm_point_page_table[coords.mip_level].get()[int3(coords.texel_coords, point_page_array_index)] = reset_entry;
