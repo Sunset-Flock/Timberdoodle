@@ -38,7 +38,7 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
     let push = debug_meta_page_push;
     if(all(lessThan(svdtid.xy, int2(VSM_META_MEMORY_TABLE_RESOLUTION))))
     {
-        const uint meta_entry = push.vsm_meta_memory_table.get()[svdtid.xy];
+        const uint64_t meta_entry = push.vsm_meta_memory_table.get()[svdtid.xy];
 
         float4 color = float4(0.0f, 0.0f, 0.0f, 1.0f);
         if (get_meta_memory_is_allocated(meta_entry))
@@ -78,7 +78,7 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
 
         if(get_meta_memory_is_visited(meta_entry))
         {
-            const uint is_visited_erased_entry = meta_entry & (~meta_memory_visited_mask());
+            const uint64_t is_visited_erased_entry = meta_entry & (~meta_memory_visited_mask());
             push.vsm_meta_memory_table.get()[svdtid.xy] = is_visited_erased_entry;
 
             if(get_meta_memory_is_point_light(meta_entry))

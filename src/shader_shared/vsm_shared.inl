@@ -33,7 +33,7 @@ static_assert(VSM_PAGE_TABLE_RESOLUTION <= 64, "VSM_PAGE_TABLE_RESOLUTION must b
 static_assert(VSM_PAGE_TABLE_RESOLUTION <= (1u << 7), "VSM_PAGE_TABLE_RESOLUTION must be less than 2^8 because of coord packing into meta memory");
 
 // TODO: Pack point light shit further so that we can fit more here
-static_assert(MAX_POINT_LIGHTS <= 32, "MAX_POINT_LIGHTS must be less than 32 because of packing into meta entry");
+static_assert(MAX_POINT_LIGHTS <= 32, "MAX_POINT_LIGHTS must be less than 128 because of packing into meta entry");
 static_assert(VSM_TEXTURE_RESOLUTION == 4096, "Point lights require this right now - need to adjust mip count");
 #endif //defined(__cplusplus)
 
