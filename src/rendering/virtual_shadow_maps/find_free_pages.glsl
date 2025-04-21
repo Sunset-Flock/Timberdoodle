@@ -1,3 +1,5 @@
+#define DAXA_IMAGE_INT64 1
+
 #include <daxa/daxa.inl>
 #include "shader_lib/vsm_util.glsl"
 #include "shader_shared/vsm_shared.inl"
@@ -14,7 +16,7 @@ struct BufferReserveInfo
 BufferReserveInfo count_pages_and_reserve_buffer_slots(
     bool count_free_pages,
     daxa_BufferPtr(FindFreePagesHeader) header,
-    uint meta_entry
+    uint64_t meta_entry
 )
 {
     bool condition;
@@ -98,7 +100,7 @@ void main()
         linear_thread_index / VSM_META_MEMORY_TABLE_RESOLUTION
     );
 
-    const uint meta_entry = imageLoad(daxa_uimage2D(push.vsm_meta_memory_table), thread_coords).r;
+    const uint64_t meta_entry = imageLoad(daxa_u64image2D(push.vsm_meta_memory_table), thread_coords).r;
 
     BufferReserveInfo info = count_pages_and_reserve_buffer_slots(true, push.vsm_find_free_pages_header, meta_entry);
     bool fits_into_reserved_slots = info.order < info.reserved_count;

@@ -18,10 +18,12 @@ auto load_camera_animation(std::filesystem::path const & path) -> std::vector<Ca
             };
             auto read_rotation = [&](auto const & rot_name, auto & dst)
             {
-                dst.x = segment[rot_name]["x"];
-                dst.y = segment[rot_name]["y"];
-                dst.z = segment[rot_name]["z"];
-                dst.z = segment[rot_name]["z"];
+                dst = {
+                    segment[rot_name]["x"],
+                    segment[rot_name]["y"],
+                    segment[rot_name]["z"],
+                    segment[rot_name]["w"]
+                };
             };
             auto & curr_keyframe = keyframes.emplace_back();
             read_rotation("rot", curr_keyframe.start_rotation);

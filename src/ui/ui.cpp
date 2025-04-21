@@ -991,7 +991,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
                 bool shadow_everything = s_cast<bool>(render_context.render_data.vsm_settings.shadow_everything);
                 bool force_clip_level = s_cast<bool>(render_context.render_data.vsm_settings.force_clip_level);
-                bool enable_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_caching);
+                bool enable_directional_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_directional_caching);
+                bool enable_point_caching = s_cast<bool>(render_context.render_data.vsm_settings.enable_point_caching);
                 ImGui::BeginChild("Checkboxes", ImVec2(0, ImGui::CalcTextSize("a").y * 6.0f));
                 {
                     ImGui::Text("Draw cascade frustum");
@@ -1008,8 +1009,9 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Enable VSM", &enable);
                 ImGui::Checkbox("Shadow everything", &shadow_everything);
                 ImGui::Checkbox("Force clip level", &force_clip_level);
-                ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, 0);
-                ImGui::Checkbox("Enable caching", &enable_caching);
+                ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, render_context.render_data.vsm_settings.point_light_count - 1);
+                ImGui::Checkbox("Enable directional caching", &enable_directional_caching);
+                ImGui::Checkbox("Enable point caching", &enable_point_caching);
                 auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
                 ImGui::Checkbox("Use fixed near far", &use_fixed_near_far);
                 render_context.render_data.vsm_settings.fixed_near_far = use_fixed_near_far;
@@ -1030,7 +1032,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 render_context.render_data.vsm_settings.shadow_everything = shadow_everything;
                 render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
                 render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
-                render_context.render_data.vsm_settings.enable_caching = enable_caching;
+                render_context.render_data.vsm_settings.enable_directional_caching = enable_directional_caching;
+                render_context.render_data.vsm_settings.enable_point_caching = enable_point_caching;
 
                 ImGui::Image(
                     imgui_renderer.create_texture_id({

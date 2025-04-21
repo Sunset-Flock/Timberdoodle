@@ -9,6 +9,7 @@
 #include <thread>
 #include <chrono>
 #include <ktx.h>
+#include <random>
 #include "../daxa_helper.hpp"
 
 #include "../shader_shared/raytracing.inl"
@@ -125,8 +126,8 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_texture_manifest_from_gltf(*this, info, load_ctx);
         update_material_manifest_from_gltf(*this, info, load_ctx);
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
-        root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
         update_lights_from_gltf(*this, info, load_ctx);
+        root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
             .gltf_asset = std::make_unique<fastgltf::Asset>(std::move(load_ctx.asset)),
@@ -147,7 +148,10 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 {
     auto file_path = info.root_path / info.asset_name;
 
-    fastgltf::Parser parser{fastgltf::Extensions::KHR_texture_basisu};
+    fastgltf::Parser parser{
+        fastgltf::Extensions::KHR_texture_basisu |
+        fastgltf::Extensions::KHR_lights_punctual
+    };
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -417,6 +421,18 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()) + load_ctx.mesh_group_manifest_offset) : std::optional<u32>(std::nullopt);
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
+
+        r_ent.light_index = std::optional<u32>(std::nullopt);
+
+        // TODO(msakmary) Hacky FIX!!
+        if (node.lightIndex.has_value())
+        {
+            if (load_ctx.asset.lights.at(node.lightIndex.value()).type == fastgltf::LightType::Point)
+            {
+                r_ent.light_index = node.lightIndex.value();
+            }
+        }
+
         if (node.meshIndex.has_value())
         {
             r_ent.type = EntityType::MESHGROUP;
@@ -448,97 +464,6 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
             {
                 RenderEntityId const next_r_ent_child_id = node_index_to_entity_id[node.children[curr_child_vec_idx + 1]];
                 curr_child_r_ent.next_sibling = next_r_ent_child_id;
-            }
-        }
-    }
-
-    bool const grid_copy_scene = false;
-    if (grid_copy_scene)
-    {
-        u32 const grid_size = 50;
-        f32 const grid_cell_offset_x = 20.0f;
-        f32 const grid_cell_offset_y = 5.0f;
-        f32 const grid_cell_offset_z = 5.0f;
-        for (u32 x = 0; x < grid_size; ++x)
-        {
-            for (u32 y = 0; y < grid_size; ++y)
-            {
-                for (u32 z = 0; z < grid_size; ++z)
-                {    
-                    std::vector<RenderEntityId> node_index_to_entity_id = {};
-                    for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
-                    {
-                        node_index_to_entity_id.push_back(scene._render_entities.create_slot());
-                        scene._dirty_render_entities.push_back(node_index_to_entity_id.back());
-                    }
-                    for (u32 node_index = 0; node_index < s_cast<u32>(load_ctx.asset.nodes.size()); node_index++)
-                    {
-                        // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
-                        auto fastgltf_to_glm_mat4x3_transform = [](std::variant<fastgltf::TRS, fastgltf::math::fmat4x4> const & trans) -> glm::mat4x3
-                        {
-                            glm::mat4x3 ret_trans;
-                            if (auto const * trs = std::get_if<fastgltf::TRS>(&trans))
-                            {
-                                auto const scale = glm::scale(glm::identity<glm::mat4x4>(), glm::vec3(trs->scale[0], trs->scale[1], trs->scale[2]));
-                                auto const rotation = glm::toMat4(glm::quat(trs->rotation[3], trs->rotation[0], trs->rotation[1], trs->rotation[2]));
-                                auto const translation = glm::translate(glm::identity<glm::mat4x4>(), glm::vec3(trs->translation[0], trs->translation[1], trs->translation[2]));
-                                auto const rotated_scaled = rotation * scale;
-                                auto const translated_rotated_scaled = translation * rotated_scaled;
-                                /// NOTE: As the last row is always (0,0,0,1) we dont store it.
-                                ret_trans = glm::mat4x3(translated_rotated_scaled);
-                            }
-                            else if (auto const * trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
-                            {
-                                // Gltf and glm matrices are column major.
-                                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(trs->data()));
-                            }
-                            return ret_trans;
-                        };
-
-                        fastgltf::Node const & node = load_ctx.asset.nodes[node_index];
-                        RenderEntityId const parent_r_ent_id = node_index_to_entity_id[node_index];
-                        RenderEntity & r_ent = *scene._render_entities.slot(parent_r_ent_id);
-                        r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(s_cast<u32>(node.meshIndex.value()) + load_ctx.mesh_group_manifest_offset) : std::optional<u32>(std::nullopt);
-                        r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
-                        r_ent.transform[3].x += x * grid_cell_offset_x;
-                        r_ent.transform[3].y += y * grid_cell_offset_y;
-                        r_ent.transform[3].z += z * grid_cell_offset_z;
-                        r_ent.name = node.name.c_str();
-                        if (node.meshIndex.has_value())
-                        {
-                            r_ent.type = EntityType::MESHGROUP;
-                        }
-                        else if (node.cameraIndex.has_value())
-                        {
-                            r_ent.type = EntityType::CAMERA;
-                        }
-                        else if (node.lightIndex.has_value())
-                        {
-                            r_ent.type = EntityType::LIGHT;
-                        }
-                        else if (!node.children.empty())
-                        {
-                            r_ent.type = EntityType::TRANSFORM;
-                        }
-                        if (!node.children.empty())
-                        {
-                            r_ent.first_child = node_index_to_entity_id[node.children[0]];
-                        }
-                        for (u32 curr_child_vec_idx = 0; curr_child_vec_idx < node.children.size(); curr_child_vec_idx++)
-                        {
-                            u32 const curr_child_node_idx = node.children[curr_child_vec_idx];
-                            RenderEntityId const curr_child_r_ent_id = node_index_to_entity_id[curr_child_node_idx];
-                            RenderEntity & curr_child_r_ent = *scene._render_entities.slot(curr_child_r_ent_id);
-                            curr_child_r_ent.parent = parent_r_ent_id;
-                            bool const has_next_sibling = curr_child_vec_idx < (node.children.size() - 1ull);
-                            if (has_next_sibling)
-                            {
-                                RenderEntityId const next_r_ent_child_id = node_index_to_entity_id[node.children[curr_child_vec_idx + 1]];
-                                curr_child_r_ent.next_sibling = next_r_ent_child_id;
-                            }
-                        }
-                    }
-                }
             }
         }
     }
@@ -581,29 +506,49 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 
 static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
-    // TODO(msakmary) Hook this into a scene, this sucks!
-    scene._active_point_lights.push_back({
-        .position = {-12.133f, 1.38f, 4.0f},
-        .color = {1.0f, 0.55f, 0.15f}, 
-        .intensity = 1.5f,
-        .constant_falloff = 0.0f,
-        .linear_falloff = 10.0f,
-        .quadratic_falloff = 5.0f,
-        .cutoff = 20.0f,
-        .point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value(),
-    });
+    const f32 LUMENS_PER_WATT = 683.0f;
+    // Defines the minimum energy of a light before cutoff.
+    // TODO(msakmary) hook this up to UI?
+    const f32 E_min = 1.0f;
 
-    auto const & light = scene._active_point_lights.back();
-    auto * const gpu_point_lights_write_ptr = scene._device.buffer_host_address_as<GPUPointLight>(scene._gpu_point_lights.get_state().buffers[0]).value();
-    gpu_point_lights_write_ptr[0] = GPUPointLight{
-        .position = std::bit_cast<daxa_f32vec3>(light.position),
-        .color = std::bit_cast<daxa_f32vec3>(light.color),
-        .intensity = light.intensity,
-        .constant_falloff = light.constant_falloff, 
-        .linear_falloff = light.linear_falloff,
-        .quadratic_falloff = light.quadratic_falloff, 
-        .cutoff = light.cutoff,
+    auto handle_point_light = [&](fastgltf::Light const & light) {
+        PointLight cpu_point_light = {};
+        cpu_point_light.position = f32vec3{0.0f, 0.0f, 0.0f}; // Filled/updated later when processing scene graph
+        cpu_point_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
+        // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
+        cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
+        // When the cutoff is not specified attempt to calculate one based on a minimum energy.
+        cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity/E_min));
+        cpu_point_light.point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (scene._point_lights.size() * sizeof(GPUPointLight));
+        scene._point_lights.push_back(cpu_point_light);
+
+        DBG_ASSERT_TRUE_M(scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
     };
+
+    for(i32 light_idx = 0; light_idx < load_ctx.asset.lights.size(); ++light_idx)
+    {
+        fastgltf::Light const & light = load_ctx.asset.lights.at(light_idx);
+        switch(light.type) 
+        {
+            case fastgltf::LightType::Point:
+            {
+                handle_point_light(light);
+                break;
+            }
+            case fastgltf::LightType::Spot:
+            {
+                // TODO(msakmary) add handing of spot lights.
+                break;
+            }
+            case fastgltf::LightType::Directional:
+            {
+                // TODO(msakmary) add handling of directional lights.
+                break;
+            }
+        }
+    }
+
+    DBG_ASSERT_TRUE_M(load_ctx.asset.lights.size() < MAX_POINT_LIGHTS, "The amount of lights is currently limited");
 }
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
@@ -1421,12 +1366,28 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
     // Populate GPUMeshInstances buffer from scratch, sort entities into draw lists.
     CPUMeshInstances ret = {};
 
+    auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.get_state().buffers[0]).value();
+
     u32 active_entity_offset = 0;
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
     {
         RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
         bool const is_entity_dirty = r_ent->dirty;
         r_ent->dirty = false;
+
+        // FIXME(msakmary) move this into manifest update I guess
+        if (r_ent != nullptr && r_ent->type == EntityType::LIGHT && r_ent->light_index.has_value()) 
+        {
+            PointLight & point_light = _point_lights.at(r_ent->light_index.value());
+            point_light.position = r_ent->combined_transform[3];
+
+            gpu_point_lights_write_ptr[r_ent->light_index.value()] = GPUPointLight{
+                .position = std::bit_cast<daxa_f32vec3>(point_light.position),
+                .color = std::bit_cast<daxa_f32vec3>(point_light.color),
+                .intensity = point_light.intensity,
+                .cutoff = point_light.cutoff,
+            };
+        }
 
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
         {
@@ -1459,11 +1420,6 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
 
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
-
-                    if (is_blend)
-                    {
-                        continue;
-                    }
                     
                     ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
 
