@@ -257,7 +257,7 @@ struct Settings
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
-          lod_acceptable_pixel_error{ 4.0f }
+          lod_acceptable_pixel_error{ 2.0f }
     {
     }
 #endif
