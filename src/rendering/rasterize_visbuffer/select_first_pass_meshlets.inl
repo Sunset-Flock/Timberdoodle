@@ -166,7 +166,15 @@ struct WriteFirstPassMeshletsAndBitfieldsTask : WriteFirstPassMeshletsAndBitfiel
         };
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","FIRST_PASS_SELECT_MESHLETS">());
-        ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(WriteFirstPassMeshletsAndBitfieldsH::AT.command)});
+        
+        if (render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0)
+        {
+            ti.recorder.dispatch_indirect({.indirect_buffer = ti.id(WriteFirstPassMeshletsAndBitfieldsH::AT.command)});
+        }
+        else
+        {
+            ti.recorder.dispatch({1,1,1});
+        }
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","FIRST_PASS_SELECT_MESHLETS">());
     }
 };
@@ -239,19 +247,16 @@ inline void task_select_first_pass_meshlets(SelectFirstPassMeshletsInfo info)
         .render_context = info.render_context,
     });
 
-    if (info.render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0)
-    {
-        info.tg.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
-            .views = WriteFirstPassMeshletsAndBitfieldsTask::Views{
-                .globals = info.render_context->tgpu_render_data,
-                .command = command_buffer,
-                .visible_meshlets_prev = info.visible_meshlets_prev,
-                .meshlet_instances_prev = info.meshlet_instances_last_frame,
-                .meshlet_instances = info.meshlet_instances,
-                .bitfield_arena = first_pass_meshlets_bitfield_arena,
-            },
-            .render_context = info.render_context,
-        });
-    }
+    info.tg.add_task(WriteFirstPassMeshletsAndBitfieldsTask{
+        .views = WriteFirstPassMeshletsAndBitfieldsTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .command = command_buffer,
+            .visible_meshlets_prev = info.visible_meshlets_prev,
+            .meshlet_instances_prev = info.meshlet_instances_last_frame,
+            .meshlet_instances = info.meshlet_instances,
+            .bitfield_arena = first_pass_meshlets_bitfield_arena,
+        },
+        .render_context = info.render_context,
+    });
 }
 #endif
