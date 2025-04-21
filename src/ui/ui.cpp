@@ -867,6 +867,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             auto modes = std::array{
                 "NONE",                        // DEBUG_DRAW_MODE_NONE
                 "OVERDRAW",                    // DEBUG_DRAW_MODE_OVERDRAW
+                "TRIANGLE_CONNECTIVITY",       // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
                 "TRIANGLE_INSTANCE_ID",        // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
                 "MESHLET_INSTANCE_ID",         // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
                 "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
