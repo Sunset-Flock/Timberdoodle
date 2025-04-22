@@ -189,14 +189,21 @@ void main()
 {    
     const uint count = deref(push.attach.visible_meshlets_prev).count; 
     const uint thread_index = gl_GlobalInvocationID.x;
+
+    if (thread_index == 0)
+    {
+        deref(deref(push.attach.globals).readback).sfpm_bitfield_arena_requested = push.attach.bitfield_arena.dynamic_offset;
+    }
+    
     if (thread_index >= count)
     {
         return;
     }
 
-    if (thread_index == 0)
+    
+    if (deref(push.attach.globals).settings.enable_visbuffer_two_pass_culling == false)
     {
-        deref(deref(push.attach.globals).readback).sfpm_bitfield_arena_requested = push.attach.bitfield_arena.dynamic_offset;
+        return;
     }
 
     const uint prev_frame_meshlet_idx = deref(push.attach.visible_meshlets_prev).meshlet_ids[thread_index];

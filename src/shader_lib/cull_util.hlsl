@@ -44,6 +44,10 @@ bool is_meshlet_drawn_in_first_pass(
         (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
     {
         const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + meshlet_inst.in_mesh_group_index;
+        if (mesh_instance_bitfield_offset_offset >= FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE)
+        {
+            return false;
+        }
         // Offset is valid, need to check if mesh instance offset is valid now.
         const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset];
         if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 

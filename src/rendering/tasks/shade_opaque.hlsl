@@ -736,6 +736,15 @@ void entry_main_cs(
                 }
                 break;
             }
+            case DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY:
+            {
+                uint3 indices = tri_geo.vertex_indices;
+                float3 color_x = hsv2rgb(float3(IdFloatScramble(indices.x), 1, 1));
+                float3 color_y = hsv2rgb(float3(IdFloatScramble(indices.y), 1, 1));
+                float3 color_z = hsv2rgb(float3(IdFloatScramble(indices.z), 1, 1));
+                output_value.rgb = (tri_geo.barycentrics.x * color_x + tri_geo.barycentrics.y * color_y + tri_geo.barycentrics.z * color_z) * ambient_occlusion;
+                break;
+            }
             case DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID:
             {
                 output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index), 1, 1)) * ambient_occlusion;

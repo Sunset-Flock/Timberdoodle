@@ -867,7 +867,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         return *err;
     }
     std::vector<glm::vec3> vert_positions = std::get<std::vector<glm::vec3>>(std::move(vertex_pos_result));
-    u32 const vertex_count = s_cast<u32>(vert_positions.size());
+    u32 vertex_count = s_cast<u32>(vert_positions.size());
 #pragma endregion
 
 /// NOTE: Load vertex UVs
@@ -920,8 +920,45 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         return *err;
     }
-    std::vector<glm::vec3> const vert_normals = std::get<std::vector<glm::vec3>>(std::move(vertex_normals_pos_result));
+    std::vector<glm::vec3> vert_normals = std::get<std::vector<glm::vec3>>(std::move(vertex_normals_pos_result));
     DBG_ASSERT_TRUE_M(vert_normals.size() == vert_positions.size(), "[AssetProcessor::load_mesh()] Mismatched position and uv count");
+#pragma endregion
+
+#pragma region REGENERATE INDEX BUFFER
+
+    {
+        // TODO: RESPECT UVS AND NORMALS!
+        std::vector<u32> remapping_table = {};
+        std::vector<glm::vec3> remapped_positions = {};
+        std::vector<glm::vec3> remapped_normals = {};
+        std::vector<glm::vec2> remapped_uvs = {};
+        std::vector<u32> remapped_index_buffer = {};
+        remapping_table.resize(vertex_count);
+        remapped_index_buffer.resize(lod0_index_buffer.size());
+
+        vertex_count = meshopt_generateVertexRemap(remapping_table.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), vert_positions.data(), vert_positions.size(), sizeof(glm::vec3));
+        remapped_positions.resize(vertex_count);
+        remapped_normals.resize(vertex_count);
+        if (has_uv) { 
+            remapped_uvs.resize(vertex_count);
+        }
+        
+        meshopt_remapIndexBuffer(remapped_index_buffer.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), remapping_table.data());
+        meshopt_remapVertexBuffer(remapped_positions.data(), &vert_positions[0].x, vert_positions.size(), sizeof(glm::vec3), remapping_table.data());
+        meshopt_remapVertexBuffer(remapped_normals.data(), &vert_normals[0].x, vert_normals.size(), sizeof(glm::vec3), remapping_table.data());
+        if (has_uv) { 
+            meshopt_remapVertexBuffer(remapped_uvs.data(), &vert_texcoord0[0].x, vert_texcoord0.size(), sizeof(glm::vec2), remapping_table.data());
+        }
+
+        vert_positions = remapped_positions;
+        vert_normals = remapped_normals;
+        if (has_uv)
+        {
+            vert_texcoord0 = remapped_uvs;
+        }
+        lod0_index_buffer = remapped_index_buffer;
+    }
+
 #pragma endregion
 
     /// NOTE: Generate meshlets:
@@ -1086,7 +1123,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         std::vector<glm::vec3>& optimized_vert_positions = remapped_vert_positions;
         std::vector<glm::vec3>& optimized_vert_normals = remapped_vert_normals;
         std::vector<glm::vec2>& optimized_vert_texcoord0 = remapped_vert_texcoord0;
-        u32 const vertex_count = unique_vertices;
+        u32 vertex_count = unique_vertices;
 #pragma endregion
 
 #pragma region MESHLET GENERATION

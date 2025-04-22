@@ -413,6 +413,9 @@ struct CullMeshletsComputeTask : CullMeshletsDrawVisbufferH::Task
                         .draw_list_section_index = opaque_draw_list_type,
                         .observer = false,
                     },
+                    .meshes = render_context->render_data.scene.meshes,
+                    .materials = render_context->render_data.scene.materials,
+                    .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
                 };
                 ti.recorder.push_constant(push);
                 ti.recorder.dispatch_indirect({
