@@ -56,13 +56,25 @@ DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, g_buffer_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, g_buffer_geo_normal)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
+
+struct MarkRequiredPagesAttachments
+{
+    DAXA_TH_BLOB(MarkRequiredPagesH, attachments);
+};
+DAXA_DECL_BUFFER_PTR(MarkRequiredPagesAttachments);
+
+struct MarkRequiredPagesPush
+{
+    daxa_BufferPtr(MarkRequiredPagesAttachments) attachments;
+};
 #endif
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(FindFreePagesH)
@@ -89,15 +101,26 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
+
+struct AllocatePagesAttachments
+{
+    DAXA_TH_BLOB(AllocatePagesH, attachments);
+};
+DAXA_DECL_BUFFER_PTR(AllocatePagesAttachments);
+
+struct AllocatePagesPush
+{
+    daxa_BufferPtr(AllocatePagesAttachments) attachments;
+};
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ClearPagesH)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 
 // TODO: Fix the hardcoded constant 8
@@ -116,8 +139,7 @@ struct GenDirtyBitHizPush
 // TODO: Fix the hardcoded constant 6
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenPointDirtyBitHizH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_point_page_table)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_point_spot_page_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0, 6)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip1, 5)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip2, 4)
@@ -176,7 +198,8 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), entity_combined_transfo
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 // Vsm Attachments:
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
 // Hpb Attachments:
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0)
@@ -216,7 +239,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
 DAXA_DECL_TASK_HEAD_END
 #endif
 
@@ -401,8 +424,12 @@ struct MarkRequiredPagesTask : MarkRequiredPagesH::Task
             (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
         };
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_mark_required_pages_pipeline_compile_info().name));
-        MarkRequiredPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+
+        auto alloc = ti.allocator->allocate(sizeof(MarkRequiredPagesH::AttachmentShaderBlob));
+        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(MarkRequiredPagesH::AttachmentShaderBlob));
+        MarkRequiredPagesPush push = { .attachments = alloc->device_address };
         ti.recorder.push_constant(push);
+
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "MARK_REQUIRED_PAGES">());
         ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "MARK_REQUIRED_PAGES">());
@@ -436,8 +463,12 @@ struct AllocatePagesTask : AllocatePagesH::Task
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
-        AllocatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+
+        auto alloc = ti.allocator->allocate(sizeof(AllocatePagesH::AttachmentShaderBlob));
+        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(AllocatePagesH::AttachmentShaderBlob));
+        AllocatePagesPush push = { .attachments = alloc->device_address };
         ti.recorder.push_constant(push);
+
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","ALLOCATE_PAGES">());
         ti.recorder.dispatch_indirect({
             .indirect_buffer = ti.id(AT.vsm_allocate_indirect),
@@ -484,7 +515,6 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
         ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
-        ti.recorder.dispatch({dispatch_x, dispatch_y, MAX_POINT_LIGHTS * 6 * 6});
     }
 };
 
@@ -503,8 +533,10 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
         *reinterpret_cast<GenPointDirtyBitHizH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
         GenPointDirtyBitHizPush push = {.attachments = attachment_alloc.device_address};
         ti.recorder.push_constant(push);
-        // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
-        ti.recorder.dispatch({dispatch_x, dispatch_y, render_context->render_data.vsm_settings.point_light_count * 6 * 6});
+        auto const dispatch_z = 
+            (render_context->render_data.vsm_settings.point_light_count * 6 * 6) + // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
+            (render_context->render_data.vsm_settings.spot_light_count * 6);       // MAX_SPOT_LIGHTS  * MIP_LEVELS
+        ti.recorder.dispatch({dispatch_x, dispatch_y, dispatch_z});
     }
 };
 
@@ -706,8 +738,13 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .base_array_layer = 0,
         .layer_count = VSM_CLIP_LEVELS,
     });
+
     info.tg->add_task(daxa::InlineTask::Transfer("vsm setup task")
-            .writes(info.vsm_state->clip_projections, info.vsm_state->free_wrapped_pages_info, info.vsm_state->globals, info.vsm_state->vsm_point_lights)
+            .writes(info.vsm_state->clip_projections)
+            .writes(info.vsm_state->free_wrapped_pages_info)
+            .writes(info.vsm_state->globals)
+            .writes(info.vsm_state->vsm_point_lights)
+            .writes(info.vsm_state->vsm_spot_lights)
             .executes(
                 [info](daxa::TaskInterface ti)
                 {
@@ -715,6 +752,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
                     allocate_fill_copy(ti, info.vsm_state->free_wrapped_pages_info_cpu, ti.get(info.vsm_state->free_wrapped_pages_info));
                     allocate_fill_copy(ti, info.vsm_state->globals_cpu, ti.get(info.vsm_state->globals));
                     allocate_fill_copy(ti, info.vsm_state->point_lights_cpu, ti.get(info.vsm_state->vsm_point_lights));
+                    allocate_fill_copy(ti, info.vsm_state->spot_lights_cpu, ti.get(info.vsm_state->vsm_spot_lights));
                 }));
 
     info.tg->add_task(InvalidatePagesTask{
@@ -742,12 +780,13 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
-    auto const vsm_point_page_table_view = info.vsm_state->point_page_tables.view().view({
+    auto const vsm_point_spot_page_table_view = info.vsm_state->point_spot_page_tables.view().view({
         .base_mip_level = 0,
         .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
-        .layer_count = 6 * MAX_POINT_LIGHTS,
+        .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
     });
+
     info.tg->add_task(MarkRequiredPagesTask{
         .views = MarkRequiredPagesTask::Views{
             .globals = info.render_context->tgpu_render_data,
@@ -755,12 +794,13 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_globals = info.vsm_state->globals,
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
+            .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
             .g_buffer_depth = info.g_buffer_depth,
             .g_buffer_geo_normal = info.g_buffer_geo_normal,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
             .vsm_page_table = vsm_page_table_view,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
-            .vsm_point_page_table = vsm_point_page_table_view,
+            .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
         },
         .render_context = info.render_context,
     });
@@ -792,7 +832,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_page_table = vsm_page_table_view,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
-            .vsm_point_page_table = vsm_point_page_table_view,
+            .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
         },
         .render_context = info.render_context,
     });
@@ -807,7 +847,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_clear_indirect = info.vsm_state->clear_indirect,
             .vsm_page_table = vsm_page_table_view,
             .vsm_memory_block = info.vsm_state->memory_block,
-            .vsm_point_page_table = vsm_point_page_table_view,
+            .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
         },
         .render_context = info.render_context,
     });
@@ -829,15 +869,14 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .base_mip_level = 0,
             .level_count = s_cast<u32>(6 - mip),
             .base_array_layer = 0,
-            .layer_count = 6 * MAX_POINT_LIGHTS,
+            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
         });
     }
 
     info.tg->add_task(GenPointDirtyBitHizTask{
         .views = std::array{
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.globals, info.render_context->tgpu_render_data),
-            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_point_lights, info.vsm_state->vsm_point_lights),
-            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_point_page_table, vsm_point_page_table_view),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_point_spot_page_table, vsm_point_spot_page_table_view),
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip0, hpb_mip_views.at(0)),
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip1, hpb_mip_views.at(1)),
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip2, hpb_mip_views.at(2)),
@@ -891,13 +930,14 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .cull_meshes = true,
             .vsm_hip = daxa::NullTaskImage,
             .vsm_point_hip = hpb_mip_views.at(mip),
-            .is_point_light = true,
+            .is_point_spot_light = true,
             .mip_level = mip,
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
+            .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
             .globals = info.render_context->tgpu_render_data,
             .mesh_instances = info.mesh_instances,
             .meshlet_expansions = point_meshlet_mip_expansion[mip],
-            .buffer_name_prefix = std::string("vsm point light ") + std::to_string(mip) + ' ',
+            .buffer_name_prefix = std::string("vsm point/spot light ") + std::to_string(mip) + ' ',
         });
     }
 
@@ -922,7 +962,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .entity_combined_transforms = info.entity_combined_transforms,
             .material_manifest = info.material_manifest,
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
-            .vsm_point_page_table = vsm_point_page_table_view,
+            .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
+            .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
             .vsm_memory_block = info.vsm_state->memory_block,
             .vsm_dirty_bit_hiz_mip0 = hpb_mip_views.at(0),
             .vsm_dirty_bit_hiz_mip1 = hpb_mip_views.at(1),
@@ -1133,9 +1174,9 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
 
     auto const & inverse_projection = info.state->globals_cpu.inverse_point_light_projection_matrix;
 
-    for (i32 cube_face = 4; cube_face < 5; ++cube_face)
+    for (i32 cube_face = 0; cube_face < 5; ++cube_face)
     {
-        auto const inverse_view = info.light->face_cameras[cube_face].inv_view;
+        auto const & inverse_view = info.light->face_cameras[cube_face].inv_view;
         ShaderDebugBoxDraw box_draw = {};
         box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
         box_draw.color = std::bit_cast<daxa_f32vec3>(hsv2rgb(glm::vec3(cube_face / 6.0f, 1.0f, 1.0f)));
@@ -1149,5 +1190,35 @@ inline void debug_draw_point_frusti(DebugDrawPointFrusiInfo const & info)
         }
         info.debug_context->box_draws.draw(box_draw);
     }
+}
+
+struct DebugDrawSpotFrustumInfo
+{
+    VSMSpotLight const * light;
+    VSMState const * state;
+    ShaderDebugDrawContext * debug_context;
+};
+
+inline void debug_draw_spot_frustum(DebugDrawSpotFrustumInfo const & info)
+{
+    static constexpr std::array offsets = {
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1),
+        glm::ivec2(-1, 1), glm::ivec2(-1, -1), glm::ivec2(1, -1), glm::ivec2(1, 1)};
+
+    auto const & inverse_projection = info.light->camera.inv_proj;
+    auto const & inverse_view = info.light->camera.inv_view;
+
+    ShaderDebugBoxDraw box_draw = {};
+    box_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+    box_draw.color = daxa_f32vec3{1.0f, 0.0f, 0.0f};
+    for (i32 vertex = 0; vertex < 8; vertex++)
+    {
+        auto const ndc_pos = glm::vec4(offsets[vertex], vertex < 4 ? 1.0f : 0.0001f, 1.0f);
+        auto const view_pos_unproj = inverse_projection * ndc_pos;
+        auto const view_pos = glm::vec3(view_pos_unproj.x, view_pos_unproj.y, view_pos_unproj.z) / view_pos_unproj.w;
+        auto const world_pos = inverse_view * glm::vec4(view_pos, 1.0f);
+        box_draw.vertices[vertex] = {world_pos.x, world_pos.y, world_pos.z};
+    }
+    info.debug_context->box_draws.draw(box_draw);
 }
 #endif //__cplusplus

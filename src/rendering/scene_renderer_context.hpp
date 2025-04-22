@@ -628,7 +628,8 @@ struct RenderContext
     RenderGlobalData render_data = {};
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
     i32 debug_frustum = {-1};
-    bool visualize_frustum = {};
+    bool visualize_point_frustum = {};
+    bool visualize_spot_frustum = {};
 
     daxa::BinarySemaphore lighting_phase_wait = {};
 

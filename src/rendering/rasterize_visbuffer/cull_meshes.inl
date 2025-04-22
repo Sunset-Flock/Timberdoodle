@@ -23,6 +23,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
 // TODO REMOVE, PUT IN VSM GLOBALS
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
 DAXA_DECL_TASK_HEAD_END
 
@@ -50,20 +51,20 @@ static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/
 
 inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
 
-    struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
+struct ExpandMeshesToMeshletsTask : ExpandMeshesToMeshletsH::Task
 {
     AttachmentViews views = {};
     RenderContext * render_context = {};
     bool cull_meshes = {};
     bool cull_against_last_frame = {};
     u32 render_time_index = ~0u;
-    bool is_point_light = {};
+    bool is_point_spot_light = {};
     bool is_directional_light = {};
     i32 mip_level = {};
 
     void callback(daxa::TaskInterface ti)
     {
-        DBG_ASSERT_TRUE_M(!(is_point_light && is_directional_light), "Cannot be both directional and point light");
+        DBG_ASSERT_TRUE_M(!(is_point_spot_light && is_directional_light), "Cannot be both directional and point light");
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
 
         auto alloc = ti.allocator->allocate(sizeof(ExpandMeshesToMeshletsAttachments));
@@ -83,10 +84,11 @@ inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/ren
         total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
 
         daxa::DispatchInfo dispatch_info = {round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1};
-        if(is_point_light)
+        if(is_point_spot_light)
         {
-            dispatch_info.y = 6; // Mip count
-            dispatch_info.z = render_context->render_data.vsm_settings.point_light_count;
+            dispatch_info.y = 
+                (render_context->render_data.vsm_settings.point_light_count * 6) + // 6 -> cube map face count
+                render_context->render_data.vsm_settings.spot_light_count;
         }
         else if (is_directional_light) 
         {
@@ -110,11 +112,12 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskImageView vsm_hip = daxa::NullTaskImage;
     // Used for VSM point page culling:
     daxa::TaskImageView vsm_point_hip = daxa::NullTaskImage;
-    bool is_point_light = false;
+    bool is_point_spot_light = false;
     bool is_directional_light = false;
     daxa::i32 mip_level = {-1};
     daxa::TaskBufferView vsm_clip_projections = daxa::NullTaskBuffer;
     daxa::TaskBufferView vsm_point_lights = daxa::NullTaskBuffer;
+    daxa::TaskBufferView vsm_spot_lights = daxa::NullTaskBuffer;
     daxa::TaskBufferView vsm_globals = daxa::NullTaskBuffer;
     daxa::TaskImageView hiz = daxa::NullTaskImage;
     daxa::TaskBufferView globals = {};
@@ -173,13 +176,14 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
             .masked_expansion = info.meshlet_expansions[1],
             .vsm_clip_projections = info.vsm_clip_projections,
             .vsm_point_lights = info.vsm_point_lights,
+            .vsm_spot_lights = info.vsm_spot_lights,
             .vsm_globals = info.vsm_globals,
         },
         .render_context = info.render_context,
         .cull_meshes = info.cull_meshes,
         .cull_against_last_frame = info.cull_against_last_frame,
         .render_time_index = info.render_time_index,
-        .is_point_light = info.is_point_light,
+        .is_point_spot_light = info.is_point_spot_light,
         .is_directional_light = info.is_directional_light,
         .mip_level = info.mip_level
     });

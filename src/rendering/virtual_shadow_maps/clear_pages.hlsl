@@ -19,13 +19,12 @@ void main(
 
     if(WaveGetLaneIndex() == 0)
     {
-        if(alloc_request.point_light_index != -1)
+        if(alloc_request.mip != -1)
         {
             // We are clearing a point light page.
-            const uint point_page_array_index = get_vsm_point_page_array_idx(alloc_request.coords.z, alloc_request.point_light_index);
-            vsm_page_entry = clear_push.vsm_point_page_table[alloc_request.point_light_mip].get()[uint3(alloc_request.coords.xy, point_page_array_index)];
+            vsm_page_entry = clear_push.vsm_point_spot_page_table[alloc_request.mip].get()[uint3(alloc_request.coords)];
             const uint vsm_page_entry_marked_dirty = vsm_page_entry | dirty_mask();
-            clear_push.vsm_point_page_table[alloc_request.point_light_mip].get()[uint3(alloc_request.coords.xy, point_page_array_index)] = vsm_page_entry_marked_dirty;
+            clear_push.vsm_point_spot_page_table[alloc_request.mip].get()[uint3(alloc_request.coords)] = vsm_page_entry_marked_dirty;
             clear_value = 0.0f;
         }
         else 

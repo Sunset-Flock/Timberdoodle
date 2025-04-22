@@ -9,7 +9,7 @@
 // #define VSM_TEXTURE_RESOLUTION 2048
 #define VSM_TEXTURE_RESOLUTION 4096
 // #define VSM_TEXTURE_RESOLUTION 8192
-#define VSM_MEMORY_RESOLUTION (8192)
+#define VSM_MEMORY_RESOLUTION (8192 * 2)
 #define VSM_PAGE_SIZE 64
 #define VSM_CLIP_LEVELS 16
 
@@ -24,17 +24,20 @@
 #define VSM_DEBUG_META_MEMORY_TABLE_SCALE 10
 #define VSM_DEBUG_META_MEMORY_TABLE_RESOLUTION (VSM_META_MEMORY_TABLE_RESOLUTION * VSM_DEBUG_META_MEMORY_TABLE_SCALE)
 
-// #define VSM_POINT_LIGHT_NEAR 0.001f
-#define VSM_POINT_LIGHT_NEAR 0.6f
+#define VSM_POINT_LIGHT_NEAR 0.001f
+// #define VSM_POINT_LIGHT_NEAR 0.6f
+
+#define VSM_SPOT_LIGHT_NEAR 0.001f
+#define VSM_SPOT_LIGHT_OFFSET (MAX_POINT_LIGHTS * 6)
 
 #define MAX_VSM_ALLOC_REQUESTS (512 * 512)
 #if defined(__cplusplus)
 static_assert(VSM_PAGE_TABLE_RESOLUTION <= 64, "VSM_PAGE_TABLE_RESOLUTION must be less than 64 or the dirty bit hiz must be extended");
 static_assert(VSM_PAGE_TABLE_RESOLUTION <= (1u << 7), "VSM_PAGE_TABLE_RESOLUTION must be less than 2^8 because of coord packing into meta memory");
 
-// TODO: Pack point light shit further so that we can fit more here
-static_assert(MAX_POINT_LIGHTS <= 32, "MAX_POINT_LIGHTS must be less than 128 because of packing into meta entry");
+static_assert((MAX_POINT_LIGHTS * 6 + MAX_SPOT_LIGHTS) <= 2048, "Total amount of array layers must be less than 2048 because of packing in cull meshes and HW limits");
 static_assert(VSM_TEXTURE_RESOLUTION == 4096, "Point lights require this right now - need to adjust mip count");
+
 #endif //defined(__cplusplus)
 
 struct VSMGlobals
@@ -60,9 +63,7 @@ struct AllocationRequest
     daxa_i32vec3 coords;
     // Is this page only being invalidated and requests redraw?
     daxa_u32 already_allocated;
-    // TODO(msakmary) pack those ? move them into separate alloc request? idk...
-    daxa_i32 point_light_index;
-    daxa_i32 point_light_mip;
+    daxa_i32 mip;
 };
 struct VSMAllocationRequestsHeader
 {
@@ -97,3 +98,10 @@ struct VSMPointLight
     daxa_BufferPtr(GPUPointLight) light;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(VSMPointLight, 8);
+
+struct VSMSpotLight
+{
+    CameraInfo camera;
+    daxa_BufferPtr(GPUSpotLight) light;
+};
+DAXA_DECL_BUFFER_PTR_ALIGN(VSMSpotLight, 8);

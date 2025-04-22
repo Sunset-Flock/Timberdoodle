@@ -860,14 +860,14 @@ bool get_vsm_directional_meshlet_instance_from_work_item(
     return valid_meshlet;
 }
 
-bool get_vsm_point_meshlet_instance_from_work_item(
+bool get_vsm_point_spot_meshlet_instance_from_work_item(
     bool prefix_sum_expansion,
     uint64_t expansion_buffer_ptr,
     MeshInstancesBufferHead * mesh_instances,
     GPUMesh * meshes,
     uint thread_index, 
     out MeshletInstance meshlet_instance,
-    out VSMPointIndirections indirections
+    out VSMPointSpotIndirections point_spot_indirections,
 )
 {
     DstItemInfo workitem;
@@ -884,8 +884,9 @@ bool get_vsm_point_meshlet_instance_from_work_item(
     }
     if (valid_meshlet)
     {
-        indirections = unpack_vsm_point_light_indirections(workitem.src_item_index);
-        MeshInstance mesh_instance = mesh_instances.instances[indirections.mesh_instance_index];
+        point_spot_indirections = unpack_vsm_point_spot_light_indirections(workitem.src_item_index);
+
+        MeshInstance mesh_instance = mesh_instances.instances[point_spot_indirections.mesh_instance_index];
         const uint mesh_index = mesh_instance.mesh_index;
         GPUMesh mesh = meshes[mesh_index];    
         if (mesh.mesh_buffer.value == 0) // Unloaded Mesh
@@ -897,7 +898,7 @@ bool get_vsm_point_meshlet_instance_from_work_item(
         meshlet_instance.material_index = mesh.material_index;
         meshlet_instance.mesh_index = mesh_index;
         meshlet_instance.meshlet_index = workitem.in_expansion_index;
-        meshlet_instance.mesh_instance_index = indirections.mesh_instance_index;
+        meshlet_instance.mesh_instance_index = point_spot_indirections.mesh_instance_index;
     }
     return valid_meshlet;
 }

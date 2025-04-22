@@ -1010,6 +1010,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Shadow everything", &shadow_everything);
                 ImGui::Checkbox("Force clip level", &force_clip_level);
                 ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, render_context.render_data.vsm_settings.point_light_count - 1);
+                ImGui::SliderInt("Vis spot light idx", &render_context.render_data.vsm_settings.force_spot_light_idx, -1, render_context.render_data.vsm_settings.spot_light_count - 1);
                 ImGui::Checkbox("Enable directional caching", &enable_directional_caching);
                 ImGui::Checkbox("Enable point caching", &enable_point_caching);
                 auto use_fixed_near_far = s_cast<bool>(render_context.render_data.vsm_settings.fixed_near_far);
@@ -1025,7 +1026,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::EndDisabled();
 
                 ImGui::InputInt("Debug cubemap face", &render_context.debug_frustum);
-                ImGui::Checkbox("Visualize point frustum", &render_context.visualize_frustum);
+                ImGui::Checkbox("Visualize point frustum", &render_context.visualize_point_frustum);
+                ImGui::Checkbox("Visualize spot frustum", &render_context.visualize_spot_frustum);
                 render_context.debug_frustum = glm::clamp(render_context.debug_frustum, -1, 5);
 
                 render_context.render_data.vsm_settings.enable = enable;

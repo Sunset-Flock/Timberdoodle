@@ -120,6 +120,17 @@ struct PointLight
     daxa_BufferPtr(GPUPointLight) point_light_ptr;
 };
 
+struct SpotLight
+{
+    f32mat4x3 transform;
+    f32vec3 color;
+    f32 intensity;
+    f32 cutoff;
+    f32 inner_cone_angle;
+    f32 outer_cone_angle;
+    daxa_BufferPtr(GPUSpotLight) spot_light_ptr;
+};
+
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
@@ -130,7 +141,8 @@ enum struct EntityType
 {
     ROOT,
     TRANSFORM,
-    LIGHT,
+    POINT_LIGHT,
+    SPOT_LIGHT,
     CAMERA,
     MESHGROUP,
     UNKNOWN
@@ -194,6 +206,8 @@ struct Scene
     daxa::TaskBuffer _gpu_entity_parents = {};
     daxa::TaskBuffer _gpu_entity_mesh_groups = {};
     daxa::TaskBuffer _gpu_point_lights = {};
+    daxa::TaskBuffer _gpu_spot_lights = {};
+
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
     std::vector<u32> dirty_material_entry_indices = {};
@@ -238,6 +252,7 @@ struct Scene
     std::vector<u32> _mesh_lod_group_manifest_indices = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
     std::vector<PointLight> _point_lights = {};
+    std::vector<SpotLight> _spot_lights = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
     u32 _new_mesh_lod_group_manifest_entries = {};

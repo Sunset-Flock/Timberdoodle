@@ -8,6 +8,7 @@
 #define MAX_ENTITIES (1u << 20u)
 #define MAX_MATERIALS (1u << 16u)
 #define MAX_POINT_LIGHTS 32
+#define MAX_SPOT_LIGHTS 32
 #define MAX_MESH_LOD_GROUPS 10000
 #define MAX_MESHES_PER_LOD_GROUP 16
 #define MAX_MESHES (MAX_MESH_LOD_GROUPS * MAX_MESHES_PER_LOD_GROUP)
@@ -143,7 +144,9 @@ struct VSMSettings
     daxa_i32 fixed_near_far;
     daxa_u32 sun_moved;
     daxa_i32 force_point_light_idx;
+    daxa_i32 force_spot_light_idx;
     daxa_u32 point_light_count;
+    daxa_u32 spot_light_count;
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },
@@ -158,7 +161,9 @@ struct VSMSettings
           constant_bias{10.0f},
           fixed_near_far{1},
           force_point_light_idx{-1},
-          point_light_count{0u}
+          force_spot_light_idx{-1},
+          point_light_count{0u},
+          spot_light_count{0u}
     {
     }
 #endif

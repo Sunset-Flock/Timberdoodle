@@ -510,11 +510,11 @@ bool is_mesh_occluded_vsm(
     return page_opacity_cull;
 }
 
-bool is_mesh_occluded_point_vsm(
+bool is_mesh_occluded_point_spot_vsm(
     CameraInfo camera,
     MeshInstance mesh_instance,
     GPUMesh mesh,
-    daxa_BufferPtr(GPUPointLight) point_light,
+    daxa_f32 cutoff,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
     daxa_ImageViewId hiz,
@@ -523,6 +523,7 @@ bool is_mesh_occluded_point_vsm(
     daxa_BufferPtr(RenderGlobalData) globals,
 )
 {
+    return false;
     if (mesh.mesh_buffer.value == 0)
     {
         return true;
@@ -532,7 +533,7 @@ bool is_mesh_occluded_point_vsm(
 
     BoundingSphere model_bounding_sphere = mesh.bounding_sphere;
     BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
-    if(length(ws_bs.center - point_light->position) - ws_bs.radius > point_light.cutoff)
+    if(length(ws_bs.center - camera.position) - ws_bs.radius > cutoff)
     {
         return true;
     }
@@ -623,12 +624,12 @@ bool is_meshlet_occluded_vsm(
     return page_opacity_cull;
 }
 
-bool is_meshlet_occluded_point_vsm(
+bool is_meshlet_occluded_point_spot_vsm(
     const CameraInfo camera,
     const MeshletInstance meshlet_instance,
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms,
     daxa_BufferPtr(GPUMesh) meshes,
-    daxa_BufferPtr(GPUPointLight) point_light,
+    daxa_f32 cutoff,
     daxa_ImageViewId hiz,
     daxa_u32 point_array_index,
     daxa_f32vec2 hiz_base_resolution,
@@ -648,7 +649,7 @@ bool is_meshlet_occluded_point_vsm(
 
     BoundingSphere model_bounding_sphere = deref_i(mesh_data.meshlet_bounds, meshlet_instance.meshlet_index);
     BoundingSphere ws_bs = calculate_meshlet_ws_bounding_sphere(model_matrix, model_bounding_sphere);
-    if(length(ws_bs.center - point_light->position) - ws_bs.radius > point_light.cutoff)
+    if(length(ws_bs.center - camera.position) - ws_bs.radius > cutoff)
     {
         return true;
     }

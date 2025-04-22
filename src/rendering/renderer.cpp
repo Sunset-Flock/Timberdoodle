@@ -562,13 +562,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_buffer(scene->_scene_as_indirections);
     tg.use_persistent_buffer(scene->mesh_instances_buffer);
     tg.use_persistent_buffer(scene->_gpu_point_lights);
+    tg.use_persistent_buffer(scene->_gpu_spot_lights);
     tg.use_persistent_buffer(render_context->tgpu_render_data);
     tg.use_persistent_buffer(vsm_state.globals);
     tg.use_persistent_image(vsm_state.memory_block);
     tg.use_persistent_image(vsm_state.meta_memory_table);
     tg.use_persistent_image(vsm_state.page_table);
     tg.use_persistent_image(vsm_state.page_view_pos_row);
-    tg.use_persistent_image(vsm_state.point_page_tables);
+    tg.use_persistent_image(vsm_state.point_spot_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
@@ -726,7 +727,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     else
     {
-        vsm_state.zero_out_transient_state(tg, render_context->render_data);
+        vsm_state.zero_out_transient_state();
     }
 
     auto color_image = tg.create_transient_image({
@@ -857,11 +858,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         }
         auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const vsm_point_page_table_view = vsm_state.point_page_tables.view().view({
+        auto const vsm_point_spot_page_table_view = vsm_state.point_spot_page_tables.view().view({
             .base_mip_level = 0,
             .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
             .base_array_layer = 0,
-            .layer_count = 6 * MAX_POINT_LIGHTS,
+            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
         });
         tg.add_task(ShadeOpaqueTask{
             .views = ShadeOpaqueTask::Views{
@@ -881,7 +882,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .vsm_page_view_pos_row = vsm_page_heigh_offsets_view,
                 .vsm_memory_block = vsm_state.memory_block,
                 .overdraw_image = overdraw_image,
-                .vsm_point_page_table = vsm_point_page_table_view,
+                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
                 .material_manifest = scene->_gpu_material_manifest,
                 .instantiated_meshlets = meshlet_instances,
                 .meshes = scene->_gpu_mesh_manifest,
@@ -890,8 +891,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .vsm_clip_projections = vsm_state.clip_projections,
                 .vsm_globals = vsm_state.globals,
                 .vsm_point_lights = vsm_state.vsm_point_lights,
+                .vsm_spot_lights = vsm_state.vsm_spot_lights,
                 .vsm_wrapped_pages = vsm_state.free_wrapped_pages_info,
                 .point_lights = scene->_gpu_point_lights,
+                .spot_lights = scene->_gpu_spot_lights,
                 .mesh_instances = scene->mesh_instances_buffer,
                 .pgi_radiance = pgi_radiance,
                 .pgi_visibility = pgi_visibility,
@@ -920,7 +923,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
                 daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, vsm_state.meta_memory_table),
                 daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_page_table, vsm_point_page_table_view),
+                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_spot_page_table, vsm_point_spot_page_table_view),
             },
             .render_context = render_context.get(),
         });
@@ -1015,7 +1018,8 @@ auto Renderer::prepare_frame(
         return false;
     }
 
-    render_context->render_data.vsm_settings.point_light_count = scene->_point_lights.size();
+    render_context->render_data.vsm_settings.point_light_count = s_cast<u32>(scene->_point_lights.size());
+    render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(scene->_spot_lights.size());
 
     // Calculate frame relevant values.
     u32 const flight_frame_index = gpu_context->swapchain.current_cpu_timeline_value() % (gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
@@ -1068,7 +1072,6 @@ auto Renderer::prepare_frame(
             }
         }
 
-        vsm_state.update_vsm_lights(scene->_point_lights);
         CameraInfo real_camera_info = camera_info;
         if(render_context->debug_frustum >= 0) {
             real_camera_info = vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)).face_cameras[render_context->debug_frustum];
@@ -1201,11 +1204,21 @@ auto Renderer::prepare_frame(
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
-    vsm_state.update_vsm_lights(scene->_point_lights);
-    if (render_context->visualize_frustum)
+    vsm_state.update_vsm_lights(scene->_point_lights, scene->_spot_lights);
+
+    if (render_context->visualize_point_frustum)
     {
         debug_draw_point_frusti(DebugDrawPointFrusiInfo{
             .light = &vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)),
+            .state = &vsm_state,
+            .debug_context = &gpu_context->shader_debug_context,
+        });
+    }
+
+    if (render_context->visualize_spot_frustum)
+    {
+        debug_draw_spot_frustum(DebugDrawSpotFrustumInfo{
+            .light = &vsm_state.spot_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_spot_light_idx, 0)),
             .state = &vsm_state,
             .debug_context = &gpu_context->shader_debug_context,
         });

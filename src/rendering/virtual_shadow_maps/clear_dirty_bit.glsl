@@ -10,7 +10,7 @@ void main()
     const int id = daxa_i32((gl_GlobalInvocationID.z * CLEAR_DIRTY_BIT_X_DISPATCH) + gl_LocalInvocationID.x);
     if(id >= deref(push.vsm_allocation_requests).counter) { return; }
 
-    const bool is_point_light_alloc_request = deref(push.vsm_allocation_requests).requests[id].point_light_index != -1;
+    const bool is_point_light_alloc_request = deref(push.vsm_allocation_requests).requests[id].mip != -1;
     // TODO: point lights
     if(! is_point_light_alloc_request)
     {

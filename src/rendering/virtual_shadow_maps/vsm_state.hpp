@@ -18,10 +18,11 @@ struct VSMState
     daxa::TaskImage meta_memory_table = {};
     daxa::TaskImage page_table = {};
     daxa::TaskImage page_view_pos_row = {};
-    daxa::TaskImage point_page_tables = {};
+    daxa::TaskImage point_spot_page_tables = {};
 
     // Transient state
     daxa::TaskBufferView vsm_point_lights = {};
+    daxa::TaskBufferView vsm_spot_lights = {};
     daxa::TaskBufferView allocation_requests = {};
     daxa::TaskBufferView free_wrapped_pages_info = {};
     daxa::TaskBufferView free_page_buffer = {};
@@ -42,11 +43,11 @@ struct VSMState
     std::array<FreeWrappedPagesInfo, VSM_CLIP_LEVELS> free_wrapped_pages_info_cpu = {};
     std::array<i32vec2, VSM_CLIP_LEVELS> last_frame_offsets = {};
     std::array<VSMPointLight, MAX_POINT_LIGHTS> point_lights_cpu = {};
+    std::array<VSMSpotLight, MAX_SPOT_LIGHTS> spot_lights_cpu = {};
 
     VSMGlobals globals_cpu = {};
-    void update_vsm_lights(std::vector<PointLight> const & active_lights)
+    void update_vsm_lights(std::vector<PointLight> const & active_point_lights, std::vector<SpotLight> const & active_spot_lights)
     {
-        // TODO(msakmary) Might be broken idk how cubemaps actually work
         constexpr std::array<f32vec3, 6> cubemap_dirs = {
             f32vec3{1.0f, 0.0f, 0.0f},
             f32vec3{-1.0f, 0.0f, 0.0f},
@@ -64,11 +65,12 @@ struct VSMState
             f32vec3{0.0f, 1.0f, 0.0f},
         };
 
-        DBG_ASSERT_TRUE_M(active_lights.size() <= MAX_POINT_LIGHTS, "FIXME(msakmary)");
-        for (int point_light_idx = 0; point_light_idx < active_lights.size(); ++point_light_idx)
+        // ================ POINT LIGHTS ==========================================================
+        DBG_ASSERT_TRUE_M(active_point_lights.size() <= MAX_POINT_LIGHTS, "FIXME(msakmary)");
+        for (int point_light_idx = 0; point_light_idx < active_point_lights.size(); ++point_light_idx)
         {
             auto & vsm_point_light = point_lights_cpu.at(point_light_idx);
-            auto & active_light = active_lights.at(point_light_idx);
+            auto & active_light = active_point_lights.at(point_light_idx);
             vsm_point_light.light = active_light.point_light_ptr;
 
             for (i32 i = 0; i < 6; ++i)
@@ -117,6 +119,82 @@ struct VSMState
                 };
                 current_camera.near_plane = VSM_POINT_LIGHT_NEAR;
             }
+        }
+
+        // ================ SPOT LIGHTS ==========================================================
+        DBG_ASSERT_TRUE_M(active_spot_lights.size() <= MAX_SPOT_LIGHTS, "FIXME(msakmary)");
+        for (int spot_light_idx = 0; spot_light_idx < active_spot_lights.size(); ++spot_light_idx)
+        {
+            auto & vsm_spot_light = spot_lights_cpu.at(spot_light_idx);
+            auto & active_light = active_spot_lights.at(spot_light_idx);
+            vsm_spot_light.light = active_light.spot_light_ptr;
+
+            auto & current_camera = vsm_spot_light.camera;
+
+            auto inf_depth_reverse_z_perspective = [](auto fov_rads, auto aspect, auto zNear)
+            {
+                assert(abs(aspect - std::numeric_limits<f32>::epsilon()) > 0.0f);
+
+                f32 const tanHalfFovy = 1.0f / std::tan(fov_rads * 0.5f);
+
+                glm::mat4x4 ret(0.0f);
+                ret[0][0] = tanHalfFovy / aspect;
+                ret[1][1] = -tanHalfFovy;
+                ret[2][2] = 0.0f;
+                ret[2][3] = -1.0f;
+                ret[3][2] = zNear;
+                return ret;
+            };
+
+            // Outer and inner angles represent the angle from the direction vector (the half angle).
+            current_camera.proj = inf_depth_reverse_z_perspective(active_light.outer_cone_angle * 2.0f, 1.0f, VSM_SPOT_LIGHT_NEAR);
+            current_camera.inv_proj = glm::inverse(current_camera.proj);
+
+            glm::mat4 transform4 = glm::mat4(
+                glm::vec4(active_light.transform[0], 0.0f),
+                glm::vec4(active_light.transform[1], 0.0f),
+                glm::vec4(active_light.transform[2], 0.0f),
+                glm::vec4(active_light.transform[3], 1.0f));
+            f32vec3 const spot_direction = transform4 * f32vec4(0.0f, 0.0f, -1.0f, 0.0f);
+            current_camera.view = glm::lookAt(active_light.transform[3], active_light.transform[3] + spot_direction, f32vec3(0.0f, 0.0f, 1.0f));
+            current_camera.inv_view = glm::inverse(current_camera.view);
+            current_camera.view_proj = current_camera.proj * current_camera.view;
+            current_camera.inv_view_proj = glm::inverse(current_camera.view_proj);
+            current_camera.position = active_light.transform[3];
+            current_camera.up = f32vec3(0.0f, 0.0f, 1.0f);
+
+            glm::vec3 ws_ndc_corners[2][2][2];
+            for (u32 z = 0; z < 2; ++z)
+            {
+                for (u32 y = 0; y < 2; ++y)
+                {
+                    for (u32 x = 0; x < 2; ++x)
+                    {
+                        glm::vec3 corner = glm::vec3((glm::vec2(x, y) - 0.5f) * 2.0f, 1.0f - z * 0.5f);
+                        glm::vec4 proj_corner = current_camera.inv_view_proj * glm::vec4(corner, 1);
+                        ws_ndc_corners[x][y][z] = glm::vec3(proj_corner) / proj_corner.w;
+                    }
+                }
+            }
+            current_camera.is_orthogonal = 0u;
+            current_camera.orthogonal_half_ws_width = 0.0f;
+            current_camera.near_plane_normal = glm::normalize(
+                glm::cross(ws_ndc_corners[0][1][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0]));
+            current_camera.right_plane_normal = glm::normalize(
+                glm::cross(ws_ndc_corners[1][1][0] - ws_ndc_corners[1][0][0], ws_ndc_corners[1][0][1] - ws_ndc_corners[1][0][0]));
+            current_camera.left_plane_normal = glm::normalize(
+                glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][0][1], ws_ndc_corners[0][0][0] - ws_ndc_corners[0][0][1]));
+            current_camera.top_plane_normal = glm::normalize(
+                glm::cross(ws_ndc_corners[1][0][0] - ws_ndc_corners[0][0][0], ws_ndc_corners[0][0][1] - ws_ndc_corners[0][0][0]));
+            current_camera.bottom_plane_normal = glm::normalize(
+                glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
+
+            current_camera.screen_size = { VSM_TEXTURE_RESOLUTION, VSM_TEXTURE_RESOLUTION };
+            current_camera.inv_screen_size = {
+                1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
+                1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
+            };
+            current_camera.near_plane = VSM_SPOT_LIGHT_NEAR;
         }
     }
 
@@ -221,26 +299,29 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
-        daxa::ImageId page_image_id{};
-
         const u32 mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
-        page_image_id = gpu_context->device.create_image({
-            .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
-            .format = daxa::Format::R32_UINT,
-            .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
-            .mip_level_count = mip_levels,
-            .array_layer_count = 6 * MAX_POINT_LIGHTS,
-            .usage = 
-                daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                daxa::ImageUsageFlagBits::TRANSFER_DST,
-            .name = fmt::format("vsm point table phys image")
-        });
+        // Point lights.
+        {
+            daxa::ImageId page_image_id{};
 
-        point_page_tables = daxa::TaskImage({
-            .initial_images = { .images = std::array{page_image_id} },
-            .name = "vsm point tables"
-        });
+            page_image_id = gpu_context->device.create_image({
+                .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
+                .format = daxa::Format::R32_UINT,
+                .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                .mip_level_count = mip_levels,
+                .array_layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
+                .usage = 
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = fmt::format("vsm point spot table phys image")
+            });
+
+            point_spot_page_tables = daxa::TaskImage({
+                .initial_images = { .images = std::array{page_image_id} },
+                .name = "vsm point spot tables"
+            });
+        }
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = gpu_context->device,
@@ -248,30 +329,22 @@ struct VSMState
         });
         upload_task_graph.use_persistent_image(page_table);
         upload_task_graph.use_persistent_image(meta_memory_table);
-        upload_task_graph.use_persistent_image(point_page_tables);
+        upload_task_graph.use_persistent_image(point_spot_page_tables);
 
         auto const page_table_array_view = page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const point_table_array_view = point_page_tables.view().view({
+        auto const point_spot_table_array_view = point_spot_page_tables.view().view({
             .base_mip_level = 0,
             .level_count = mip_levels,
             .base_array_layer = 0,
-            .layer_count = 6 * MAX_POINT_LIGHTS
+            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
         });
 
         upload_task_graph.add_task(daxa::InlineTask{"Upload VSM Constants"}
-                .tf.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_table_array_view)
+                .tf.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_spot_table_array_view)
                 .tf.writes(meta_memory_table)
                 .executes(
                     [&](daxa::TaskInterface ti)
                     {
-                        ti.recorder.clear_image({
-                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .dst_image = ti.id(page_table_array_view),
-                            .dst_slice = daxa::ImageMipArraySlice{
-                                .base_array_layer = 0,
-                                .layer_count = VSM_CLIP_LEVELS},
-                        });
-
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
                             .dst_image = ti.id(meta_memory_table.view()),
@@ -279,13 +352,14 @@ struct VSMState
 
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .dst_image = ti.get(point_table_array_view).ids[0],
-                            .dst_slice = daxa::ImageMipArraySlice{
-                                .base_mip_level = 0,
-                                .level_count = mip_levels,
-                                .base_array_layer = 0,
-                                .layer_count = 6 * MAX_POINT_LIGHTS,
-                            },
+                            .dst_image = ti.id(page_table_array_view),
+                            .dst_slice = ti.get(page_table_array_view).view.slice,
+                        });
+
+                        ti.recorder.clear_image({
+                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
+                            .dst_image = ti.get(point_spot_table_array_view).ids[0],
+                            .dst_slice = ti.get(point_spot_table_array_view).view.slice,
                         });
                     }
                 )
@@ -302,7 +376,7 @@ struct VSMState
         gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_table.get_state().images[0]);
         gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
-        gpu_context->device.destroy_image(point_page_tables.get_state().images[0]);
+        gpu_context->device.destroy_image(point_spot_page_tables.get_state().images[0]);
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
@@ -357,6 +431,11 @@ struct VSMState
             .name = "vsm point light infos",
         });
 
+        vsm_spot_lights = tg.create_transient_buffer({
+            .size = static_cast<daxa_u32>(sizeof(VSMSpotLight) * MAX_SPOT_LIGHTS),
+            .name = "vsm spot light infos",
+        });
+
         auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};
 
         dirty_pages_hiz = tg.create_transient_image({
@@ -376,7 +455,7 @@ struct VSMState
                 .format = daxa::Format::R8_UINT,
                 .size = daxa::Extent3D{base_resolution, base_resolution, 1},
                 .mip_level_count = s_cast<u32>(std::log2(base_resolution) + 1),
-                .array_layer_count = MAX_POINT_LIGHTS * 6,
+                .array_layer_count = (MAX_POINT_LIGHTS * 6) + MAX_SPOT_LIGHTS,
                 .name = fmt::format("vsm dirty hiz mip {}", mip)
             });
         }
@@ -396,7 +475,7 @@ struct VSMState
         tg.clear_buffer({.buffer = find_free_pages_header, .clear_value = 0});
     }
 
-    void zero_out_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
+    void zero_out_transient_state()
     {
         free_wrapped_pages_info = daxa::NullTaskBuffer;
         allocation_requests = daxa::NullTaskBuffer;
@@ -408,6 +487,7 @@ struct VSMState
         clear_indirect = daxa::NullTaskBuffer;
         clear_dirty_bit_indirect = daxa::NullTaskBuffer;
         vsm_point_lights = daxa::NullTaskBuffer;
+        vsm_spot_lights = daxa::NullTaskBuffer;
         dirty_pages_hiz = daxa::NullTaskImage;
         overdraw_debug_image = daxa::NullTaskImage;
     }

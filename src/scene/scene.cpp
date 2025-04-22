@@ -31,6 +31,7 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_group_manifest = tido::make_task_buffer(_device, sizeof(GPUMeshGroup) * MAX_MESH_LOD_GROUPS, "_gpu_mesh_group_manifest");
     _gpu_material_manifest = tido::make_task_buffer(_device, sizeof(GPUMaterial) * MAX_MATERIALS, "_gpu_material_manifest");
     _gpu_point_lights = tido::make_task_buffer(_device, sizeof(GPUPointLight) * MAX_POINT_LIGHTS, "_gpu_point_lights", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
+    _gpu_spot_lights = tido::make_task_buffer(_device, sizeof(GPUSpotLight) * MAX_SPOT_LIGHTS, "_gpu_spot_lights", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
     _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
     _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
@@ -111,7 +112,6 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context) -> RenderEntityId;
-static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context);
 
 auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {
@@ -126,7 +126,6 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
         update_texture_manifest_from_gltf(*this, info, load_ctx);
         update_material_manifest_from_gltf(*this, info, load_ctx);
         update_meshgroup_and_mesh_manifest_from_gltf(*this, info, load_ctx);
-        update_lights_from_gltf(*this, info, load_ctx);
         root_r_ent_id = update_entities_from_gltf(*this, info, load_ctx);
         _gltf_asset_manifest.push_back(GltfAssetManifestEntry{
             .path = load_ctx.file_path,
@@ -380,6 +379,66 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
     }
 }
 
+static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
+{
+    const f32 LUMENS_PER_WATT = 683.0f;
+    // Defines the minimum energy of a light before cutoff.
+    // TODO(msakmary) hook this up to UI?
+    const f32 E_min = 1.0f;
+
+    auto handle_point_light = [&](fastgltf::Light const & light) {
+        DBG_ASSERT_TRUE_M(scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
+
+        PointLight cpu_point_light = {};
+        cpu_point_light.position = f32vec3{0.0f, 0.0f, 0.0f}; // Filled/updated later when processing scene graph
+        cpu_point_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
+        // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
+        cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
+        // When the cutoff is not specified attempt to calculate one based on a minimum energy.
+        cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity/E_min));
+        cpu_point_light.point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (scene._point_lights.size() * sizeof(GPUPointLight));
+        scene._point_lights.push_back(cpu_point_light);
+    };
+
+    auto handle_spot_light = [&](fastgltf::Light const & light) {
+        DBG_ASSERT_TRUE_M(scene._spot_lights.size() < MAX_SPOT_LIGHTS, "Maximum spot light limit is currently hardcoded");
+
+        SpotLight cpu_spot_light = {};
+        cpu_spot_light.transform = {}; // Filled/updated later when processing scene graph
+        cpu_spot_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
+        // Converting candella to watt - https://google.github.io/filament/Filament.md.html#lighting
+        cpu_spot_light.intensity = (light.intensity * glm::pi<f32>()) / LUMENS_PER_WATT;
+        cpu_spot_light.inner_cone_angle = light.innerConeAngle.value();
+        cpu_spot_light.outer_cone_angle = light.outerConeAngle.value();
+
+        DBG_ASSERT_TRUE_M(light.range.has_value(), "Currently no auto deduce of range from intensity for spot lights");
+        cpu_spot_light.cutoff = light.range.value();
+        cpu_spot_light.spot_light_ptr = scene._device.buffer_device_address(scene._gpu_spot_lights.get_state().buffers[0]).value() + (scene._spot_lights.size() * sizeof(GPUSpotLight));
+        scene._spot_lights.push_back(cpu_spot_light);
+
+    };
+
+    switch(light.type) 
+    {
+        case fastgltf::LightType::Point:
+        {
+            handle_point_light(light);
+            return scene._point_lights.size() - 1;
+        }
+        case fastgltf::LightType::Spot:
+        {
+            handle_spot_light(light);
+            return scene._spot_lights.size() - 1;
+        }
+        case fastgltf::LightType::Directional:
+        {
+            // TODO(msakmary) add handling of directional lights.
+            DBG_ASSERT_TRUE_M(false, "TODO(msakmary) implement directional lights");
+            break;
+        }
+    }
+}
+
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx) -> RenderEntityId
 {
     /// NOTE: fastgltf::Node is Entity
@@ -423,17 +482,19 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         r_ent.name = node.name.c_str();
 
         r_ent.light_index = std::optional<u32>(std::nullopt);
+        
+        DBG_ASSERT_TRUE_M(
+            s_cast<u32>(node.lightIndex.has_value()) +
+            s_cast<u32>(node.meshIndex.has_value()) +
+            s_cast<u32>(node.cameraIndex.has_value()) == 1u, "Node can only be of one type");
 
-        // TODO(msakmary) Hacky FIX!!
         if (node.lightIndex.has_value())
         {
-            if (load_ctx.asset.lights.at(node.lightIndex.value()).type == fastgltf::LightType::Point)
-            {
-                r_ent.light_index = node.lightIndex.value();
-            }
+            fastgltf::Light const & light = load_ctx.asset.lights.at(node.lightIndex.value());
+            r_ent.light_index = add_light_from_gltf(scene, light);
+            r_ent.type = light.type == fastgltf::LightType::Point ? EntityType::POINT_LIGHT : EntityType::SPOT_LIGHT;
         }
-
-        if (node.meshIndex.has_value())
+        else if (node.meshIndex.has_value())
         {
             r_ent.type = EntityType::MESHGROUP;
         }
@@ -441,18 +502,16 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         {
             r_ent.type = EntityType::CAMERA;
         }
-        else if (node.lightIndex.has_value())
-        {
-            r_ent.type = EntityType::LIGHT;
-        }
         else if (!node.children.empty())
         {
             r_ent.type = EntityType::TRANSFORM;
         }
+
         if (!node.children.empty())
         {
             r_ent.first_child = node_index_to_entity_id[node.children[0]];
         }
+
         for (u32 curr_child_vec_idx = 0; curr_child_vec_idx < node.children.size(); curr_child_vec_idx++)
         {
             u32 const curr_child_node_idx = node.children[curr_child_vec_idx];
@@ -502,53 +561,6 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         }
     }
     return root_r_ent_id;
-}
-
-static void update_lights_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
-{
-    const f32 LUMENS_PER_WATT = 683.0f;
-    // Defines the minimum energy of a light before cutoff.
-    // TODO(msakmary) hook this up to UI?
-    const f32 E_min = 1.0f;
-
-    auto handle_point_light = [&](fastgltf::Light const & light) {
-        PointLight cpu_point_light = {};
-        cpu_point_light.position = f32vec3{0.0f, 0.0f, 0.0f}; // Filled/updated later when processing scene graph
-        cpu_point_light.color = f32vec3{light.color.x(), light.color.y(), light.color.z()};
-        // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
-        cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
-        // When the cutoff is not specified attempt to calculate one based on a minimum energy.
-        cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity/E_min));
-        cpu_point_light.point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (scene._point_lights.size() * sizeof(GPUPointLight));
-        scene._point_lights.push_back(cpu_point_light);
-
-        DBG_ASSERT_TRUE_M(scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
-    };
-
-    for(i32 light_idx = 0; light_idx < load_ctx.asset.lights.size(); ++light_idx)
-    {
-        fastgltf::Light const & light = load_ctx.asset.lights.at(light_idx);
-        switch(light.type) 
-        {
-            case fastgltf::LightType::Point:
-            {
-                handle_point_light(light);
-                break;
-            }
-            case fastgltf::LightType::Spot:
-            {
-                // TODO(msakmary) add handing of spot lights.
-                break;
-            }
-            case fastgltf::LightType::Directional:
-            {
-                // TODO(msakmary) add handling of directional lights.
-                break;
-            }
-        }
-    }
-
-    DBG_ASSERT_TRUE_M(load_ctx.asset.lights.size() < MAX_POINT_LIGHTS, "The amount of lights is currently limited");
 }
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
@@ -1367,6 +1379,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
     CPUMeshInstances ret = {};
 
     auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.get_state().buffers[0]).value();
+    auto * const gpu_spot_lights_write_ptr = _device.buffer_host_address_as<GPUSpotLight>(_gpu_spot_lights.get_state().buffers[0]).value();
 
     u32 active_entity_offset = 0;
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
@@ -1376,17 +1389,41 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
         r_ent->dirty = false;
 
         // FIXME(msakmary) move this into manifest update I guess
-        if (r_ent != nullptr && r_ent->type == EntityType::LIGHT && r_ent->light_index.has_value()) 
+        if (r_ent != nullptr && r_ent->light_index.has_value()) 
         {
-            PointLight & point_light = _point_lights.at(r_ent->light_index.value());
-            point_light.position = r_ent->combined_transform[3];
+            if (r_ent->type == EntityType::POINT_LIGHT) {
+                PointLight & point_light = _point_lights.at(r_ent->light_index.value());
+                point_light.position = r_ent->combined_transform[3];
 
-            gpu_point_lights_write_ptr[r_ent->light_index.value()] = GPUPointLight{
-                .position = std::bit_cast<daxa_f32vec3>(point_light.position),
-                .color = std::bit_cast<daxa_f32vec3>(point_light.color),
-                .intensity = point_light.intensity,
-                .cutoff = point_light.cutoff,
-            };
+                gpu_point_lights_write_ptr[r_ent->light_index.value()] = GPUPointLight{
+                    .position = std::bit_cast<daxa_f32vec3>(point_light.position),
+                    .color = std::bit_cast<daxa_f32vec3>(point_light.color),
+                    .intensity = point_light.intensity,
+                    .cutoff = point_light.cutoff,
+                };
+            }
+            else if (r_ent->type == EntityType::SPOT_LIGHT) {
+                SpotLight & spot_light = _spot_lights.at(r_ent->light_index.value());
+                spot_light.transform = r_ent->combined_transform;
+
+                glm::mat4 transform4 = glm::mat4(
+                    glm::vec4(spot_light.transform[0], 0.0f),
+                    glm::vec4(spot_light.transform[1], 0.0f),
+                    glm::vec4(spot_light.transform[2], 0.0f),
+                    glm::vec4(spot_light.transform[3], 1.0f));
+                f32vec3 const spot_direction = transform4 * f32vec4(0.0f, 0.0f, -1.0f, 0.0f);
+
+                gpu_spot_lights_write_ptr[r_ent->light_index.value()] = GPUSpotLight{
+                    .transform = std::bit_cast<daxa_f32mat4x3>(spot_light.transform),
+                    .position = std::bit_cast<daxa_f32vec3>(spot_light.transform[3]),
+                    .direction = std::bit_cast<daxa_f32vec3>(spot_direction),
+                    .color =  std::bit_cast<daxa_f32vec3>(spot_light.color),
+                    .intensity = spot_light.intensity,
+                    .cutoff = spot_light.cutoff,
+                    .inner_cone_angle = spot_light.inner_cone_angle,
+                    .outer_cone_angle = spot_light.outer_cone_angle,
+                };
+            }
         }
 
         if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
