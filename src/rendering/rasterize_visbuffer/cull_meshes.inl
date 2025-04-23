@@ -127,7 +127,9 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
 {
     bool const prefix_sum_expansion = info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
 
-    auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES) : Po2PackedWorkExpansionBufferHead::calc_buffer_size(MAX_MESH_INSTANCES);
+    bool shadow_pass = false;//info.is_point_light || info.is_directional_light;
+    u32 worst_mesh_instances_in_expansion = shadow_pass ? VSM_CLIP_LEVELS * MAX_MESH_INSTANCES : MAX_MESH_INSTANCES;
+    auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2PackedWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
     auto opaque_expansion = info.tg.create_transient_buffer({
         .size = expansion_size,
         .name = info.buffer_name_prefix + "opaque_meshlet_expansion_buffer" + std::to_string(rand()),
@@ -144,19 +146,19 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
                     if (prefix_sum_expansion)
                     {
                         allocate_fill_copy(
-                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(opaque_expansion));
                         allocate_fill_copy(
-                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti, PrefixSumWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(masked_expansion));
                     }
                     else
                     {
                         allocate_fill_copy(
-                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(opaque_expansion));
                         allocate_fill_copy(
-                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), MAX_MESH_INSTANCES, info.dispatch_clear),
+                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(masked_expansion));
                     }
                 }));

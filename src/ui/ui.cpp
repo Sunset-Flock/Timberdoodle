@@ -895,6 +895,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_PGI_CASCADE_SMOOTH
                 "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
                 "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
+                "UV",                          // DEBUG_DRAW_UV
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);

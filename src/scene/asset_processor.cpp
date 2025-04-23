@@ -936,7 +936,44 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         remapping_table.resize(vertex_count);
         remapped_index_buffer.resize(lod0_index_buffer.size());
 
-        vertex_count = meshopt_generateVertexRemap(remapping_table.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), vert_positions.data(), vert_positions.size(), sizeof(glm::vec3));
+        auto msign2 = []( glm::vec2 v )
+        {
+            return glm::vec2( (v.x>=0.0) ? 1.0 : -1.0, 
+                         (v.y>=0.0) ? 1.0 : -1.0 );
+        };
+        auto packSnorm2x8 = [](glm::vec2 v) 
+        { 
+            glm::uvec2 d = glm::uvec2(round(glm::vec2(255.5f) + v * glm::vec2(255.5f)));
+            return d.x|(d.y<<8u);
+        };
+        auto quantize_normal = [=](glm::vec3 nor) {
+            nor /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
+            auto i = (nor.z >= 0.0) ? glm::vec2(nor.x, nor.y) : (1.0f-abs(glm::vec2(nor.y, nor.x)))*msign2(glm::vec2(nor.x, nor.y));
+            nor.x = i.x;
+            nor.y = i.y;
+            return packSnorm2x8(glm::vec2(nor.x, nor.y));
+        };
+        struct Vertex
+        {
+            glm::vec3 position = {};
+            u32 quantized_normal = {};
+            glm::vec2 uv = {};
+        };
+        std::vector<Vertex> packed_vertices = {};
+        packed_vertices.resize(vertex_count);
+        for (u32 i = 0; i < vertex_count; ++i)
+        {
+            packed_vertices[i].position = vert_positions[i];
+            packed_vertices[i].quantized_normal = quantize_normal(vert_normals[i]);
+        }
+        if (has_uv) {
+            for (u32 i = 0; i < vertex_count; ++i)
+            {
+                packed_vertices[i].uv = vert_texcoord0[i];
+            }
+        }
+
+        vertex_count = meshopt_generateVertexRemap(remapping_table.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), packed_vertices.data(), packed_vertices.size(), sizeof(Vertex));
         remapped_positions.resize(vertex_count);
         remapped_normals.resize(vertex_count);
         if (has_uv) { 

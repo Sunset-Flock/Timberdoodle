@@ -746,6 +746,11 @@ void entry_main_cs(
                 output_value.rgb = directional_light_direct + point_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
+            case DEBUG_DRAW_UV:
+            {
+                output_value.rgb = float3(tri_point.uv, 1.0f) * ambient_occlusion;
+                break;
+            }
             case DEBUG_DRAW_PGI_CASCADE_SMOOTH:
             case DEBUG_DRAW_PGI_CASCADE_ABSOLUTE:
             case DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF:
