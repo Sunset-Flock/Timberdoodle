@@ -44,16 +44,16 @@ daxa_u32 pack_meta_coords_to_vsm_entry(daxa_i32vec2 coords)
 }
 
 // VSM MEMORY META MASKS AND FUNCTIONS
-// BIT 31 -> 0 - FREE/ 1 - ALLOCATED
-// BIT 30 -> 1 - VISITED
-// BIT 29 -> 1 - IS POINT LIGHT
-daxa_u64 meta_memory_allocated_mask()   { return daxa_u64(1) << 63; }
-daxa_u64 meta_memory_visited_mask()     { return daxa_u64(1) << 62; }
-daxa_u64 meta_memory_point_light_mask() { return daxa_u64(1) << 61; }
+// BIT 63 -> 0 - FREE/ 1 - ALLOCATED
+// BIT 62 -> 1 - VISITED
+// BIT 61 -> 1 - IS POINT LIGHT
+daxa_u64 meta_memory_allocated_mask()        { return daxa_u64(1) << 63; }
+daxa_u64 meta_memory_visited_mask()          { return daxa_u64(1) << 62; }
+daxa_u64 meta_memory_point_spot_light_mask() { return daxa_u64(1) << 61; }
 
 bool get_meta_memory_is_allocated(daxa_u64 meta_page_entry){ return (meta_page_entry & meta_memory_allocated_mask()) != 0; }
 bool get_meta_memory_is_visited(daxa_u64 meta_page_entry)  { return (meta_page_entry & meta_memory_visited_mask()) != 0; }
-bool get_meta_memory_is_point_light(daxa_u64 meta_page_entry) {return (meta_page_entry & meta_memory_point_light_mask()) != 0; }
+bool get_meta_memory_is_point_spot_light(daxa_u64 meta_page_entry) { return (meta_page_entry & meta_memory_point_spot_light_mask()) != 0; }
 
 // BIT 0 - 7   page entry x coord
 // BIT 8 - 15  page entry y coord
@@ -77,38 +77,30 @@ daxa_u32 pack_vsm_coords_to_meta_entry(daxa_i32vec3 coords)
     return packed_coords;
 }
 
-struct PointLightCoords
+struct PointSpotLightCoords
 {
-    daxa_i32vec2 texel_coords;
-    daxa_i32 mip_level;
-    daxa_i32 face_index;
-    daxa_i32 point_light_index;
+    daxa_u32vec2 texel_coords;
+    daxa_u32 mip_level;
+    daxa_u32 array_layer_index;
 };
 
-// BIT 0 - 7 page entry x coord
-// BIT 8 - 15 page entry y coord
-// BIT 16 - 19 mip level
-// BIT 20 - 23 face index
-// BIT 24 - 28 point light index
-daxa_u64 pack_vsm_point_light_coords_to_meta_entry(const PointLightCoords info)
+daxa_u64 pack_vsm_point_spot_light_coords_to_meta_entry(const PointSpotLightCoords info)
 {
     daxa_u64 packed_coords = 0;
-    packed_coords |= ((info.point_light_index  & n_mask(7)) << 24);
-    packed_coords |= ((info.face_index  & n_mask(4)) << 20);
-    packed_coords |= ((info.mip_level   & n_mask(4)) << 16);
-    packed_coords |= ((info.texel_coords.y & n_mask(8)) << 8);
-    packed_coords |= ((info.texel_coords.x & n_mask(8)) << 0);
+    packed_coords |= ((info.array_layer_index   & n_mask(12)) << 20);
+    packed_coords |= ((info.mip_level           & n_mask(4))  << 16);
+    packed_coords |= ((info.texel_coords.y      & n_mask(8))  << 8);
+    packed_coords |= ((info.texel_coords.x      & n_mask(8))  << 0);
     return packed_coords;
 }
 
-PointLightCoords get_vsm_point_light_coords_from_meta_entry(const daxa_u64 page_entry)
+PointSpotLightCoords get_vsm_point_spot_light_coords_from_meta_entry(const daxa_u64 page_entry)
 {
-    PointLightCoords coords;
+    PointSpotLightCoords coords;
     coords.texel_coords.x    = daxa_i32((page_entry >> 0)  & n_mask(8));
     coords.texel_coords.y    = daxa_i32((page_entry >> 8)  & n_mask(8));
     coords.mip_level         = daxa_i32((page_entry >> 16) & n_mask(4));
-    coords.face_index        = daxa_i32((page_entry >> 20) & n_mask(4));
-    coords.point_light_index = daxa_i32((page_entry >> 24) & n_mask(7));
+    coords.array_layer_index = daxa_i32((page_entry >> 20) & n_mask(12));
     return coords;
 }
 
@@ -276,31 +268,28 @@ VSMDirectionalIndirections unpack_vsm_directional_light_indirections(const uint 
     return indirections;
 }
 
-struct VSMPointIndirections
+struct VSMPointSpotIndirections
 {
     uint mip_level;
-    uint face_index;
-    uint point_light_index;
+    uint array_layer_index;
     uint mesh_instance_index;
 };
 
-uint pack_vsm_point_light_indirections(const VSMPointIndirections indirections)
+uint pack_vsm_point_spot_light_indirections(const VSMPointSpotIndirections indirections)
 {
     uint packed_value = 0;
-    packed_value |= ((indirections.point_light_index   & n_mask(7)) << 25);
-    packed_value |= ((indirections.face_index          & n_mask(4)) << 21);
-    packed_value |= ((indirections.mip_level           & n_mask(4)) << 17);
+    packed_value |= ((indirections.array_layer_index   & n_mask(11)) << 21);
+    packed_value |= ((indirections.mip_level           & n_mask(4))  << 17);
     packed_value |= ((indirections.mesh_instance_index & n_mask(17)) << 0);
     return packed_value;
 }
 
-VSMPointIndirections unpack_vsm_point_light_indirections(const uint packed_value)
+VSMPointSpotIndirections unpack_vsm_point_spot_light_indirections(const uint packed_value)
 {
-    VSMPointIndirections indirections;
+    VSMPointSpotIndirections indirections;
     indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(17));
     indirections.mip_level            = daxa_i32((packed_value >> 17) & n_mask(4));
-    indirections.face_index           = daxa_i32((packed_value >> 21) & n_mask(4));
-    indirections.point_light_index    = daxa_i32((packed_value >> 25) & n_mask(7));
+    indirections.array_layer_index    = daxa_i32((packed_value >> 21) & n_mask(11));
     return indirections;
 }
 
@@ -388,12 +377,95 @@ PointMipInfo project_into_point_light(
         const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
         const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
         const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-        const int clamped_mip_level = clamp(mip_level, 1, 5);
+        const int clamped_mip_level = clamp(mip_level, 2, 5);
 
         const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
         const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
         const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
         return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
+    }
+}
+
+struct SpotMipInfo
+{
+    int mip_level;
+    int2 page_texel_coords;
+    float2 page_uvs;
+};
+
+SpotMipInfo project_into_spot_light(
+    float depth,
+    float3 normal,
+    int spot_light_index,
+    float2 screen_space_uv,
+    RenderGlobalData * globals,
+    VSMSpotLight * spot_lights,
+    VSMGlobals * vsm_globals)
+{
+    const float2 uv_offset = 0.5f * globals->settings.render_target_size_inv.xy;
+    screen_space_uv += uv_offset;
+    const float4x4 inverse_camera_view_proj = globals->camera.inv_view_proj;
+    const float3 frag_ws = world_space_from_uv(screen_space_uv, depth, inverse_camera_view_proj);
+    const float3 point_ws = spot_lights[spot_light_index].camera.position;
+
+    if(length(frag_ws - point_ws) > spot_lights[spot_light_index].light->cutoff)
+    {
+        return SpotMipInfo(6, int2(-1), float2(-2.0f));
+    }
+
+    // Reprojecting screen space into point light space
+    const float2 bottom_right = screen_space_uv + float2(uv_offset.x, uv_offset.y);
+    const float3 bottom_right_ws = world_space_from_uv( bottom_right, depth, inverse_camera_view_proj);
+
+    const float2 bottom_left = screen_space_uv + float2(-uv_offset.x, uv_offset.y);
+    const float3 bottom_left_ws = world_space_from_uv( bottom_left, depth, inverse_camera_view_proj);
+
+    const float2 top_right = screen_space_uv + float2(uv_offset.x, -uv_offset.y);
+    const float3 top_right_ws = world_space_from_uv( top_right, depth, inverse_camera_view_proj);
+
+    const float2 top_left = screen_space_uv + float2(-uv_offset.x, -uv_offset.y);
+    const float3 top_left_ws = world_space_from_uv( top_left, depth, inverse_camera_view_proj);
+
+
+    const float3 bottom_right_real_ws = ray_plane_intersection(normalize(bottom_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
+    const float3 bottom_left_real_ws = ray_plane_intersection(normalize(bottom_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
+    const float3 top_right_real_ws = ray_plane_intersection(normalize(top_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
+    const float3 top_left_real_ws = ray_plane_intersection(normalize(top_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
+
+    if( any(bottom_right_real_ws == float3(0.0f)) || 
+        any(bottom_left_real_ws == float3(0.0f))  || 
+        any(top_right_real_ws == float3(0.0f))    || 
+        any(top_left_real_ws == float3(0.0f)))
+    {
+        return SpotMipInfo(6, int2(-1), float2(-2.0f));
+    }
+
+    {
+        const float4x4 point_view_projection = spot_lights[spot_light_index].camera.view_proj;
+
+        const float4 bottom_right_side_cs = mul(point_view_projection, float4(bottom_right_real_ws, 1.0f));
+        const float4 bottom_left_side_cs = mul(point_view_projection, float4(bottom_left_real_ws, 1.0f));
+        const float4 top_right_side_cs = mul(point_view_projection, float4(top_right_real_ws, 1.0f));
+        const float4 top_left_side_cs = mul(point_view_projection, float4(top_left_real_ws, 1.0f));
+
+        const float2 bottom_right_ndc = bottom_right_side_cs.xy / bottom_right_side_cs.w;
+        const float2 bottom_left_ndc = bottom_left_side_cs.xy / bottom_left_side_cs.w;
+        const float2 top_right_ndc = top_right_side_cs.xy / top_right_side_cs.w;
+        const float2 top_left_ndc = top_left_side_cs.xy / top_left_side_cs.w;
+
+        // const float max_axis_dist = max(abs(point_left_ndc.x - point_right_ndc.x), abs(point_left_ndc.y - point_right_ndc.y));
+        
+        const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
+
+        const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
+        const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+        const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
+        const int clamped_mip_level = clamp(mip_level, 2, 5);
+
+        const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
+        const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
+        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
+        return SpotMipInfo(int(clamped_mip_level), texel_coord, middle_uv);
     }
 }
 #endif

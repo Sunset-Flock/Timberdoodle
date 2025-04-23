@@ -226,7 +226,7 @@ func rt_is_alpha_hit(
     }
 
     const GPUMaterial *material = materials + mesh.material_index;
-    if (!material.alpha_discard_enabled || material.opacity_texture_id.is_empty())
+    if (!material.alpha_discard_enabled || (material.opacity_texture_id.is_empty() && material.diffuse_texture_id.is_empty()))
     {
         return true;
     }
@@ -244,7 +244,17 @@ func rt_is_alpha_hit(
     };
     const float2 interp_uv = uvs[0] + barycentrics.x * (uvs[1] - uvs[0]) + barycentrics.y* (uvs[2] - uvs[0]);
 
-    let oppacity_tex = Texture2D<float>::get(material.opacity_texture_id);
-    let oppacity = oppacity_tex.SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).r;
-    return oppacity > 0.5;
+
+    float opacity = 1.0f;
+    if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
+    {
+        opacity = Texture2D<float>::get(material.opacity_texture_id)
+            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).r;
+    }
+    else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+    {
+        opacity = Texture2D<float4>::get(material.diffuse_texture_id)
+            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).a;
+    }
+    return opacity > 0.5;
 }

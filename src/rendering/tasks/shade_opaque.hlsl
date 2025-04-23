@@ -92,7 +92,7 @@ float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 normal, flo
 
     float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
     const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
-    const uint vsm_page_entry = AT.vsm_point_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
+    const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
 
     const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
     const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
@@ -363,7 +363,7 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
         {
             const int2 texel_coords = int2(clip_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
             const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_idx);
-            const uint vsm_page_entry = AT.vsm_point_page_table[info.mip_level].get()[int3(texel_coords, point_page_array_index)];
+            const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(texel_coords, point_page_array_index)];
             info.page_uvs = clip_uv;
             info.page_texel_coords = texel_coords;
 
@@ -399,6 +399,125 @@ float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 sh
         float shadowing = 1.0f;
         if(attenuation > 0.0f) {
             shadowing = get_vsm_point_shadow(screen_uv, screen_depth, world_normal, world_position, light_index);
+        }
+
+        total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
+    }
+    return total_contribution;
+}
+
+float vsm_spot_shadow_test(SpotMipInfo info, uint vsm_page_entry, float3 world_position, int light_index)
+{
+        let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
+
+        const int2 physical_texel_coords = int2(info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level))));
+        const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+
+        const uint2 in_memory_offset = memory_page_coords * VSM_PAGE_SIZE;
+        const uint2 memory_texel_coord = in_memory_offset + in_page_texel_coords;
+
+
+        let shadow_view = AT.vsm_spot_lights[light_index].camera.view;
+        let shadow_proj = AT.vsm_spot_lights[light_index].camera.proj;
+        const float4 world_position_in_shadow_vs = mul(shadow_view, float4(world_position, 1.0f));
+        const float shadow_vs_offset = 0.07;
+        const float4 offset_world_position_in_shadow_vs = float4(world_position_in_shadow_vs.xy, world_position_in_shadow_vs.z + shadow_vs_offset, 1.0f);
+        const float4 world_position_in_shadow_cs = mul(shadow_proj, offset_world_position_in_shadow_vs);
+
+        const float depth = world_position_in_shadow_cs.z / world_position_in_shadow_cs.w;
+        const float vsm_depth = Texture2D<float>::get(AT.vsm_memory_block).Load(int3(memory_texel_coord, 0)).r;
+
+        const bool is_in_shadow = depth < vsm_depth;
+        return is_in_shadow ? 0.0f : 1.0f;
+}
+
+float get_vsm_spot_shadow(float2 screen_uv, float depth, float3 world_normal, float3 world_position, int spot_light_idx)
+{
+    SpotMipInfo info = project_into_spot_light(depth, world_normal, spot_light_idx, screen_uv, AT.globals, AT.vsm_spot_lights, AT.vsm_globals);
+    if(info.page_texel_coords.x == -1) 
+    {
+        return float(1.0f);
+    }
+    info.mip_level = clamp(info.mip_level, 0, 5);
+
+    const float filter_radius = 0.01;
+    float sum = 0.0;
+
+    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f));
+    float rand_angle = rand();
+
+    for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
+    {
+        let filter_rot_offset = float2(
+            poisson_disk[sample].x * cos(rand_angle) - poisson_disk[sample].y * sin(rand_angle),
+            poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
+        );
+
+        let level = 0;
+        let filter_view_space_offset = float4(filter_rot_offset * filter_radius, 0.0, 0.0);
+
+        let mip_proj = AT.vsm_spot_lights[spot_light_idx].camera.proj;
+        let mip_view = AT.vsm_spot_lights[spot_light_idx].camera.view;
+
+        world_position += world_normal * 0.001;
+        let view_space_world_pos = mul(mip_view, float4(world_position, 1.0));
+        let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
+        let clip_filter_offset_world = mul(mip_proj, view_space_offset_world_pos);
+
+        let clip_uv = ((clip_filter_offset_world.xy / clip_filter_offset_world.w) + 1.0) / 2.0;
+
+        if(all(greaterThanEqual(clip_uv, 0.0)) && all(lessThan(clip_uv, 1.0)))
+        {
+            const int2 texel_coords = int2(clip_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
+            const uint spot_page_array_index = VSM_SPOT_LIGHT_OFFSET + spot_light_idx;
+            const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(texel_coords, spot_page_array_index)];
+            info.page_uvs = clip_uv;
+            info.page_texel_coords = texel_coords;
+
+            if(get_is_allocated(vsm_page_entry))
+            {
+                sum += vsm_spot_shadow_test(info, vsm_page_entry, world_position, spot_light_idx);
+            }
+        }
+        else
+        {
+            sum += 1.0f;
+        }
+    }
+    return sum / PCF_NUM_SAMPLES;
+}
+
+float3 spot_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUSpotLight * lights, uint light_count)
+{
+    float3 total_contribution = float3(0.0);
+    for(int light_index = 0; light_index < light_count; light_index++)
+    {
+        GPUSpotLight light = lights[light_index];
+        const float3 position_to_light = normalize(light.position - world_position);
+        const float diffuse = max(dot(shading_normal, position_to_light), 0.0);
+
+        const float to_light_dist = length(light.position - world_position);
+
+        float win = (to_light_dist / light.cutoff);
+        win = win * win * win * win;
+        win = max(0.0, 1.0 - win);
+        win = win * win;
+        float distance_attenuation = win / (to_light_dist * to_light_dist + 0.1);
+
+        // the scale and offset computations can be done CPU-side
+        float cos_outer = cos(light.outer_cone_angle);
+        float spot_scale = 1.0 / max(cos(light.inner_cone_angle) - cos_outer, 1e-4);
+        float spot_offset = -cos_outer * spot_scale;
+        float cd = dot(-position_to_light, light.direction);
+
+        float angle_attenuation = clamp(cd * spot_scale + spot_offset, 0.0, 1.0);
+        angle_attenuation = angle_attenuation * angle_attenuation;
+
+        const float attenuation = distance_attenuation * angle_attenuation;
+
+        float shadowing = 1.0f;
+        if(attenuation > 0.0f) {
+            shadowing = get_vsm_spot_shadow(screen_uv, screen_depth, world_normal, world_position, light_index);
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -542,6 +661,7 @@ void entry_main_cs(
         const float final_shadow = sun_norm_dot * shadow.x;
 
         float3 point_lights_direct = point_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.point_lights, AT.globals.vsm_settings.point_light_count);
+        float3 spot_lights_direct = spot_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.spot_lights, AT.globals.vsm_settings.spot_light_count);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
@@ -597,7 +717,7 @@ void entry_main_cs(
             highlight_lighting = float3(0.4,0.4,0.4) * 10;
         }
         
-        const float3 lighting = directional_light_direct + point_lights_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + point_lights_direct + spot_lights_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -723,7 +843,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct + point_lights_direct;
+                output_value.rgb = directional_light_direct + point_lights_direct + spot_lights_direct;
                 break;
             }
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
@@ -743,7 +863,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_ALL_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct + point_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
+                output_value.rgb = directional_light_direct + point_lights_direct + spot_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
             case DEBUG_DRAW_UV:

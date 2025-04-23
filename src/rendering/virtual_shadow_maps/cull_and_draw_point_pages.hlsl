@@ -28,33 +28,53 @@ func point_vsm_entry_task(
     const uint64_t expansion = get_expansion_buffer();
 
     MeshletInstance instanced_meshlet;
-    VSMPointIndirections indirections;
-    bool valid_meshlet = get_vsm_point_meshlet_instance_from_work_item(
+    VSMPointSpotIndirections point_spot_indirections;
+
+    bool valid_meshlet = get_vsm_point_spot_meshlet_instance_from_work_item(
         push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
         push.attachments.meshes,
         svtid.x,
         instanced_meshlet,
-        indirections,
+        point_spot_indirections,
     );
 
     // We still continue to run the task shader even with invalid meshlets.
     // We simple set the occluded value to true for these invalida meshlets.
     // This is done so that the following WaveOps are well formed and have all threads active. 
-    if(valid_meshlet)
+    if (valid_meshlet)
     {
-        let point_face_camera = push.attachments.vsm_point_lights[indirections.point_light_index].face_cameras[indirections.face_index];
-        const uint point_page_array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
-        const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
-        valid_meshlet = valid_meshlet && !is_meshlet_occluded_point_vsm(
-            point_face_camera,
+
+        CameraInfo * camera_info;
+        float cutoff;
+        // Point light
+        if (point_spot_indirections.array_layer_index < VSM_SPOT_LIGHT_OFFSET)
+        {
+            let point_light_index = point_spot_indirections.array_layer_index / 6;
+            let face_index = point_spot_indirections.array_layer_index - (point_light_index * 6);
+
+            camera_info = &(push.attachments.vsm_point_lights[point_light_index].face_cameras[face_index]);
+            cutoff = push.attachments.vsm_point_lights[point_light_index].light.cutoff;
+        }
+        // Spot light
+        else
+        {
+            let spot_light_index = point_spot_indirections.array_layer_index - VSM_SPOT_LIGHT_OFFSET;
+
+            camera_info = &(push.attachments.vsm_spot_lights[spot_light_index].camera);
+            cutoff = push.attachments.vsm_spot_lights[spot_light_index].light.cutoff;
+        }
+
+        const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << point_spot_indirections.mip_level);
+        valid_meshlet = valid_meshlet && !is_meshlet_occluded_point_spot_vsm(
+            *camera_info,
             instanced_meshlet,
             push.attachments.entity_combined_transforms,
             push.attachments.meshes,
-            push.attachments.vsm_point_lights[indirections.point_light_index].light,
+            cutoff,
             push.hpb_view,
-            point_page_array_index,
+            point_spot_indirections.array_layer_index,
             base_resolution
         );
     }
@@ -105,8 +125,8 @@ func point_vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     const uint64_t expansion = get_expansion_buffer();
 
     MeshletInstance instanced_meshlet;
-    VSMPointIndirections indirections;
-    let valid_meshlet = get_vsm_point_meshlet_instance_from_work_item(
+    VSMPointSpotIndirections indirections;
+    let valid_meshlet = get_vsm_point_spot_meshlet_instance_from_work_item(
         push.attachments.globals.settings.enable_prefix_sum_work_expansion,
         expansion,
         push.attachments.mesh_instances,
@@ -117,7 +137,18 @@ func point_vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     );
     
     let cull_backfaces = (payload.enable_backface_culling & task_shader_local_bit) != 0;
-    let camera = push.attachments.vsm_point_lights[indirections.point_light_index].face_cameras[indirections.face_index];
+    CameraInfo camera;
+    if (indirections.array_layer_index < VSM_SPOT_LIGHT_OFFSET)
+    {
+        let point_light_index = indirections.array_layer_index / 6;
+        let face_index = indirections.array_layer_index - (point_light_index * 6);
+        camera = push.attachments.vsm_point_lights[point_light_index].face_cameras[face_index];
+    }
+    else
+    {
+        let spot_light_index = indirections.array_layer_index - VSM_SPOT_LIGHT_OFFSET;
+        camera = push.attachments.vsm_spot_lights[spot_light_index].camera;
+    }
 
     generic_vsm_mesh(
         svtid,
@@ -126,7 +157,7 @@ func point_vsm_mesh_cull_draw<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
         out_primitives,
         push.attachments.entity_combined_transforms,
         push.attachments.meshes,
-        pack_vsm_point_light_indirections(indirections),
+        pack_vsm_point_spot_light_indirections(indirections),
         cull_backfaces,
         camera,
         instanced_meshlet,
@@ -168,10 +199,9 @@ void point_vsm_entry_fragment_opaque(
     let push = point_vsm_push;
 
     let page_coords = uint2(vert.position.xy) / VSM_PAGE_SIZE;
-    let indirections = unpack_vsm_point_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_point_spot_light_indirections(prim.vsm_meta_info);
 
-    const uint point_page_array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
-    let vsm_page_entry = push.attachments.vsm_point_page_table[indirections.mip_level].get()[int3(page_coords.xy, point_page_array_index)];
+    let vsm_page_entry = push.attachments.vsm_point_spot_page_table[indirections.mip_level].get()[int3(page_coords.xy, indirections.array_layer_index)];
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
@@ -196,10 +226,9 @@ void point_vsm_entry_fragment_masked(
     let push = point_vsm_push;
 
     let page_coords = uint2(vert.position.xy) / VSM_PAGE_SIZE;
-    let indirections = unpack_vsm_point_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_point_spot_light_indirections(prim.vsm_meta_info);
 
-    const uint point_page_array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
-    let vsm_page_entry = push.attachments.vsm_point_page_table[indirections.mip_level].get()[int3(page_coords.xy, point_page_array_index)];
+    let vsm_page_entry = push.attachments.vsm_point_spot_page_table[indirections.mip_level].get()[int3(page_coords.xy, indirections.array_layer_index)];
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);

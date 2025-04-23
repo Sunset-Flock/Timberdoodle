@@ -175,8 +175,8 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             }
             else 
             {
-                VSMPointIndirections indirections = unpack_vsm_point_light_indirections(vsm_meta_info);
-                array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
+                VSMPointSpotIndirections indirections = unpack_vsm_point_spot_light_indirections(vsm_meta_info);
+                array_index = indirections.array_layer_index;
                 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
             }
             if(! max_behind_near_plane)

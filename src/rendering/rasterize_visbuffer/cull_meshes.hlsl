@@ -74,32 +74,53 @@ void main(uint3 thread_id : SV_DispatchThreadID)
 
     if (AT.vsm_point_lights && (push.mip_level != -1) && push.cull_meshes)
     {
-        let face_index = thread_id.y;
-        let point_light_index  = thread_id.z;
-        const VSMPointIndirections indirections = VSMPointIndirections(
-            push.mip_level,         // mip_level
-            face_index,             // face_index
-            point_light_index,      // point_light_index
-            mesh_instance_index     // mesh_instance_index
+        let point_light_prefix = AT.globals.vsm_settings.point_light_count * 6;
+
+        VSMPointSpotIndirections indirections = VSMPointSpotIndirections(
+            push.mip_level,      // mip_level
+            -1,                  // FILLED OUT LATER
+            mesh_instance_index  // mesh_instance_index
         );
-        source_mesh_instance_index = pack_vsm_point_light_indirections(indirections);
-        const uint point_page_array_index = get_vsm_point_page_array_idx(indirections.face_index, indirections.point_light_index);
+
         const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
-        if(is_mesh_occluded_point_vsm(
-            AT.vsm_point_lights[point_light_index].face_cameras[indirections.face_index],
+        CameraInfo * camera_info;
+        float cutoff;
+        // Point light
+        if (thread_id.y < point_light_prefix)
+        {
+            let point_light_index  = thread_id.y / 6;
+            let face_index = thread_id.y - (point_light_index * 6);
+
+            indirections.array_layer_index = thread_id.y;
+            camera_info = &(AT.vsm_point_lights[point_light_index].face_cameras[face_index]);
+            cutoff = AT.vsm_point_lights[point_light_index].light.cutoff;
+        }
+        // Spot light
+        else
+        {
+            let spot_light_index = thread_id.y - point_light_prefix;
+
+            indirections.array_layer_index = VSM_SPOT_LIGHT_OFFSET + spot_light_index;
+            camera_info = &(AT.vsm_spot_lights[spot_light_index].camera);
+            cutoff = AT.vsm_spot_lights[spot_light_index].light.cutoff;
+        }
+
+        if(is_mesh_occluded_point_spot_vsm(
+            *camera_info,
             mesh_instance,
             mesh,
-            AT.vsm_point_lights[point_light_index].light,
+            cutoff,
             push.entity_combined_transforms,
             push.meshes,
             AT.point_hip,
-            point_page_array_index,
+            thread_id.y,
             base_resolution,
             AT.globals
             ))
         {
             return;
         }
+        source_mesh_instance_index = pack_vsm_point_spot_light_indirections(indirections);
     }
 
     let vsm = !AT.hip.is_empty() || (push.mip_level != -1);

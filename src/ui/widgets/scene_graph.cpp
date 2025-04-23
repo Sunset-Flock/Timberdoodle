@@ -264,7 +264,8 @@ namespace tido
                     return add_meshgroup_node(entity, scene, no_draw);
                 case EntityType::CAMERA:
                     return add_leaf_node(entity.name, ICONS::CAMERA, no_draw);
-                case EntityType::LIGHT:
+                case EntityType::POINT_LIGHT: [[fallthrough]];
+                case EntityType::SPOT_LIGHT:
                     return add_leaf_node(entity.name, ICONS::LIGHT, no_draw);
                 default:
                     return RetNodeState::ERROR;
