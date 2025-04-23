@@ -198,8 +198,8 @@ void entry_split_atomic_visbuffer(uint3 dtid : SV_DispatchThreadID)
         return;
     }
 
-    daxa::u64 visdepth = RWTexture2D<daxa::u64>::get(push.attach.atomic_visbuffer)[dtid.xy];
-    RWTexture2D<uint>::get(push.attach.visbuffer)[dtid.xy] = uint(visdepth);
+    daxa::u64 visdepth = RWTexture2D<daxa::u64>::get_formatted(push.attach.atomic_visbuffer)[dtid.xy];
+    RWTexture2D<uint>::get_formatted(push.attach.visbuffer)[dtid.xy] = uint(visdepth);
     RWTexture2D<float>::get(push.attach.depth)[dtid.xy] = asfloat(uint(visdepth >> 32));
 }
 
@@ -271,11 +271,11 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
     if (overdraw_image.value != 0)
     {
         uint prev_val;
-        InterlockedAdd(RWTexture2D_utable[overdraw_image.index()][index], 1, prev_val);
+        InterlockedAdd(RWTexture2D<uint>::get_formatted(overdraw_image)[index], 1, prev_val);
     }
     if (atomic_visbuffer.value != 0)
     {
-        atomic_visbuffer_write(RWTexture2D<daxa::u64>::get(atomic_visbuffer), index, vis_id, depth);
+        atomic_visbuffer_write(RWTexture2D<daxa::u64>::get_formatted(atomic_visbuffer), index, vis_id, depth);
     }
 }
 
@@ -475,7 +475,7 @@ func generic_mesh_compute_raster(
                 tri_vert_ndc_positions[1].xy = floor(tri_vert_ndc_positions[1].xy * scale + bias);
                 tri_vert_ndc_positions[2].xy = floor(tri_vert_ndc_positions[2].xy * scale + bias);
 
-                rasterize_triangle(RWTexture2D<daxa::u64>::get(push.attach.atomic_visbuffer), tri_vert_ndc_positions, viewport_size, visibility_id);
+                rasterize_triangle(RWTexture2D<daxa::u64>::get_formatted(push.attach.atomic_visbuffer), tri_vert_ndc_positions, viewport_size, visibility_id);
             }
         }
     }

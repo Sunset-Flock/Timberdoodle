@@ -66,7 +66,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         uint64_t packed_meta_memory_page_entry = 0;
         if(is_point_light || is_spot_light)
         {
-            AT.vsm_point_spot_page_table[request.mip].get()[uint3(request.coords)] = new_vsm_page_entry;
+            AT.vsm_point_spot_page_table[request.mip].get_formatted()[uint3(request.coords)] = new_vsm_page_entry;
 
             const PointSpotLightCoords vsm_point_spot_light_page_coords = PointSpotLightCoords(
                 request.coords.xy,          // texel_coords
@@ -77,7 +77,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
         else 
         {
-            AT.vsm_page_table.get()[request.coords] = new_vsm_page_entry;
+            AT.vsm_page_table.get_formatted()[request.coords] = new_vsm_page_entry;
             AT.vsm_page_view_pos_row.get()[request.coords] = camera_view_last_row;
             packed_meta_memory_page_entry = pack_vsm_coords_to_meta_entry(request.coords);
 
@@ -85,14 +85,14 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 
         // Write the packed coordinates of the virtual vsm page into the meta memory entry.
         const uint64_t alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
-        AT.vsm_meta_memory_table.get()[free_memory_page_coords] = alloc_packed_meta_memory_page_entry;
+        AT.vsm_meta_memory_table.get_formatted()[free_memory_page_coords] = alloc_packed_meta_memory_page_entry;
     }
     // If there are not enough free pages we need to free some cached pages and allocate into them instead.
     else if(free_pages_shifted_index < header->not_visited_buffer_counter)
     {
         // Get meta information about the page owning the previous allocation.
         const int2 not_visited_memory_page_coords = AT.vsm_not_visited_pages_buffer[free_pages_shifted_index].coords;
-        const uint64_t meta_entry = AT.vsm_meta_memory_table.get()[not_visited_memory_page_coords];
+        const uint64_t meta_entry = AT.vsm_meta_memory_table.get_formatted()[not_visited_memory_page_coords];
 
         const uint new_vsm_page_entry = pack_meta_coords_to_vsm_entry(not_visited_memory_page_coords) | allocated_mask();
 
@@ -101,18 +101,18 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         {
             const PointSpotLightCoords owning_vsm_coords = get_vsm_point_spot_light_coords_from_meta_entry(meta_entry);
             const int3 page_coords = int3(owning_vsm_coords.texel_coords, owning_vsm_coords.array_layer_index);
-            AT.vsm_point_spot_page_table[owning_vsm_coords.mip_level].get()[page_coords] = 0u;
+            AT.vsm_point_spot_page_table[owning_vsm_coords.mip_level].get_formatted()[page_coords] = 0u;
         }
         else
         {
             const int3 owning_vsm_coords = get_vsm_coords_from_meta_entry(meta_entry);
-            AT.vsm_page_table.get()[owning_vsm_coords] = 0u;
+            AT.vsm_page_table.get_formatted()[owning_vsm_coords] = 0u;
         }
 
         uint64_t packed_meta_memory_page_entry = 0;
         if(is_point_light || is_spot_light)
         {
-            AT.vsm_point_spot_page_table[request.mip].get()[uint3(request.coords)] = new_vsm_page_entry;
+            AT.vsm_point_spot_page_table[request.mip].get_formatted()[uint3(request.coords)] = new_vsm_page_entry;
 
             const PointSpotLightCoords vsm_point_spot_light_page_coords = PointSpotLightCoords(
                 request.coords.xy,          // texel_coords
@@ -123,18 +123,18 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
         else 
         {
-            AT.vsm_page_table.get()[request.coords] = new_vsm_page_entry;
+            AT.vsm_page_table.get_formatted()[request.coords] = new_vsm_page_entry;
             AT.vsm_page_view_pos_row.get()[request.coords] = camera_view_last_row;
             packed_meta_memory_page_entry = pack_vsm_coords_to_meta_entry(request.coords);
         }
 
         // Write the packed coordinates of the virtual vsm page into the meta memory entry.
         const uint64_t alloc_packed_meta_memory_page_entry = packed_meta_memory_page_entry | meta_memory_allocated_mask();
-        AT.vsm_meta_memory_table.get()[not_visited_memory_page_coords] = alloc_packed_meta_memory_page_entry;
+        AT.vsm_meta_memory_table.get_formatted()[not_visited_memory_page_coords] = alloc_packed_meta_memory_page_entry;
     }
     // If we have no pages to free (ie we ran out of memory) mark this page as allocation failed.
     else
     {
-        AT.vsm_page_table.get()[request.coords] = allocation_failed_mask();
+        AT.vsm_page_table.get_formatted()[request.coords] = allocation_failed_mask();
     }
 }

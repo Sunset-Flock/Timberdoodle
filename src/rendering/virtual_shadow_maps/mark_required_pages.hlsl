@@ -107,7 +107,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(first_to_see)
         {
             InterlockedOr(
-                AT.vsm_page_table.get()[vsm_page_wrapped_coords],
+                AT.vsm_page_table.get_formatted()[vsm_page_wrapped_coords],
                 uint(requests_allocation_mask() | visited_marked_mask()),
                 prev_page_state
             );
@@ -126,7 +126,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 // TODO(msakmary) finish fix
                 request_out_of_range_page(sg_min_depth, sg_max_depth);
                 InterlockedOr(
-                    AT.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state)],
+                    AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state)],
                     meta_memory_visited_mask()
                 );
             }
@@ -170,7 +170,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 uint prev_page_state_point;
                 const uint point_page_array_index = get_vsm_point_page_array_idx(vsm_point_page_coords.z, point_light_idx);
                 InterlockedOr(
-                    AT.vsm_point_spot_page_table[vsm_point_page_coords.w].get()[uint3(vsm_point_page_coords.xy, point_page_array_index)], // [mip].get()[x, y, array_layer]
+                    AT.vsm_point_spot_page_table[vsm_point_page_coords.w].get_formatted()[uint3(vsm_point_page_coords.xy, point_page_array_index)], // [mip].get()[x, y, array_layer]
                     uint(requests_allocation_mask() | visited_marked_mask()),
                     prev_page_state_point
                 );
@@ -187,7 +187,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 else if(get_is_allocated(prev_page_state_point) && !get_is_visited_marked(prev_page_state_point))
                 {
                     InterlockedOr(
-                        AT.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
+                        AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
                         meta_memory_visited_mask()
                     );
                 }
@@ -233,7 +233,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 // .z is the mip level
                 // .xy are the coordinates
                 InterlockedOr(
-                    AT.vsm_point_spot_page_table[vsm_spot_page_coords.z].get()[uint3(vsm_spot_page_coords.xy, array_layer_index)],
+                    AT.vsm_point_spot_page_table[vsm_spot_page_coords.z].get_formatted()[uint3(vsm_spot_page_coords.xy, array_layer_index)],
                     uint(requests_allocation_mask() | visited_marked_mask()),
                     prev_page_state_spot
                 );
@@ -250,7 +250,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 else if(get_is_allocated(prev_page_state_spot) && !get_is_visited_marked(prev_page_state_spot))
                 {
                     InterlockedOr(
-                        AT.vsm_meta_memory_table.get()[get_meta_coords_from_vsm_entry(prev_page_state_spot)],
+                        AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state_spot)],
                         meta_memory_visited_mask()
                     );
                 }

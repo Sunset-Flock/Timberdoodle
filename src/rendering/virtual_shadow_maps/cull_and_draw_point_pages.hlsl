@@ -211,7 +211,7 @@ void point_vsm_entry_fragment_opaque(
         const uint2 memory_texel_coord = in_memory_offset + in_page_texel_coord;
 
         InterlockedMax(
-            push.daxa_uint_vsm_memory_view.get()[memory_texel_coord],
+            push.daxa_uint_vsm_memory_view.get_formatted()[memory_texel_coord],
             asuint(clamp(vert.position.z, 0.0f, 1.0f))
         );
     }
@@ -254,7 +254,7 @@ void point_vsm_entry_fragment_masked(
             if(alpha < 0.5) { discard; }
         }
         InterlockedMax(
-            push.daxa_uint_vsm_memory_view.get()[memory_texel_coord],
+            push.daxa_uint_vsm_memory_view.get_formatted()[memory_texel_coord],
             asuint(clamp(vert.position.z, 0.0f, 1.0f))
         );
     }

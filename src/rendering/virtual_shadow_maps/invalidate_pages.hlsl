@@ -44,7 +44,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             for(int x = real_start.x; x < real_end.x; ++x)
             {
                 const int3 vsm_wrapped_page_coords = vsm_page_coords_to_wrapped_coords(int3(x, y, svdtid.z), push.vsm_clip_projections);
-                const uint vsm_page_entry = push.vsm_page_table.get()[vsm_wrapped_page_coords].r;
+                const uint vsm_page_entry = push.vsm_page_table.get_formatted()[vsm_wrapped_page_coords].r;
                 if(get_is_allocated(vsm_page_entry))
                 {
                     const int linear_index = y * VSM_PAGE_TABLE_RESOLUTION + x;
@@ -53,8 +53,8 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                     InterlockedOr(push.free_wrapped_pages_info[svdtid.z].mask[index_offset], 1u << in_uint_offset);
 
                     const int2 meta_memory_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
-                    InterlockedExchange(push.vsm_page_table.get()[vsm_wrapped_page_coords], uint(0));
-                    InterlockedExchange(push.vsm_meta_memory_table.get()[meta_memory_coords], uint(0));
+                    InterlockedExchange(push.vsm_page_table.get_formatted()[vsm_wrapped_page_coords], uint(0));
+                    InterlockedExchange(push.vsm_meta_memory_table.get_formatted()[meta_memory_coords], uint(0));
                 }
             }
         }

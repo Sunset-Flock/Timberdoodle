@@ -54,7 +54,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
         push.attach.probe_radiance.get(),
         push.attach.probe_visibility.get(),
         push.attach.probe_info.get(),
-        push.attach.probe_requests.get(),
+        push.attach.probe_requests.get_formatted(),
         PGI_PROBE_REQUEST_MODE_DIRECT
     );
 
@@ -104,6 +104,7 @@ groupshared float4 gs_half_normals_preload[PGI_EVAL_SCREEN_IRRADIANCE_XY+2][PGI_
 [numthreads(PGI_EVAL_SCREEN_IRRADIANCE_XY, PGI_EVAL_SCREEN_IRRADIANCE_XY, 1)]
 func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
 {
+    #if 0
     let push = enty_upscale_screen_irradiance_push;
     let globals = push.attach.globals;
 
@@ -113,7 +114,7 @@ func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_g
     }
 
     Texture2D<float4> half_irradiance_depth = push.attach.half_irradiance_depth.get();
-    Texture2D<uint> half_normals = push.attach.half_normals.get();
+    RWTexture2D<uint> half_normals = push.attach.half_normals.get();
 
     CameraInfo camera = push.attach.globals.camera;
 
@@ -185,4 +186,5 @@ func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_g
     float3 upscaled = acc_irrad * rcp(acc_weight);
     
     push.attach.full_res_pgi_irradiance.get()[dtid].rgb = upscaled;
+    #endif
 }

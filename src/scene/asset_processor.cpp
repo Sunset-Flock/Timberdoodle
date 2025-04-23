@@ -964,12 +964,12 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         for (u32 i = 0; i < vertex_count; ++i)
         {
             packed_vertices[i].position = vert_positions[i];
-            packed_vertices[i].quantized_normal = quantize_normal(vert_normals[i]);
+            // packed_vertices[i].quantized_normal = quantize_normal(vert_normals[i]);
         }
         if (has_uv) {
             for (u32 i = 0; i < vertex_count; ++i)
             {
-                packed_vertices[i].uv = vert_texcoord0[i];
+                // packed_vertices[i].uv = vert_texcoord0[i];
             }
         }
 

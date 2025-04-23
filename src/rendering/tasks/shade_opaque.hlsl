@@ -554,6 +554,11 @@ void entry_main_cs(
 {
     let push = push_opaque;
 
+    if (all(svdtid == uint3(0,0,0)))
+    {
+        printf("test\n");
+    }
+
     let clk_start = clockARB();
 
     if (svdtid.x == 0 && svdtid.y == 0)

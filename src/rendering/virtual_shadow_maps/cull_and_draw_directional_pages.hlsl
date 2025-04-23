@@ -174,12 +174,12 @@ void directional_vsm_entry_fragment_opaque(
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
 
         InterlockedMin(
-            push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
+            push.daxa_uint_vsm_memory_view.get_formatted()[physical_texel_coords],
             asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
         );
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
-            InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
+            InterlockedAdd(RWTexture2D<uint>::get_formatted(push.attachments.vsm_overdraw_debug)[physical_texel_coords], 1);
         }
     }
 }
@@ -220,12 +220,12 @@ void directional_vsm_entry_fragment_masked(
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
         let physical_texel_coords = virtual_uv_to_physical_texel(virtual_uv, memory_page_coords);
         InterlockedMin(
-            push.daxa_uint_vsm_memory_view.get()[physical_texel_coords],
+            push.daxa_uint_vsm_memory_view.get_formatted()[physical_texel_coords],
             asuint(clamp(vert.position.z / vert.position.w, 0.0f, 1.0f))
         );
         if (push.attachments.vsm_overdraw_debug.index() != 0)
         {
-            InterlockedAdd(RWTexture2D_utable[push.attachments.vsm_overdraw_debug.index()][physical_texel_coords], 1);
+            InterlockedAdd(RWTexture2D<uint>::get_formatted(push.attachments.vsm_overdraw_debug)[physical_texel_coords], 1);
         }
     }
 }

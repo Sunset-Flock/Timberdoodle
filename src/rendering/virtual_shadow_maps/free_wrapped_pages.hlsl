@@ -29,8 +29,8 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(get_is_allocated(vsm_page_entry))
         {
             const int2 meta_memory_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
-            free_wrapped_pages_push.vsm_meta_memory_table.get()[meta_memory_coords] = 0u;
-            free_wrapped_pages_push.vsm_page_table.get()[vsm_wrapped_page_coords] = 0u;
+            free_wrapped_pages_push.vsm_meta_memory_table.get_formatted()[meta_memory_coords] = 0u;
+            free_wrapped_pages_push.vsm_page_table.get_formatted()[vsm_wrapped_page_coords] = 0u;
         }
     }
 }

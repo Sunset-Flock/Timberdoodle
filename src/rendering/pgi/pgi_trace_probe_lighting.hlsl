@@ -191,7 +191,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     uint request_mode = pgi_get_probe_request_mode(
         push.attach.globals,
         pgi_settings,
-        push.attach.probe_requests.get(),
+        push.attach.probe_requests.get_formatted(),
         payload.probe_index);
     request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
     // let in_pgi_volume = all(hit_position > pgi_settings.window_base_position) && all(hit_position < (pgi_settings.window_base_position + pgi_settings.probe_spacing * pgi_settings.probe_count));
@@ -255,7 +255,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.probe_radiance.get(), 
                 push.attach.probe_visibility.get(), 
                 push.attach.probe_info.get(),
-                push.attach.probe_requests.get(),
+                push.attach.probe_requests.get_formatted(),
                 request_mode
             ).rgb;
 

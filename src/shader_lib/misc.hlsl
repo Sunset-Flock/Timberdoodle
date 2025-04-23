@@ -2,9 +2,6 @@
 
 #include "daxa/daxa.inl"
 
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u64> tex_rw_u64_table[];
-[[vk::binding(DAXA_STORAGE_IMAGE_BINDING, 0)]] RWTexture2D<daxa::u32> RWTexture2D_utable[];
-
 func firstbitlow_uint4(uint4 v) -> uint
 {
     uint vec_mask = 
@@ -77,7 +74,9 @@ func AtomicMaxU64(__ref uint64_t dest, uint64_t value) -> uint64_t
     uint64_t original_value;
     spirv_asm
     {
+        OpExtension "SPV_EXT_shader_image_int64";
         OpCapability Int64Atomics;
+        OpCapability Int64ImageEXT;
         %origin:$$uint64_t = OpAtomicUMax &dest Device None $value;
         OpStore &original_value %origin
     };
@@ -90,6 +89,7 @@ func AtomicAddU64(__ref uint64_t dest, uint64_t value) -> uint64_t
     uint64_t original_value;
     spirv_asm
     {
+        OpExtension "SPV_EXT_shader_image_int64";
         OpCapability Int64Atomics;
         OpCapability Int64ImageEXT;
         %origin:$$uint64_t = OpAtomicIAdd &dest Device None $value;
