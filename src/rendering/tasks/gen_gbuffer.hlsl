@@ -50,16 +50,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
     uint packed_face_normal = 0u;
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
-        CameraInfo* camera = Ptr<CameraInfo>(0);
-        CameraInfo* camera_prev = Ptr<CameraInfo>(0);
-        if(push.attachments.globals->settings.draw_from_observer == 1)
-        {
-            camera = &push.attachments.globals->observer_camera;
-        }
-        else 
-        {
-            camera = &push.attachments.globals->camera;
-        }
+        CameraInfo camera = push.attachments.globals->view_camera;
 
         MeshletInstancesBufferHead* instantiated_meshlets = push.attachments.instantiated_meshlets;
         GPUMesh* meshes = push.attachments.meshes;
@@ -69,14 +60,14 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
             float2(dtid),
             push.size,
             push.inv_size,
-            camera->view_proj,
+            camera.view_proj,
             instantiated_meshlets,
             meshes,
             combined_transforms
         );     
         TriangleGeometry tri_geo = visbuf_tri.tri_geo;
         TriangleGeometryPoint tri_point = visbuf_tri.tri_geo_point;
-        float3 primary_ray = normalize(tri_point.world_position - camera->position);
+        float3 primary_ray = normalize(tri_point.world_position - camera.position);
         float depth = visbuf_tri.depth;
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;

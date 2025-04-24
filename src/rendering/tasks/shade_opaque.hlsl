@@ -54,19 +54,9 @@ static const float2 poisson_disk[16] = {
 // ndc going in needs to be in range [-1, 1]
 float3 get_view_direction(float2 ndc_xy)
 {
-    float3 world_direction; 
-    if(AT.globals->settings.draw_from_observer == 1)
-    {
-        const float3 camera_position = AT.globals->observer_camera.position;
-        const float4 unprojected_pos = mul(AT.globals->observer_camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
-        world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
-    }
-    else 
-    {
-        const float3 camera_position = AT.globals->camera.position;
-        const float4 unprojected_pos = mul(AT.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
-        world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
-    }
+    const float3 camera_position = AT.globals->view_camera.position;
+    const float4 unprojected_pos = mul(AT.globals->view_camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
+    const float3 world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
     return world_direction;
 }
 
@@ -125,7 +115,7 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
     ClipInfo clip_info;
     clip_info = clip_info_from_uvs(ClipFromUVsInfo(
         force_clip_level,
-        AT.globals->camera.position,   
+        AT.globals->main_camera.position,   
         pixel_footprint,
         AT.vsm_clip_projections,
         AT.vsm_globals,
@@ -217,7 +207,7 @@ float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorld
     ClipInfo clip_info;
     let base_clip_info = ClipFromUVsInfo(
         force_clip_level,
-        AT.globals.camera.position,
+        AT.globals.main_camera.position,
         pixel_footprint,   
         AT.vsm_clip_projections,
         AT.vsm_globals,
@@ -548,6 +538,13 @@ void entry_main_cs(
     {
         push.attachments.attachments.globals.readback.first_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[0];
         push.attachments.attachments.globals.readback.second_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[1];
+
+        ShaderDebugRectangleDraw rect;
+        rect.color = float3(2,1,0);
+        rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        rect.center = float3(0,0,0.5f);
+        rect.span = float2(0.5f,0.5f);
+        debug_draw_rectangle(AT.globals.debug, rect);
     }
 
     const int2 index = svdtid.xy;
@@ -572,21 +569,9 @@ void entry_main_cs(
 
     bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
 
-    float4x4 view_proj;
-    float3 camera_position;
-    CameraInfo camera = {};
-    if(AT.globals->settings.draw_from_observer == 1)
-    {
-        view_proj = AT.globals->observer_camera.view_proj;
-        camera_position = AT.globals->observer_camera.position;
-        camera = AT.globals->observer_camera;
-    }
-    else 
-    {
-        view_proj = AT.globals->camera.view_proj;
-        camera_position = AT.globals->camera.position;
-        camera = AT.globals->camera;
-    }
+    float4x4 view_proj = AT.globals->view_camera.view_proj;
+    float3 camera_position = AT.globals->view_camera.position;
+    CameraInfo camera = AT.globals->view_camera;
 
     float nonlinear_depth = AT.depth.get()[index];
 
@@ -648,7 +633,7 @@ void entry_main_cs(
 
         if (AT.globals.settings.draw_from_observer == 1u) 
         {
-            const float4 main_cam_proj_world = mul(AT.globals->camera.view_proj, float4(tri_point.world_position, 1.0));
+            const float4 main_cam_proj_world = mul(AT.globals->main_camera.view_proj, float4(tri_point.world_position, 1.0));
             const float2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
 
             if(main_cam_proj_world.w < 0.0 || abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0)
@@ -661,23 +646,23 @@ void entry_main_cs(
 
         // Reprojecting screen space into world
         const float2 bottom_right = real_screen_space_uv + float2(uv_offset.x, uv_offset.y);
-        const float3 bottom_right_ws = world_space_from_uv( bottom_right, real_depth, AT.globals.camera.inv_view_proj);
+        const float3 bottom_right_ws = world_space_from_uv( bottom_right, real_depth, AT.globals.main_camera.inv_view_proj);
 
         const float2 bottom_left = real_screen_space_uv + float2(-uv_offset.x, uv_offset.y);
-        const float3 bottom_left_ws = world_space_from_uv( bottom_left, real_depth, AT.globals.camera.inv_view_proj);
+        const float3 bottom_left_ws = world_space_from_uv( bottom_left, real_depth, AT.globals.main_camera.inv_view_proj);
 
         const float2 top_right = real_screen_space_uv + float2(uv_offset.x, -uv_offset.y);
-        const float3 top_right_ws = world_space_from_uv( top_right, real_depth, AT.globals.camera.inv_view_proj);
+        const float3 top_right_ws = world_space_from_uv( top_right, real_depth, AT.globals.main_camera.inv_view_proj);
 
         const float2 top_left = real_screen_space_uv + float2(-uv_offset.x, -uv_offset.y);
-        const float3 top_left_ws = world_space_from_uv( top_left, real_depth, AT.globals.camera.inv_view_proj);
+        const float3 top_left_ws = world_space_from_uv( top_left, real_depth, AT.globals.main_camera.inv_view_proj);
 
         ScreenSpacePixelWorldFootprint ws_pixel_footprint;
         ws_pixel_footprint.center = tri_point.world_position;
-        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals.camera.position), AT.globals.camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals.camera.position), AT.globals.camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals.camera.position), AT.globals.camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals.camera.position), AT.globals.camera.position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
@@ -833,7 +818,7 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_DEPTH:
             {
                 float depth = depth;
-                let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.camera.near_plane, depth));
+                let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.main_camera.near_plane, depth));
                 output_value.rgb = color;
                 break;
             }
@@ -933,7 +918,7 @@ void entry_main_cs(
                         break;
                     }
                 }
-                float smooth_cascade = pgi_select_cascade_smooth_spherical(pgi, material_point.position - AT.globals.camera.position);
+                float smooth_cascade = pgi_select_cascade_smooth_spherical(pgi, material_point.position - AT.globals.main_camera.position);
                 switch(AT.globals->settings.debug_draw_mode)
                 {
                     case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:

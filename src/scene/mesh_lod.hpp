@@ -84,7 +84,7 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
             f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
 
             glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh.aabb.center), 1.0f);
-            f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.camera.position)) - 0.5f * aabb_rough_extent);
+            f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
 
             f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
 

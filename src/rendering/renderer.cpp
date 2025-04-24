@@ -1097,10 +1097,10 @@ auto Renderer::prepare_frame(
         // Written by ui     render_context->render_data.hovered_entity_index
         // Written by ui     render_context->render_data.selected_entity_index
 
-        render_context->render_data.camera_prev_frame = render_context->render_data.camera;
-        render_context->render_data.observer_camera_prev_frame = render_context->render_data.observer_camera;
-        render_context->render_data.camera = real_camera_info;
-        render_context->render_data.observer_camera = observer_camera_info;
+        render_context->render_data.main_camera_prev_frame = render_context->render_data.main_camera;
+        render_context->render_data.main_camera = real_camera_info;
+        render_context->render_data.view_camera_prev_frame = render_context->render_data.view_camera;
+        render_context->render_data.view_camera = render_context->render_data.settings.draw_from_observer ? observer_camera_info : real_camera_info;
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
         render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
         render_context->render_data.delta_time = delta_time;
@@ -1199,7 +1199,7 @@ auto Renderer::prepare_frame(
     }
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{
-        .camera_info = &render_context->render_data.camera,
+        .camera_info = &render_context->render_data.main_camera,
         .sun_direction = std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
         .clip_0_scale = render_context->render_data.vsm_settings.clip_0_frustum_scale,
         .clip_0_near = render_context->render_data.vsm_settings.fixed_near_far ? -1'000.0f : 0.01f,
@@ -1265,7 +1265,7 @@ auto Renderer::prepare_frame(
         .position = daxa_f32vec3(0, 0, 0.5),
         .size = daxa_f32vec3(2.01, 2.01, 0.999),
         .color = daxa_f32vec3(1, 0, 0),
-        .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC,
+        .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA,
     });
 
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);

@@ -1798,9 +1798,9 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
             cascade.probe_spacing.z,
         }) * 1.01f;
         cascade.window_to_stable_index_offset = {
-            static_cast<i32>(std::floor(render_data.camera.position.x * cascade.probe_spacing_rcp.x)),
-            static_cast<i32>(std::floor(render_data.camera.position.y * cascade.probe_spacing_rcp.y)),
-            static_cast<i32>(std::floor(render_data.camera.position.z * cascade.probe_spacing_rcp.z)),
+            static_cast<i32>(std::floor(render_data.main_camera.position.x * cascade.probe_spacing_rcp.x)),
+            static_cast<i32>(std::floor(render_data.main_camera.position.y * cascade.probe_spacing_rcp.y)),
+            static_cast<i32>(std::floor(render_data.main_camera.position.z * cascade.probe_spacing_rcp.z)),
         };
         cascade.window_base_position = {
             (cascade.window_to_stable_index_offset.x - (render_data.pgi_settings.probe_count.x / 2) + 1) * cascade.probe_spacing.x,

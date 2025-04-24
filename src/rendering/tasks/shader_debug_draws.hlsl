@@ -12,6 +12,36 @@ struct VertexToPixel
 
 [[vk::push_constant]] DebugDrawPush push;
 
+func vertex_rotate_to_main_cam(float3 orbit_position) -> float4
+{
+    CameraInfo cam = push.attachments.globals->main_camera;
+    float4x4 inv_view_rotation = cam.inv_view;
+    // Remove position aspect of the view matrix.
+    inv_view_rotation[0][3] = 0;
+    inv_view_rotation[1][3] = 0;
+    inv_view_rotation[2][3] = 0;
+    inv_view_rotation[3][3] = 1;
+    return mul(inv_view_rotation, float4(orbit_position, 1.0f));
+}
+
+func vertex_transform(uint coord_space, float3 model_position) -> float4
+{
+    float4 ret = (float4)0;
+    if (coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        ret = mul(push.attachments.globals->view_camera.view_proj, float4(model_position, 1));
+    }
+    else
+    {
+        ret = float4(model_position, 1);
+    }
+    if (coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA)
+    {
+        ret = mul(push.attachments.globals->view_camera.view_proj, mul(push.attachments.globals->main_camera.inv_view_proj, ret));
+    }
+    return ret;
+}
+
 [shader("vertex")]
 func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
@@ -20,17 +50,7 @@ func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV
     const float3 position = vertex_index == 0 ? line.start : line.end;
 
     ret.color = line.color;
-    if (line.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
-    {
-        CameraInfo * cam = push.attachments.globals.settings.draw_from_observer ? &push.attachments.globals->observer_camera : &push.attachments.globals->camera;
-        const float4x4 view_proj = cam.view_proj;
-        const float4 clipspace_position = mul(view_proj, float4(position, 1.0));
-        ret.position = clipspace_position;
-    }
-    else
-    {
-        ret.position = float4(position,1.0f);
-    }
+    ret.position = vertex_transform(line.coord_space, position);
     return ret;
 }
 
@@ -43,37 +63,15 @@ func entry_vertex_circle(uint vertex_index : SV_VertexID, uint instance_index : 
     const float rotation = float(vertex_index) * (1.0f / (64.0f - 1.0f)) * 2.0f * 3.14f;
     // Make circle in world space.
     float4 model_position = float4(circle.radius * float3(cos(rotation),sin(rotation), 0.0f), 1);
-    ret.color = circle.color;
+    
     if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
-        CameraInfo * cam = push.attachments.globals.settings.draw_from_observer ? &push.attachments.globals->observer_camera : &push.attachments.globals->camera;
-        float4x4 inv_view_rotation = cam->inv_view;
-        // Remove position aspect of the view matrix.
-        inv_view_rotation[0][3] = 0;
-        inv_view_rotation[1][3] = 0;
-        inv_view_rotation[2][3] = 0;
-        inv_view_rotation[3][3] = 1;
-        // Rotate circle to face camera.
-        model_position = mul(inv_view_rotation, model_position);
-        // Add on world position of circle
-        model_position = model_position + float4(circle.position, 0);
-        const float4 clipspace_position = mul(push.attachments.globals->camera.view_proj, model_position);
+        model_position = vertex_rotate_to_main_cam(model_position.xyz);
+    }
+    model_position = model_position + float4(circle.position, 0);
 
-        ret.position = clipspace_position;
-    }
-    else if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
-    {
-        ret.position = float4(model_position.xyz,0) + float4(circle.position, 1);
-    }
-    else if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = float4(model_position.xyz,0) + float4(circle.position, 1);
-    }
-    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
-    if (push.draw_as_observer == 1 && circle.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = mul(push.attachments.globals->observer_camera.view_proj, mul(push.attachments.globals->camera.inv_view_proj, ret.position));
-    }
+    ret.color = circle.color;
+    ret.position = vertex_transform(circle.coord_space, model_position.xyz);
     return ret;
 }
 
@@ -90,31 +88,16 @@ func entry_vertex_rectangle(uint vertex_index : SV_VertexID, uint instance_index
 {
     VertexToPixel ret = {};
     const ShaderDebugRectangleDraw rectangle = push.attachments.globals->debug->rectangle_draws.draws[instance_index];
-    const float2 scaled_position = rectangle_pos[vertex_index] * rectangle.span;
+    float4 model_position = float4(rectangle_pos[vertex_index] * rectangle.span, 0, 1);
 
-    ret.color = rectangle.color;
     if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
-        const float4x4 view = push.attachments.globals->camera.view;
-        const float4x4 projection = push.attachments.globals->camera.proj;
-        const float3 view_center_position = mul(view, float4(rectangle.center, 1.0)).xyz;
-        const float3 view_offset_position = float3(view_center_position.xy + scaled_position, view_center_position.z);
-        const float4 clipspace_position = mul(projection, float4(view_offset_position, 1.0));
-        ret.position = clipspace_position;
+        model_position = vertex_rotate_to_main_cam(model_position.xyz);
     }
-    else if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
-    {
-        ret.position = float4(rectangle.center.xyz, 0.0) + float4(scaled_position, 0.0, 1.0);
-    }
-    else if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = float4(rectangle.center.xyz, 0.0) + float4(scaled_position, 0.0, 1.0);
-    }
-    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
-    if (push.draw_as_observer == 1 && rectangle.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = mul(push.attachments.globals->observer_camera.view_proj, mul(push.attachments.globals->camera.inv_view_proj, ret.position));
-    }
+    model_position = model_position + float4(rectangle.center, 0);
+
+    ret.color = rectangle.color;
+    ret.position = vertex_transform(rectangle.coord_space, model_position.xyz);
     return ret;
 }
 
@@ -145,23 +128,7 @@ func entry_vertex_aabb(uint vertex_index : SV_VertexID, uint instance_index : SV
 
     const float3 model_position = aabb_vertex_base_offsets[vertex_index] * 0.5f * aabb.size + aabb.position;
     ret.color = aabb.color;
-    if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
-    {
-        ret.position = mul(push.attachments.globals->camera.view_proj, float4(model_position, 1));
-    }
-    else if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
-    {
-        ret.position = float4(model_position, 1);
-    }
-    else if (aabb.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = float4(model_position, 1);
-    }
-    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
-    if (push.draw_as_observer == 1 && aabb.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = mul(push.attachments.globals->observer_camera.view_proj, mul(push.attachments.globals->camera.inv_view_proj, ret.position));
-    }
+    ret.position = vertex_transform(aabb.coord_space, model_position);
     return ret;
 }
 
@@ -182,23 +149,7 @@ func entry_vertex_box(uint vertex_index : SV_VertexID, uint instance_index : SV_
 
     const float3 model_position = box.vertices[box_vertex_indices[vertex_index]];
     ret.color = box.color;
-    if (box.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
-    {
-        ret.position = mul(push.attachments.globals->camera.view_proj, float4(model_position, 1));
-    }
-    else if (box.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC)
-    {
-        ret.position = float4(model_position, 1);
-    }
-    else if (box.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = float4(model_position, 1);
-    }
-    // If we draw in ndc of the main camera, we must translate it from main camera to observer.
-    if (push.draw_as_observer == 1 && box.coord_space != DEBUG_SHADER_DRAW_COORD_SPACE_NDC_OBSERVER)
-    {
-        ret.position = mul(push.attachments.globals->observer_camera.view_proj, mul(push.attachments.globals->camera.inv_view_proj, ret.position));
-    }
+    ret.position = vertex_transform(box.coord_space, model_position);
     return ret;
 }
 

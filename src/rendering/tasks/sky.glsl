@@ -76,7 +76,7 @@ void main() {
 
     // Because the atmosphere is using km as it's default units and we want one unit in world
     // space to be one meter we need to scale the position by a factor to get from meters -> kilometers
-    const vec3 camera_position = deref(push.globals).camera.position * M_TO_KM_SCALE;
+    const vec3 camera_position = deref(push.globals).main_camera.position * M_TO_KM_SCALE;
     vec3 world_camera_position = camera_position + vec3(0.0, 0.0, sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const float height = length(world_camera_position);
 

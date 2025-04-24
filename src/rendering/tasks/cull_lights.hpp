@@ -27,9 +27,9 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
         settings.mask_volume_size.z / settings.mask_volume_cell_count.z,
     };
     settings.mask_volume_min_pos = {
-        std::round(render_data.camera.position.x / settings.mask_volume_cell_size.x) * settings.mask_volume_cell_size.x - settings.mask_volume_size.x * 0.5f,
-        std::round(render_data.camera.position.y / settings.mask_volume_cell_size.y) * settings.mask_volume_cell_size.y - settings.mask_volume_size.y * 0.5f,
-        std::round(render_data.camera.position.z / settings.mask_volume_cell_size.z) * settings.mask_volume_cell_size.z - settings.mask_volume_size.z * 0.5f,
+        std::round(render_data.main_camera.position.x / settings.mask_volume_cell_size.x) * settings.mask_volume_cell_size.x - settings.mask_volume_size.x * 0.5f,
+        std::round(render_data.main_camera.position.y / settings.mask_volume_cell_size.y) * settings.mask_volume_cell_size.y - settings.mask_volume_size.y * 0.5f,
+        std::round(render_data.main_camera.position.z / settings.mask_volume_cell_size.z) * settings.mask_volume_cell_size.z - settings.mask_volume_size.z * 0.5f,
     };
     settings.point_light_count = render_data.vsm_settings.point_light_count;
 }

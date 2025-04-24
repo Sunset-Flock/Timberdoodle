@@ -354,8 +354,8 @@ func generic_mesh_compute_raster(
     cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
-        deref(push.attach.globals).observer_camera.view_proj : 
-        deref(push.attach.globals).camera.view_proj;
+        deref(push.attach.globals).view_camera.view_proj : 
+        deref(push.attach.globals).main_camera.view_proj;
 
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
@@ -416,7 +416,7 @@ func generic_mesh_compute_raster(
                 {
                     const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + tri_in_meshlet_vertex_indices[c]);
                     const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-                    let main_camera_view_proj = push.attach.globals.camera.view_proj;
+                    let main_camera_view_proj = push.attach.globals.main_camera.view_proj;
                     const daxa_f32vec4 pos = mul(main_camera_view_proj, mul(model_mat, vertex_position));
                     tri_vert_clip_positions[c] = pos;
                 }
@@ -449,7 +449,7 @@ func generic_mesh_compute_raster(
                     {
                         let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,
-                            push.attach.globals.camera,
+                            push.attach.globals.main_camera,
                             tri_vert_ndc_positions,
                             push.attach.globals.cull_data,
                             push.attach.hiz);
@@ -543,8 +543,8 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
-        deref(push.attach.globals).observer_camera.view_proj : 
-        deref(push.attach.globals).camera.view_proj;
+        deref(push.attach.globals).view_camera.view_proj : 
+        deref(push.attach.globals).main_camera.view_proj;
 
     const daxa_f32mat4x3 model_mat4x3 = deref_i(push.entity_combined_transforms, meshlet_instance.entity_index);
     const daxa_f32mat4x4 model_mat = mat_4x3_to_4x4(model_mat4x3);
@@ -622,7 +622,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                 {
                     const uint in_mesh_vertex_index = deref_i(mesh.indirect_vertices, meshlet.indirect_vertex_offset + tri_in_meshlet_vertex_indices[c]);
                     const daxa_f32vec4 vertex_position = daxa_f32vec4(deref_i(mesh.vertex_positions, in_mesh_vertex_index), 1);
-                    let main_camera_view_proj = push.attach.globals.camera.view_proj;
+                    let main_camera_view_proj = push.attach.globals.main_camera.view_proj;
                     const daxa_f32vec4 pos = mul(main_camera_view_proj, mul(model_mat, vertex_position));
                     tri_vert_clip_positions[c] = pos;
                 }
@@ -655,7 +655,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                     {
                         let is_hiz_occluded = is_triangle_hiz_occluded(
                             push.attach.globals.debug,
-                            push.attach.globals.camera,
+                            push.attach.globals.main_camera,
                             tri_vert_ndc_positions,
                             push.attach.globals.cull_data,
                             push.attach.hiz);
@@ -969,7 +969,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
     // This is done so that the following WaveOps are well formed and have all threads active. 
     if (draw_meshlet && push.attach.globals.settings.enable_meshlet_cull)
     {
-        let cull_camera = (push.draw_data.pass_index == VISBUF_FIRST_PASS) ? deref(push.attach.globals).camera_prev_frame : deref(push.attach.globals).camera;
+        let cull_camera = (push.draw_data.pass_index == VISBUF_FIRST_PASS) ? deref(push.attach.globals).main_camera_prev_frame : deref(push.attach.globals).main_camera;
 
         draw_meshlet = draw_meshlet && !is_meshlet_occluded(
             push.attach.globals.debug,

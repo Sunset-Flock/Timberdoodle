@@ -297,7 +297,7 @@ bool is_ndc_aabb_hiz_depth_occluded(
             ndc_aabb_draw.position = 0.5f * (ndc_aabb.ndc_max + ndc_aabb.ndc_min);
             ndc_aabb_draw.size = ndc_aabb.ndc_max - ndc_aabb.ndc_min;
             ndc_aabb_draw.color = daxa_f32vec3(0.5,0.7,1.0);
-            ndc_aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            ndc_aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA;
             debug_draw_aabb(debug, ndc_aabb_draw);
         }
         // HIZ TEXEL (WHITE):
@@ -313,7 +313,7 @@ bool is_ndc_aabb_hiz_depth_occluded(
             used_hiz_tex_rect.center = daxa_f32vec3(0.5f * (max_r_ndc + min_r_ndc), ndc_aabb.ndc_max.z);
             used_hiz_tex_rect.span = rec_size.xy;
             used_hiz_tex_rect.color = daxa_f32vec3(1,1,1);
-            used_hiz_tex_rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC;
+            used_hiz_tex_rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA;
             debug_draw_rectangle(debug, used_hiz_tex_rect);
         } 
     }

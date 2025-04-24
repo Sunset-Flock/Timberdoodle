@@ -37,7 +37,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
     float3 face_normal = uncompress_normal_octahedral_32(push.attach.main_cam_face_normals.get()[dtid]);
     float3 detail_normal = uncompress_normal_octahedral_32(push.attach.main_cam_detail_normals.get()[dtid]);
 
-    let camera = &push.attach.globals.camera;
+    let camera = &push.attach.globals.main_camera;
     float3 ws_position = pixel_index_to_world_space(*camera, dtid, depth);
     float3 primary_ray = normalize(ws_position - camera.position);
 
@@ -116,7 +116,7 @@ func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_g
     Texture2D<float4> half_irradiance_depth = push.attach.half_irradiance_depth.get();
     RWTexture2D<uint> half_normals = push.attach.half_normals.get();
 
-    CameraInfo camera = push.attach.globals.camera;
+    CameraInfo camera = push.attach.globals.main_camera;
 
     float full_depth = push.attach.main_cam_depth.get()[dtid];
     float full_depth_linear = linearise_depth(full_depth, camera.near_plane);

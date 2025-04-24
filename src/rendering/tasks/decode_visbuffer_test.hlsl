@@ -26,18 +26,8 @@ void entry_decode_visbuffer(uint2 index : SV_DispatchThreadID)
     float4 debug_value = float4(0, 0, 0, 0);
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
-        float4x4 view_proj;
-        float3 camera_position;
-        if (deref(push.attachments.globals).settings.draw_from_observer == 1)
-        {
-            view_proj = deref(push.attachments.globals).observer_camera.view_proj;
-            camera_position = deref(push.attachments.globals).observer_camera.position;
-        } 
-        else
-        {
-            view_proj = deref(push.attachments.globals).camera.view_proj;
-            camera_position = deref(push.attachments.globals).camera.position;
-        }
+        float4x4 view_proj = deref(push.attachments.globals).view_camera.view_proj;
+        float3 camera_position = deref(push.attachments.globals).view_camera.position;
         VisbufferTriangleGeometry visbuf_tri = visgeo_triangle_data(
             triangle_id, 
             float2(index), 

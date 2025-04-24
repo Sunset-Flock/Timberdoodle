@@ -328,7 +328,7 @@ void compute_sky_lut(
     if(all(lessThan(svdtid.xy, settings->sky_dimensions.xy)))
     {
         // In game height is in meters, atmosphere uses kilometers so we need to traslate.
-        float3 world_position = sky_push.globals.camera.position * M_TO_KM_SCALE;
+        float3 world_position = sky_push.globals.main_camera.position * M_TO_KM_SCALE;
         // Push the camera above the atmosphere with a set offset
         world_position.z += settings->atmosphere_bottom + BASE_HEIGHT_OFFSET;
         const float camera_height = length(world_position);

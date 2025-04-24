@@ -31,10 +31,10 @@ struct RenderGlobalData
     // please pass these fields to push constants directly
     // indirection via globals is slow
     GPUScene scene; 
-    CameraInfo camera;
-    CameraInfo camera_prev_frame;
-    CameraInfo observer_camera;
-    CameraInfo observer_camera_prev_frame;
+    CameraInfo main_camera;
+    CameraInfo main_camera_prev_frame;
+    CameraInfo view_camera;
+    CameraInfo view_camera_prev_frame;
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;

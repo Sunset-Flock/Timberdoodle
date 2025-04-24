@@ -59,14 +59,14 @@ float compute_exposure(float average_luminance)
 float3 get_view_direction(float2 ndc_xy)
 {
     float3 world_direction; 
-    const float3 camera_position = AT.globals->camera.position;
-    const float4 unprojected_pos = mul(AT.globals->camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
+    const float3 camera_position = AT.globals->main_camera.position;
+    const float4 unprojected_pos = mul(AT.globals->main_camera.inv_view_proj, float4(ndc_xy, 1.0, 1.0));
     world_direction = normalize((unprojected_pos.xyz / unprojected_pos.w) - camera_position);
     return world_direction;
 }
 
 float pixel_cone_spread_angle_from_image_height(float image_height) {
-    return atan(2.0 * AT.globals.camera.inv_proj._11 / image_height);
+    return atan(2.0 * AT.globals.main_camera.inv_proj._11 / image_height);
 }
 
 RayCone pixel_ray_cone_from_image_height(float image_height) {
@@ -194,7 +194,7 @@ void ray_gen()
 
                 if (path_length == 0)
                 {
-                    outgoing_ray.Origin = AT.globals.camera.position;
+                    outgoing_ray.Origin = AT.globals.main_camera.position;
                     outgoing_ray.Direction = view_direction;
                 }
 
@@ -211,7 +211,7 @@ void ray_gen()
                             float2(px),
                             AT.globals.settings.render_target_size,
                             1.0 / AT.globals.settings.render_target_size,
-                            AT.globals.camera.view_proj,
+                            AT.globals.main_camera.view_proj,
                             instantiated_meshlets,
                             meshes,
                             combined_transforms
@@ -276,7 +276,7 @@ void ray_gen()
 
                         primary_hit.gbuffer_packed = gbuffer.pack();
                         primary_hit.is_hit = true;
-                        primary_hit.ray_t = length(tri_point.world_position - AT.globals.camera.position);
+                        primary_hit.ray_t = length(tri_point.world_position - AT.globals.main_camera.position);
                         primary_hit.position = tri_point.world_position;
                     } else {
                         primary_hit.is_hit = false;

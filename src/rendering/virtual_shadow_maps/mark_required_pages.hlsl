@@ -66,7 +66,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(depth == 0.0f) { return; }
 
         const float2 uv_offset = 0.5f * AT.globals->settings.render_target_size_inv.xy;
-        const float4x4 inverse_camera_view_proj = AT.globals.camera.inv_view_proj;
+        const float4x4 inverse_camera_view_proj = AT.globals.main_camera.inv_view_proj;
         const float2 screen_space_tex_center_uv = (float2(svdtid.xy) + float2(0.5f)) * AT.globals.settings.render_target_size_inv;
 
 
@@ -85,14 +85,14 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 
         ScreenSpacePixelWorldFootprint ws_pixel_footprint;
         ws_pixel_footprint.center = world_space_from_uv(screen_space_tex_center_uv, depth, inverse_camera_view_proj);
-        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals->main_camera.position), AT.globals->main_camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals->main_camera.position), AT.globals->main_camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals->main_camera.position), AT.globals->main_camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals->main_camera.position), AT.globals->main_camera.position, geo_normal, ws_pixel_footprint.center);
 
         const ClipInfo clip_info = clip_info_from_uvs(ClipFromUVsInfo(
             -1,
-            AT.globals->camera.position,
+            AT.globals->main_camera.position,
             ws_pixel_footprint,
             AT.vsm_clip_projections,
             AT.vsm_globals,
