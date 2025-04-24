@@ -19,5 +19,9 @@ struct LightSettings
             mask_volume_size{ 1024, 1024, 512 }
         {
         }
+        auto operator==(LightSettings const & other) const -> bool
+        {
+            return std::memcmp(this, &other, sizeof(LightSettings)) == 0;
+        }
     #endif
 };

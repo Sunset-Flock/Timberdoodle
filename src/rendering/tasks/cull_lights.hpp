@@ -34,6 +34,13 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
     settings.point_light_count = render_data.vsm_settings.point_light_count;
 }
 
+inline auto lights_significant_settings_change(LightSettings const & prev, LightSettings const & curr) -> bool
+{
+    return 
+        std::memcmp(&prev.mask_volume_size, &curr.mask_volume_size, sizeof(daxa_f32vec3)) != 0 || 
+        std::memcmp(&prev.mask_volume_cell_count, &curr.mask_volume_cell_count, sizeof(daxa_f32vec3)) != 0;
+}
+
 struct CullLightsTask : CullLightsH::Task
 {
     AttachmentViews views = {};

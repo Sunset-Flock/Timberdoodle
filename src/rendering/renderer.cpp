@@ -1123,6 +1123,7 @@ auto Renderer::prepare_frame(
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
+    bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
@@ -1132,7 +1133,7 @@ auto Renderer::prepare_frame(
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed)
     {
         main_task_graph = create_main_task_graph();
         recreate_framebuffer();
@@ -1182,6 +1183,7 @@ auto Renderer::prepare_frame(
     render_context->prev_pgi_settings = render_context->render_data.pgi_settings;
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
+    render_context->prev_light_settings = render_context->render_data.light_settings;
 
     // Write GPUScene pointers
     {
