@@ -63,6 +63,7 @@ DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
 DAXA_DECL_TASK_HEAD_END
 
 struct MarkRequiredPagesAttachments
@@ -726,6 +727,7 @@ struct TaskDrawVSMsInfo
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskImageView g_buffer_depth = {};
     daxa::TaskImageView g_buffer_geo_normal = {};
+    daxa::TaskImageView light_mask_volume = {};
 };
 
 inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
@@ -801,6 +803,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_page_table = vsm_page_table_view,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
+            .light_mask_volume = info.light_mask_volume,
         },
         .render_context = info.render_context,
     });

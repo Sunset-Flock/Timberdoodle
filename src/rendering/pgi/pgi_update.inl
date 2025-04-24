@@ -87,7 +87,6 @@ DAXA_DECL_TASK_HEAD_END
 struct PGITraceProbeLightingPush
 {
     PGITraceProbeLightingH::AttachmentShaderBlob attach;
-    GPUScene scene;
 };
 
 #define PGI_PRE_UPDATE_XYZ 4

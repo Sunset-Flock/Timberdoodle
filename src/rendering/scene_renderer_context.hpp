@@ -174,6 +174,12 @@ namespace RenderTimes
                 "EVAL_SCREEN_IRRADIANCE",
             },
         },
+        GroupNames{
+            "MISC",
+            {
+                "CULL_LIGHTS",
+            },
+        },
     };
 
     template <daxa::StringLiteral NAME>

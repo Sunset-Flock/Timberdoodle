@@ -13,7 +13,7 @@
 #include "shader_lib/shading.hlsl"
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/transform.hlsl"
-
+#include "shader_lib/lights.hlsl"
 
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
@@ -257,18 +257,17 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const float filter_radius = 0.01;
+    const float filter_radius = 0.05;
     float sum = 0.0;
 
-    rand_seed(asuint(uv.x + uv.y * 13136.1235f));
-    float rand_angle = rand();
+    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
-        let filter_rot_offset = float2(
-            poisson_disk[sample].x * cos(rand_angle) - poisson_disk[sample].y * sin(rand_angle),
-            poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
-        );
+        //int final_sample = poisson
+        float theta = (rand()) * 2 * PI;
+        float r = sqrt(rand());
+        let filter_rot_offset =  float2(cos(theta), sin(theta)) * r;
 
         let level = 0;
         let filter_view_space_offset = float4(filter_rot_offset * filter_radius * pow(1.0, clip_info.clip_level), 0.0, 0.0);
@@ -383,8 +382,18 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
 float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUPointLight * lights, uint light_count)
 {
     float3 total_contribution = float3(0.0);
+#if 1
+    let mask_volume = AT.light_mask_volume.get();
+    let light_settings = AT.globals.light_settings;
+    uint4 light_mask = lights_get_mask(light_settings, world_position, mask_volume);
+    light_mask = WaveActiveBitOr(light_mask);
+    while (any(light_mask != uint4(0)))
+    {
+        uint light_index = lights_iterate_mask(light_settings, light_mask);
+#else
     for(int light_index = 0; light_index < light_count; light_index++)
     {
+#endif
         GPUPointLight light = lights[light_index];
         const float3 position_to_light = normalize(light.position - world_position);
         const float diffuse = max(dot(shading_normal, position_to_light), 0.0);
@@ -553,11 +562,6 @@ void entry_main_cs(
 )
 {
     let push = push_opaque;
-
-    if (all(svdtid == uint3(0,0,0)))
-    {
-        printf("test\n");
-    }
 
     let clk_start = clockARB();
 
@@ -785,7 +789,7 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
             {
                 let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
-                output_value.rgb = vsm_debug_color;
+                output_value.rgb = vsm_debug_color * ambient_occlusion;
                 break;
             }
             case DEBUG_DRAW_MODE_VSM_CLIP_LEVEL: 
@@ -871,14 +875,14 @@ void entry_main_cs(
                 output_value.rgb = directional_light_direct + point_lights_direct + spot_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
-            case DEBUG_DRAW_UV:
+            case DEBUG_DRAW_MODE_UV:
             {
                 output_value.rgb = float3(tri_point.uv, 1.0f) * ambient_occlusion;
                 break;
             }
-            case DEBUG_DRAW_PGI_CASCADE_SMOOTH:
-            case DEBUG_DRAW_PGI_CASCADE_ABSOLUTE:
-            case DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF:
+            case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
+            case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
+            case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF:
             {
                 uint pgi_absolute_cascade = 0;
                 bool pgi_is_center_8 = false;
@@ -911,19 +915,19 @@ void entry_main_cs(
                 float smooth_cascade = pgi_select_cascade_smooth_spherical(pgi, material_point.position - AT.globals.camera.position);
                 switch(AT.globals->settings.debug_draw_mode)
                 {
-                    case DEBUG_DRAW_PGI_CASCADE_SMOOTH:
+                    case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
                     {
                         float3 cascade_color = TurboColormap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
                         output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
                         break;
                     }
-                    case DEBUG_DRAW_PGI_CASCADE_ABSOLUTE:
+                    case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
                     {
                         float3 cascade_color = TurboColormap(float(pgi_absolute_cascade) * rcp(12)) * pgi_color_mul;
                         output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
                         break;
                     }
-                    case DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF:
+                    case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF:
                     {
                         if (smooth_cascade < float(pgi_absolute_cascade))
                         {
@@ -938,7 +942,24 @@ void entry_main_cs(
                     }
                 }
                 break;
-            }           
+            }         
+            case DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME:
+            {
+                let mask_volume = AT.light_mask_volume.get();
+                let light_settings = AT.globals.light_settings;
+                uint4 light_mask = lights_get_mask(light_settings, material_point.position, mask_volume);
+                let light_count4 = countbits(light_mask);
+                let light_count = light_count4.x + light_count4.z + light_count4.z + light_count4.z;
+                if (lights_in_mask_volume(light_settings, lights_get_mask_volume_cell(light_settings, material_point.position)))
+                {
+                    output_value.rgb = TurboColormap(float(light_count) * rcp(123.0f)) * ambient_occlusion;
+                }
+                else
+                {
+                    output_value.rgb = ambient_occlusion.xxx;
+                }
+                break;
+            }  
             case DEBUG_DRAW_MODE_NONE:
             default:
             output_value.rgb = shaded_color;
@@ -973,14 +994,14 @@ void entry_main_cs(
         
     switch(push.attachments.attachments.globals.settings.debug_draw_mode)
     {
-        case DEBUG_DRAW_SHADE_OPAQUE_CLOCKS:
+        case DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS:
         {
             let clk_end = clockARB();
             output_value.rgb = TurboColormap(float(clk_end - clk_start) * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
             break;
         }
-        case DEBUG_DRAW_PGI_EVAL_CLOCKS:
-        case DEBUG_DRAW_RTAO_TRACE_CLOCKS:
+        case DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS:
+        case DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS:
         {
             let dgb_img_v = RWTexture2D<float4>::get(push.attachments.attachments.debug_image)[index];
             output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);

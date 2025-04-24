@@ -221,17 +221,17 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             InstanceID(),
             GeometryIndex(),
             PrimitiveIndex(),
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
+            push.attach.globals.scene.meshes,
+            push.attach.globals.scene.entity_to_meshgroup,
+            push.attach.globals.scene.mesh_groups,
             mi
         );
         TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
             tri_geo,
-            push.scene.meshes,
-            push.scene.entity_to_meshgroup,
-            push.scene.mesh_groups,
-            push.scene.entity_combined_transforms
+            push.attach.globals.scene.meshes,
+            push.attach.globals.scene.entity_to_meshgroup,
+            push.attach.globals.scene.mesh_groups,
+            push.attach.globals.scene.entity_combined_transforms
         );
         MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
             push.attach.globals,

@@ -4,6 +4,7 @@
 #include "shader_shared/vsm_shared.inl"
 #include "shader_lib/vsm_util.glsl"
 #include "shader_lib/misc.hlsl"
+#include "shader_lib/lights.hlsl"
 
 [[vk::push_constant]] MarkRequiredPagesPush mark_pages_push;
 
@@ -132,8 +133,19 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
 
+        const daxa_f32vec3 world_space = world_space_from_uv(screen_space_tex_center_uv, depth, inv_projection_view);
+    #if 1
+        let mask_volume = AT.light_mask_volume.get();
+        let light_settings = AT.globals.light_settings;
+        uint4 light_mask = lights_get_mask(light_settings, world_space, mask_volume);
+        light_mask = WaveActiveBitOr(light_mask);
+        while (any(light_mask != uint4(0)))
+        {
+            uint point_light_idx = lights_iterate_mask(light_settings, light_mask);
+    #else
         for(int point_light_idx = 0; point_light_idx < AT.globals.vsm_settings.point_light_count; ++point_light_idx)
         {
+    #endif
             const float2 screen_space_uv = float2(svdtid.xy) * AT.globals.settings.render_target_size_inv;
 
             const PointMipInfo vsm_light_mip_info = project_into_point_light(

@@ -1689,7 +1689,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
 
     PGITraceProbeLightingPush push = {};
     push.attach = ti.attachment_shader_blob;
-    push.scene = render_data.scene;
+    // push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
     ti.recorder.trace_rays_indirect({

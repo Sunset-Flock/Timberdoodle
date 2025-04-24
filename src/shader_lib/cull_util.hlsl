@@ -509,7 +509,7 @@ bool is_mesh_occluded_vsm(
     AABB mesh_aabb = mesh.aabb;
     NdcAABB mesh_ndc_aabb = calculate_ndc_aabb(camera, model_matrix, mesh_aabb);
     const float2 resolution = camera.screen_size >> 1;
-    const bool page_opacity_cull = false; //is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, resolution, cascade);
+    const bool page_opacity_cull = is_ndc_aabb_hiz_opacity_occluded(mesh_ndc_aabb, hiz, resolution, cascade);
 
     return page_opacity_cull;
 }

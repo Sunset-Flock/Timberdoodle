@@ -102,7 +102,7 @@ void ray_gen()
         //push.attach.debug_image.get()[index.xy] = float4(ao_value.xxx, 1.0f);
     }
     let clk_end = clockARB();
-    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_RTAO_TRACE_CLOCKS)
+    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS)
     {
         push.attach.debug_image.get()[index] = float4((clk_end - clk_start),0,0,0);
     }

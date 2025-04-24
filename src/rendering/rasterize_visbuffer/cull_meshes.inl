@@ -130,7 +130,7 @@ void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info
 {
     bool const prefix_sum_expansion = info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
 
-    bool shadow_pass = info.is_point_spot_light || info.is_directional_light;
+    bool shadow_pass = info.is_directional_light;
     u32 worst_mesh_instances_in_expansion = shadow_pass ? VSM_CLIP_LEVELS * MAX_MESH_INSTANCES : MAX_MESH_INSTANCES;
     auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2PackedWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
     auto opaque_expansion = info.tg.create_transient_buffer({

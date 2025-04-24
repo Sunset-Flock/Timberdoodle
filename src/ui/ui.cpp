@@ -889,13 +889,14 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "AMBIENT_OCCLUSION",           // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
                 "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                 "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_SHADE_OPAQUE_CLOCKS
-                "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_PGI_EVAL_CLOCKS
-                "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_RTAO_TRACE_CLOCKS
-                "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_PGI_CASCADE_SMOOTH
-                "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
-                "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
-                "UV",                          // DEBUG_DRAW_UV
+                "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
+                "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
+                "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
+                "UV",                          // DEBUG_DRAW_MODE_UV
+                "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
             };
             ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
             ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
@@ -914,6 +915,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
+            }
+            if (ImGui::CollapsingHeader("Lights Settings"))
+            {
+                ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
+                ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
@@ -949,20 +955,20 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
                         "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                         "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_PGI_EVAL_CLOCKS
-                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_PGI_CASCADE_SMOOTH
-                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_PGI_CASCADE_ABSOLUTE
-                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF
+                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,
                         DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
                         DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
                         DEBUG_DRAW_MODE_ALL_DIFFUSE,
-                        DEBUG_DRAW_PGI_EVAL_CLOCKS,
-                        DEBUG_DRAW_PGI_CASCADE_SMOOTH,
-                        DEBUG_DRAW_PGI_CASCADE_ABSOLUTE,
-                        DEBUG_DRAW_PGI_CASCADE_SMOOTH_ABS_DIFF,
+                        DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF,
                     };
                     bool const set = ImGui::Combo("pgi debug visualization", &pgi_debug_draw_mode, modes.data(), modes.size());
                     if (set)

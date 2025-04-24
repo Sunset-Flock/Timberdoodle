@@ -22,6 +22,7 @@
 #include "tasks/shader_debug_draws.inl"
 #include "tasks/decode_visbuffer_test.inl"
 #include "tasks/gen_gbuffer.hpp"
+#include "tasks/cull_lights.hpp"
 
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
@@ -277,6 +278,7 @@ void Renderer::compile_pipelines()
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
         {brdf_fg_compute_pipeline_info()},
+        {cull_lights_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -708,6 +710,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .additional_wait_binary_semaphores = &waiter,
     });
 
+    daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
+    tg.add_task(CullLightsTask{
+        .views = CullLightsTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .light_mask_volume = light_mask_volume,
+        },
+        .render_context = render_context.get(),
+    });
+
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -723,6 +734,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .material_manifest = scene->_gpu_material_manifest,
             .g_buffer_depth = main_camera_depth,
             .g_buffer_geo_normal = main_camera_face_normal_image,
+            .light_mask_volume = light_mask_volume,
         });
     }
     else
@@ -896,6 +908,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .point_lights = scene->_gpu_point_lights,
                 .spot_lights = scene->_gpu_spot_lights,
                 .mesh_instances = scene->mesh_instances_buffer,
+                .light_mask_volume = light_mask_volume,
                 .pgi_radiance = pgi_radiance,
                 .pgi_visibility = pgi_visibility,
                 .pgi_info = pgi_info,
@@ -907,23 +920,23 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
         tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(DebugVirtualPageTableTask{
-            .views = std::array{
-                daxa::attachment_view(DebugVirtualPageTableH::AT.globals, render_context->tgpu_render_data),
-                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_globals, vsm_state.globals),
-                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_page_table, vsm_page_table_view),
-                daxa::attachment_view(DebugVirtualPageTableH::AT.vsm_debug_page_table, render_context->gpu_context->shader_debug_context.vsm_debug_page_table),
+            .views = DebugVirtualPageTableTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .vsm_globals = vsm_state.globals,
+                .vsm_page_table = vsm_page_table_view,
+                .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table,
             },
             .render_context = render_context.get(),
         });
 
         tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(DebugMetaMemoryTableTask{
-            .views = std::array{
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.globals, render_context->tgpu_render_data),
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_page_table, vsm_page_table_view),
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_meta_memory_table, vsm_state.meta_memory_table),
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_debug_meta_memory_table, render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table),
-                daxa::attachment_view(DebugMetaMemoryTableH::AT.vsm_point_spot_page_table, vsm_point_spot_page_table_view),
+            .views = DebugMetaMemoryTableTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .vsm_page_table = vsm_page_table_view,
+                .vsm_meta_memory_table = vsm_state.meta_memory_table,
+                .vsm_debug_meta_memory_table = render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table,
+                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
             },
             .render_context = render_context.get(),
         });
@@ -1180,6 +1193,7 @@ auto Renderer::prepare_frame(
         render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.get_state().buffers[0]).value();
         render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.get_state().buffers[0]).value();
         render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.get_state().buffers[0]).value();
+        render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.get_state().buffers[0]).value();
     }
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{
@@ -1205,6 +1219,8 @@ auto Renderer::prepare_frame(
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_TEXTURE_RESOLUTION;
     vsm_state.update_vsm_lights(scene->_point_lights, scene->_spot_lights);
+
+    lights_resolve_settings(render_context->render_data);
 
     if (render_context->visualize_point_frustum)
     {

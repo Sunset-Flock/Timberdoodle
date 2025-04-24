@@ -8,6 +8,8 @@
 #include "volumetric.inl"
 #include "cull_util.inl"
 #include "pgi.inl"
+#include "scene.inl"
+#include "lights.inl"
 
 struct GPUScene
 {
@@ -18,6 +20,7 @@ struct GPUScene
     daxa_BufferPtr(GPUMaterial) materials;
     daxa_BufferPtr(daxa_f32mat4x3) entity_transforms;
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
+    daxa_BufferPtr(GPUPointLight) point_lights;
 };
 
 struct RenderGlobalData
@@ -40,6 +43,7 @@ struct RenderGlobalData
     Settings settings;
     CullData cull_data;
     SkySettings sky_settings;
+    LightSettings light_settings;
     VSMSettings vsm_settings;
     VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;

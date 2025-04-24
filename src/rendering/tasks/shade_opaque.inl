@@ -41,6 +41,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FreeWrappedPagesInfo), vsm_wrapped_pages
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUPointLight), point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUSpotLight), spot_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_radiance)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, pgi_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_info)
