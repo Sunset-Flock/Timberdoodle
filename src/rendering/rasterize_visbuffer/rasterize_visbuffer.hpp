@@ -15,7 +15,7 @@
 
 namespace raster_visbuf
 {
-    inline auto create_visbuffer(daxa::TaskGraph tg, RenderContext const & render_context, char const * name = "main_camera_visbuffer") -> daxa::TaskImageView
+    inline auto create_visbuffer(daxa::TaskGraph tg, RenderContext const & render_context, char const * name = "view_camera_visbuffer") -> daxa::TaskImageView
     {
         return tg.create_transient_image({
             .format = daxa::Format::R32_UINT,
@@ -37,7 +37,7 @@ namespace raster_visbuf
                 render_context.render_data.settings.render_target_size.y,
                 1,
             },
-            .name = "atomic main_camera_visbuffer",
+            .name = "atomic view_camera_visbuffer",
         });
     }
 
@@ -348,19 +348,8 @@ namespace raster_visbuf
         }
         else
         {
-            ret.view_camera_visbuffer = raster_visbuf::create_visbuffer(info.tg, *info.render_context, "view_camera_visbuffer");
-            ret.view_camera_depth = info.tg.create_transient_image({
-                .format = daxa::Format::D32_SFLOAT,
-                .size = {
-                    info.render_context->render_data.settings.render_target_size.x,
-                    info.render_context->render_data.settings.render_target_size.y,
-                    1,
-                },
-                .name = "view_camera_depth",
-            });
-
-            info.tg.copy_image_to_image({ret.view_camera_visbuffer, ret.main_camera_visbuffer, "copy main_camera to view_camera visbuffer"});
-            info.tg.copy_image_to_image({ret.view_camera_depth, ret.main_camera_depth, "copy main_camera to view_camera depth"});
+            ret.view_camera_visbuffer = ret.main_camera_visbuffer;
+            ret.view_camera_depth = ret.main_camera_depth;
         }
 
         return ret;
