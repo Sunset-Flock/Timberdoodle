@@ -65,15 +65,35 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         // Skip fragments into which no objects were rendered
         if(depth == 0.0f) { return; }
 
-        const float4x4 inv_projection_view = AT.globals.camera.inv_view_proj;
+        const float2 uv_offset = 0.5f * AT.globals->settings.render_target_size_inv.xy;
+        const float4x4 inverse_camera_view_proj = AT.globals.camera.inv_view_proj;
         const float2 screen_space_tex_center_uv = (float2(svdtid.xy) + float2(0.5f)) * AT.globals.settings.render_target_size_inv;
 
+
+        // Reprojecting screen space into world
+        const float2 bottom_right = screen_space_tex_center_uv + float2(uv_offset.x, uv_offset.y);
+        const float3 bottom_right_ws = world_space_from_uv( bottom_right, depth, inverse_camera_view_proj);
+
+        const float2 bottom_left = screen_space_tex_center_uv + float2(-uv_offset.x, uv_offset.y);
+        const float3 bottom_left_ws = world_space_from_uv( bottom_left, depth, inverse_camera_view_proj);
+
+        const float2 top_right = screen_space_tex_center_uv + float2(uv_offset.x, -uv_offset.y);
+        const float3 top_right_ws = world_space_from_uv( top_right, depth, inverse_camera_view_proj);
+
+        const float2 top_left = screen_space_tex_center_uv + float2(-uv_offset.x, -uv_offset.y);
+        const float3 top_left_ws = world_space_from_uv( top_left, depth, inverse_camera_view_proj);
+
+        ScreenSpacePixelWorldFootprint ws_pixel_footprint;
+        ws_pixel_footprint.center = world_space_from_uv(screen_space_tex_center_uv, depth, inverse_camera_view_proj);
+        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals->camera.position), AT.globals->camera.position, geo_normal, ws_pixel_footprint.center);
+
         const ClipInfo clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-            screen_space_tex_center_uv,
-            AT.globals.settings.render_target_size,
-            depth,
-            inv_projection_view,
             -1,
+            AT.globals->camera.position,
+            ws_pixel_footprint,
             AT.vsm_clip_projections,
             AT.vsm_globals,
             AT.globals
@@ -81,7 +101,6 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return; }
 
         const int3 vsm_page_wrapped_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT.vsm_clip_projections);
-
 
         uint prev_page_state;
         bool thread_active = (vsm_page_wrapped_coords.x >= 0 && vsm_page_wrapped_coords.y >= 0);
@@ -133,11 +152,19 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
 
-        const daxa_f32vec3 world_space = world_space_from_uv(screen_space_tex_center_uv, depth, inv_projection_view);
+        if( any(ws_pixel_footprint.bottom_right == float3(0.0f)) || 
+            any(ws_pixel_footprint.bottom_left == float3(0.0f))  || 
+            any(ws_pixel_footprint.top_right == float3(0.0f))    || 
+            any(ws_pixel_footprint.top_left == float3(0.0f)))
+        {
+            return;
+        }
+
+        // ==================================== POINT LIGHTS ===============================================
     #if 1
         let mask_volume = AT.light_mask_volume.get();
         let light_settings = AT.globals.light_settings;
-        uint4 light_mask = lights_get_mask(light_settings, world_space, mask_volume);
+        uint4 light_mask = lights_get_mask(light_settings, ws_pixel_footprint.center, mask_volume);
         light_mask = WaveActiveBitOr(light_mask);
         while (any(light_mask != uint4(0)))
         {
@@ -146,13 +173,9 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         for(int point_light_idx = 0; point_light_idx < AT.globals.vsm_settings.point_light_count; ++point_light_idx)
         {
     #endif
-            const float2 screen_space_uv = float2(svdtid.xy) * AT.globals.settings.render_target_size_inv;
-
             const PointMipInfo vsm_light_mip_info = project_into_point_light(
-                depth,
-                geo_normal,
                 point_light_idx,
-                screen_space_uv,
+                ws_pixel_footprint,
                 AT.globals,
                 AT.vsm_point_lights,
                 AT.vsm_globals
@@ -206,15 +229,14 @@ void main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
 
+        // ==================================== SPOT LIGHTS ===============================================
         for(int spot_light_idx = 0; spot_light_idx < AT.globals.vsm_settings.spot_light_count; ++spot_light_idx)
         {
             const float2 screen_space_uv = float2(svdtid.xy) * AT.globals.settings.render_target_size_inv;
 
             const SpotMipInfo vsm_light_mip_info = project_into_spot_light(
-                depth,
-                geo_normal,
                 spot_light_idx,
-                screen_space_uv,
+                ws_pixel_footprint,
                 AT.globals,
                 AT.vsm_spot_lights,
                 AT.vsm_globals
