@@ -12,7 +12,6 @@
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(CullLightsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32vec4>, light_mask_volume)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, light_mask_volume_light_lists)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullLightsPush

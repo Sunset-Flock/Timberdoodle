@@ -121,14 +121,20 @@ daxa_f32vec3 world_space_from_uv(daxa_f32vec2 screen_space_uv, daxa_f32 depth, d
     return world_position;
 }
 
+struct ScreenSpacePixelWorldFootprint
+{
+    daxa_f32vec3 center;
+    daxa_f32vec3 bottom_right;
+    daxa_f32vec3 bottom_left;
+    daxa_f32vec3 top_right;
+    daxa_f32vec3 top_left;
+};
+
 struct ClipFromUVsInfo
 {
-    // Should be UVs of the center of the texel
-    daxa_f32vec2 uv;
-    daxa_u32vec2 screen_resolution;
-    daxa_f32 depth;
-    daxa_f32mat4x4 inv_view_proj;
     daxa_i32 force_clip_level;
+    daxa_f32vec3 camera_position;
+    ScreenSpacePixelWorldFootprint pixel_footprint;
     daxa_BufferPtr(VSMClipProjection) clip_projections;
     daxa_BufferPtr(VSMGlobals) vsm_globals;
     daxa_BufferPtr(RenderGlobalData) globals;
@@ -139,48 +145,30 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
     daxa_i32 clip_level;
     if(info.force_clip_level == -1)
     {
-        const daxa_f32vec2 center_texel_coords = info.uv * info.screen_resolution;
-        #if 1
-        const daxa_f32vec2 texel_coords = center_texel_coords;
-        const daxa_f32vec2 texel_uvs = texel_coords / daxa_f32vec2(info.screen_resolution);
-        const daxa_f32vec3 world_space = world_space_from_uv(texel_uvs, info.depth, info.inv_view_proj);
+#if 0
+        const float max_axis_dist = min(length(info.pixel_footprint.bottom_right - info.pixel_footprint.bottom_left),
+                                        length(info.pixel_footprint.top_left - info.pixel_footprint.top_right));
 
-        const daxa_f32 dist = length(world_space - deref(info.globals).camera.position);
+        const daxa_f32 f_clip_level = log2(max_axis_dist / deref(info.vsm_globals).clip_0_texel_world_size) + deref(info.globals).vsm_settings.clip_selection_bias;
+        clip_level = min(max(daxa_i32(ceil(f_clip_level)), 0), VSM_CLIP_LEVELS - 1);
+#else
+        const daxa_f32 dist = length(info.pixel_footprint.center - info.camera_position);
         // The shadow camera is not strictly aligned to the player position. Instead it can be up to
         // one page away from the player, thus we must propriately scale the heuristic, to account for this
         const daxa_i32 page_count = (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
         const daxa_f32 scale_ratio = daxa_f32(page_count - 2) / daxa_f32(page_count);
         const daxa_f32 base_scale = deref(info.globals).vsm_settings.clip_0_frustum_scale * scale_ratio;
         clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale) * deref(info.globals).vsm_settings.clip_selection_bias)), 0, VSM_CLIP_LEVELS - 1));
-        #else 
-        const daxa_f32vec2 left_side_texel_coords = center_texel_coords - daxa_f32vec2(0.5, 0.0);
-        const daxa_f32vec2 left_side_texel_uvs = left_side_texel_coords / daxa_f32vec2(info.screen_resolution);
-        const daxa_f32vec3 left_world_space = world_space_from_uv( left_side_texel_uvs, info.depth, info.inv_view_proj);
-
-        const daxa_f32vec2 right_side_texel_coords = center_texel_coords + daxa_f32vec2(0.5, 0.0);
-        const daxa_f32vec2 right_side_texel_uvs = right_side_texel_coords / daxa_f32vec2(info.screen_resolution);
-        const daxa_f32vec3 right_world_space = world_space_from_uv( right_side_texel_uvs, info.depth, info.inv_view_proj);
-
-        const daxa_f32 texel_world_size = length(left_world_space - right_world_space);
-        const daxa_f32 f_clip_level = log2(texel_world_size / deref(info.vsm_globals).clip_0_texel_world_size) + deref(info.globals).vsm_settings.clip_selection_bias;
-        clip_level = max(daxa_i32(ceil(f_clip_level)), 0);
-        if(clip_level >= VSM_CLIP_LEVELS) 
-        {
-            return ClipInfo(clip_level, daxa_f32vec2(0.0));
-        }
-        #endif
-
+#endif
     } 
     else 
     {
         clip_level = info.force_clip_level;
     }
 
-    const daxa_f32vec3 center_world_space = world_space_from_uv( info.uv, info.depth, info.inv_view_proj);
-    const daxa_f32vec4 sun_projected_world_position = mul(deref_i(info.clip_projections, clip_level).camera.view_proj, daxa_f32vec4(center_world_space, 1.0)); 
-    const daxa_f32vec3 sun_ndc_position = sun_projected_world_position.xyz / sun_projected_world_position.w; 
-    const daxa_f32vec2 sun_depth_uv = (sun_ndc_position.xy + daxa_f32vec2(1.0)) / daxa_f32vec2(2.0); 
-    return ClipInfo(clip_level, sun_depth_uv, sun_ndc_position.z);
+    const daxa_f32vec4 sun_projected_world_position = mul(deref_i(info.clip_projections, clip_level).camera.view_proj, daxa_f32vec4(info.pixel_footprint.center, 1.0)); 
+    const daxa_f32vec2 sun_depth_uv = (sun_projected_world_position.xy + daxa_f32vec2(1.0)) / daxa_f32vec2(2.0); 
+    return ClipInfo(clip_level, sun_depth_uv, sun_projected_world_position.z);
 }
 
 daxa_i32vec3 vsm_page_coords_to_wrapped_coords(daxa_i32vec3 page_coords, daxa_BufferPtr(VSMClipProjection) clip_projections)
@@ -279,16 +267,16 @@ uint pack_vsm_point_spot_light_indirections(const VSMPointSpotIndirections indir
 {
     uint packed_value = 0;
     packed_value |= ((indirections.array_layer_index   & n_mask(11)) << 21);
-    packed_value |= ((indirections.mip_level           & n_mask(4))  << 17);
-    packed_value |= ((indirections.mesh_instance_index & n_mask(17)) << 0);
+    packed_value |= ((indirections.mip_level           & n_mask(3))  << 18);
+    packed_value |= ((indirections.mesh_instance_index & n_mask(18)) << 0);
     return packed_value;
 }
 
 VSMPointSpotIndirections unpack_vsm_point_spot_light_indirections(const uint packed_value)
 {
     VSMPointSpotIndirections indirections;
-    indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(17));
-    indirections.mip_level            = daxa_i32((packed_value >> 17) & n_mask(4));
+    indirections.mesh_instance_index  = daxa_i32((packed_value >> 0)  & n_mask(18));
+    indirections.mip_level            = daxa_i32((packed_value >> 18) & n_mask(3));
     indirections.array_layer_index    = daxa_i32((packed_value >> 21) & n_mask(11));
     return indirections;
 }
@@ -307,83 +295,48 @@ struct PointMipInfo
 };
 
 PointMipInfo project_into_point_light(
-    float depth,
-    float3 normal,
     int point_light_idx,
-    float2 screen_space_uv,
+    ScreenSpacePixelWorldFootprint pixel_footprint,
     RenderGlobalData * globals,
     VSMPointLight * point_lights,
-    VSMGlobals * vsm_globals)
+    VSMGlobals * vsm_globals
+    )
 {
-    const float2 uv_offset = 0.5f * globals->settings.render_target_size_inv.xy;
-    screen_space_uv += uv_offset;
-    const float4x4 inverse_camera_view_proj = globals->camera.inv_view_proj;
-    const float3 frag_ws = world_space_from_uv(screen_space_uv, depth, inverse_camera_view_proj);
     const float3 point_ws = point_lights[point_light_idx].light.position;
 
-    const float3 point_to_frag_norm = normalize(frag_ws - point_ws);
+    const float3 point_to_frag_norm = normalize(pixel_footprint.center - point_ws);
 
-    if(length(frag_ws - point_ws) > point_lights[point_light_idx].light->cutoff)
+    if(length(pixel_footprint.center - point_ws) > point_lights[point_light_idx].light->cutoff)
     {
         return PointMipInfo(6, -1, int2(-1), float2(-2.0f));
     }
 
     const int face_idx = cube_face_from_dir(point_to_frag_norm);
+    const float4x4 point_view_projection = point_lights[point_light_idx].face_cameras[face_idx].view_proj;
 
-    // Reprojecting screen space into point light space
-    const float2 bottom_right = screen_space_uv + float2(uv_offset.x, uv_offset.y);
-    const float3 bottom_right_ws = world_space_from_uv( bottom_right, depth, inverse_camera_view_proj);
+    const float4 bottom_right_side_cs = mul(point_view_projection, float4(pixel_footprint.bottom_right, 1.0f));
+    const float4 bottom_left_side_cs = mul(point_view_projection, float4(pixel_footprint.bottom_left, 1.0f));
+    const float4 top_right_side_cs = mul(point_view_projection, float4(pixel_footprint.top_right, 1.0f));
+    const float4 top_left_side_cs = mul(point_view_projection, float4(pixel_footprint.top_left, 1.0f));
 
-    const float2 bottom_left = screen_space_uv + float2(-uv_offset.x, uv_offset.y);
-    const float3 bottom_left_ws = world_space_from_uv( bottom_left, depth, inverse_camera_view_proj);
+    const float2 bottom_right_ndc = bottom_right_side_cs.xy / bottom_right_side_cs.w;
+    const float2 bottom_left_ndc = bottom_left_side_cs.xy / bottom_left_side_cs.w;
+    const float2 top_right_ndc = top_right_side_cs.xy / top_right_side_cs.w;
+    const float2 top_left_ndc = top_left_side_cs.xy / top_left_side_cs.w;
 
-    const float2 top_right = screen_space_uv + float2(uv_offset.x, -uv_offset.y);
-    const float3 top_right_ws = world_space_from_uv( top_right, depth, inverse_camera_view_proj);
+    // const float max_axis_dist = max(abs(point_left_ndc.x - point_right_ndc.x), abs(point_left_ndc.y - point_right_ndc.y));
+   
+    const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
 
-    const float2 top_left = screen_space_uv + float2(-uv_offset.x, -uv_offset.y);
-    const float3 top_left_ws = world_space_from_uv( top_left, depth, inverse_camera_view_proj);
+    const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
+    const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+    const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
+    const int clamped_mip_level = clamp(mip_level, 0, 5);
 
-
-    const float3 bottom_right_real_ws = ray_plane_intersection(normalize(bottom_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 bottom_left_real_ws = ray_plane_intersection(normalize(bottom_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 top_right_real_ws = ray_plane_intersection(normalize(top_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 top_left_real_ws = ray_plane_intersection(normalize(top_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-
-    if( any(bottom_right_real_ws == float3(0.0f)) || 
-        any(bottom_left_real_ws == float3(0.0f))  || 
-        any(top_right_real_ws == float3(0.0f))    || 
-        any(top_left_real_ws == float3(0.0f)))
-    {
-        return PointMipInfo(6, -1, int2(-1), float2(-2.0f));
-    }
-
-    {
-        const float4x4 point_view_projection = point_lights[point_light_idx].face_cameras[face_idx].view_proj;
-
-        const float4 bottom_right_side_cs = mul(point_view_projection, float4(bottom_right_real_ws, 1.0f));
-        const float4 bottom_left_side_cs = mul(point_view_projection, float4(bottom_left_real_ws, 1.0f));
-        const float4 top_right_side_cs = mul(point_view_projection, float4(top_right_real_ws, 1.0f));
-        const float4 top_left_side_cs = mul(point_view_projection, float4(top_left_real_ws, 1.0f));
-
-        const float2 bottom_right_ndc = bottom_right_side_cs.xy / bottom_right_side_cs.w;
-        const float2 bottom_left_ndc = bottom_left_side_cs.xy / bottom_left_side_cs.w;
-        const float2 top_right_ndc = top_right_side_cs.xy / top_right_side_cs.w;
-        const float2 top_left_ndc = top_left_side_cs.xy / top_left_side_cs.w;
-
-        // const float max_axis_dist = max(abs(point_left_ndc.x - point_right_ndc.x), abs(point_left_ndc.y - point_right_ndc.y));
-        
-        const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
-
-        const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
-        const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
-        const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-        const int clamped_mip_level = clamp(mip_level, 2, 5);
-
-        const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
-        const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
-        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
-        return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
-    }
+    const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
+    const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
+    const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
+    return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
 }
 
 struct SpotMipInfo
@@ -394,78 +347,43 @@ struct SpotMipInfo
 };
 
 SpotMipInfo project_into_spot_light(
-    float depth,
-    float3 normal,
     int spot_light_index,
-    float2 screen_space_uv,
+    ScreenSpacePixelWorldFootprint pixel_footprint,
     RenderGlobalData * globals,
     VSMSpotLight * spot_lights,
     VSMGlobals * vsm_globals)
 {
-    const float2 uv_offset = 0.5f * globals->settings.render_target_size_inv.xy;
-    screen_space_uv += uv_offset;
-    const float4x4 inverse_camera_view_proj = globals->camera.inv_view_proj;
-    const float3 frag_ws = world_space_from_uv(screen_space_uv, depth, inverse_camera_view_proj);
-    const float3 point_ws = spot_lights[spot_light_index].camera.position;
+    const float3 spot_ws = spot_lights[spot_light_index].camera.position;
 
-    if(length(frag_ws - point_ws) > spot_lights[spot_light_index].light->cutoff)
+    if(length(pixel_footprint.center - spot_ws) > spot_lights[spot_light_index].light->cutoff)
     {
         return SpotMipInfo(6, int2(-1), float2(-2.0f));
     }
 
-    // Reprojecting screen space into point light space
-    const float2 bottom_right = screen_space_uv + float2(uv_offset.x, uv_offset.y);
-    const float3 bottom_right_ws = world_space_from_uv( bottom_right, depth, inverse_camera_view_proj);
+    const float4x4 point_view_projection = spot_lights[spot_light_index].camera.view_proj;
 
-    const float2 bottom_left = screen_space_uv + float2(-uv_offset.x, uv_offset.y);
-    const float3 bottom_left_ws = world_space_from_uv( bottom_left, depth, inverse_camera_view_proj);
+    const float4 bottom_right_side_cs = mul(point_view_projection, float4(pixel_footprint.bottom_right, 1.0f));
+    const float4 bottom_left_side_cs = mul(point_view_projection, float4(pixel_footprint.bottom_left, 1.0f));
+    const float4 top_right_side_cs = mul(point_view_projection, float4(pixel_footprint.top_right, 1.0f));
+    const float4 top_left_side_cs = mul(point_view_projection, float4(pixel_footprint.top_left, 1.0f));
 
-    const float2 top_right = screen_space_uv + float2(uv_offset.x, -uv_offset.y);
-    const float3 top_right_ws = world_space_from_uv( top_right, depth, inverse_camera_view_proj);
+    const float2 bottom_right_ndc = bottom_right_side_cs.xy / bottom_right_side_cs.w;
+    const float2 bottom_left_ndc = bottom_left_side_cs.xy / bottom_left_side_cs.w;
+    const float2 top_right_ndc = top_right_side_cs.xy / top_right_side_cs.w;
+    const float2 top_left_ndc = top_left_side_cs.xy / top_left_side_cs.w;
 
-    const float2 top_left = screen_space_uv + float2(-uv_offset.x, -uv_offset.y);
-    const float3 top_left_ws = world_space_from_uv( top_left, depth, inverse_camera_view_proj);
-
-
-    const float3 bottom_right_real_ws = ray_plane_intersection(normalize(bottom_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 bottom_left_real_ws = ray_plane_intersection(normalize(bottom_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 top_right_real_ws = ray_plane_intersection(normalize(top_right_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-    const float3 top_left_real_ws = ray_plane_intersection(normalize(top_left_ws - globals->camera.position), globals->camera.position, normal, frag_ws);
-
-    if( any(bottom_right_real_ws == float3(0.0f)) || 
-        any(bottom_left_real_ws == float3(0.0f))  || 
-        any(top_right_real_ws == float3(0.0f))    || 
-        any(top_left_real_ws == float3(0.0f)))
-    {
-        return SpotMipInfo(6, int2(-1), float2(-2.0f));
-    }
-
-    {
-        const float4x4 point_view_projection = spot_lights[spot_light_index].camera.view_proj;
-
-        const float4 bottom_right_side_cs = mul(point_view_projection, float4(bottom_right_real_ws, 1.0f));
-        const float4 bottom_left_side_cs = mul(point_view_projection, float4(bottom_left_real_ws, 1.0f));
-        const float4 top_right_side_cs = mul(point_view_projection, float4(top_right_real_ws, 1.0f));
-        const float4 top_left_side_cs = mul(point_view_projection, float4(top_left_real_ws, 1.0f));
-
-        const float2 bottom_right_ndc = bottom_right_side_cs.xy / bottom_right_side_cs.w;
-        const float2 bottom_left_ndc = bottom_left_side_cs.xy / bottom_left_side_cs.w;
-        const float2 top_right_ndc = top_right_side_cs.xy / top_right_side_cs.w;
-        const float2 top_left_ndc = top_left_side_cs.xy / top_left_side_cs.w;
-
-        // const float max_axis_dist = max(abs(point_left_ndc.x - point_right_ndc.x), abs(point_left_ndc.y - point_right_ndc.y));
+    // const float max_axis_dist = max(abs(point_left_ndc.x - point_right_ndc.x), abs(point_left_ndc.y - point_right_ndc.y));
         
-        const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
+    const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
 
-        const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
-        const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
-        const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-        const int clamped_mip_level = clamp(mip_level, 2, 5);
+    const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
+    const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+    const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
+    const int clamped_mip_level = clamp(mip_level, 2, 5);
 
-        const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
-        const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
-        const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
-        return SpotMipInfo(int(clamped_mip_level), texel_coord, middle_uv);
-    }
+    const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
+    const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
+    const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
+    return SpotMipInfo(int(clamped_mip_level), texel_coord, middle_uv);
 }
 #endif

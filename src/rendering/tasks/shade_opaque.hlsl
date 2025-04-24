@@ -83,66 +83,50 @@ float map(float value, float min1, float max1, float min2, float max2)
 
 float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 normal, float3 world_pos)
 {
-    const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
-    PointMipInfo info = project_into_point_light(depth, normal, point_light_index, uv, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
-    if(info.mip_level > 5) 
-    {
-        return float3(0.0f, 0.0f, 1.0f);
-    }
+    return float3(1.0f, 1.0f, 1.0f);
+    // const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
+    // PointMipInfo info = project_into_point_light(depth, normal, point_light_index, uv, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
+    // if(info.mip_level > 5) 
+    // {
+    //     return float3(0.0f, 0.0f, 1.0f);
+    // }
 
-    float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
-    const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
-    const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
+    // float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
+    // const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
+    // const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
 
-    const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
-    const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+    // const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
+    // const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
 
-    bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
-                             any(lessThan(in_page_texel_coords, int2(1)));
+    // bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
+    //                          any(lessThan(in_page_texel_coords, int2(1)));
 
 
-    if(!get_is_allocated(vsm_page_entry)) 
-    {
-        color = float3(1.0, 0.0, 0.0);
-    }
+    // if(!get_is_allocated(vsm_page_entry)) 
+    // {
+    //     color = float3(1.0, 0.0, 0.0);
+    // }
 
-    if(texel_near_border)
-    {
-        color = float3(0.001, 0.001, 0.001);
-    }
+    // if(texel_near_border)
+    // {
+    //     color = float3(0.001, 0.001, 0.001);
+    // }
 
-    return color;
+    // return color;
 }
 
-float3 get_vsm_debug_page_color(float2 uv, float depth, float3 world_position)
+float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     float3 color = float3(1.0, 1.0, 1.0);
 
-    const float4x4 inv_projection_view = AT.globals->camera.inv_view_proj;
     const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
     const int force_clip_level = level_forced ? AT.globals->vsm_settings.forced_clip_level : -1;
 
     ClipInfo clip_info;
-    uint2 render_target_size = AT.globals->settings.render_target_size;
-    float real_depth = depth;
-    float2 real_uv = uv;
-    if(AT.globals->settings.draw_from_observer == 1u)
-    {
-        const float4 main_cam_proj_world = mul(AT.globals->camera.view_proj, float4(world_position, 1.0));
-        const float2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
-        if(main_cam_proj_world.w < 0.0 || abs(ndc.x) > 1.0 || abs(ndc.y) > 1.0)
-        {
-            return float3(1.0);
-        }
-        real_uv = (ndc + float2(1.0)) / float2(2.0);
-        real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
-    }
     clip_info = clip_info_from_uvs(ClipFromUVsInfo(
-        real_uv,
-        render_target_size,
-        real_depth,
-        inv_projection_view,
         force_clip_level,
+        AT.globals->camera.position,   
+        pixel_footprint,
         AT.vsm_clip_projections,
         AT.vsm_globals,
         AT.globals
@@ -215,7 +199,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
     const float3 view_projected_world_pos = (mul(vsm_shifted_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
-    const float view_space_offset = 0.04;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float view_space_offset = 0.04 / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
     const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
@@ -225,31 +209,20 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     return is_in_shadow ? 0.0 : 1.0;
 }
 
-float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_norm_dot)
+float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
     const int force_clip_level = level_forced ? AT.globals->vsm_settings.forced_clip_level : -1;
 
-    const float4x4 inv_projection_view = AT.globals->camera.inv_view_proj;
-    uint2 render_target_size = AT.globals->settings.render_target_size;
+    const float3 camera_position = AT.globals.settings.draw_from_observer == 0 ?
+        AT.globals.camera.position :
+        AT.globals.observer_camera.position;
+
     ClipInfo clip_info;
-    float real_depth = depth;
-    float2 real_uv = uv;
-
-    if(AT.globals->settings.draw_from_observer == 1u)
-    {
-        const float4 main_cam_proj_world = mul(AT.globals->camera.view_proj, float4(world_position, 1.0));
-        const float2 ndc = main_cam_proj_world.xy / main_cam_proj_world.w;
-        real_uv = (ndc + float2(1.0)) / float2(2.0);
-        real_depth = main_cam_proj_world.z / main_cam_proj_world.w;
-    }
-
     let base_clip_info = ClipFromUVsInfo(
-        real_uv,
-        render_target_size,
-        real_depth,
-        inv_projection_view,
         force_clip_level,
+        camera_position,
+        pixel_footprint,   
         AT.vsm_clip_projections,
         AT.vsm_globals,
         AT.globals
@@ -260,7 +233,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
     const float filter_radius = 0.05;
     float sum = 0.0;
 
-    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
+    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index);
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
@@ -271,12 +244,11 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
 
         let level = 0;
         let filter_view_space_offset = float4(filter_rot_offset * filter_radius * pow(1.0, clip_info.clip_level), 0.0, 0.0);
-        const daxa_f32vec3 center_world_space = world_space_from_uv( real_uv, real_depth, inv_projection_view);
 
         let clip_proj = AT.vsm_clip_projections[clip_info.clip_level].camera.proj;
         let clip_view = AT.vsm_clip_projections[clip_info.clip_level].camera.view;
 
-        let view_space_world_pos = mul(clip_view, float4(world_position, 1.0));
+        let view_space_world_pos = mul(clip_view, float4(pixel_footprint.center, 1.0));
         let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
         let proj_filter_offset_world = mul(clip_proj, view_space_offset_world_pos);
 
@@ -291,7 +263,7 @@ float get_vsm_shadow(float2 uv, float depth, float3 world_position, float sun_no
 
             if(get_is_allocated(page_entry))
             {
-                sum += vsm_shadow_test(offset_info, page_entry, world_position, page_camera_pos, sun_norm_dot, uv);
+                sum += vsm_shadow_test(offset_info, page_entry, pixel_footprint.center, page_camera_pos, sun_norm_dot, screen_uv);
             }
         }
     }
@@ -323,27 +295,25 @@ float vsm_point_shadow_test(PointMipInfo info, uint vsm_page_entry, float3 world
         return is_in_shadow ? 0.0f : 1.0f;
 }
 
-float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, float3 world_position, int point_light_idx)
+float get_vsm_point_shadow(float2 screen_uv, float3 world_normal, int point_light_idx, ScreenSpacePixelWorldFootprint pixel_footprint)
 {
-    PointMipInfo info = project_into_point_light(depth, world_normal, point_light_idx, screen_uv, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
+    PointMipInfo info = project_into_point_light(point_light_idx, pixel_footprint, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
     if(info.cube_face == -1) 
     {
         return float(1.0f);
     }
     info.mip_level = clamp(info.mip_level, 0, 5);
 
-    const float filter_radius = 0.01;
+    const float filter_radius = 0.05;
     float sum = 0.0;
 
-    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f));
-    float rand_angle = rand();
+    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index);
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
-        let filter_rot_offset = float2(
-            poisson_disk[sample].x * cos(rand_angle) - poisson_disk[sample].y * sin(rand_angle),
-            poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
-        );
+        float theta = (rand()) * 2 * PI;
+        float r = sqrt(rand());
+        let filter_rot_offset =  float2(cos(theta), sin(theta)) * r;
 
         let level = 0;
         let filter_view_space_offset = float4(filter_rot_offset * filter_radius, 0.0, 0.0);
@@ -351,8 +321,8 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
         let mip_proj = AT.vsm_point_lights[point_light_idx].face_cameras[info.cube_face].proj;
         let mip_view = AT.vsm_point_lights[point_light_idx].face_cameras[info.cube_face].view;
 
-        world_position += world_normal * 0.001;
-        let view_space_world_pos = mul(mip_view, float4(world_position, 1.0));
+        pixel_footprint.center += world_normal * 0.007;
+        let view_space_world_pos = mul(mip_view, float4(pixel_footprint.center, 1.0));
         let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
         let clip_filter_offset_world = mul(mip_proj, view_space_offset_world_pos);
 
@@ -368,7 +338,7 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
 
             if(get_is_allocated(vsm_page_entry))
             {
-                sum += vsm_point_shadow_test(info, vsm_page_entry, world_position, point_light_idx);
+                sum += vsm_point_shadow_test(info, vsm_page_entry, pixel_footprint.center, point_light_idx);
             }
         }
         else
@@ -379,13 +349,13 @@ float get_vsm_point_shadow(float2 screen_uv, float depth, float3 world_normal, f
     return sum / PCF_NUM_SAMPLES;
 }
 
-float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUPointLight * lights, uint light_count)
+float3 point_lights_contribution(float2 screen_uv, float3 shading_normal, float3 world_normal, GPUPointLight * lights, uint light_count, ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     float3 total_contribution = float3(0.0);
 #if 1
     let mask_volume = AT.light_mask_volume.get();
     let light_settings = AT.globals.light_settings;
-    uint4 light_mask = lights_get_mask(light_settings, world_position, mask_volume);
+    uint4 light_mask = lights_get_mask(light_settings, pixel_footprint.center, mask_volume);
     light_mask = WaveActiveBitOr(light_mask);
     while (any(light_mask != uint4(0)))
     {
@@ -395,10 +365,10 @@ float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 sh
     {
 #endif
         GPUPointLight light = lights[light_index];
-        const float3 position_to_light = normalize(light.position - world_position);
+        const float3 position_to_light = normalize(light.position - pixel_footprint.center);
         const float diffuse = max(dot(shading_normal, position_to_light), 0.0);
 
-        const float to_light_dist = length(light.position - world_position);
+        const float to_light_dist = length(light.position - pixel_footprint.center);
 
         float win = (to_light_dist / light.cutoff);
         win = win * win * win * win;
@@ -407,7 +377,7 @@ float3 point_lights_contribution(float2 screen_uv, float screen_depth, float3 sh
         float attenuation = win / (to_light_dist * to_light_dist + 0.1);
         float shadowing = 1.0f;
         if(attenuation > 0.0f) {
-            shadowing = get_vsm_point_shadow(screen_uv, screen_depth, world_normal, world_position, light_index);
+            shadowing = get_vsm_point_shadow(screen_uv, world_normal, light_index, pixel_footprint);
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -429,7 +399,7 @@ float vsm_spot_shadow_test(SpotMipInfo info, uint vsm_page_entry, float3 world_p
         let shadow_view = AT.vsm_spot_lights[light_index].camera.view;
         let shadow_proj = AT.vsm_spot_lights[light_index].camera.proj;
         const float4 world_position_in_shadow_vs = mul(shadow_view, float4(world_position, 1.0f));
-        const float shadow_vs_offset = 0.07;
+        const float shadow_vs_offset = 0.1;
         const float4 offset_world_position_in_shadow_vs = float4(world_position_in_shadow_vs.xy, world_position_in_shadow_vs.z + shadow_vs_offset, 1.0f);
         const float4 world_position_in_shadow_cs = mul(shadow_proj, offset_world_position_in_shadow_vs);
 
@@ -440,27 +410,26 @@ float vsm_spot_shadow_test(SpotMipInfo info, uint vsm_page_entry, float3 world_p
         return is_in_shadow ? 0.0f : 1.0f;
 }
 
-float get_vsm_spot_shadow(float2 screen_uv, float depth, float3 world_normal, float3 world_position, int spot_light_idx)
+float get_vsm_spot_shadow(float2 screen_uv, float3 world_normal, int spot_light_idx, ScreenSpacePixelWorldFootprint pixel_footprint)
 {
-    SpotMipInfo info = project_into_spot_light(depth, world_normal, spot_light_idx, screen_uv, AT.globals, AT.vsm_spot_lights, AT.vsm_globals);
+    SpotMipInfo info = project_into_spot_light(spot_light_idx, pixel_footprint, AT.globals, AT.vsm_spot_lights, AT.vsm_globals);
     if(info.page_texel_coords.x == -1) 
     {
         return float(1.0f);
     }
     info.mip_level = clamp(info.mip_level, 0, 5);
 
-    const float filter_radius = 0.01;
+    const float filter_radius = 0.05;
     float sum = 0.0;
 
-    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f));
-    float rand_angle = rand();
+    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index);
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
-        let filter_rot_offset = float2(
-            poisson_disk[sample].x * cos(rand_angle) - poisson_disk[sample].y * sin(rand_angle),
-            poisson_disk[sample].y * cos(rand_angle) + poisson_disk[sample].x * sin(rand_angle),
-        );
+        //int final_sample = poisson
+        float theta = (rand()) * 2 * PI;
+        float r = sqrt(rand());
+        let filter_rot_offset =  float2(cos(theta), sin(theta)) * r;
 
         let level = 0;
         let filter_view_space_offset = float4(filter_rot_offset * filter_radius, 0.0, 0.0);
@@ -468,8 +437,8 @@ float get_vsm_spot_shadow(float2 screen_uv, float depth, float3 world_normal, fl
         let mip_proj = AT.vsm_spot_lights[spot_light_idx].camera.proj;
         let mip_view = AT.vsm_spot_lights[spot_light_idx].camera.view;
 
-        world_position += world_normal * 0.001;
-        let view_space_world_pos = mul(mip_view, float4(world_position, 1.0));
+        pixel_footprint.center += world_normal * 0.001;
+        let view_space_world_pos = mul(mip_view, float4(pixel_footprint.center, 1.0));
         let view_space_offset_world_pos = view_space_world_pos + filter_view_space_offset;
         let clip_filter_offset_world = mul(mip_proj, view_space_offset_world_pos);
 
@@ -485,7 +454,7 @@ float get_vsm_spot_shadow(float2 screen_uv, float depth, float3 world_normal, fl
 
             if(get_is_allocated(vsm_page_entry))
             {
-                sum += vsm_spot_shadow_test(info, vsm_page_entry, world_position, spot_light_idx);
+                sum += vsm_spot_shadow_test(info, vsm_page_entry, pixel_footprint.center, spot_light_idx);
             }
         }
         else
@@ -496,16 +465,22 @@ float get_vsm_spot_shadow(float2 screen_uv, float depth, float3 world_normal, fl
     return sum / PCF_NUM_SAMPLES;
 }
 
-float3 spot_lights_contribution(float2 screen_uv, float screen_depth, float3 shading_normal, float3 world_normal, float3 world_position, float3 view_direction, GPUSpotLight * lights, uint light_count)
+float3 spot_lights_contribution(
+    float2 screen_uv,
+    float3 shading_normal,
+    float3 world_normal,
+    GPUSpotLight * lights,
+    uint light_count,
+    ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     float3 total_contribution = float3(0.0);
     for(int light_index = 0; light_index < light_count; light_index++)
     {
         GPUSpotLight light = lights[light_index];
-        const float3 position_to_light = normalize(light.position - world_position);
+        const float3 position_to_light = normalize(light.position - pixel_footprint.center);
         const float diffuse = max(dot(shading_normal, position_to_light), 0.0);
 
-        const float to_light_dist = length(light.position - world_position);
+        const float to_light_dist = length(light.position - pixel_footprint.center);
 
         float win = (to_light_dist / light.cutoff);
         win = win * win * win * win;
@@ -526,7 +501,7 @@ float3 spot_lights_contribution(float2 screen_uv, float screen_depth, float3 sha
 
         float shadowing = 1.0f;
         if(attenuation > 0.0f) {
-            shadowing = get_vsm_spot_shadow(screen_uv, screen_depth, world_normal, world_position, light_index);
+            shadowing = get_vsm_spot_shadow(screen_uv, world_normal, light_index, pixel_footprint);
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -538,13 +513,13 @@ struct VsmLightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;
     RenderGlobalData* globals;
+    ScreenSpacePixelWorldFootprint footprint;
     float2 screen_uv;
-    float depth;
     float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.0, 1.0);
-        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, material_point.position, sun_norm_dot) : 1.0f;
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, sun_norm_dot, footprint) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
         return final_shadow;
@@ -612,7 +587,6 @@ void entry_main_cs(
     float nonlinear_depth = AT.depth.get()[index];
 
     let primary_ray = normalize(pixel_index_to_world_space(camera, index, nonlinear_depth) - camera.position);
-    float world_space_depth = 0.0f;
 
     float ambient_occlusion = 1.0f;
     if(triangle_id_valid)
@@ -644,7 +618,6 @@ void entry_main_cs(
             AT.globals.readback.hovered_entity = tri_geo.entity_index;
         }
 
-        world_space_depth = length(tri_point.world_position - camera_position);
 
         GPUMaterial material = GPU_MATERIAL_FALLBACK;
         if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
@@ -660,17 +633,47 @@ void entry_main_cs(
         let mapped_normal = material_point.normal;
         let albedo = material_point.albedo;
         
+
+        // TODO(msakmary) refactor into a separate function.
+        // ====================================================================================================================================
+        const float2 uv_offset = 0.5f * AT.globals->settings.render_target_size_inv.xy;
+
+        const float2 screen_space_tex_center_uv = (float2(svdtid.xy) + float2(0.5f)) * AT.globals.settings.render_target_size_inv;
+
+        // Reprojecting screen space into world
+        const float2 bottom_right = screen_space_tex_center_uv + float2(uv_offset.x, uv_offset.y);
+        const float3 bottom_right_ws = world_space_from_uv( bottom_right, depth, camera.inv_view_proj);
+
+        const float2 bottom_left = screen_space_tex_center_uv + float2(-uv_offset.x, uv_offset.y);
+        const float3 bottom_left_ws = world_space_from_uv( bottom_left, depth, camera.inv_view_proj);
+
+        const float2 top_right = screen_space_tex_center_uv + float2(uv_offset.x, -uv_offset.y);
+        const float3 top_right_ws = world_space_from_uv( top_right, depth, camera.inv_view_proj);
+
+        const float2 top_left = screen_space_tex_center_uv + float2(-uv_offset.x, -uv_offset.y);
+        const float3 top_left_ws = world_space_from_uv( top_left, depth, camera.inv_view_proj);
+
+        ScreenSpacePixelWorldFootprint ws_pixel_footprint;
+        ws_pixel_footprint.center = tri_point.world_position;
+        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - camera_position), camera_position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - camera_position), camera_position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - camera_position), camera_position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - camera_position), camera_position, tri_point.world_normal, ws_pixel_footprint.center);
+        // ================================================================================================================
+
+        // Directional light
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(mapped_normal, sun_direction), 0.0, 1.0);
-        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, depth, tri_point.world_position, sun_norm_dot) : 1.0f;
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint) : 1.0f;
         if (AT.globals->vsm_settings.shadow_everything == 1)
         {
             shadow = 0.0f;
         }
         const float final_shadow = sun_norm_dot * shadow.x;
 
-        float3 point_lights_direct = point_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.point_lights, AT.globals.vsm_settings.point_light_count);
-        float3 spot_lights_direct = spot_lights_contribution(screen_uv, depth, mapped_normal, tri_point.world_normal, tri_point.world_position, primary_ray, AT.spot_lights, AT.globals.vsm_settings.spot_light_count);
+        // Point lights and spot lights
+        float3 point_lights_direct = point_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.point_lights, AT.globals.vsm_settings.point_light_count, ws_pixel_footprint);
+        float3 spot_lights_direct = spot_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.spot_lights, AT.globals.vsm_settings.spot_light_count, ws_pixel_footprint);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
@@ -788,7 +791,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
             {
-                let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position);
+                let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint);
                 output_value.rgb = vsm_debug_color * ambient_occlusion;
                 break;
             }
@@ -796,7 +799,7 @@ void entry_main_cs(
             {
                 if (AT.globals->vsm_settings.enable != 0)
                 {
-                    let vsm_debug_color = get_vsm_debug_page_color(screen_uv, depth, tri_point.world_position) * ambient_occlusion;
+                    let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
                     let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
                     output_value.rgb = debug_albedo;
                 }
@@ -972,7 +975,6 @@ void entry_main_cs(
         {
             AT.globals.readback.hovered_entity = ~0u;
         }
-        world_space_depth = VOLUMETRIC_SKY_DEPTH;
 
         const float2 ndc_xy = screen_uv * 2.0 - 1.0;
         const float3 view_direction = get_view_direction(ndc_xy);

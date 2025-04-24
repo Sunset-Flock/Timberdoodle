@@ -2,6 +2,7 @@
 
 #include <daxa/daxa.inl>
 #include "../shader_shared/geometry.inl"
+#include "../shader_lib/vsm_util.glsl"
 
 /// ===== Shader Only Geometry Data and functions =====
 
