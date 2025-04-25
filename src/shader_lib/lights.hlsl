@@ -45,13 +45,4 @@ func lights_iterate_mask(LightSettings settings, inout uint4 mask) -> uint
     return first_filled_uint * 32 + first_set_bit;
 }
 
-// func lights_iterate_mask(LightSettings settings, inout uint mask) -> uint
-// {
-//     if (mask.x == 0)
-//     {
-//         return ~0u;
-//     }
-//     let first_set_bit = firstbitlow(mask);
-//     mask = mask & (~(1u << first_set_bit));
-//     return first_set_bit;
-// }
+#define LIGHTS_ENABLE_MASK_ITERATION 1

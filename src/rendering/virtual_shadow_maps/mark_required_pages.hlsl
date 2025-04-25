@@ -161,14 +161,16 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
 
         // ==================================== POINT LIGHTS ===============================================
-    #if 1
+    #if LIGHTS_ENABLE_MASK_ITERATION
         let mask_volume = AT.light_mask_volume.get();
         let light_settings = AT.globals.light_settings;
         uint4 light_mask = lights_get_mask(light_settings, ws_pixel_footprint.center, mask_volume);
-        light_mask = WaveActiveBitOr(light_mask);
-        while (any(light_mask != uint4(0)))
+
+        uint4 point_light_mask = light_mask & light_settings.point_light_mask;
+        point_light_mask = WaveActiveBitOr(point_light_mask);
+        while (any(point_light_mask != uint4(0)))
         {
-            uint point_light_idx = lights_iterate_mask(light_settings, light_mask);
+            uint point_light_idx = lights_iterate_mask(light_settings, point_light_mask);
     #else
         for(int point_light_idx = 0; point_light_idx < AT.globals.vsm_settings.point_light_count; ++point_light_idx)
         {
@@ -230,8 +232,16 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
 
         // ==================================== SPOT LIGHTS ===============================================
+    #if LIGHTS_ENABLE_MASK_ITERATION
+        uint4 spot_light_mask = light_mask & light_settings.spot_light_mask;
+        spot_light_mask = WaveActiveBitOr(spot_light_mask);
+        while (any(spot_light_mask != uint4(0)))
+        {
+            uint spot_light_idx = lights_iterate_mask(light_settings, spot_light_mask) - light_settings.first_spot_light_instance;
+    #else
         for(int spot_light_idx = 0; spot_light_idx < AT.globals.vsm_settings.spot_light_count; ++spot_light_idx)
         {
+    #endif
             const float2 screen_space_uv = float2(svdtid.xy) * AT.globals.settings.render_target_size_inv;
 
             const SpotMipInfo vsm_light_mip_info = project_into_spot_light(

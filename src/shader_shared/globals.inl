@@ -21,6 +21,7 @@ struct GPUScene
     daxa_BufferPtr(daxa_f32mat4x3) entity_transforms;
     daxa_BufferPtr(daxa_f32mat4x3) entity_combined_transforms;
     daxa_BufferPtr(GPUPointLight) point_lights;
+    daxa_BufferPtr(GPUSpotLight) spot_lights;
 };
 
 struct RenderGlobalData

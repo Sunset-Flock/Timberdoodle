@@ -926,7 +926,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 
 #pragma region REGENERATE INDEX BUFFER
 
-    {
+    if (false) {
         // TODO: RESPECT UVS AND NORMALS!
         std::vector<u32> remapping_table = {};
         std::vector<glm::vec3> remapped_positions = {};

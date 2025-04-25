@@ -28,6 +28,18 @@ void debug_draw_line(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderD
     DEBUG_DRAW(debug_info, line, draw)
 }
 
+daxa_u32 debug_alloc_line_draws(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, daxa_u32 amount)
+{
+    const uint capacity = deref(debug_info).line_draws.draw_capacity;
+    const uint offset = atomicAdd(deref(debug_info).line_draws.draw_requests, amount);
+    if ((offset + amount) < capacity)
+    {
+        atomicAdd(deref(debug_info).line_draws.draw_indirect.instance_count, amount);
+        return offset;
+    }
+    return ~0u;
+}
+
 void debug_draw_circle(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugCircleDraw draw)
 {
     DEBUG_DRAW(debug_info, circle, draw)

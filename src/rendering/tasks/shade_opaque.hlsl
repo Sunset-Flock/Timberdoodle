@@ -345,10 +345,11 @@ float3 point_lights_contribution(
     bool skip_shadows)
 {
     float3 total_contribution = float3(0.0);
-#if 1
+#if LIGHTS_ENABLE_MASK_ITERATION
     let mask_volume = AT.light_mask_volume.get();
     let light_settings = AT.globals.light_settings;
     uint4 light_mask = lights_get_mask(light_settings, pixel_footprint.center, mask_volume);
+    light_mask = light_mask & light_settings.point_light_mask;
     light_mask = WaveActiveBitOr(light_mask);
     while (any(light_mask != uint4(0)))
     {
@@ -468,8 +469,19 @@ float3 spot_lights_contribution(
     bool skip_shadows)
 {
     float3 total_contribution = float3(0.0);
+#if LIGHTS_ENABLE_MASK_ITERATION
+    let mask_volume = AT.light_mask_volume.get();
+    let light_settings = AT.globals.light_settings;
+    uint4 light_mask = lights_get_mask(light_settings, pixel_footprint.center, mask_volume);
+    light_mask = light_mask & light_settings.spot_light_mask;
+    light_mask = WaveActiveBitOr(light_mask);
+    while (any(light_mask != uint4(0)))
+    {
+        uint light_index = lights_iterate_mask(light_settings, light_mask) - light_settings.first_spot_light_instance;
+#else
     for(int light_index = 0; light_index < light_count; light_index++)
     {
+#endif
         GPUSpotLight light = lights[light_index];
         const float3 position_to_light = normalize(light.position - pixel_footprint.center);
         const float diffuse = max(dot(shading_normal, position_to_light), 0.0);
@@ -954,8 +966,12 @@ void entry_main_cs(
                 let mask_volume = AT.light_mask_volume.get();
                 let light_settings = AT.globals.light_settings;
                 uint4 light_mask = lights_get_mask(light_settings, material_point.position, mask_volume);
+                int3 index = lights_get_mask_volume_cell(light_settings, material_point.position) / 4;
+                //light_mask &= light_settings.spot_light_mask;
+                
+                bool checker = false;//((uint(index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(index.z + int(~0u >> 2)) & 0x1) != 0);
                 let light_count4 = countbits(light_mask);
-                let light_count = light_count4.x + light_count4.z + light_count4.z + light_count4.z;
+                let light_count = light_count4.x + light_count4.y + light_count4.z + light_count4.w;
                 if (lights_in_mask_volume(light_settings, lights_get_mask_volume_cell(light_settings, material_point.position)))
                 {
                     output_value.rgb = TurboColormap(float(light_count) * rcp(123.0f)) * ambient_occlusion;
@@ -964,6 +980,7 @@ void entry_main_cs(
                 {
                     output_value.rgb = ambient_occlusion.xxx;
                 }
+                output_value.rgb *= checker ? 0.6f : 1.0f;
                 break;
             }  
             case DEBUG_DRAW_MODE_NONE:

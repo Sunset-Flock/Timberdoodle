@@ -1196,6 +1196,7 @@ auto Renderer::prepare_frame(
         render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.get_state().buffers[0]).value();
         render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.get_state().buffers[0]).value();
         render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.get_state().buffers[0]).value();
+        render_context->render_data.scene.spot_lights = device.device_address(scene->_gpu_spot_lights.get_state().buffers[0]).value();
     }
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{

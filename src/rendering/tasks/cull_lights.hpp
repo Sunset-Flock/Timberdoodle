@@ -32,6 +32,25 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
         std::round(render_data.main_camera.position.z / settings.mask_volume_cell_size.z) * settings.mask_volume_cell_size.z - settings.mask_volume_size.z * 0.5f,
     };
     settings.point_light_count = render_data.vsm_settings.point_light_count;
+    settings.spot_light_count = render_data.vsm_settings.spot_light_count;
+    settings.light_count = render_data.vsm_settings.point_light_count + render_data.vsm_settings.spot_light_count;
+    settings.point_light_mask = {};
+    for (u32 i = 0; i < settings.point_light_count; ++i)
+    {
+        u32 l = i + 0;
+        u32 uint_idx = i / 32;
+        u32 bit_idx = i - 32 * uint_idx;
+        (&settings.point_light_mask.x)[uint_idx] |= (1u << bit_idx);
+    }    
+    settings.spot_light_mask = {};
+    settings.first_spot_light_instance = settings.point_light_count;
+    for (u32 i = 0; i < settings.spot_light_count; ++i)
+    {
+        u32 l = i + settings.first_spot_light_instance;
+        u32 uint_idx = l / 32;
+        u32 bit_idx = l - 32 * uint_idx;
+        (&settings.spot_light_mask.x)[uint_idx] |= (1u << bit_idx);
+    }
 }
 
 inline auto lights_significant_settings_change(LightSettings const & prev, LightSettings const & curr) -> bool
@@ -53,6 +72,7 @@ struct CullLightsTask : CullLightsH::Task
         CullLightsPush push = {};
         push.at = ti.attachment_shader_blob;
         push.point_lights = render_context->render_data.scene.point_lights;
+        push.spot_lights = render_context->render_data.scene.spot_lights;
         ti.recorder.push_constant(push);
 
         auto const mask_volume_size = ti.info(AT.light_mask_volume).value().size;
