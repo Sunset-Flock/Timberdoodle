@@ -118,7 +118,7 @@ Renderer::Renderer(
         },
         {
             daxa::ImageInfo{
-                .format = daxa::Format::R16G16_SFLOAT,
+                .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "rtao_history",
             },
@@ -821,10 +821,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     else
     {
         daxa::TaskImageView ao_image = daxa::NullTaskImage;
-        if (render_context->render_data.settings.ao_mode == AO_MODE_RT)
+        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO || render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
         {
             auto ao_image_info = daxa::TaskTransientImageInfo{
-                .format = daxa::Format::R16G16_SFLOAT,
+                .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .size = {
                     render_context->render_data.settings.render_target_size.x,
                     render_context->render_data.settings.render_target_size.y,
@@ -847,9 +847,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .view_cam_detail_normals = main_camera_detail_normal_image,
                     .view_cam_visbuffer = main_camera_visbuffer,
                     .sky = sky,
+                    .sky_transmittance = transmittance,
                     .meshlet_instances = meshlet_instances,
                     .mesh_instances = scene->mesh_instances_buffer,
                     .tlas = scene->_scene_tlas,
+                    .light_mask_volume = light_mask_volume,
+                    .pgi_radiance = pgi_radiance,
+                    .pgi_visibility = pgi_visibility,
+                    .pgi_info = pgi_info,
+                    .pgi_requests = pgi_requests,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
@@ -1124,6 +1130,7 @@ auto Renderer::prepare_frame(
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
+    bool const ppd_settings_changed = render_context->render_data.ppd_settings.mode != render_context->prev_ppd_diffuse_settings.mode;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
@@ -1134,7 +1141,7 @@ auto Renderer::prepare_frame(
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ppd_settings_changed)
     {
         main_task_graph = create_main_task_graph();
         recreate_framebuffer();
@@ -1185,6 +1192,7 @@ auto Renderer::prepare_frame(
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
     render_context->prev_light_settings = render_context->render_data.light_settings;
+    render_context->prev_ppd_diffuse_settings = render_context->render_data.ppd_settings;
 
     // Write GPUScene pointers
     {

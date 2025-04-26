@@ -12,6 +12,7 @@
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/raytracing.inl"
 #include "../../shader_shared/geometry_pipeline.inl"
+#include "../../shader_shared/per_pixel_diffuse.inl"
 
 #define RT_AO_X 8
 #define RT_AO_Y 8
@@ -22,14 +23,20 @@ DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RayTraceAmbientOcclusionH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, ao_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, ao_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_detail_normals)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_visbuffer)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky_transmittance)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_u32vec4>, light_mask_volume)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, pgi_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, pgi_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, pgi_info)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, pgi_requests)
 DAXA_DECL_TASK_HEAD_END
 
 struct RayTraceAmbientOcclusionPush
@@ -41,10 +48,10 @@ DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RTAODenoiserH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, face_normals)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec2>, history)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, history)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, src)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, dst);
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, src)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, dst);
 DAXA_DECL_TASK_HEAD_END
 
 struct RTAODenoiserPush
@@ -126,7 +133,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
         if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
         {
-            RayTraceAmbientOcclusionPush push = { };
+            RayTraceAmbientOcclusionPush push = {};
             push.attach = ti.attachment_shader_blob;
             auto const & ao_image = ti.info(AT.ao_image).value();
             auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);

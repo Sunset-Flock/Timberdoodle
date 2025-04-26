@@ -9,6 +9,7 @@
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/readback.inl"
+#include "../shader_shared/per_pixel_diffuse.inl"
 
 #include "../gpu_context.hpp"
 
@@ -629,12 +630,18 @@ struct RenderContext
     // Data
     TgDebugContext tg_debug = {};
     ReadbackValues general_readback;
+
+    // Prev Settings
     Settings prev_settings = {};
     SkySettings prev_sky_settings = {};
     VSMSettings prev_vsm_settings = {};
     PGISettings prev_pgi_settings = {};
     LightSettings prev_light_settings = {};
+    PerPixelDiffuseSettings prev_ppd_diffuse_settings = {};
+
+    // Settings
     RenderGlobalData render_data = {};
+
     std::array<bool, VSM_CLIP_LEVELS> draw_clip_frustum = {};
     i32 debug_frustum = {-1};
     bool visualize_point_frustum = {};

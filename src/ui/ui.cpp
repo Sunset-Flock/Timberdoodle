@@ -918,14 +918,15 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
             }
-            if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTID)"))
+            if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTGI)"))
             {
-                auto const ao_modes = std::array{
-                    "NONE",
-                    "RTAO",
+                auto const modes = std::array{
+                    "NONE",                             // PER_PIXEL_DIFFUSE_MODE_NONE
+                    "RAY_TRACED_AMBIENT_OCCLUSION",     // PER_PIXEL_DIFFUSE_MODE_RTAO
+                    "RAY_TRACED_GLOBAL_ILLUMINATION",   // PER_PIXEL_DIFFUSE_MODE_RTGI
                 };
-                ImGui::Combo("ao mode", &render_data.settings.ao_mode, ao_modes.data(), ao_modes.size());
-                ImGui::InputInt("ao samples", &render_data.settings.ao_samples);
+                ImGui::Combo("ao mode", &render_context.render_data.ppd_settings.mode, modes.data(), modes.size());
+                ImGui::InputInt("ao samples", &render_context.render_data.ppd_settings.sample_count);
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {

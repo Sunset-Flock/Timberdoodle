@@ -727,11 +727,17 @@ void entry_main_cs(
         }
 
         ambient_occlusion = 1.0f;
-        const bool ao_enabled = (AT.globals.settings.ao_mode != AO_MODE_NONE) && !AT.ao_image.id.is_empty();
+        const bool ao_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO) && !AT.ao_image.id.is_empty();
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
-            ambient_occlusion = AT.ao_image.get().Load(index);
+            ambient_occlusion = AT.ao_image.get().Load(index).r;
             ambient_occlusion = pow(ambient_occlusion, 1.1f);
+        }
+
+        const bool rtgi_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI) && !AT.ao_image.id.is_empty();
+        if (rtgi_enabled && (AT.globals.settings.draw_from_observer == 0))
+        {
+            indirect_lighting = AT.ao_image.get().Load(index).rgb;
         }
 
         float3 highlight_lighting = {};

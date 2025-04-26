@@ -252,26 +252,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         push.attach.probe_requests.get_formatted(),
         payload.probe_index);
     request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
-    // let in_pgi_volume = all(hit_position > pgi_settings.window_base_position) && all(hit_position < (pgi_settings.window_base_position + pgi_settings.probe_spacing * pgi_settings.probe_count));
-    // let pgi_require_hq_eval = RayTCurrent() < push.attach.globals.pgi_settings.probe_spacing.x * 30;
-    // if (false && in_pgi_volume && !pgi_require_hq_eval)
-    // {
-    //     payload.color_depth.rgb = pgi_sample_irradiance_nearest(
-    //         push.attach.globals, 
-    //         push.attach.globals.pgi_settings, 
-    //         WorldRayOrigin() + WorldRayDirection() * RayTCurrent(), 
-    //         -WorldRayDirection(), 
-    //         -WorldRayDirection(), 
-    //         WorldRayDirection(), 
-    //         push.attach.probe_radiance.get(), 
-    //         push.attach.probe_visibility.get(), 
-    //         push.attach.probe_info.get(), 
-    //         push.attach.probe_requests.get(), 
-    //         request_mode,
-    //         true);
-    //     payload.color_depth.a = RayTCurrent();
-    // }
-    // else
     {
         MeshInstance* mi = push.attach.mesh_instances.instances;
         TriangleGeometry tri_geo = rt_get_triangle_geo(
@@ -307,7 +287,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.sky_transmittance,
                 push.attach.sky,
                 material_point, 
-                WorldRayOrigin(),
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.light_mask_volume.get(),

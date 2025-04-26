@@ -203,9 +203,6 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_UV 30
 #define DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME 31
 
-#define AO_MODE_NONE 0
-#define AO_MODE_RT 1
-
 struct Settings
 {
     daxa_u32vec2 render_target_size;
@@ -220,8 +217,6 @@ struct Settings
     daxa_b32 observer_draw_second_pass;
     daxa_i32 anti_aliasing_mode;
     daxa_i32 debug_draw_mode;
-    daxa_i32 ao_mode;
-    daxa_i32 ao_samples;
     daxa_f32 debug_visualization_scale;
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
@@ -253,8 +248,6 @@ struct Settings
           observer_draw_second_pass{1},
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
-          ao_mode{AO_MODE_RT},
-          ao_samples{1},
           debug_visualization_scale{0.1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
