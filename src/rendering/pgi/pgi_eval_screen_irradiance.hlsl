@@ -50,6 +50,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
         ws_position,
         face_normal,
         detail_normal,
+        camera.position,
         primary_ray,
         push.attach.probe_radiance.get(),
         push.attach.probe_visibility.get(),

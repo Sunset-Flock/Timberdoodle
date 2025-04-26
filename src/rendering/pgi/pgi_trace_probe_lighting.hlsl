@@ -287,6 +287,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.sky_transmittance,
                 push.attach.sky,
                 material_point, 
+                WorldRayOrigin(),
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.light_mask_volume.get(),

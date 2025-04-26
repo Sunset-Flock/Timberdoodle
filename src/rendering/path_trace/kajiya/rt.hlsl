@@ -59,7 +59,7 @@ bool rt_is_shadowed(RaytracingAccelerationStructure acceleration_structure, RayD
     ShadowRayPayload shadow_payload = ShadowRayPayload::new_hit();
     TraceRay(
         acceleration_structure,
-        RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
+        RAY_FLAG_SKIP_CLOSEST_HIT_SHADER,
         0xff, 0, 0, 1, ray, shadow_payload
     );
 

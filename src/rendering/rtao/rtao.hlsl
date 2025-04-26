@@ -54,6 +54,7 @@ struct RayPayload
     float power;
     // RTGI:
     float3 color;
+    float3 normal;
 }
 
 [shader("raygeneration")]
@@ -102,7 +103,7 @@ void ray_gen()
                 ray.Direction = sample_dir;
                 payload.miss = false; // need to set to false as we skip the closest hit shader
                 payload.power = 1.0f;
-                TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
+                TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
                 ao_factor += payload.miss ? 0 : payload.power;
             }
 
@@ -113,10 +114,18 @@ void ray_gen()
         {
             RayDesc ray = {};
             ray.Origin = sample_pos;
-            ray.TMax = 10000000.0f;
+            if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
+            {
+                ray.TMax = 1000000000.0f;
+            }
+            else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+            {
+                ray.TMax = 4.0f;
+            }
             ray.TMin = 0.0f;
 
             float3 acc_light = 0.0f;
+            int valid_rays = 0;
             for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
             {
                 const float3 hemi_sample = cosine_sample_hemi();
@@ -124,12 +133,14 @@ void ray_gen()
                 ray.Direction = sample_dir;
                 payload.miss = false; // need to set to false as we skip the closest hit shader
                 payload.color = float3(0,0,0);
-                TraceRay(tlas, RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH, ~0, 0, 0, 0, ray, payload);
+                payload.normal = detail_normal;
+                TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
+
                 acc_light += payload.color;
             }
 
-            let value = acc_light * rcp(RAY_COUNT);
-            push.attach.ao_image.get()[index.xy] = float4(value,0);
+            float4 value = float4(acc_light * rcp(RAY_COUNT), 1.0f);
+            push.attach.ao_image.get()[index.xy] = value;
         }
     }
     let clk_end = clockARB();
@@ -339,7 +350,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
                 push.attach.globals.scene.mesh_groups,
                 push.attach.globals.scene.entity_combined_transforms
             );
-            MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
+            MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
                 push.attach.globals,
                 tri_geo,
                 tri_point
@@ -352,6 +363,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
                 push.attach.sky_transmittance,
                 push.attach.sky,
                 material_point, 
+                WorldRayOrigin(),
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.light_mask_volume.get(),
@@ -374,6 +386,23 @@ void miss(inout RayPayload payload)
     if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
     {
         payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
+    }
+    else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+    {
+        let push = rt_ao_push;
+        payload.color = pgi_sample_irradiance(
+            push.attach.globals, 
+            &push.attach.globals.pgi_settings, 
+            WorldRayOrigin(), // Little counter intuitive here but we want the origin as the shading point and the cam position as origin
+            payload.normal, 
+            payload.normal, 
+            push.attach.globals.main_camera.position,
+            normalize(WorldRayOrigin() - push.attach.globals.main_camera.position), 
+            push.attach.pgi_radiance.get(), 
+            push.attach.pgi_visibility.get(), 
+            push.attach.pgi_info.get(), 
+            push.attach.pgi_requests.get_formatted(), 
+            PGI_PROBE_REQUEST_MODE_DIRECT);
     }
 }
 
@@ -485,7 +514,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         //push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
-    float exp_average = lerp(1.0f, 0.005f, acceptance);
+    float exp_average = lerp(1.0f, 0.01f, acceptance);
 
     let new_ao = lerp(accepted_history_ao, blurred_new_ao, exp_average);
     float new_depth = push.attach.depth.get()[index];

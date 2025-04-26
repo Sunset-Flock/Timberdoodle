@@ -705,6 +705,7 @@ void entry_main_cs(
                     tri_point.world_position,
                     tri_point.world_normal,
                     material_point.normal,
+                    camera.position,
                     primary_ray,
                     AT.pgi_radiance.get(),
                     AT.pgi_visibility.get(),
@@ -734,7 +735,10 @@ void entry_main_cs(
             ambient_occlusion = pow(ambient_occlusion, 1.1f);
         }
 
-        const bool rtgi_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI) && !AT.ao_image.id.is_empty();
+        const bool rtgi_enabled = 
+            (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI || 
+            AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID) && 
+            !AT.ao_image.id.is_empty();
         if (rtgi_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
             indirect_lighting = AT.ao_image.get().Load(index).rgb;

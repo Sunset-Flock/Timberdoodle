@@ -208,11 +208,20 @@ func pgi_sample_probe_visibility(
 
 // Moves the sample position back along view ray and offset by normal based on probe grid density.
 // Greatly reduces self shadowing for corners.
-func pgi_calc_biased_sample_position(PGISettings* settings, float3 position, float3 geo_normal, float3 view_direction, uint cascade) -> float3
+func pgi_calc_biased_sample_position(
+    PGISettings* settings, 
+    float3 origin,          // Camera position or Ray Origin
+    float3 position, 
+    float3 geo_normal, 
+    float3 view_direction, 
+    uint cascade) -> float3
 {
     const float BIAS_FACTOR = 0.25f;
     const float NORMAL_TO_VIEW_WEIGHT = 0.3f;
-    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.cascades[cascade].probe_spacing * BIAS_FACTOR;
+    const float origin_to_sample_dst = length(origin - position);
+    const float sample_offset = min(settings.cascades[cascade].probe_spacing.x * BIAS_FACTOR, origin_to_sample_dst * 0.5f);
+    return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * sample_offset;
+    // return position + lerp(-view_direction, geo_normal, NORMAL_TO_VIEW_WEIGHT) * settings.cascades[cascade].probe_spacing * BIAS_FACTOR;
 }
 
 #define PGI_PROBE_REQUEST_MODE_DIRECT 0
@@ -289,6 +298,7 @@ func pgi_sample_irradiance(
     float3 position,
     float3 geo_normal,
     float3 shading_normal, 
+    float3 origin,           // Camera position or Ray Origin
     float3 view_direction,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -309,6 +319,7 @@ func pgi_sample_irradiance(
         position,
         geo_normal,
         shading_normal,
+        origin,
         view_direction,
         probes,
         probe_visibility,
@@ -332,6 +343,7 @@ func pgi_sample_irradiance(
             position,
             geo_normal,
             shading_normal,
+            origin,
             view_direction,
             probes,
             probe_visibility,
@@ -362,6 +374,7 @@ func pgi_sample_irradiance_cascade(
     float3 position,
     float3 geo_normal,
     float3 shading_normal, 
+    float3 origin,           // Camera position or Ray Origin
     float3 view_direction,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -370,7 +383,7 @@ func pgi_sample_irradiance_cascade(
     int probe_request_mode,
     int cascade
 ) -> float4 {
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction, cascade);
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, origin, position, geo_normal, view_direction, cascade);
 
     float3 grid_coord = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade);
     int3 base_probe = int3(floor(grid_coord));
@@ -543,6 +556,7 @@ func pgi_sample_irradiance_nearest(
     float3 position,
     float3 geo_normal,
     float3 shading_normal,
+    float3 origin,          // Camera position or Ray Origin
     float3 view_direction,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -557,7 +571,7 @@ func pgi_sample_irradiance_nearest(
         return float3(0,0,0);
     }
 
-    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, position, geo_normal, view_direction, cascade);
+    float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, origin, position, geo_normal, view_direction, cascade);
 
     float3 grid_coord_shifted = pgi_grid_coord_of_position(settings, visibility_sample_position, cascade) + 0.5f; // shifting here to get the closest probe and not the base probe
     int3 closest_probe = int3(floor(grid_coord_shifted));
@@ -719,6 +733,7 @@ func pgi_sample_irradiance_nearest(
             position,
             geo_normal,
             shading_normal,
+            origin,
             view_direction,
             probes,
             probe_visibility,

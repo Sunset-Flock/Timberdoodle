@@ -18,6 +18,7 @@
 static const uint SHADING_QUALITY_NONE = 0;
 static const uint SHADING_QUALITY_LOW = 1;
 static const uint SHADING_QUALITY_HIGH = 2;
+static const uint SHADING_QUALITY_ONLY_DIRECT = 3;
 typedef uint ShadingQuality;
 
 func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
@@ -143,6 +144,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     daxa_ImageViewId sky_transmittance,
     daxa_ImageViewId sky,
     MaterialPointData material_point, 
+    float3 origin, // Camera Position or Ray Origin
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
     Texture2DArray<uint4> light_mask_volume,
@@ -217,6 +219,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     }
 
     // Indirect Diffuse
+    if (SHADING_QUALITY < SHADING_QUALITY_ONLY_DIRECT)
     {
         float3 indirect_diffuse = float3(0,0,0);
         if (SHADING_QUALITY == SHADING_QUALITY_LOW)
@@ -227,6 +230,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 material_point.position, 
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 
+                origin,
                 incoming_ray, 
                 probe_irradiance, 
                 probe_visibility, 
@@ -234,7 +238,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 probe_requests, 
                 pgi_request_mode);
         }
-        if (SHADING_QUALITY == SHADING_QUALITY_HIGH)
+        if (SHADING_QUALITY >= SHADING_QUALITY_HIGH)
         {
             indirect_diffuse = pgi_sample_irradiance(
                 globals, 
@@ -242,6 +246,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 material_point.position, 
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 
+                origin,
                 incoming_ray, 
                 probe_irradiance, 
                 probe_visibility, 

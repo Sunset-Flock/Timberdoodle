@@ -921,9 +921,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTGI)"))
             {
                 auto const modes = std::array{
-                    "NONE",                             // PER_PIXEL_DIFFUSE_MODE_NONE
-                    "RAY_TRACED_AMBIENT_OCCLUSION",     // PER_PIXEL_DIFFUSE_MODE_RTAO
-                    "RAY_TRACED_GLOBAL_ILLUMINATION",   // PER_PIXEL_DIFFUSE_MODE_RTGI
+                    "NONE",                                         // PER_PIXEL_DIFFUSE_MODE_NONE
+                    "RAY_TRACED_AMBIENT_OCCLUSION",                 // PER_PIXEL_DIFFUSE_MODE_RTAO
+                    "RAY_TRACED_GLOBAL_ILLUMINATION",               // PER_PIXEL_DIFFUSE_MODE_RTGI
+                    "RAY_TRACED_GLOBAL_ILLUMINATION_PGI_HYBRID",    // PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID
                 };
                 ImGui::Combo("ao mode", &render_context.render_data.ppd_settings.mode, modes.data(), modes.size());
                 ImGui::InputInt("ao samples", &render_context.render_data.ppd_settings.sample_count);

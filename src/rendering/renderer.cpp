@@ -423,6 +423,8 @@ void Renderer::clear_select_buffers()
                     MeshletInstancesBufferHead mesh_instances_prev_reset = make_meshlet_instance_buffer_head(mesh_instances_prev_address);
                     allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
                 }));
+    tg.use_persistent_image(rtao_history);
+    tg.clear_image({rtao_history.view(), {}, "clear rtao history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     // tg.use_persistent_buffer(luminance_average);
@@ -821,7 +823,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     else
     {
         daxa::TaskImageView ao_image = daxa::NullTaskImage;
-        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO || render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
+        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO || 
+            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI ||
+            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
         {
             auto ao_image_info = daxa::TaskTransientImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
