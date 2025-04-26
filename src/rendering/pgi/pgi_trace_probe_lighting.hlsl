@@ -74,7 +74,65 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     }
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
     {
-        return 0.0f;
+        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
+        GPUPointLight point_light = globals.scene.point_lights[light_index];
+        float3 to_light = point_light.position - material_point.position;
+        float3 to_light_dir = normalize(to_light);
+        #if 0
+        
+        RayDesc ray = {};
+        ray.Direction = normalize(to_light);
+        ray.Origin = start;
+        ray.TMax = length(to_light) * 1.01f;
+        ray.TMin = 0.0f;
+
+        RayPayload payload;
+        payload.hit = true; // Only runs miss shader. Miss shader writes false.
+        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 0, 0, ray, payload);
+
+        bool path_occluded = payload.hit;
+        #endif
+
+        
+        // const int face_idx = cube_face_from_dir(to_light_dir);
+        // const float4x4 point_view_projection = point_light.face_cameras[face_idx].view_proj;
+        // float4 light_projected_pos = mul(point_view_projection, float4(material_point.position, 1.0f));
+
+        // let constant_cascade = 4;
+
+        // uint prev_page_state_point;
+        // const uint point_page_array_index = get_vsm_point_page_array_idx(face_idx, light_idx);
+        // InterlockedOr(
+        //     AT.vsm_point_spot_page_table[constant_cascade].get_formatted()[uint3(vsm_point_page_coords.xy, point_page_array_index)], // [mip].get()[x, y, array_layer]
+        //     uint(requests_allocation_mask() | visited_marked_mask()),
+        //     prev_page_state_point
+        // );
+        // if(!get_requests_allocation(prev_page_state_point) && !get_is_allocated(prev_page_state_point))
+        // {
+        //     uint allocation_index;
+        //     InterlockedAdd(AT.vsm_allocation_requests->counter, 1u, allocation_index);
+        //     if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
+        //     {
+        //         AT.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(int3(vsm_point_page_coords.xy, point_page_array_index), 0u, constant_cascade);
+        //     }
+        // }]
+        // else 
+        // {
+        //     if(get_is_allocated(prev_page_state_point))
+        //     {
+        //          if (!get_is_visited_marked(prev_page_state_point))
+        //          {
+        //               InterlockedOr(
+        //                   AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
+        //                   meta_memory_visited_mask()
+        //               );
+        //         }
+        //         
+        //         SAMPLE HERE
+        //     }
+        // }
+
+        return 1.0f;//path_occluded ? 0.0f : 1.0f;
     }
 }
 
@@ -156,7 +214,7 @@ void entry_ray_gen()
     RayPayload payload;
     payload.probe_index = probe_index;
 
-    TraceRay(push.attach.tlas.get(), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
+    TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
 
     RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
@@ -166,16 +224,16 @@ void entry_ray_gen()
 [shader("anyhit")]
 void entry_any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
-    // let push = pgi_trace_probe_lighting_push;
-    // if (!rt_is_alpha_hit(
-    //     push.attach.globals,
-    //     push.attach.mesh_instances,
-    //     push.scene.meshes,
-    //     push.scene.materials,
-    //     attr.barycentrics))
-    // {
-    //     IgnoreHit();
-    // }
+    let push = pgi_trace_probe_lighting_push;
+    if (!rt_is_alpha_hit(
+        push.attach.globals,
+        push.attach.mesh_instances,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.materials,
+        attr.barycentrics))
+    {
+        IgnoreHit();
+    }
 }
 
 [shader("closesthit")]
@@ -252,6 +310,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 WorldRayOrigin(),
                 WorldRayDirection(), 
                 light_vis_tester, 
+                push.attach.light_mask_volume.get(),
                 push.attach.probe_radiance.get(), 
                 push.attach.probe_visibility.get(), 
                 push.attach.probe_info.get(),

@@ -850,62 +850,64 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
-        ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
-        std::array<char const * const, 3> aa_modes = {
-            "AA_MODE_NONE",
-            "AA_MODE_SUPER_SAMPLE",
-            "AA_MODE_DVM",
-        };
-        ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
-        auto ao_modes = std::array{
-            "None",
-            "RT"};
-        ImGui::Combo("ao mode", &render_data.settings.ao_mode, ao_modes.data(), ao_modes.size());
-        ImGui::InputInt("ao samples", &render_data.settings.ao_samples);
-        ImGui::SeparatorText("Debug Visualizations");
         {
-            auto modes = std::array{
-                "NONE",                        // DEBUG_DRAW_MODE_NONE
-                "OVERDRAW",                    // DEBUG_DRAW_MODE_OVERDRAW
-                "TRIANGLE_CONNECTIVITY",       // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
-                "TRIANGLE_INSTANCE_ID",        // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
-                "MESHLET_INSTANCE_ID",         // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
-                "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
-                "MESH_ID",                     // DEBUG_DRAW_MODE_MESH_ID
-                "MESH_GROUP_ID",               // DEBUG_DRAW_MODE_MESH_GROUP_ID
-                "MESH_LOD",                    // DEBUG_DRAW_MODE_MESH_LOD
-                "VSM_OVERDRAW",                // DEBUG_DRAW_MODE_VSM_OVERDRAW
-                "VSM_CLIP_LEVEL",              // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
-                "VSM_POINT_LEVEL",             // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
-                "DEPTH",                       // DEBUG_DRAW_MODE_DEPTH
-                "ALBEDO",                      // DEBUG_DRAW_MODE_ALBEDO
-                "FACE_NORMAL",                 // DEBUG_DRAW_MODE_FACE_NORMAL
-                "SMOOTH_NORMAL",               // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                "MAPPED_NORMAL",               // DEBUG_DRAW_MODE_MAPPED_NORMAL
-                "FACE_TANGENT",                // DEBUG_DRAW_MODE_FACE_TANGENT
-                "SMOOTH_TANGENT",              // DEBUG_DRAW_MODE_SMOOTH_TANGENT
-                "DIRECT_DIFFUSE",              // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                "AMBIENT_OCCLUSION",           // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
-                "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
-                "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
-                "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
-                "UV",                          // DEBUG_DRAW_MODE_UV
-                "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-            };
-            ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
-            ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
-            ImGui::SeparatorText("Misc");
-            ImGui::InputInt("override_lod", &render_data.settings.lod_override);
-            ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
-            ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
+            ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
-            ImGui::SeparatorText("Features");
+            std::array<char const * const, 2> aa_modes = {
+                "NONE",
+                "SUPER_SAMPLE",
+            };
+            ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
+            if (ImGui::CollapsingHeader("Lights Settings"))
+            {
+                ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
+                ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
+            }
+            if (ImGui::CollapsingHeader("Debug Visualizations"))
+            {
+                auto modes = std::array{
+                    "NONE",                        // DEBUG_DRAW_MODE_NONE
+                    "OVERDRAW",                    // DEBUG_DRAW_MODE_OVERDRAW
+                    "TRIANGLE_CONNECTIVITY",       // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
+                    "TRIANGLE_INSTANCE_ID",        // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
+                    "MESHLET_INSTANCE_ID",         // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                    "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
+                    "MESH_ID",                     // DEBUG_DRAW_MODE_MESH_ID
+                    "MESH_GROUP_ID",               // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                    "MESH_LOD",                    // DEBUG_DRAW_MODE_MESH_LOD
+                    "VSM_OVERDRAW",                // DEBUG_DRAW_MODE_VSM_OVERDRAW
+                    "VSM_CLIP_LEVEL",              // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                    "VSM_POINT_LEVEL",             // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                    "DEPTH",                       // DEBUG_DRAW_MODE_DEPTH
+                    "ALBEDO",                      // DEBUG_DRAW_MODE_ALBEDO
+                    "FACE_NORMAL",                 // DEBUG_DRAW_MODE_FACE_NORMAL
+                    "SMOOTH_NORMAL",               // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                    "MAPPED_NORMAL",               // DEBUG_DRAW_MODE_MAPPED_NORMAL
+                    "FACE_TANGENT",                // DEBUG_DRAW_MODE_FACE_TANGENT
+                    "SMOOTH_TANGENT",              // DEBUG_DRAW_MODE_SMOOTH_TANGENT
+                    "DIRECT_DIFFUSE",              // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                    "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                    "AMBIENT_OCCLUSION",           // DEBUG_DRAW_MODE_AMBIENT_OCCLUSION
+                    "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                    "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                    "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
+                    "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                    "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
+                    "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                    "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                    "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
+                    "UV",                          // DEBUG_DRAW_MODE_UV
+                    "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
+                };
+                ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
+                ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
+                ImGui::InputInt("override_lod", &render_data.settings.lod_override);
+                ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
+                ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
+            }
+        }
+        ImGui::SeparatorText("Features");
+        {
             if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
             {
                 ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
@@ -916,10 +918,14 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
             }
-            if (ImGui::CollapsingHeader("Lights Settings"))
+            if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTID)"))
             {
-                ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
-                ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
+                auto const ao_modes = std::array{
+                    "NONE",
+                    "RTAO",
+                };
+                ImGui::Combo("ao mode", &render_data.settings.ao_mode, ao_modes.data(), ao_modes.size());
+                ImGui::InputInt("ao samples", &render_data.settings.ao_samples);
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
@@ -1159,11 +1165,23 @@ void UIEngine::ui_pgi_statistics(Scene const & scene, RenderContext & render_con
         {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 0.0f, 1.0f)));
         }
-        ImGui::Text(fmt::format("Rays Shoot this frame {}",ray_count).c_str());
+        ImGui::Text(fmt::format("Rays Shoot this frame {}", ray_count).c_str());
         if (ray_count > heavy_ray_count)
         {
             ImGui::PopStyleColor(1);
         }
+    }
+}
+
+void ui_light_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+{
+    if (ImGui::CollapsingHeader("Lights Statistics"))
+    {
+        ImGui::Text("Max Point Lights: %i", MAX_POINT_LIGHTS);
+        ImGui::Text("Max Spot Lights: %i", MAX_SPOT_LIGHTS);
+        ImGui::Text("Max Light Instances: %i", MAX_LIGHT_INSTANCES_PER_FRAME);
+        ImGui::Text("Point Lights: %i", render_context.render_data.light_settings.point_light_count);
+        ImGui::Text("Spot Lights: %i", render_context.render_data.light_settings.spot_light_count);
     }
 }
 
@@ -1363,6 +1381,7 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
         {
             ui_visbuffer_pipeline_statistics(scene, render_context, app_state);
             ui_pgi_statistics(scene, render_context, app_state);
+            ui_light_statistics(scene, render_context, app_state);
         }
     }
     ImGui::End();

@@ -84,7 +84,8 @@ void main(uint3 thread_id : SV_DispatchThreadID)
 
         const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
         CameraInfo * camera_info;
-        float cutoff;
+        float cutoff = 0.0f;
+        uint light_idx = 0;
         // Point light
         if (thread_id.y < point_light_prefix)
         {
@@ -94,15 +95,17 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             indirections.array_layer_index = thread_id.y;
             camera_info = &(AT.vsm_point_lights[point_light_index].face_cameras[face_index]);
             cutoff = AT.vsm_point_lights[point_light_index].light.cutoff;
+            light_idx = thread_id.y;
         }
         // Spot light
         else
         {
             let spot_light_index = thread_id.y - point_light_prefix;
 
-            indirections.array_layer_index = VSM_SPOT_LIGHT_OFFSET + spot_light_index;
             camera_info = &(AT.vsm_spot_lights[spot_light_index].camera);
             cutoff = AT.vsm_spot_lights[spot_light_index].light.cutoff;
+            light_idx = VSM_SPOT_LIGHT_OFFSET + spot_light_index;
+            indirections.array_layer_index = light_idx;
         }
 
         if(is_mesh_occluded_point_spot_vsm(
@@ -113,7 +116,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             push.entity_combined_transforms,
             push.meshes,
             AT.point_hip,
-            thread_id.y,
+            light_idx,
             base_resolution,
             AT.globals
             ))

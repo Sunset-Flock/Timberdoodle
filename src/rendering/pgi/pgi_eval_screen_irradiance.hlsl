@@ -104,7 +104,6 @@ groupshared float4 gs_half_normals_preload[PGI_EVAL_SCREEN_IRRADIANCE_XY+2][PGI_
 [numthreads(PGI_EVAL_SCREEN_IRRADIANCE_XY, PGI_EVAL_SCREEN_IRRADIANCE_XY, 1)]
 func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
 {
-    #if 0
     let push = enty_upscale_screen_irradiance_push;
     let globals = push.attach.globals;
 
@@ -186,5 +185,4 @@ func entry_upscale_screen_irradiance(uint2 dtid : SV_DispatchThreadID, uint in_g
     float3 upscaled = acc_irrad * rcp(acc_weight);
     
     push.attach.full_res_pgi_irradiance.get()[dtid].rgb = upscaled;
-    #endif
 }

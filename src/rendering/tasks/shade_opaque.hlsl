@@ -30,7 +30,7 @@ float compute_exposure(float average_luminance)
 	return exposure;
 }
 
-static const uint PCF_NUM_SAMPLES = 8;
+static const uint PCF_NUM_SAMPLES = 4;
 // https://developer.download.nvidia.com/whitepapers/2008/PCSS_Integration.pdf
 static const float2 poisson_disk[16] = {
     float2( -0.94201624, -0.39906216 ),
@@ -71,38 +71,38 @@ float map(float value, float min1, float max1, float min2, float max2)
     return value;
 }
 
-float3 get_vsm_point_debug_page_color(float2 uv, float depth, float3 normal, float3 world_pos)
+float3 get_vsm_point_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
 {
-    return float3(1.0f, 1.0f, 1.0f);
-    // const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
-    // PointMipInfo info = project_into_point_light(depth, normal, point_light_index, uv, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
-    // if(info.mip_level > 5) 
-    // {
-    //     return float3(0.0f, 0.0f, 1.0f);
-    // }
+    const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
+    
+    PointMipInfo info = project_into_point_light(point_light_index, pixel_footprint, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
+    if(info.mip_level > 5) 
+    {
+        return float3(0.0f, 0.0f, 1.0f);
+    }
 
-    // float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
-    // const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
-    // const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
+    float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
+    const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
+    const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
 
-    // const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
-    // const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+    const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
+    const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
 
-    // bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
-    //                          any(lessThan(in_page_texel_coords, int2(1)));
+    bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
+                             any(lessThan(in_page_texel_coords, int2(1)));
 
 
-    // if(!get_is_allocated(vsm_page_entry)) 
-    // {
-    //     color = float3(1.0, 0.0, 0.0);
-    // }
+    if(!get_is_allocated(vsm_page_entry)) 
+    {
+        color = float3(1.0, 0.0, 0.0);
+    }
 
-    // if(texel_near_border)
-    // {
-    //     color = float3(0.001, 0.001, 0.001);
-    // }
+    if(texel_near_border)
+    {
+        color = float3(0.001, 0.001, 0.001);
+    }
 
-    // return color;
+    return color;
 }
 
 float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
@@ -822,7 +822,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
-                let vsm_debug_color = get_vsm_point_debug_page_color(screen_uv, depth, material_point.normal, tri_point.world_position) * ambient_occlusion;
+                let vsm_debug_color = get_vsm_point_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
                 let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
                 output_value.rgb = debug_albedo;
                 break;

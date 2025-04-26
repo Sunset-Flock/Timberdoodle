@@ -527,7 +527,7 @@ bool is_mesh_occluded_point_spot_vsm(
     daxa_BufferPtr(RenderGlobalData) globals,
 )
 {
-    return false;
+    // return false;
     if (mesh.mesh_buffer.value == 0)
     {
         return true;

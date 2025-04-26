@@ -11,6 +11,7 @@
 #include "shader_lib/volumetric.hlsl"
 #include "shader_lib/geometry.hlsl"
 #include "shader_lib/pgi.hlsl"
+#include "shader_lib/lights.hlsl"
 
 // DO NOT INCLUDE VSM SHADING NOR RAY TRACED SHADING HEADERS HERE!
 
@@ -145,6 +146,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     float3 origin,
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
+    Texture2DArray<uint4> light_mask_volume,
     Texture2DArray<float4> probe_irradiance,
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
@@ -180,6 +182,38 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 atmo_position
             );
             diffuse_light += sun_light * sun_visibility;
+        }
+    }
+
+    // Point Lights
+    {
+        let light_settings = globals.light_settings;
+        uint4 light_mask = lights_get_mask(light_settings, material_point.position, light_mask_volume);
+
+        uint4 point_light_mask = light_mask & light_settings.point_light_mask;
+        //point_light_mask = WaveActiveBitOr(point_light_mask); // Way faster to be divergent in rt
+        while (any(point_light_mask != uint4(0)))
+        {
+            uint point_light_idx = lights_iterate_mask(light_settings, point_light_mask);
+            GPUPointLight light = globals.scene.point_lights[point_light_idx];
+            const float3 position_to_light = normalize(light.position - material_point.position);
+            
+            const float to_light_dist = length(light.position - material_point.position);
+
+            float win = (to_light_dist / light.cutoff);
+            win = win * win * win * win;
+            win = max(0.0, 1.0 - win);
+            win = win * win;
+            float attenuation = win / (to_light_dist * to_light_dist + 0.1);
+
+
+            if (attenuation > 0.0f)
+            {
+                let light_visibility = light_visibility.point_light(material_point, incoming_ray, point_light_idx);
+                let shadowing = 1.0f;
+                let diffuse = max(dot(material_point.normal, position_to_light), 0.0);
+                diffuse_light += light.color * diffuse * attenuation * light.intensity * shadowing * light_visibility;
+            }
         }
     }
 

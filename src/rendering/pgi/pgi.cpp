@@ -2088,6 +2088,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .views = PGITraceProbeRaysTask::Views{
             .globals = info.render_context->tgpu_render_data,
             .probe_indirections = pgi_indirections,
+            .light_mask_volume = info.light_mask_volume,
             .probe_radiance = info.pgi_state.probe_radiance_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_info = info.pgi_state.probe_info_view,

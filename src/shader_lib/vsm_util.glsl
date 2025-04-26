@@ -158,7 +158,7 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_i32 page_count = (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
         const daxa_f32 scale_ratio = daxa_f32(page_count - 2) / daxa_f32(page_count);
         const daxa_f32 base_scale = deref(info.globals).vsm_settings.clip_0_frustum_scale * scale_ratio;
-        clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale) * deref(info.globals).vsm_settings.clip_selection_bias)), 0, VSM_CLIP_LEVELS - 1));
+        clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale) * deref(info.globals).vsm_settings.clip_selection_bias)), 1, VSM_CLIP_LEVELS - 1));
 #endif
     } 
     else 
@@ -331,7 +331,7 @@ PointMipInfo project_into_point_light(
     const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
     const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
     const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
-    const int clamped_mip_level = clamp(mip_level, 0, 5);
+    const int clamped_mip_level = clamp(mip_level, 2, 5);
 
     const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
     const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);

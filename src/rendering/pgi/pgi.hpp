@@ -130,6 +130,7 @@ struct TaskPGIAllInfo
     daxa::TaskImageView view_camera_depth = {};
     daxa::TaskImageView view_camera_face_normal_image = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
+    daxa::TaskImageView light_mask_volume = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskTlas tlas = {};
     daxa::TaskImageView sky_transmittance = {};

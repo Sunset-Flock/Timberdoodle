@@ -505,6 +505,7 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
 
     void callback(daxa::TaskInterface ti)
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
         auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
         auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
@@ -513,9 +514,8 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
         };
         push.attachments = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
         ti.recorder.dispatch({dispatch_x, dispatch_y, VSM_CLIP_LEVELS});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ">());
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
     }
 };
 
@@ -526,6 +526,7 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
 
     void callback(daxa::TaskInterface ti)
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_POINT_SPOT">());
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info().name));
         auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
         auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
@@ -538,6 +539,7 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
             (render_context->render_data.vsm_settings.point_light_count * 6 * 6) + // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
             (render_context->render_data.vsm_settings.spot_light_count * 6);       // MAX_SPOT_LIGHTS  * MIP_LEVELS
         ti.recorder.dispatch({dispatch_x, dispatch_y, dispatch_z});
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_POINT_SPOT">());
     }
 };
 
@@ -555,7 +557,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
             .name = "vsm memory daxa integer view",
         });
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_AND_DRAW_PAGES">());
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_AND_DRAW_PAGES_DIRECTIONAL">());
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
             .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
         });
@@ -586,7 +588,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
         }
 
         ti.recorder = std::move(render_cmd).end_renderpass();
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES">());
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_DIRECTIONAL">());
         ti.recorder.destroy_image_view_deferred(memory_block_view);
     }
 };
@@ -598,6 +600,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_POINT_SPOT">());
         auto const memory_block_view = render_context->gpu_context->device.create_image_view({
             .type = daxa::ImageViewType::REGULAR_2D,
             .format = daxa::Format::R32_UINT,
@@ -655,6 +658,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
             ti.recorder = std::move(render_cmd).end_renderpass();
         }
         ti.recorder.destroy_image_view_deferred(memory_block_view);
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "CULL_AND_DRAW_PAGES_POINT_SPOT">());
     }
 };
 

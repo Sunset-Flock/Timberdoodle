@@ -767,6 +767,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             main_camera_depth, 
             main_camera_face_normal_image, 
             main_camera_detail_normal_image, 
+            light_mask_volume,
             scene->mesh_instances_buffer, 
             scene->_scene_tlas, 
             transmittance, 
