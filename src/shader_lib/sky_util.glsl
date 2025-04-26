@@ -434,7 +434,7 @@ daxa_f32vec3 get_sun_illuminance(
 // TODO(SAKY): precalculate value on cpu
 daxa_f32vec3 get_atmo_position(daxa_BufferPtr(RenderGlobalData) globals)
 {
-    const daxa_f32vec3 atmo_camera_position = deref(globals).view_camera.position;
+    const daxa_f32vec3 atmo_camera_position = deref(globals).view_camera.position * M_TO_KM_SCALE;
     const daxa_f32vec3 bottom_atmo_offset = daxa_f32vec3(0,0, deref(globals).sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET);
     const daxa_f32vec3 bottom_atmo_offset_camera_position = atmo_camera_position + bottom_atmo_offset;
     return bottom_atmo_offset_camera_position;
