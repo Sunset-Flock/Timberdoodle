@@ -28,22 +28,24 @@ struct _MAP_Test
 #define TEST(X) _MAP_##X::I
 
 GPUContext::GPUContext(Window const & window)
-    : instance{daxa::create_instance({})}, device{[&]()
-                                               {
-                                                   auto required_implicit =
-                                                       daxa::ImplicitFeatureFlagBits::BASIC_RAY_TRACING |
-                                                       daxa::ImplicitFeatureFlagBits::MESH_SHADER |
-                                                       daxa::ImplicitFeatureFlagBits::SWAPCHAIN;
+    : instance{daxa::create_instance({})},
+      device{[&]()
+          {
+              auto required_implicit =
+                  daxa::ImplicitFeatureFlagBits::BASIC_RAY_TRACING |
+                  daxa::ImplicitFeatureFlagBits::MESH_SHADER |
+                  daxa::ImplicitFeatureFlagBits::SHADER_CLOCK |
+                  daxa::ImplicitFeatureFlagBits::SWAPCHAIN;
 
-                                                   auto device_info = daxa::DeviceInfo2{};
-                                                   device_info.max_allowed_images = 100000;
-                                                   device_info.max_allowed_buffers = 100000;
-                                                   device_info.name = "Sandbox Device";
+              auto device_info = daxa::DeviceInfo2{};
+              device_info.max_allowed_images = 100000;
+              device_info.max_allowed_buffers = 100000;
+              device_info.name = "Timberdoodle";
 
-                                                   device_info = this->instance.choose_device(required_implicit, device_info);
+              device_info = this->instance.choose_device(required_implicit, device_info);
 
-                                                   return this->instance.create_device_2(device_info);
-                                               }()},
+              return this->instance.create_device_2(device_info);
+          }()},
       swapchain{this->device.create_swapchain({
           .native_window = glfwGetWin32Window(window.glfw_handle),
           .native_window_platform = daxa::NativeWindowPlatform::WIN32_API,

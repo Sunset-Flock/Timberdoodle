@@ -253,7 +253,6 @@ struct VSMState
                         .format = daxa::Format::R64_UINT,
                         .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
                         .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                             daxa::ImageUsageFlagBits::SHADER_STORAGE |
                             daxa::ImageUsageFlagBits::TRANSFER_DST,
                         .name = "vsm meta memory table physical image",
