@@ -262,6 +262,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
         {vsm_free_wrapped_pages_pipeline_compile_info()},
         {vsm_invalidate_pages_pipeline_compile_info()},
+        {vsm_force_always_resident_pages_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
         {vsm_find_free_pages_pipeline_compile_info()},
         {vsm_allocate_pages_pipeline_compile_info()},

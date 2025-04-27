@@ -137,6 +137,8 @@ struct VSMSettings
     daxa_u32 enable_directional_caching;
     daxa_u32 enable_point_caching;
     daxa_i32 forced_clip_level;
+    daxa_i32 forced_lower_point_mip_level;
+    daxa_i32 forced_upper_point_mip_level;
     daxa_f32 clip_0_frustum_scale;
     daxa_f32 clip_selection_bias;
     daxa_f32 slope_bias;
@@ -155,6 +157,8 @@ struct VSMSettings
           enable_directional_caching{ 1 },
           enable_point_caching{ 1 },
           forced_clip_level{ 0 },
+          forced_lower_point_mip_level{ 2 },
+          forced_upper_point_mip_level{ 6 },
           clip_0_frustum_scale{2.0f},
           clip_selection_bias{1.0f},
           slope_bias{2.0f},

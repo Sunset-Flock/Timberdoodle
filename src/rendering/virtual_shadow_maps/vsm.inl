@@ -12,6 +12,7 @@
 #endif
 
 #define INVALIDATE_PAGES_X_DISPATCH 256
+#define FORCE_ALWAYS_PRESENT_PAGES_X_DISPATCH 256
 #define MARK_REQUIRED_PAGES_X_DISPATCH 16
 #define MARK_REQUIRED_PAGES_Y_DISPATCH 16
 #define FIND_FREE_PAGES_X_DISPATCH 32
@@ -47,6 +48,13 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FreeWrappedPagesInfo), free_wrapped_pages_info)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ForceAlwaysResidentPagesH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_DECL_TASK_HEAD_END
 
@@ -256,6 +264,7 @@ DAXA_DECL_TASK_HEAD_END
 
 inline MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main")
 inline MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
+inline MAKE_COMPUTE_COMPILE_INFO(vsm_force_always_resident_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/force_always_resident_pages.hlsl", "main")
 inline MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
 inline MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main")
 inline MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main")
@@ -413,6 +422,25 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
         ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
+    }
+};
+
+struct ForceAlwaysResidentPagesTask : ForceAlwaysResidentPagesH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_force_always_resident_pages_pipeline_compile_info().name));
+
+        ForceAlwaysResidentPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        u32 const array_layer_count = 
+            (render_context->render_data.vsm_settings.point_light_count * 6) + // 6 cubemap faces
+             render_context->render_data.vsm_settings.spot_light_count;
+
+        ti.recorder.dispatch({round_up_div(array_layer_count, FORCE_ALWAYS_PRESENT_PAGES_X_DISPATCH)});
     }
 };
 
@@ -796,6 +824,22 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
         .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
+    });
+
+    auto const vsm_last_mip_point_spot_page_table_view = info.vsm_state->point_spot_page_tables.view().view({
+        .base_mip_level = VSM_FORCED_MIP_LEVEL,
+        .level_count = 1,
+        .base_array_layer = 0,
+        .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
+    });
+    info.tg->add_task(ForceAlwaysResidentPagesTask{
+        .views = ForceAlwaysResidentPagesTask::Views{
+            .globals = info.render_context->tgpu_render_data,
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_point_spot_page_table = vsm_last_mip_point_spot_page_table_view,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+        },
+        .render_context = info.render_context,
     });
 
     info.tg->add_task(MarkRequiredPagesTask{
