@@ -308,7 +308,7 @@ PointMipInfo project_into_point_light(
 
     if(length(pixel_footprint.center - point_ws) > point_lights[point_light_idx].light->cutoff)
     {
-        return PointMipInfo(6, -1, int2(-1), float2(-2.0f));
+        return PointMipInfo(-1, -1, int2(-1), float2(-2.0f));
     }
 
     const int face_idx = cube_face_from_dir(point_to_frag_norm);
@@ -351,13 +351,14 @@ SpotMipInfo project_into_spot_light(
     ScreenSpacePixelWorldFootprint pixel_footprint,
     RenderGlobalData * globals,
     VSMSpotLight * spot_lights,
-    VSMGlobals * vsm_globals)
+    VSMGlobals * vsm_globals
+    )
 {
     const float3 spot_ws = spot_lights[spot_light_index].camera.position;
 
     if(length(pixel_footprint.center - spot_ws) > spot_lights[spot_light_index].light->cutoff)
     {
-        return SpotMipInfo(6, int2(-1), float2(-2.0f));
+        return SpotMipInfo(-1, int2(-1), float2(-2.0f));
     }
 
     const float4x4 point_view_projection = spot_lights[spot_light_index].camera.view_proj;

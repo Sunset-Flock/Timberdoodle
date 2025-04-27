@@ -31,7 +31,7 @@ struct VSMState
     daxa::TaskBufferView clip_projections = {};
     daxa::TaskImageView dirty_pages_hiz = {};
 
-    std::array<daxa::TaskImageView, 6> point_dirty_pages_hiz_mips = {};
+    std::array<daxa::TaskImageView, 7> point_dirty_pages_hiz_mips = {};
 
     daxa::TaskImageView overdraw_debug_image = {};
 
@@ -446,7 +446,7 @@ struct VSMState
             .name = "vsm dirty hiz",
         });
 
-        for(i32 mip = 0; mip < 6; ++mip)
+        for(i32 mip = 0; mip < 7; ++mip)
         {
             const u32 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << mip);
             point_dirty_pages_hiz_mips.at(mip) = tg.create_transient_image({

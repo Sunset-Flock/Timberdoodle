@@ -76,9 +76,9 @@ float3 get_vsm_point_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footp
     const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
     
     PointMipInfo info = project_into_point_light(point_light_index, pixel_footprint, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
-    if(info.mip_level > 5) 
+    if(info.mip_level > 6) 
     {
-        return float3(0.0f, 0.0f, 1.0f);
+        return float3(0.05f, 0.05f, 0.05f);
     }
 
     float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
@@ -288,7 +288,7 @@ float get_vsm_point_shadow(float2 screen_uv, float3 world_normal, int point_ligh
     {
         return float(1.0f);
     }
-    info.mip_level = clamp(info.mip_level, 0, 5);
+    info.mip_level = clamp(info.mip_level, 0, 6);
 
     const float filter_radius = 0.05;
     float sum = 0.0;
@@ -411,7 +411,7 @@ float get_vsm_spot_shadow(float2 screen_uv, float3 world_normal, int spot_light_
     {
         return float(1.0f);
     }
-    info.mip_level = clamp(info.mip_level, 0, 5);
+    info.mip_level = clamp(info.mip_level, 0, 6);
 
     const float filter_radius = 0.05;
     float sum = 0.0;

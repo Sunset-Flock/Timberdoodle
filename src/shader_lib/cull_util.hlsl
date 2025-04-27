@@ -334,17 +334,18 @@ bool is_ndc_aabb_hiz_opacity_occluded(
     daxa_i32vec2 at_mip_pixel_width;
     if (ndc_aabb.ndc_max.z == INVALID_NDC_AABB_Z)
     {
-        sample_width = 1;
+        sample_width = 0;
         quad_corner_texel = 0;
-        at_mip_pixel_width = 2;
-        switch(int(f_hiz_resolution.x))
+        at_mip_pixel_width = 1;
+        switch (int(f_hiz_resolution.x))
         {
-            case 64: imip = 5; break;
-            case 32: imip = 4; break;
-            case 16: imip = 3; break;
-            case 8: imip = 2; break;
-            case 4: imip = 1; break;
-            case 2: imip = 0; break;
+            case 64: imip = 6; break;
+            case 32: imip = 5; break;
+            case 16: imip = 4; break;
+            case 8: imip = 3; break;
+            case 4: imip = 2; break;
+            case 2: imip = 1; break;
+            case 1: imip = 0; break;
         }
     }
     else

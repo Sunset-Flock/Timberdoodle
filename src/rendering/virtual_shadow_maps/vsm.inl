@@ -62,7 +62,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, g_buffer_geo_normal)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
 DAXA_DECL_TASK_HEAD_END
 
@@ -102,7 +102,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 
 struct AllocatePagesAttachments
@@ -121,7 +121,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_alloca
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 
 // TODO: Fix the hardcoded constant 8
@@ -141,12 +141,13 @@ struct GenDirtyBitHizPush
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenPointDirtyBitHizH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_point_spot_page_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0, 6)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip1, 5)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip2, 4)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip3, 3)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip4, 2)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip5, 1)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0, 7)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip1, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip2, 5)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip3, 4)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip4, 3)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip5, 2)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip6, 1)
 DAXA_DECL_TASK_HEAD_END
 
 struct GenPointDirtyBitHizPush
@@ -191,6 +192,8 @@ DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion_mip4)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion_mip4)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion_mip5)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion_mip5)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion_mip6)
+DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion_mip6)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
@@ -200,7 +203,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 // Vsm Attachments:
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
 // Hpb Attachments:
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip0)
@@ -209,6 +212,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip3)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip4)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip5)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_dirty_bit_hiz_mip6)
 DAXA_DECL_TASK_HEAD_END
 
 struct CullAndDrawPointPagesPush
@@ -240,7 +244,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 #endif
 
@@ -536,8 +540,8 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
         GenPointDirtyBitHizPush push = {.attachments = attachment_alloc.device_address};
         ti.recorder.push_constant(push);
         auto const dispatch_z = 
-            (render_context->render_data.vsm_settings.point_light_count * 6 * 6) + // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
-            (render_context->render_data.vsm_settings.spot_light_count * 6);       // MAX_SPOT_LIGHTS  * MIP_LEVELS
+            (render_context->render_data.vsm_settings.point_light_count * 7 * 6) + // MAX_POINT_LIGHTS * MIP_LEVELS * CUBE_FACES
+            (render_context->render_data.vsm_settings.spot_light_count * 7);       // MAX_SPOT_LIGHTS  * MIP_LEVELS
         ti.recorder.dispatch({dispatch_x, dispatch_y, dispatch_z});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_POINT_SPOT">());
     }
@@ -608,7 +612,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
             .name = "vsm memory daxa integer view",
         });
 
-        for(i32 mip = 0; mip < 6; ++mip) {
+        for(i32 mip = 0; mip < 7; ++mip) {
             const u32 render_resolution = VSM_TEXTURE_RESOLUTION / (1 << mip);
             auto render_cmd = std::move(ti.recorder).begin_renderpass({
                 .render_area = daxa::Rect2D{.width = render_resolution, .height = render_resolution},
@@ -633,6 +637,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
                 case 3: po2expansion = ti.get(AT.po2expansion_mip3).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip3).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip3).view_ids[0]; break;
                 case 4: po2expansion = ti.get(AT.po2expansion_mip4).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip4).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip4).view_ids[0]; break;
                 case 5: po2expansion = ti.get(AT.po2expansion_mip5).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip5).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip5).view_ids[0]; break;
+                case 6: po2expansion = ti.get(AT.po2expansion_mip6).ids[0]; masked_po2expansion = ti.get(AT.masked_po2expansion_mip6).ids[0]; hpb = ti.get(AT.vsm_dirty_bit_hiz_mip6).view_ids[0]; break;
             }
 
             for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
@@ -869,12 +874,12 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
-    std::array<daxa::TaskImageView, 6> hpb_mip_views;
-    for(i32 mip = 0; mip < 6; ++mip)
+    std::array<daxa::TaskImageView, 7> hpb_mip_views;
+    for(i32 mip = 0; mip < 7; ++mip)
     {
         hpb_mip_views.at(mip) = info.vsm_state->point_dirty_pages_hiz_mips.at(mip).view({
             .base_mip_level = 0,
-            .level_count = s_cast<u32>(6 - mip),
+            .level_count = s_cast<u32>(7 - mip),
             .base_array_layer = 0,
             .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
         });
@@ -890,6 +895,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip3, hpb_mip_views.at(3)),
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip4, hpb_mip_views.at(4)),
             daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip5, hpb_mip_views.at(5)),
+            daxa::attachment_view(GenPointDirtyBitHizTask::AT.vsm_dirty_bit_hiz_mip6, hpb_mip_views.at(6)),
         },
         .render_context = info.render_context
     });
@@ -928,8 +934,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
     });
 
-    std::array<std::array<daxa::TaskBufferView, 2>, 6> point_meshlet_mip_expansion = {};
-    for (i32 mip = 0; mip < 6; ++mip) 
+    std::array<std::array<daxa::TaskBufferView, 2>, 7> point_meshlet_mip_expansion = {};
+    for (i32 mip = 0; mip < 7; ++mip) 
     {
         tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
             .render_context = info.render_context,
@@ -963,6 +969,8 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .masked_po2expansion_mip4 = point_meshlet_mip_expansion[4][1],
             .po2expansion_mip5 = point_meshlet_mip_expansion[5][0],
             .masked_po2expansion_mip5 = point_meshlet_mip_expansion[5][1],
+            .po2expansion_mip6 = point_meshlet_mip_expansion[6][0],
+            .masked_po2expansion_mip6 = point_meshlet_mip_expansion[6][1],
             .meshlet_instances = info.meshlet_instances,
             .mesh_instances = info.mesh_instances,
             .meshes = info.meshes,
@@ -978,6 +986,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_dirty_bit_hiz_mip3 = hpb_mip_views.at(3),
             .vsm_dirty_bit_hiz_mip4 = hpb_mip_views.at(4),
             .vsm_dirty_bit_hiz_mip5 = hpb_mip_views.at(5),
+            .vsm_dirty_bit_hiz_mip6 = hpb_mip_views.at(6),
         },
         .render_context = info.render_context,
     });

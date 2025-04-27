@@ -27,7 +27,7 @@ DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, vsm_memory_block)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, overdraw_image)  // OPTIONAL
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 6)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), instantiated_meshlets)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
