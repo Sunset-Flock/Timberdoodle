@@ -1041,6 +1041,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::SliderInt("Forced clip level", &forced_clip_level, 0, VSM_CLIP_LEVELS - 1);
                 ImGui::EndDisabled();
 
+                i32 forced_lower_point_mip_level = render_context.render_data.vsm_settings.forced_lower_point_mip_level;
+                i32 forced_upper_point_mip_level = render_context.render_data.vsm_settings.forced_upper_point_mip_level;
+                ImGui::SliderInt("Forced lower point mip level", &forced_lower_point_mip_level, 0, 6);
+                ImGui::SliderInt("Forced upper point mip level", &forced_upper_point_mip_level, 0, 6);
+
                 ImGui::InputInt("Debug cubemap face", &render_context.debug_frustum);
                 ImGui::Checkbox("Visualize point frustum", &render_context.visualize_point_frustum);
                 ImGui::Checkbox("Visualize spot frustum", &render_context.visualize_spot_frustum);
@@ -1050,6 +1055,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 render_context.render_data.vsm_settings.shadow_everything = shadow_everything;
                 render_context.render_data.vsm_settings.force_clip_level = force_clip_level;
                 render_context.render_data.vsm_settings.forced_clip_level = force_clip_level ? forced_clip_level : -1;
+                render_context.render_data.vsm_settings.forced_lower_point_mip_level = std::min(forced_upper_point_mip_level, forced_lower_point_mip_level);
+                render_context.render_data.vsm_settings.forced_upper_point_mip_level = std::max(forced_upper_point_mip_level, forced_lower_point_mip_level);
                 render_context.render_data.vsm_settings.enable_directional_caching = enable_directional_caching;
                 render_context.render_data.vsm_settings.enable_point_caching = enable_point_caching;
 

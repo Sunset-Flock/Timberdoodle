@@ -27,6 +27,8 @@
 #define VSM_POINT_LIGHT_NEAR 0.001f
 // #define VSM_POINT_LIGHT_NEAR 0.6f
 
+#define VSM_FORCED_MIP_LEVEL 6
+
 #define VSM_SPOT_LIGHT_NEAR 0.001f
 #define VSM_SPOT_LIGHT_OFFSET (MAX_POINT_LIGHTS * 6)
 
@@ -38,6 +40,7 @@ static_assert(VSM_PAGE_TABLE_RESOLUTION <= (1u << 7), "VSM_PAGE_TABLE_RESOLUTION
 static_assert((MAX_POINT_LIGHTS * 6 + MAX_SPOT_LIGHTS) <= 2048, "Total amount of array layers must be less than 2048 because of packing in cull meshes and HW limits");
 static_assert(VSM_TEXTURE_RESOLUTION == 4096, "Point lights require this right now - need to adjust mip count");
 
+static_assert(VSM_FORCED_MIP_LEVEL == 6, "ForceAlwaysResidentPagesTask dispatch and shader needs to be adjusted");
 #endif //defined(__cplusplus)
 
 struct VSMGlobals
