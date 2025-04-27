@@ -66,17 +66,6 @@ struct DrawDebugProbesFragmentOut
     float4 color : SV_Target;
 };
 
-// TODO: Precalculate and move to RenderGlobalData 
-float compute_exposure(PostprocessSettings post_settings, float average_luminance) 
-{
-    const float exposure_bias = post_settings.exposure_bias;
-    const float calibration = post_settings.calibration;
-    const float sensor_sensitivity = post_settings.sensor_sensitivity;
-    const float ev100 = log2(average_luminance * sensor_sensitivity * exposure_bias / calibration);
-	const float exposure = 1.0 / (1.2 * exp2(ev100));
-	return exposure;
-}
-
 [shader("fragment")]
 func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) -> DrawDebugProbesFragmentOut
 {
@@ -96,7 +85,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
     float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
 
-    float exposure = compute_exposure(push.attach.globals.postprocess_settings, deref(push.attach.luminance_average));
+    float exposure = deref(push.attach.exposure);
     irradiance *= exposure;
     visibility *= exposure;
 

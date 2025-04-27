@@ -486,7 +486,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         DBG_ASSERT_TRUE_M(
             s_cast<u32>(node.lightIndex.has_value()) +
             s_cast<u32>(node.meshIndex.has_value()) +
-            s_cast<u32>(node.cameraIndex.has_value()) == 1u, "Node can only be of one type");
+            s_cast<u32>(node.cameraIndex.has_value()) <= 1u, "Node can only be of one type");
 
         if (node.lightIndex.has_value())
         {
