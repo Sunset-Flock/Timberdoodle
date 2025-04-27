@@ -73,10 +73,11 @@ Renderer::Renderer(
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
-    depth_vistory = daxa::TaskImage{{.name = "depth_history"}};
-    f32_depth_vistory = daxa::TaskImage{{.name = "f32_depth_vistory"}};
+    depth_history = daxa::TaskImage{{.name = "depth_history"}};
+    f32_depth_history = daxa::TaskImage{{.name = "f32_depth_history"}};
     path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
-    rtao_history = daxa::TaskImage{{.name = "rtao_history"}};
+    normal_history = daxa::TaskImage{{.name = "normal_history"}};
+    ppd_history = daxa::TaskImage{{.name = "ppd_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -85,10 +86,11 @@ Renderer::Renderer(
         transmittance,
         multiscattering,
         sky_ibl_cube,
-        depth_vistory,
-        f32_depth_vistory,
+        depth_history,
+        f32_depth_history,
         path_trace_history,
-        rtao_history,
+        normal_history,
+        ppd_history,
     };
 
     frame_buffer_images = {
@@ -98,15 +100,15 @@ Renderer::Renderer(
                 .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "depth_history",
             },
-            depth_vistory,
+            depth_history,
         },
         {
             daxa::ImageInfo{
                 .format = daxa::Format::R32_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = "f32_depth_vistory",
+                .name = "f32_depth_history",
             },
-            f32_depth_vistory,
+            f32_depth_history,
         },
         {
             daxa::ImageInfo{
@@ -118,11 +120,19 @@ Renderer::Renderer(
         },
         {
             daxa::ImageInfo{
+                .format = daxa::Format::R32_UINT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "normal_history",
+            },
+            normal_history,
+        },
+        {
+            daxa::ImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = "rtao_history",
+                .name = "ppd_history",
             },
-            rtao_history,
+            ppd_history,
         },
     };
 
@@ -412,7 +422,8 @@ void Renderer::clear_select_buffers()
     }};
     tg.use_persistent_buffer(meshlet_instances);
     tg.use_persistent_buffer(meshlet_instances_last_frame);
-    tg.add_task(daxa::InlineTask::Transfer("clear meshlet instance buffers")
+    tg.add_task(
+        daxa::InlineTask::Transfer("clear meshlet instance buffers")
             .writes(meshlet_instances, meshlet_instances_last_frame)
             .executes(
                 [=](daxa::TaskInterface ti)
@@ -424,8 +435,8 @@ void Renderer::clear_select_buffers()
                     MeshletInstancesBufferHead mesh_instances_prev_reset = make_meshlet_instance_buffer_head(mesh_instances_prev_address);
                     allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
                 }));
-    tg.use_persistent_image(rtao_history);
-    tg.clear_image({rtao_history.view(), {}, "clear rtao history"});
+    tg.use_persistent_image(ppd_history);
+    tg.clear_image({ppd_history.view(), {}, "clear ppd history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     // tg.use_persistent_buffer(luminance_average);
@@ -615,7 +626,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     render_context->render_times.reset_timestamps_for_current_frame(ti.recorder);
                 }));
 
-    auto depth_hist = render_context->render_data.settings.enable_atomic_visbuffer ? f32_depth_vistory : depth_vistory;
+    auto depth_hist = render_context->render_data.settings.enable_atomic_visbuffer ? f32_depth_history : depth_history;
     auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_hist});
     daxa::TaskImageView main_camera_visbuffer = visbuffer_ret.main_camera_visbuffer;
     daxa::TaskImageView main_camera_depth = visbuffer_ret.main_camera_depth;
@@ -649,6 +660,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
+
+    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, "copy detail normals to history"});
 
     // Some following passes need either the main views camera OR the views cameras perspective.
     // The observer camera is not always appropriate to be used.
@@ -764,16 +777,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.pgi_settings.enabled)
     {
         auto ret = task_pgi_all({
-            tg, 
-            render_context.get(), 
-            pgi_state, 
-            main_camera_depth, 
-            main_camera_face_normal_image, 
-            main_camera_detail_normal_image, 
+            tg,
+            render_context.get(),
+            pgi_state,
+            main_camera_depth,
+            main_camera_face_normal_image,
+            main_camera_detail_normal_image,
             light_mask_volume,
-            scene->mesh_instances_buffer, 
-            scene->_scene_tlas, 
-            transmittance, 
+            scene->mesh_instances_buffer,
+            scene->_scene_tlas,
+            transmittance,
             sky,
             debug_image,
         });
@@ -823,31 +836,32 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     else
     {
-        daxa::TaskImageView ao_image = daxa::NullTaskImage;
-        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO || 
+        daxa::TaskImageView ppd_image = daxa::NullTaskImage;
+        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO ||
             render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI ||
             render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
         {
-            auto ao_image_info = daxa::TaskTransientImageInfo{
+            auto ppd_raw_image_info = daxa::TaskTransientImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .size = {
                     render_context->render_data.settings.render_target_size.x,
                     render_context->render_data.settings.render_target_size.y,
                     1,
                 },
-                .name = "ao_image_raw",
+                .name = "ppd_raw_image",
             };
-            ao_image = tg.create_transient_image(ao_image_info);
-            ao_image_info.name = "ao_image";
-            auto ao_image_raw = tg.create_transient_image(ao_image_info);
-            tg.clear_image({ao_image_raw, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-            tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            auto ppd_raw_image = tg.create_transient_image(ppd_raw_image_info);
+            auto ppd_image_info = ppd_raw_image_info;
+            ppd_image_info.name = "ppd_image";
+            ppd_image = tg.create_transient_image(ppd_image_info);
+            tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
             tg.add_task(RayTraceAmbientOcclusionTask{
                 .views = RayTraceAmbientOcclusionTask::Views{
                     .globals = render_context->tgpu_render_data,
                     .debug_lens_image = debug_lens_image,
                     .debug_image = debug_image,
-                    .ao_image = ao_image_raw,
+                    .ppd_raw_image = ppd_raw_image,
                     .view_cam_depth = main_camera_depth,
                     .view_cam_detail_normals = main_camera_detail_normal_image,
                     .view_cam_visbuffer = main_camera_visbuffer,
@@ -869,31 +883,31 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .views = RTAODeoinserTask::Views{
                     .globals = render_context->tgpu_render_data,
                     .debug_image = debug_image,
-                    .face_normals = main_camera_face_normal_image,
-                    .history = rtao_history,
+                    .depth_history = depth_hist,
+                    .normal_history = normal_history,
+                    .ppd_history = ppd_history,
                     .depth = main_camera_depth,
-                    .src = ao_image_raw,
-                    .dst = ao_image,
+                    .normals = main_camera_detail_normal_image,
+                    .ppd_raw = ppd_raw_image,
+                    .ppd_image = ppd_image,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
             });
-            tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name = "copy new ao to ao history"});
+            tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
         }
         auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
         auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const vsm_point_spot_page_table_view = vsm_state.point_spot_page_tables.view().view({
-            .base_mip_level = 0,
+        auto const vsm_point_spot_page_table_view = vsm_state.point_spot_page_tables.view().view({.base_mip_level = 0,
             .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
             .base_array_layer = 0,
-            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
-        });
+            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
         tg.add_task(ShadeOpaqueTask{
             .views = ShadeOpaqueTask::Views{
                 .globals = render_context->tgpu_render_data,
                 .debug_lens_image = debug_lens_image,
                 .color_image = color_image,
-                .ao_image = ao_image,
+                .ao_image = ppd_image,
                 .vis_image = view_camera_visbuffer,
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
                 .depth = view_camera_depth,
@@ -1038,8 +1052,8 @@ auto Renderer::prepare_frame(
     CameraInfo const & observer_camera_info,
     f32 const delta_time) -> bool
 {
-    if (window->size.x == 0 || window->size.y == 0) 
-    { 
+    if (window->size.x == 0 || window->size.y == 0)
+    {
         return false;
     }
 
@@ -1098,7 +1112,8 @@ auto Renderer::prepare_frame(
         }
 
         CameraInfo real_camera_info = camera_info;
-        if(render_context->debug_frustum >= 0) {
+        if (render_context->debug_frustum >= 0)
+        {
             real_camera_info = vsm_state.point_lights_cpu.at(std::max(render_context->render_data.vsm_settings.force_point_light_idx, 0)).face_cameras[render_context->debug_frustum];
             real_camera_info.screen_size = camera_info.screen_size;
             real_camera_info.inv_screen_size = camera_info.inv_screen_size;
@@ -1164,7 +1179,7 @@ auto Renderer::prepare_frame(
 
     // Do General Readback
     {
-        u32 const index = render_context->render_data.frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
+        u32 const index = render_context->render_data.frame_index % (MAX_GPU_FRAMES_IN_FLIGHT + 1);
         render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
         render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
         render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
@@ -1266,8 +1281,8 @@ auto Renderer::prepare_frame(
     });
 
     auto new_swapchain_image = gpu_context->swapchain.acquire_next_image();
-    if (new_swapchain_image.is_empty()) 
-    { 
+    if (new_swapchain_image.is_empty())
+    {
         return false;
     }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});

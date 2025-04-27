@@ -23,7 +23,7 @@ DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RayTraceAmbientOcclusionH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_ID(READ_WRITE_CONCURRENT, REGULAR_2D, debug_lens_image)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, ao_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, ppd_raw_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_detail_normals)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, view_cam_visbuffer)
@@ -47,11 +47,13 @@ struct RayTraceAmbientOcclusionPush
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RTAODenoiserH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, face_normals)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, history)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth_history)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, normal_history)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, ppd_history)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, src)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, dst);
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_u32>, normals)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, ppd_raw)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::RWTexture2DId<daxa_f32vec4>, ppd_image)
 DAXA_DECL_TASK_HEAD_END
 
 struct RTAODenoiserPush
@@ -135,13 +137,13 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
         {
             RayTraceAmbientOcclusionPush push = {};
             push.attach = ti.attachment_shader_blob;
-            auto const & ao_image = ti.info(AT.ao_image).value();
+            auto const & ppd_raw_image = ti.info(AT.ppd_raw_image).value();
             auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
             ti.recorder.set_pipeline(*rt_pipeline.pipeline);
             ti.recorder.push_constant(push);
             ti.recorder.trace_rays({
-                .width = ao_image.size.x,
-                .height = ao_image.size.y,
+                .width = ppd_raw_image.size.x,
+                .height = ppd_raw_image.size.y,
                 .depth = 1,
                 .shader_binding_table = rt_pipeline.sbt,
             });
@@ -160,7 +162,7 @@ struct RTAODeoinserTask : RTAODenoiserH::Task
     void callback(daxa::TaskInterface ti)
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","DENOISE">());
-        auto info = ti.info(AT.src).value();
+        auto info = ti.info(AT.ppd_raw).value();
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
         ti.recorder.push_constant(RTAODenoiserPush{
             .attach = ti.attachment_shader_blob,

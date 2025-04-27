@@ -95,10 +95,11 @@ struct Renderer
 
     // Render Targets:
     daxa::TaskImage swapchain_image = {};
-    daxa::TaskImage depth_vistory = {};       // D32
-    daxa::TaskImage f32_depth_vistory = {};   // F32
+    daxa::TaskImage depth_history = {};       // D32
+    daxa::TaskImage f32_depth_history = {};   // F32
     daxa::TaskImage path_trace_history = {};
-    daxa::TaskImage rtao_history = {};
+    daxa::TaskImage normal_history = {};
+    daxa::TaskImage ppd_history = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};

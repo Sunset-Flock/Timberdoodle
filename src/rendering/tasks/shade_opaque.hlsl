@@ -890,7 +890,14 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_AMBIENT_OCCLUSION:
             {
-                output_value.rgb = ambient_occlusion;
+                if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
+                {
+                    output_value.rgb = ambient_occlusion;
+                }
+                else if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI || AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+                {
+                    output_value.rgb = indirect_lighting;
+                }
                 break;
             }
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO:
