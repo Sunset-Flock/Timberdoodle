@@ -126,7 +126,7 @@ struct TaskExpandMeshesToMeshletsInfo
     DispatchIndirectStruct dispatch_clear = {0, 1, 1};
     std::string buffer_name_prefix = "";
 };
-void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
+inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
     bool const prefix_sum_expansion = info.render_context->render_data.settings.enable_prefix_sum_work_expansion;
 

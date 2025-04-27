@@ -23,7 +23,7 @@ namespace tido
     auto compute_shader_info(char const * ident) -> daxa::ComputePipelineCompileInfo2;
 
 #define MAKE_COMPUTE_COMPILE_INFO(NAME, PATH, ENTRY)                                                   \
-    auto NAME() -> daxa::ComputePipelineCompileInfo2 const &                                           \
+    inline auto NAME() -> daxa::ComputePipelineCompileInfo2 const &                                    \
     {                                                                                                  \
         static const daxa::ComputePipelineCompileInfo2 info = []() {                                   \
             return daxa::ComputePipelineCompileInfo2{                                                  \

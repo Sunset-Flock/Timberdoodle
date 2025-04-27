@@ -7,11 +7,36 @@
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
 #include "pgi_update.inl"
+
+// Not in pgi_update.inl because this shader includes a lot shading specific inl files, such as vsm.
+DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(PGITraceProbeLightingH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_u32vec4>, light_mask_volume)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky_transmittance)
+DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+DAXA_DECL_TASK_HEAD_END
+
+struct PGITraceProbeLightingPush
+{
+    PGITraceProbeLightingH::AttachmentShaderBlob attach;
+};
+
+#if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
+
 #include "../../shader_lib/pgi.hlsl"
 #include "../../shader_lib/misc.hlsl"
 #include "../../shader_lib/debug.glsl"
 #include "../../shader_lib/shading.hlsl"
 #include "../../shader_lib/raytracing.hlsl"
+#include "../../shader_lib/vsm_sampling.hlsl"
 
 #include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/misc.hlsl"
@@ -74,6 +99,7 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     }
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
     {
+        let push = pgi_trace_probe_lighting_push;
         float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
         GPUPointLight point_light = globals.scene.point_lights[light_index];
         float3 to_light = point_light.position - material_point.position;
@@ -93,46 +119,16 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
         bool path_occluded = payload.hit;
         #endif
 
-        
-        // const int face_idx = cube_face_from_dir(to_light_dir);
-        // const float4x4 point_view_projection = point_light.face_cameras[face_idx].view_proj;
-        // float4 light_projected_pos = mul(point_view_projection, float4(material_point.position, 1.0f));
-
-        // let constant_cascade = 4;
-
-        // uint prev_page_state_point;
-        // const uint point_page_array_index = get_vsm_point_page_array_idx(face_idx, light_idx);
-        // InterlockedOr(
-        //     AT.vsm_point_spot_page_table[constant_cascade].get_formatted()[uint3(vsm_point_page_coords.xy, point_page_array_index)], // [mip].get()[x, y, array_layer]
-        //     uint(requests_allocation_mask() | visited_marked_mask()),
-        //     prev_page_state_point
-        // );
-        // if(!get_requests_allocation(prev_page_state_point) && !get_is_allocated(prev_page_state_point))
-        // {
-        //     uint allocation_index;
-        //     InterlockedAdd(AT.vsm_allocation_requests->counter, 1u, allocation_index);
-        //     if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
-        //     {
-        //         AT.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(int3(vsm_point_page_coords.xy, point_page_array_index), 0u, constant_cascade);
-        //     }
-        // }]
-        // else 
-        // {
-        //     if(get_is_allocated(prev_page_state_point))
-        //     {
-        //          if (!get_is_visited_marked(prev_page_state_point))
-        //          {
-        //               InterlockedOr(
-        //                   AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
-        //                   meta_memory_visited_mask()
-        //               );
-        //         }
-        //         
-        //         SAMPLE HERE
-        //     }
-        // }
-
-        return 1.0f;//path_occluded ? 0.0f : 1.0f;
+        // return get_vsm_point_shadow_coarse(
+        //         push.attach.globals,
+        //         push.attach.vsm_globals,
+        //         Texture2D<float>::get(push.attach.vsm_memory_block),
+        //         &(push.attach.vsm_point_spot_page_table[0]),
+        //         push.attach.vsm_point_lights,
+        //         material_point.normal, 
+        //         light_index,
+        //         pixel_footprint);
+        return 1.0f;
     }
 }
 
@@ -321,3 +317,5 @@ void entry_miss(inout RayPayload payload)
     payload.color_depth.a = 1000.0f;
     #endif
 }
+
+#endif

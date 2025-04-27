@@ -23,6 +23,7 @@
 #include "tasks/decode_visbuffer_test.inl"
 #include "tasks/gen_gbuffer.hpp"
 #include "tasks/cull_lights.hpp"
+#include "tasks/copy_depth.hpp"
 
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
@@ -74,7 +75,6 @@ Renderer::Renderer(
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
     depth_history = daxa::TaskImage{{.name = "depth_history"}};
-    f32_depth_history = daxa::TaskImage{{.name = "f32_depth_history"}};
     path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
     normal_history = daxa::TaskImage{{.name = "normal_history"}};
     ppd_history = daxa::TaskImage{{.name = "ppd_history"}};
@@ -87,7 +87,6 @@ Renderer::Renderer(
         multiscattering,
         sky_ibl_cube,
         depth_history,
-        f32_depth_history,
         path_trace_history,
         normal_history,
         ppd_history,
@@ -96,19 +95,11 @@ Renderer::Renderer(
     frame_buffer_images = {
         {
             daxa::ImageInfo{
-                .format = daxa::Format::D32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::DEPTH_STENCIL_ATTACHMENT | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .format = daxa::Format::R32_SFLOAT,
+                .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "depth_history",
             },
             depth_history,
-        },
-        {
-            daxa::ImageInfo{
-                .format = daxa::Format::R32_SFLOAT,
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = "f32_depth_history",
-            },
-            f32_depth_history,
         },
         {
             daxa::ImageInfo{
@@ -290,6 +281,7 @@ void Renderer::compile_pipelines()
         {gen_gbuffer_pipeline_compile_info()},
         {brdf_fg_compute_pipeline_info()},
         {cull_lights_compile_info()},
+        {copy_depth_pipeline_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -626,8 +618,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     render_context->render_times.reset_timestamps_for_current_frame(ti.recorder);
                 }));
 
-    auto depth_hist = render_context->render_data.settings.enable_atomic_visbuffer ? f32_depth_history : depth_history;
-    auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_hist});
+    auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_history});
     daxa::TaskImageView main_camera_visbuffer = visbuffer_ret.main_camera_visbuffer;
     daxa::TaskImageView main_camera_depth = visbuffer_ret.main_camera_depth;
     daxa::TaskImageView view_camera_visbuffer = visbuffer_ret.view_camera_visbuffer;
@@ -883,7 +874,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .views = RTAODeoinserTask::Views{
                     .globals = render_context->tgpu_render_data,
                     .debug_image = debug_image,
-                    .depth_history = depth_hist,
+                    .depth_history = depth_history,
                     .normal_history = normal_history,
                     .ppd_history = ppd_history,
                     .depth = main_camera_depth,
@@ -1019,6 +1010,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
+
+    tg.add_task(CopyDepthTask{
+        .views = CopyDepthTask::Views{
+            .depth_src = main_camera_depth,
+            .depth_dst_f32 = depth_history,
+        },
+        .render_context = render_context.get(),
+    });
+
     tg.add_task(WriteSwapchainTask{
         .views = WriteSwapchainTask::Views{
             .globals = render_context->tgpu_render_data,

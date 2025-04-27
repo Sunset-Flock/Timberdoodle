@@ -16,6 +16,7 @@
 #define MESHLET_CULL_WORKGROUP_X 128
 #define CULLING_DEBUG_DRAWS 1
 #define MAX_GPU_FRAMES_IN_FLIGHT 2
+#define PI 3.1415926535897932384626433832795
 
 #define TIDO_COMMA ,
 
@@ -383,6 +384,23 @@ SHARED_FUNCTION daxa_u32 round_down_to_multiple_po2(daxa_u32 value, daxa_u32 mul
 SHARED_FUNCTION daxa_u32 round_up_div(daxa_u32 value, daxa_u32 div)
 {
     return (value + div - 1) / div;
+}
+
+SHARED_FUNCTION daxa_u32vec2 round_up_div(daxa_u32vec2 value, daxa_u32vec2 div)
+{
+    return daxa_u32vec2(
+        (value.x + div.x - 1) / div.x,
+        (value.y + div.y - 1) / div.y
+    );
+}
+
+SHARED_FUNCTION daxa_u32vec3 round_up_div(daxa_u32vec3 value, daxa_u32vec3 div)
+{
+    return daxa_u32vec3(
+        (value.x + div.x - 1) / div.x,
+        (value.y + div.y - 1) / div.y,
+        (value.z + div.z - 1) / div.z
+    );
 }
 
 SHARED_FUNCTION daxa_u32 round_up_div_btsft(daxa_u32 value, daxa_u32 log2_div)

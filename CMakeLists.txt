@@ -59,6 +59,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"
     "src/json_handler.cpp"
+    "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
 )
 find_package(fmt CONFIG REQUIRED)
 find_package(glfw3 CONFIG REQUIRED)     

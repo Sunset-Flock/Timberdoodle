@@ -9,6 +9,7 @@
 #include "../tasks/misc.hpp"
 #include "../../scene/scene.hpp"
 #include "pgi_update.inl"
+#include "pgi_trace_probe_lighting.hlsl"
 #include "../../daxa_helper.hpp"
 
 struct PGIState

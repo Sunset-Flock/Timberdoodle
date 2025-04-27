@@ -96,7 +96,7 @@ struct TaskGenHizSinglePassInfo
     daxa::TaskImageView * hiz = {};
     u32 render_time_index = RenderTimes::INVALID_RENDER_TIME_INDEX;
 };
-void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
+inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
 {
     daxa_u32vec2 const hiz_size = {
         std::max(1u, info.render_context->render_data.cull_data.physical_hiz_size.x),

@@ -70,26 +70,6 @@ struct PGIUpdateProbesPush
     PGIUpdateProbesH::AttachmentShaderBlob attach;
 };
 
-DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(PGITraceProbeLightingH)
-DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_u32vec4>, light_mask_volume)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky_transmittance)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
-DAXA_TH_TLAS_ID(READ, tlas)
-DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_DECL_TASK_HEAD_END
-
-struct PGITraceProbeLightingPush
-{
-    PGITraceProbeLightingH::AttachmentShaderBlob attach;
-};
-
 #define PGI_PRE_UPDATE_XYZ 4
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIPreUpdateProbesH)
