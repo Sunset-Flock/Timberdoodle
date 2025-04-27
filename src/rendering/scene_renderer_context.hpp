@@ -181,6 +181,8 @@ namespace RenderTimes
             "MISC",
             {
                 "CULL_LIGHTS",
+                "AUTO_EXPOSURE_GEN_HIST",
+                "AUTO_EXPOSURE_AVERAGE",
             },
         },
     };

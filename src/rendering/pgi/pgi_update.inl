@@ -21,7 +21,7 @@ struct PGIIndirections
 
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), luminance_average)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), exposure)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)

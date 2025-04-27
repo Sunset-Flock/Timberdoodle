@@ -258,6 +258,10 @@ namespace tido
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
                             better_drag_float({"min lum log2", &post.min_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
                             better_drag_float({"max lum log2", &post.max_luminance_log2, 0.1f, -12.0f, 12.0f, "%.1f", horizontal_max_width, -20});
+                            better_drag_float({"clip low", &post.auto_exposure_histogram_clip_lo, 0.1f, 0.0f, 1.0f, "%.2f", horizontal_max_width, -20});
+                            better_drag_float({"clip high", &post.auto_exposure_histogram_clip_hi, 0.1f, 0.0f, 1.0f, "%.2f", horizontal_max_width, -20});
+                            post.auto_exposure_histogram_clip_lo = glm::min(post.auto_exposure_histogram_clip_lo, post.auto_exposure_histogram_clip_hi);
+                            post.auto_exposure_histogram_clip_hi = glm::max(post.auto_exposure_histogram_clip_lo, post.auto_exposure_histogram_clip_hi);
                             post.max_luminance_log2 = glm::max(post.max_luminance_log2, post.min_luminance_log2 + 0.1f);
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);

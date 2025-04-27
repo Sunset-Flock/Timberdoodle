@@ -54,7 +54,7 @@ Renderer::Renderer(
     meshlet_instances = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     meshlet_instances_last_frame = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances_last_frame", "meshlet_instances_b");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
-    luminance_average = create_task_buffer(gpu_context, sizeof(f32), "luminance average", "luminance_average");
+    exposure_state = create_task_buffer(gpu_context, sizeof(AutoExposureState), "exposure state", "exposure_state");
     general_readback_buffer = gpu_context->device.create_buffer({
         .size = sizeof(ReadbackValues) * (MAX_GPU_FRAMES_IN_FLIGHT + 1),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
@@ -68,7 +68,7 @@ Renderer::Renderer(
         meshlet_instances_last_frame,
         visible_meshlet_instances,
         visible_mesh_instances,
-        luminance_average};
+        exposure_state};
 
     swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
@@ -431,8 +431,8 @@ void Renderer::clear_select_buffers()
     tg.clear_image({ppd_history.view(), {}, "clear ppd history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
-    // tg.use_persistent_buffer(luminance_average);
-    // tg.clear_buffer({.buffer = luminance_average, .size = sizeof(f32), .clear_value = 0});
+    // tg.use_persistent_buffer(exposure_state);
+    // tg.clear_buffer({.buffer = exposure_state, .size = sizeof(ExposureState), .clear_value = 0});
     tg.use_persistent_image(path_trace_history);
     tg.clear_image({.view = path_trace_history, .name = "clear pt history"});
     tg.submit({});
@@ -828,7 +828,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .sky = sky,
                 .sky_ibl = sky_ibl_view,
                 .brdf_lut = brdf_fg_lut,
-                .luminance_average = luminance_average,
+                .exposure = exposure_state,
                 .meshlet_instances = meshlet_instances,
                 .mesh_instances = scene->mesh_instances_buffer,
                 .tlas = scene->_scene_tlas,
@@ -927,7 +927,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .instantiated_meshlets = meshlet_instances,
                 .meshes = scene->_gpu_mesh_manifest,
                 .combined_transforms = scene->_gpu_entity_combined_transforms,
-                .luminance_average = luminance_average,
+                .exposure = exposure_state,
                 .vsm_clip_projections = vsm_state.clip_projections,
                 .vsm_globals = vsm_state.globals,
                 .vsm_point_lights = vsm_state.vsm_point_lights,
@@ -975,7 +975,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .views = GenLuminanceHistogramTask::Views{
             .globals = render_context->tgpu_render_data,
             .histogram = luminance_histogram,
-            .luminance_average = luminance_average,
+            .exposure_state = exposure_state,
             .color_image = color_image,
         },
         .render_context = render_context.get(),
@@ -984,9 +984,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .views = GenLuminanceAverageTask::Views{
             .globals = render_context->tgpu_render_data,
             .histogram = luminance_histogram,
-            .luminance_average = luminance_average,
+            .exposure_state = exposure_state,
         },
-        .gpu_context = gpu_context,
+        .render_context = render_context.get(),
     });
     daxa::TaskImageView debug_draw_depth = tg.create_transient_image({
         .format = daxa::Format::D32_SFLOAT,
@@ -999,7 +999,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(PGIDrawDebugProbesTask{
             .views = PGIDrawDebugProbesTask::Views{
                 .globals = render_context->tgpu_render_data,
-                .luminance_average = luminance_average,
+                .exposure = exposure_state,
                 .probe_indirections = pgi_indirections,
                 .color_image = color_image,
                 .depth_image = debug_draw_depth,

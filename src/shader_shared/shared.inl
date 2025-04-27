@@ -279,16 +279,20 @@ struct PostprocessSettings
     daxa_f32 sensor_sensitivity;
     daxa_f32 luminance_log2_range;
     daxa_f32 inv_luminance_log2_range;
+    daxa_f32 auto_exposure_histogram_clip_lo;
+    daxa_f32 auto_exposure_histogram_clip_hi;
 #if defined(__cplusplus)
     PostprocessSettings()
         : min_luminance_log2{std::log2(1.0f / 4096.0f)},
           max_luminance_log2{std::log2(4096.0f)},
           luminance_adaption_tau{1.0f},
-          exposure_bias{1.0f},
+          exposure_bias{0.25f},
           calibration{12.5f},
           sensor_sensitivity{100.0f},
           luminance_log2_range{max_luminance_log2 - min_luminance_log2},
-          inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)}
+          inv_luminance_log2_range{1.0f / (max_luminance_log2 - min_luminance_log2)},
+          auto_exposure_histogram_clip_lo{0.6f},
+          auto_exposure_histogram_clip_hi{0.95f}
     {
     }
 #endif
