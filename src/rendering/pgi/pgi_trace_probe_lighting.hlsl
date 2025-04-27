@@ -22,11 +22,17 @@ DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
 DAXA_TH_TLAS_ID(READ, tlas)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
+// VSM:
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGITraceProbeLightingPush
 {
-    PGITraceProbeLightingH::AttachmentShaderBlob attach;
+    daxa_BufferPtr(PGITraceProbeLightingH::AttachmentShaderBlob) attach;
 };
 
 #if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
@@ -70,6 +76,24 @@ struct RayPayload
     int4 probe_index;
 }
 
+func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
+{
+    float3 start = rt_calc_ray_start(position, flat_normal, incoming_ray);
+
+    RayDesc ray = {};
+    ray.Direction = normalize(light_position - position);
+    ray.Origin = start;
+    ray.TMax = length(light_position - position) * 1.01f;
+    ray.TMin = 0.0f;
+
+    RayPayload payload;
+    payload.hit = true; // Only runs miss shader. Miss shader writes false.
+    TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
+
+    bool path_occluded = payload.hit;
+    return !path_occluded;
+}
+
 struct PGILightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;
@@ -77,62 +101,66 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         let sky = globals->sky_settings;
-
-        float t_max = 10000.0f;
-        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
-        float3 dir = sky.sun_direction;
-        
-        
-        RayDesc ray = {};
-        ray.Direction = dir;
-        ray.Origin = start;
-        ray.TMax = t_max;
-        ray.TMin = 0.0f;
-
-        RayPayload payload;
-        payload.hit = true; // Only runs miss shader. Miss shader writes false.
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 0, 0, ray, payload);
-
-        bool path_occluded = payload.hit;
-
-        return path_occluded ? 0.0f : 1.0f;
+        let light_visible = trace_shadow_ray(tlas, material_point.position, material_point.position + sky.sun_direction * 100000000.0f, material_point.face_normal, incoming_ray);
+        return light_visible ? 1.0f : 0.0f;
     }
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
     {
         let push = pgi_trace_probe_lighting_push;
-        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
+
         GPUPointLight point_light = globals.scene.point_lights[light_index];
         float3 to_light = point_light.position - material_point.position;
         float3 to_light_dir = normalize(to_light);
-        #if 0
-        
-        RayDesc ray = {};
-        ray.Direction = normalize(to_light);
-        ray.Origin = start;
-        ray.TMax = length(to_light) * 1.01f;
-        ray.TMin = 0.0f;
 
-        RayPayload payload;
-        payload.hit = true; // Only runs miss shader. Miss shader writes false.
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 0, 0, ray, payload);
+        //return 1.0f;
+        let RAYTRACED_POINT_SHADOWS = false;
+        if (RAYTRACED_POINT_SHADOWS)
+        {        
+            let light_visible = trace_shadow_ray(tlas, material_point.position, point_light.position, material_point.face_normal, incoming_ray);
+            return light_visible ? 1.0f : 0.0f;
+        }
+        else
+        {
+            const float point_norm_dot = dot(material_point.position, to_light_dir);
+            return get_vsm_point_shadow_coarse(
+                push.attach.globals,
+                push.attach.vsm_globals,
+                push.attach.vsm_memory_block.get(),
+                &(push.attach.vsm_point_spot_page_table[0]),
+                push.attach.vsm_point_lights,
+                material_point.normal, 
+                material_point.position,
+                light_index,
+                point_norm_dot);
+        }
+    }
+    float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
+    {
+        let push = pgi_trace_probe_lighting_push;
 
-        bool path_occluded = payload.hit;
-        #endif
+        GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
 
-        // return get_vsm_point_shadow_coarse(
-        //         push.attach.globals,
-        //         push.attach.vsm_globals,
-        //         Texture2D<float>::get(push.attach.vsm_memory_block),
-        //         &(push.attach.vsm_point_spot_page_table[0]),
-        //         push.attach.vsm_point_lights,
-        //         material_point.normal, 
-        //         light_index,
-        //         pixel_footprint);
-        return 1.0f;
+        //return 1.0f;
+        let RAYTRACED_POINT_SHADOWS = false;
+        if (RAYTRACED_POINT_SHADOWS)
+        {        
+            let light_visible = trace_shadow_ray(tlas, material_point.position, spot_light.position, material_point.face_normal, incoming_ray);
+            return light_visible ? 1.0f : 0.0f;
+        }
+        else
+        {
+            return get_vsm_spot_shadow_coarse(
+                push.attach.globals,
+                push.attach.vsm_globals,
+                push.attach.vsm_memory_block.get(),
+                &(push.attach.vsm_point_spot_page_table[0]),
+                push.attach.vsm_spot_lights,
+                material_point.normal, 
+                material_point.position,
+                light_index);
+        }
     }
 }
-
-#define RAYGEN_SHADING 0
 
 [shader("raygeneration")]
 void entry_ray_gen()
@@ -312,10 +340,8 @@ void entry_miss(inout RayPayload payload)
 
     payload.hit = false;
 
-    #if RAYGEN_SHADING == 0
     payload.color_depth.rgb = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
     payload.color_depth.a = 1000.0f;
-    #endif
 }
 
 #endif

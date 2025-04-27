@@ -758,6 +758,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .name = "color_image",
     });
+    
+    auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
+    auto const vsm_point_spot_page_table_view = vsm_state.point_spot_page_tables.view().view({.base_mip_level = 0,
+        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+        .base_array_layer = 0,
+        .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
 
     daxa::TaskBufferView pgi_indirections = {};
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
@@ -780,6 +787,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             transmittance,
             sky,
             debug_image,
+            vsm_state.globals,
+            vsm_state.vsm_point_lights,
+            vsm_state.vsm_spot_lights,
+            vsm_state.memory_block,
+            vsm_point_spot_page_table_view,
         });
         pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
@@ -866,6 +878,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .pgi_visibility = pgi_visibility,
                     .pgi_info = pgi_info,
                     .pgi_requests = pgi_requests,
+                    .vsm_globals = vsm_state.globals,
+                    .vsm_point_lights = vsm_state.vsm_point_lights,
+                    .vsm_spot_lights = vsm_state.vsm_spot_lights,
+                    .vsm_memory_block = vsm_state.memory_block,
+                    .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
                 },
                 .gpu_context = gpu_context,
                 .render_context = render_context.get(),
@@ -887,12 +904,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
             tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
         }
-        auto const vsm_page_table_view = vsm_state.page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const vsm_point_spot_page_table_view = vsm_state.point_spot_page_tables.view().view({.base_mip_level = 0,
-            .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
-            .base_array_layer = 0,
-            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
         tg.add_task(ShadeOpaqueTask{
             .views = ShadeOpaqueTask::Views{
                 .globals = render_context->tgpu_render_data,

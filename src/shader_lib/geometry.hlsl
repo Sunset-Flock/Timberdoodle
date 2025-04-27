@@ -50,6 +50,7 @@ interface LightVisibilityTesterI
 {
     float sun_light(MaterialPointData material_point, float3 incoming_ray);
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index);
+    float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index);
 };
 
 float3 flip_normal_to_incoming(float3 face_normal, float3 normal, float3 incoming_ray)

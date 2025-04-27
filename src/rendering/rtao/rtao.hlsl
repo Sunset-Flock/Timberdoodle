@@ -14,6 +14,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/pgi.hlsl"
 #include "shader_lib/shading.hlsl"
+#include "shader_lib/vsm_sampling.hlsl"
 
 #define PI 3.1415926535897932384626433832795
 #define RTAO_RANGE 1.5f
@@ -88,59 +89,78 @@ void ray_gen()
         RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];
         RayPayload payload = {};
 
-        if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
+        if (push.attach.globals.ppd_settings.debug_primary_trace != 0)
         {
             RayDesc ray = {};
-            ray.Origin = sample_pos;
-            ray.TMax = RTAO_RANGE;
+            ray.Origin = camera.position;
+            ray.TMax = 1000000000.0f;
             ray.TMin = 0.0f;
+            ray.Direction = primary_ray;
 
-            float ao_factor = 0.0f;
-            for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
-            {
-                const float3 hemi_sample = cosine_sample_hemi();
-                const float3 sample_dir = mul(tbn, hemi_sample);
-                ray.Direction = sample_dir;
-                payload.miss = false; // need to set to false as we skip the closest hit shader
-                payload.power = 1.0f;
-                TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
-                ao_factor += payload.miss ? 0 : payload.power;
-            }
+            payload.miss = false; // need to set to false as we skip the closest hit shader
+            payload.color = float3(0,0,0);
+            payload.normal = detail_normal;
+            TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
 
-            let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
-            push.attach.ppd_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
-        }
-        else // RTGI
-        {
-            RayDesc ray = {};
-            ray.Origin = sample_pos;
-            if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
-            {
-                ray.TMax = 1000000000.0f;
-            }
-            else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
-            {
-                ray.TMax = 4.0f;
-            }
-            ray.TMin = 0.0f;
-
-            float3 acc_light = 0.0f;
-            int valid_rays = 0;
-            for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
-            {
-                const float3 hemi_sample = cosine_sample_hemi();
-                const float3 sample_dir = mul(tbn, hemi_sample);
-                ray.Direction = sample_dir;
-                payload.miss = false; // need to set to false as we skip the closest hit shader
-                payload.color = float3(0,0,0);
-                payload.normal = detail_normal;
-                TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
-
-                acc_light += payload.color;
-            }
-
-            float4 value = float4(acc_light * rcp(RAY_COUNT), 1.0f);
+            float4 value = float4(payload.color, 1.0f);
             push.attach.ppd_raw_image.get()[index.xy] = value;
+        }
+        else 
+        {
+            if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
+            {
+                RayDesc ray = {};
+                ray.Origin = sample_pos;
+                ray.TMax = RTAO_RANGE;
+                ray.TMin = 0.0f;
+
+                float ao_factor = 0.0f;
+                for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
+                {
+                    const float3 hemi_sample = cosine_sample_hemi();
+                    const float3 sample_dir = mul(tbn, hemi_sample);
+                    ray.Direction = sample_dir;
+                    payload.miss = false; // need to set to false as we skip the closest hit shader
+                    payload.power = 1.0f;
+                    TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
+                    ao_factor += payload.miss ? 0 : payload.power;
+                }
+
+                let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
+                push.attach.ppd_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
+            }
+            else // RTGI
+            {
+                RayDesc ray = {};
+                ray.Origin = sample_pos;
+                if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
+                {
+                    ray.TMax = 1000000000.0f;
+                }
+                else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+                {
+                    ray.TMax = 4.0f;
+                }
+                ray.TMin = 0.0f;
+
+                float3 acc_light = 0.0f;
+                int valid_rays = 0;
+                for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
+                {
+                    const float3 hemi_sample = cosine_sample_hemi();
+                    const float3 sample_dir = mul(tbn, hemi_sample);
+                    ray.Direction = sample_dir;
+                    payload.miss = false; // need to set to false as we skip the closest hit shader
+                    payload.color = float3(0,0,0);
+                    payload.normal = detail_normal;
+                    TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
+
+                    acc_light += payload.color;
+                }
+
+                float4 value = float4(acc_light * rcp(RAY_COUNT), 1.0f);
+                push.attach.ppd_raw_image.get()[index.xy] = value;
+            }
         }
     }
     let clk_end = clockARB();
@@ -166,6 +186,23 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     }
 }
 
+func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
+{
+    float3 start = rt_calc_ray_start(position, flat_normal, incoming_ray);
+
+    RayDesc ray = {};
+    ray.Direction = normalize(light_position - position);
+    ray.Origin = start;
+    ray.TMax = length(light_position - position) * 1.01f;
+    ray.TMin = 0.0f;
+
+    RayPayload payload;
+    payload.miss = false; // Only runs miss shader. Miss shader writes false.
+    TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
+
+    return !payload.miss;
+}
+
 struct PGILightVisibilityTester : LightVisibilityTesterI
 {
     RaytracingAccelerationStructure tlas;
@@ -173,87 +210,64 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         let sky = globals->sky_settings;
-
-        float t_max = 10000.0f;
-        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
-        float3 dir = sky.sun_direction;
-        
-        
-        RayDesc ray = {};
-        ray.Direction = dir;
-        ray.Origin = start;
-        ray.TMax = t_max;
-        ray.TMin = 0.0f;
-
-        RayPayload payload;
-        payload.miss = false; // Only runs miss shader. Miss shader writes false.
-        TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
-
-        bool path_occluded = !payload.miss;
-
-        return path_occluded ? 0.0f : 1.0f;
+        let light_visible = trace_shadow_ray(tlas, material_point.position, material_point.position + sky.sun_direction * 100000000.0f, material_point.face_normal, incoming_ray);
+        return light_visible ? 1.0f : 0.0f;
     }
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
     {
-        float3 start = rt_calc_ray_start(material_point.position, material_point.geometry_normal, incoming_ray);
+        let push = rt_ao_push;
+
         GPUPointLight point_light = globals.scene.point_lights[light_index];
         float3 to_light = point_light.position - material_point.position;
         float3 to_light_dir = normalize(to_light);
-        #if 0
-        
-        RayDesc ray = {};
-        ray.Direction = normalize(to_light);
-        ray.Origin = start;
-        ray.TMax = length(to_light) * 1.01f;
-        ray.TMin = 0.0f;
 
-        RayPayload payload;
-        payload.hit = true; // Only runs miss shader. Miss shader writes false.
-        TraceRay(tlas, RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_SKIP_CLOSEST_HIT_SHADER | RAY_FLAG_CULL_NON_OPAQUE | RAY_FLAG_CULL_BACK_FACING_TRIANGLES, ~0, 0, 0, 0, ray, payload);
+        //return 1.0f;
+        let RAYTRACED_POINT_SHADOWS = false;
+        if (RAYTRACED_POINT_SHADOWS)
+        {        
+            let light_visible = trace_shadow_ray(tlas, material_point.position, point_light.position, material_point.face_normal, incoming_ray);
+            return light_visible ? 1.0f : 0.0f;
+        }
+        else
+        {
+            const float point_norm_dot = dot(material_point.position, to_light_dir);
+            return get_vsm_point_shadow_coarse(
+                push.attach.globals,
+                push.attach.vsm_globals,
+                push.attach.vsm_memory_block.get(),
+                &(push.attach.vsm_point_spot_page_table[0]),
+                push.attach.vsm_point_lights,
+                material_point.normal, 
+                material_point.position,
+                light_index,
+                point_norm_dot);
+        }
+    }
+    float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
+    {
+        let push = rt_ao_push;
 
-        bool path_occluded = payload.hit;
-        #endif
+        GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
 
-        
-        // const int face_idx = cube_face_from_dir(to_light_dir);
-        // const float4x4 point_view_projection = point_light.face_cameras[face_idx].view_proj;
-        // float4 light_projected_pos = mul(point_view_projection, float4(material_point.position, 1.0f));
-
-        // let constant_cascade = 4;
-
-        // uint prev_page_state_point;
-        // const uint point_page_array_index = get_vsm_point_page_array_idx(face_idx, light_idx);
-        // InterlockedOr(
-        //     AT.vsm_point_spot_page_table[constant_cascade].get_formatted()[uint3(vsm_point_page_coords.xy, point_page_array_index)], // [mip].get()[x, y, array_layer]
-        //     uint(requests_allocation_mask() | visited_marked_mask()),
-        //     prev_page_state_point
-        // );
-        // if(!get_requests_allocation(prev_page_state_point) && !get_is_allocated(prev_page_state_point))
-        // {
-        //     uint allocation_index;
-        //     InterlockedAdd(AT.vsm_allocation_requests->counter, 1u, allocation_index);
-        //     if(allocation_index < MAX_VSM_ALLOC_REQUESTS)
-        //     {
-        //         AT.vsm_allocation_requests.requests[allocation_index] = AllocationRequest(int3(vsm_point_page_coords.xy, point_page_array_index), 0u, constant_cascade);
-        //     }
-        // }]
-        // else 
-        // {
-        //     if(get_is_allocated(prev_page_state_point))
-        //     {
-        //          if (!get_is_visited_marked(prev_page_state_point))
-        //          {
-        //               InterlockedOr(
-        //                   AT.vsm_meta_memory_table.get_formatted()[get_meta_coords_from_vsm_entry(prev_page_state_point)],
-        //                   meta_memory_visited_mask()
-        //               );
-        //         }
-        //         
-        //         SAMPLE HERE
-        //     }
-        // }
-
-        return 1.0f;//path_occluded ? 0.0f : 1.0f;
+        //return 1.0f;
+        let RAYTRACED_POINT_SHADOWS = false;
+        if (RAYTRACED_POINT_SHADOWS)
+        {        
+            let light_visible = trace_shadow_ray(tlas, material_point.position, spot_light.position, material_point.face_normal, incoming_ray);
+            return light_visible ? 1.0f : 0.0f;
+        }
+        else
+        {
+            return get_vsm_spot_shadow_coarse(
+                push.attach.globals,
+                push.attach.vsm_globals,
+                push.attach.vsm_memory_block.get(),
+                &(push.attach.vsm_point_spot_page_table[0]),
+                push.attach.vsm_spot_lights,
+                material_point.normal, 
+                material_point.position,
+                light_index);
+        }
     }
 }
 

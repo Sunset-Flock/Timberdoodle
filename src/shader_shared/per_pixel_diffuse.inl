@@ -11,6 +11,7 @@ struct PerPixelDiffuseSettings
 {
     daxa_i32 mode;
     daxa_i32 sample_count;
+    daxa_i32 debug_primary_trace;
     #if defined(__cplusplus)
         auto operator==(PerPixelDiffuseSettings const & other) const -> bool
         {
@@ -22,7 +23,8 @@ struct PerPixelDiffuseSettings
         }
         PerPixelDiffuseSettings()
             : mode{ PER_PIXEL_DIFFUSE_MODE_RTAO },
-            sample_count{ 1 }
+            sample_count{ 1 },
+            debug_primary_trace{ 0 }
         {}
     #endif
 };

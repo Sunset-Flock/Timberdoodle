@@ -928,6 +928,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 };
                 ImGui::Combo("ao mode", &render_context.render_data.ppd_settings.mode, modes.data(), modes.size());
                 ImGui::InputInt("ao samples", &render_context.render_data.ppd_settings.sample_count);
+                ImGui::Checkbox("Debug Primary Trace", reinterpret_cast<bool *>(&render_context.render_data.ppd_settings.debug_primary_trace));
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {

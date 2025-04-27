@@ -137,6 +137,12 @@ struct TaskPGIAllInfo
     daxa::TaskImageView sky_transmittance = {};
     daxa::TaskImageView sky = {};
     daxa::TaskImageView debug_image = {};
+    // VSM:
+    daxa::TaskBufferView vsm_globals = {};
+    daxa::TaskBufferView vsm_point_lights = {};
+    daxa::TaskBufferView vsm_spot_lights = {};
+    daxa::TaskImageView vsm_memory_block = {};
+    daxa::TaskImageView vsm_point_spot_page_table = {};
 };
 struct TaskPGIAllOut
 {

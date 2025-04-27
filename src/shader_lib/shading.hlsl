@@ -186,34 +186,53 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         }
     }
 
-    // Point Lights
+    // Local Lights
     {
         let light_settings = globals.light_settings;
         uint4 light_mask = lights_get_mask(light_settings, material_point.position, light_mask_volume);
-
-        uint4 point_light_mask = light_mask & light_settings.point_light_mask;
-        //point_light_mask = WaveActiveBitOr(point_light_mask); // Way faster to be divergent in rt
-        while (any(point_light_mask != uint4(0)))
+        // Point Lights
         {
-            uint point_light_idx = lights_iterate_mask(light_settings, point_light_mask);
-            GPUPointLight light = globals.scene.point_lights[point_light_idx];
-            const float3 position_to_light = normalize(light.position - material_point.position);
-            
-            const float to_light_dist = length(light.position - material_point.position);
-
-            float win = (to_light_dist / light.cutoff);
-            win = win * win * win * win;
-            win = max(0.0, 1.0 - win);
-            win = win * win;
-            float attenuation = win / (to_light_dist * to_light_dist + 0.1);
-
-
-            if (attenuation > 0.0f)
+            uint4 point_light_mask = light_mask & light_settings.point_light_mask;
+            //point_light_mask = WaveActiveBitOr(point_light_mask); // Way faster to be divergent in rt
+            while (any(point_light_mask != uint4(0)))
             {
-                let light_visibility = light_visibility.point_light(material_point, incoming_ray, point_light_idx);
-                let shadowing = 1.0f;
-                let diffuse = max(dot(material_point.normal, position_to_light), 0.0);
-                diffuse_light += light.color * diffuse * attenuation * light.intensity * shadowing * light_visibility;
+                uint point_light_idx = lights_iterate_mask(light_settings, point_light_mask);
+                GPUPointLight light = globals.scene.point_lights[point_light_idx];
+                const float3 position_to_light = normalize(light.position - material_point.position);
+                
+                const float to_light_dist = length(light.position - material_point.position);
+
+                float attenuation = lights_attenuate_point(to_light_dist, light.cutoff);
+                if (attenuation > 0.0f)
+                {
+                    let light_visibility = light_visibility.point_light(material_point, incoming_ray, point_light_idx);
+                    let shadowing = 1.0f;
+                    let diffuse = max(dot(material_point.normal, position_to_light), 0.0);
+                    diffuse_light += light.color * diffuse * attenuation * light.intensity * shadowing * light_visibility;
+                }
+            }
+        }
+
+        // Spot Lights
+        {
+            float3 total_contribution = float3(0.0);
+            light_mask = light_mask & light_settings.spot_light_mask;
+            light_mask = WaveActiveBitOr(light_mask);
+            while (any(light_mask != uint4(0)))
+            {
+                uint spot_light_idx = lights_iterate_mask(light_settings, light_mask) - light_settings.first_spot_light_instance;
+                GPUSpotLight light = globals.scene.spot_lights[spot_light_idx];
+                const float3 position_to_light = normalize(light.position - material_point.position);
+                const float to_light_dist = length(light.position - material_point.position);
+                const float attenuation = lights_attenuate_spot(position_to_light, to_light_dist, light);
+                float shadowing = 1.0f;
+                if (attenuation > 0.0f)
+                {
+                    let light_visibility = light_visibility.spot_light(material_point, incoming_ray, spot_light_idx);
+                    let shadowing = 1.0f;
+                    let diffuse = max(dot(material_point.normal, position_to_light), 0.0);
+                    diffuse_light += light.color * diffuse * attenuation * light.intensity * shadowing * light_visibility;
+                }
             }
         }
     }

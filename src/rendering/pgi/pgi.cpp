@@ -1688,7 +1688,7 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     ti.recorder.set_pipeline(*pipeline.pipeline);
 
     PGITraceProbeLightingPush push = {};
-    push.attach = ti.attachment_shader_blob;
+    push.attach = ti.allocator->allocate_fill(PGITraceProbeLightingH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     // push.scene = render_data.scene;
     ti.recorder.push_constant(push);
 
@@ -2098,6 +2098,11 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
             .tlas = info.tlas,
             .trace_result = pgi_trace_result,
             .mesh_instances = info.mesh_instances,
+            .vsm_globals = info.vsm_globals,
+            .vsm_point_lights = info.vsm_point_lights,
+            .vsm_spot_lights = info.vsm_spot_lights,
+            .vsm_memory_block = info.vsm_memory_block,
+            .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
         },
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,

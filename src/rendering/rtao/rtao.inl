@@ -37,11 +37,17 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, pgi_radian
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, pgi_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, pgi_info)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, pgi_requests)
+// VSM:
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMGlobals), vsm_globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMPointLight), vsm_point_lights)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMSpotLight), vsm_spot_lights)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 
 struct RayTraceAmbientOcclusionPush
 {
-    RayTraceAmbientOcclusionH::AttachmentShaderBlob attach;
+    daxa_BufferPtr(RayTraceAmbientOcclusionH::AttachmentShaderBlob) attach;
 };
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RTAODenoiserH)
@@ -136,7 +142,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
         if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
         {
             RayTraceAmbientOcclusionPush push = {};
-            push.attach = ti.attachment_shader_blob;
+            push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
             auto const & ppd_raw_image = ti.info(AT.ppd_raw_image).value();
             auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
             ti.recorder.set_pipeline(*rt_pipeline.pipeline);

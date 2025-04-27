@@ -204,6 +204,10 @@ struct RTLightVisibilityTester : LightVisibilityTesterI
     {
         return 0.0f;
     }
+    float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
+    {
+        return 1.0f;
+    }
 }
 
 func rt_is_alpha_hit(
