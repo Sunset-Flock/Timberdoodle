@@ -213,10 +213,6 @@ void Renderer::compile_pipelines()
         {cull_and_draw_point_pages_pipelines[0]},
         {cull_and_draw_point_pages_pipelines[1]},
         {draw_shader_debug_lines_pipeline_compile_info()},
-        {draw_shader_debug_circles_pipeline_compile_info()},
-        {draw_shader_debug_rectangles_pipeline_compile_info()},
-        {draw_shader_debug_aabb_pipeline_compile_info()},
-        {draw_shader_debug_box_pipeline_compile_info()},
         {pgi_draw_debug_probes_compile_info()},
     };
     for (auto info : rasters)

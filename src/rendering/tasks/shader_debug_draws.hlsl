@@ -24,16 +24,16 @@ func vertex_rotate_to_main_cam(float3 orbit_position) -> float4
     return mul(inv_view_rotation, float4(orbit_position, 1.0f));
 }
 
-func vertex_transform(uint coord_space, float3 model_position) -> float4
+func vertex_transform(uint coord_space, float4 model_position) -> float4
 {
     float4 ret = (float4)0;
     if (coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
     {
-        ret = mul(push.attachments.globals->view_camera.view_proj, float4(model_position, 1));
+        ret = mul(push.attachments.globals->view_camera.view_proj, model_position);
     }
     else
     {
-        ret = float4(model_position, 1);
+        ret = model_position;
     }
     if (coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA)
     {
@@ -42,114 +42,133 @@ func vertex_transform(uint coord_space, float3 model_position) -> float4
     return ret;
 }
 
+func line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    const ShaderDebugLineDraw line = push.attachments.globals->debug->line_draws.draws[instance_index];
+    position = float4(vertex_index == 0 ? line.start : line.end, 1.0f);
+    coord_space = line.coord_space;
+    color = line.color;
+}
+
+func circle_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{    
+    const ShaderDebugCircleDraw circle = push.attachments.globals->debug->circle_draws.draws[instance_index];
+
+    uint segment = (vertex_index + 1) / 2;
+    const float rotation = float(segment) * (1.0f / (64.0f - 1.0f)) * 2.0f * 3.14f;
+    // Make circle in world space.
+    position = float4(circle.radius * float3(cos(rotation),sin(rotation), 0.0f), 1.0f);
+    
+    if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        position = vertex_rotate_to_main_cam(position.xyz);
+    }
+    position = position + float4(circle.position, 0.0f);
+    coord_space = circle.coord_space;
+    color = circle.color;
+}
+
+func rect_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    static const float2 rectangle_pos[8] = float2[8](
+        float2(-0.5, -0.5), float2( 0.5, -0.5),
+        float2( 0.5, -0.5), float2( 0.5,  0.5),
+        float2( 0.5,  0.5), float2(-0.5,  0.5),
+        float2(-0.5,  0.5), float2(-0.5, -0.5)
+    );
+    const ShaderDebugRectangleDraw rectangle = push.attachments.globals->debug->rectangle_draws.draws[instance_index];
+    position = float4(rectangle_pos[vertex_index] * rectangle.span, 0, 1.0f);
+
+    if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    {
+        position = vertex_rotate_to_main_cam(position.xyz);
+    }
+    position = position + float4(rectangle.center, 0.0f);
+    coord_space = rectangle.coord_space;
+    color = rectangle.color;
+}
+
+func aabb_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    const ShaderDebugAABBDraw aabb = push.attachments.globals->debug->aabb_draws.draws[instance_index];
+
+    static const float3 aabb_vertex_base_offsets[24] = float3[24](
+        // Bottom rectangle:
+        float3(-1,-1,-1), float3( 1,-1,-1),
+        float3(-1,-1,-1), float3(-1, 1,-1),
+        float3(-1, 1,-1), float3( 1, 1,-1),
+        float3( 1,-1,-1), float3( 1, 1,-1),
+        // Top rectangle:
+        float3(-1,-1, 1), float3( 1,-1, 1),
+        float3(-1,-1, 1), float3(-1, 1, 1),
+        float3(-1, 1, 1), float3( 1, 1, 1),
+        float3( 1,-1, 1), float3( 1, 1, 1),
+        // Connecting lines:
+        float3(-1,-1,-1), float3(-1,-1, 1),
+        float3( 1,-1,-1), float3( 1,-1, 1),
+        float3(-1, 1,-1), float3(-1, 1, 1),
+        float3( 1, 1,-1), float3( 1, 1, 1)
+    );
+    position = float4(aabb_vertex_base_offsets[vertex_index] * 0.5f * aabb.size, 1.0f);
+
+    position = position + float4(aabb.position, 0.0f);
+    coord_space = aabb.coord_space;
+    color = aabb.color;
+}
+
+func box_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    static const uint box_vertex_indices[24] = uint[24](
+        // Bottom rectangle
+        4, 5, 5, 6, 6, 7, 7, 4,
+        // Top rectangle
+        0, 1, 1, 2, 2, 3, 3, 0,
+        // Connecting lines
+        0, 4, 1, 5, 2, 6, 3, 7
+    );
+    const ShaderDebugBoxDraw box = push.attachments.globals->debug->box_draws.draws[instance_index];
+    position = float4(box.vertices[box_vertex_indices[vertex_index]], 1.0f);
+
+    coord_space = box.coord_space;
+    color = box.color;
+}
+
 [shader("vertex")]
 func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
     VertexToPixel ret = {};
-    const ShaderDebugLineDraw line = push.attachments.globals->debug->line_draws.draws[instance_index];
-    const float3 position = vertex_index == 0 ? line.start : line.end;
 
-    ret.color = line.color;
-    ret.position = vertex_transform(line.coord_space, position);
-    return ret;
-}
-
-[shader("vertex")]
-func entry_vertex_circle(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
-{
-    VertexToPixel ret = {};
-    const ShaderDebugCircleDraw circle = push.attachments.globals->debug->circle_draws.draws[instance_index];
-
-    const float rotation = float(vertex_index) * (1.0f / (64.0f - 1.0f)) * 2.0f * 3.14f;
-    // Make circle in world space.
-    float4 model_position = float4(circle.radius * float3(cos(rotation),sin(rotation), 0.0f), 1);
-    
-    if (circle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
+    uint coord_space;
+    switch (push.mode)
     {
-        model_position = vertex_rotate_to_main_cam(model_position.xyz);
+        case DEBUG_OBJECT_DRAW_MODE_LINE:
+        {
+            line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_CIRCLE:
+        {
+            circle_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_RECTANGLE:
+        {
+            rect_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_AABB:
+        {
+            aabb_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_BOX:
+        {
+            box_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
     }
-    model_position = model_position + float4(circle.position, 0);
+    ret.position = vertex_transform(coord_space, ret.position);
 
-    ret.color = circle.color;
-    ret.position = vertex_transform(circle.coord_space, model_position.xyz);
-    return ret;
-}
-
-static const float2 rectangle_pos[6] = float2[6](
-    float2(-0.5, -0.5),
-    float2( 0.5, -0.5),
-    float2( 0.5,  0.5),
-    float2(-0.5,  0.5),
-    float2(-0.5, -0.5)
-);
-
-[shader("vertex")]
-func entry_vertex_rectangle(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
-{
-    VertexToPixel ret = {};
-    const ShaderDebugRectangleDraw rectangle = push.attachments.globals->debug->rectangle_draws.draws[instance_index];
-    float4 model_position = float4(rectangle_pos[vertex_index] * rectangle.span, 0, 1);
-
-    if (rectangle.coord_space == DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE)
-    {
-        model_position = vertex_rotate_to_main_cam(model_position.xyz);
-    }
-    model_position = model_position + float4(rectangle.center, 0);
-
-    ret.color = rectangle.color;
-    ret.position = vertex_transform(rectangle.coord_space, model_position.xyz);
-    return ret;
-}
-
-static const float3 aabb_vertex_base_offsets[24] = float3[24](
-    // Bottom rectangle:
-    float3(-1,-1,-1), float3( 1,-1,-1),
-    float3(-1,-1,-1), float3(-1, 1,-1),
-    float3(-1, 1,-1), float3( 1, 1,-1),
-    float3( 1,-1,-1), float3( 1, 1,-1),
-    // Top rectangle:
-    float3(-1,-1, 1), float3( 1,-1, 1),
-    float3(-1,-1, 1), float3(-1, 1, 1),
-    float3(-1, 1, 1), float3( 1, 1, 1),
-    float3( 1,-1, 1), float3( 1, 1, 1),
-    // Connecting lines:
-    float3(-1,-1,-1), float3(-1,-1, 1),
-    float3( 1,-1,-1), float3( 1,-1, 1),
-    float3(-1, 1,-1), float3(-1, 1, 1),
-    float3( 1, 1,-1), float3( 1, 1, 1)
-);
-
-[shader("vertex")]
-func entry_vertex_aabb(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
-{
-    VertexToPixel ret = {};
-
-    const ShaderDebugAABBDraw aabb = push.attachments.globals->debug->aabb_draws.draws[instance_index];
-
-    const float3 model_position = aabb_vertex_base_offsets[vertex_index] * 0.5f * aabb.size + aabb.position;
-    ret.color = aabb.color;
-    ret.position = vertex_transform(aabb.coord_space, model_position);
-    return ret;
-}
-
-static const uint box_vertex_indices[24] = uint[24](
-    // Bottom rectangle
-    4, 5, 5, 6, 6, 7, 7, 4,
-    // Top rectangle
-    0, 1, 1, 2, 2, 3, 3, 0,
-    // Connecting lines
-    0, 4, 1, 5, 2, 6, 3, 7
-);
-
-[shader("vertex")]
-func entry_vertex_box(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
-{
-    VertexToPixel ret = {};
-    const ShaderDebugBoxDraw box = push.attachments.globals->debug->box_draws.draws[instance_index];
-
-    const float3 model_position = box.vertices[box_vertex_indices[vertex_index]];
-    ret.color = box.color;
-    ret.position = vertex_transform(box.coord_space, model_position);
     return ret;
 }
 
