@@ -56,6 +56,7 @@ struct RayPayload
     // RTGI:
     float3 color;
     float3 normal;
+    bool skip_sky_shading_on_miss;
 }
 
 [shader("raygeneration")]
@@ -196,11 +197,12 @@ func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, flo
     ray.TMax = length(light_position - position) * 1.01f;
     ray.TMin = 0.0f;
 
-    RayPayload payload;
+    RayPayload payload = {};
     payload.miss = false; // Only runs miss shader. Miss shader writes false.
+    payload.skip_sky_shading_on_miss = true;
     TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
 
-    return !payload.miss;
+    return payload.miss;
 }
 
 struct PGILightVisibilityTester : LightVisibilityTesterI
@@ -210,7 +212,7 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
     float sun_light(MaterialPointData material_point, float3 incoming_ray)
     {
         let sky = globals->sky_settings;
-        let light_visible = trace_shadow_ray(tlas, material_point.position, material_point.position + sky.sun_direction * 100000000.0f, material_point.face_normal, incoming_ray);
+        let light_visible = trace_shadow_ray(tlas, material_point.position, material_point.position + sky.sun_direction * 1000000, material_point.face_normal, incoming_ray);
         return light_visible ? 1.0f : 0.0f;
     }
     float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
@@ -221,7 +223,6 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
         float3 to_light = point_light.position - material_point.position;
         float3 to_light_dir = normalize(to_light);
 
-        //return 1.0f;
         let RAYTRACED_POINT_SHADOWS = false;
         if (RAYTRACED_POINT_SHADOWS)
         {        
@@ -249,7 +250,6 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
 
         GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
 
-        //return 1.0f;
         let RAYTRACED_POINT_SHADOWS = false;
         if (RAYTRACED_POINT_SHADOWS)
         {        
@@ -369,9 +369,8 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
                 tri_geo,
                 tri_point
             );
-            material_point.position = hit_position;
             bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
             payload.color = shade_material<SHADING_QUALITY_HIGH>(
                 push.attach.globals, 
                 push.attach.sky_transmittance,
@@ -399,7 +398,10 @@ void miss(inout RayPayload payload)
 
     if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
     {
-        payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
+        if (!payload.skip_sky_shading_on_miss)
+        {
+            payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
+        }
     }
     else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
     {
@@ -468,7 +470,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
     float3 ray = normalize(ws_pos - camera.position);
 
     // Blur new samples.
-    float3 raw_ppd = push.attach.ppd_raw.get()[index].rgb;
+    float3 raw_ppd = float3(0,0,0);
     float raw_ppd_weight_acc = 0.0f;
     {
         for (int col = 0; col < kWidth; col++)
@@ -501,7 +503,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             }
         }
     }
-    raw_ppd *= rcp(raw_ppd_weight_acc + 0.1f);
+    raw_ppd *= rcp(raw_ppd_weight_acc);
     raw_ppd = clamp(raw_ppd, float3(0,0,0), (100000000000.0f).xxx);
 
     float non_linear_depth = push.attach.depth.get()[index];
@@ -553,7 +555,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             const float depth_weight = DepthWeight(linear_depth, linear_prev_depth, local_normal, ray, camera.proj, 0.1);
             float3 normal = uncompress_normal_octahedral_32(history_normal[i]);
             float normalWeight = 1.0f;//NormalWeight(normal, local_normal, 0.01f /*TODO*/);
-            float validity_weight = history_validity[i];
+            float validity_weight = square(history_validity[i]);
 
             if (depth_weight > 0.1)
             {
@@ -577,7 +579,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         //push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
-    let validity_frames = 16;
+    let validity_frames = 8;
 
     validity = min(validity, validity_frames);
 

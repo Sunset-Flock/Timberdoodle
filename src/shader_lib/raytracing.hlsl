@@ -253,12 +253,12 @@ func rt_is_alpha_hit(
     if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
     {
         opacity = Texture2D<float>::get(material.opacity_texture_id)
-            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).r;
+            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 5).r;
     }
     else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
     {
         opacity = Texture2D<float4>::get(material.diffuse_texture_id)
-            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 3).a;
+            .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 5).a;
     }
     return opacity > 0.5;
 }
