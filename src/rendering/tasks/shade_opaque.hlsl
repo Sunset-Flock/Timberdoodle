@@ -15,6 +15,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/lights.hlsl"
 
+static int debug_mark_light_influence_counter = 0;
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
@@ -245,9 +246,9 @@ float3 point_lights_contribution(
     bool skip_shadows)
 {
     float3 total_contribution = float3(0.0);
+    let light_settings = AT.globals.light_settings;
 #if LIGHTS_ENABLE_MASK_ITERATION
     let mask_volume = AT.light_mask_volume.get();
-    let light_settings = AT.globals.light_settings;
     uint4 light_mask = lights_get_mask(light_settings, pixel_footprint.center, mask_volume);
     light_mask = light_mask & light_settings.point_light_mask;
     light_mask = WaveActiveBitOr(light_mask);
@@ -279,6 +280,15 @@ float3 point_lights_contribution(
                 light_index,
                 pixel_footprint,
                 point_norm_dot);
+                
+            if (light_settings.debug_mark_influence && 
+                light_settings.debug_draw_point_influence && 
+                (light_settings.selected_debug_point_light == -1 || 
+                 light_settings.selected_debug_point_light == light_index) &&
+                (shadowing > 0.0f || !light_settings.debug_mark_influence_shadowed))
+            {
+                debug_mark_light_influence_counter += 1;
+            }
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -326,6 +336,15 @@ float3 spot_lights_contribution(
                 world_normal, 
                 light_index, 
                 pixel_footprint);
+                
+            if (light_settings.debug_mark_influence && 
+                light_settings.debug_draw_spot_influence && 
+                (light_settings.selected_debug_spot_light == -1 || 
+                 light_settings.selected_debug_spot_light == light_index) &&
+                (shadowing > 0.0f || !light_settings.debug_mark_influence_shadowed))
+            {
+                debug_mark_light_influence_counter += 1;
+            }
         }
 
         total_contribution += light.color * diffuse * attenuation * light.intensity * shadowing;
@@ -374,11 +393,61 @@ void entry_main_cs(
         push.attachments.attachments.globals.readback.second_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[1];
 
         ShaderDebugRectangleDraw rect;
-        rect.color = float3(2,1,0);
+        rect.color = float3(2, 1, 0);
         rect.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
-        rect.center = float3(0,0,0.5f);
-        rect.span = float2(0.5f,0.5f);
+        rect.center = float3(0, 0, -2.5f);
+        rect.span = float2(0.5f, 0.5f);
         debug_draw_rectangle(AT.globals.debug, rect);
+        
+        ShaderDebugCircleDraw circle;
+        circle.color = float3(2,1,0);
+        circle.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        circle.position = float3(0, 0, -2.5f);
+        circle.radius = 0.5f;
+        debug_draw_circle(AT.globals.debug, circle);
+        
+        ShaderDebugAABBDraw aabb;
+        aabb.color = float3(2,1,0);
+        aabb.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        aabb.position = float3(0, 0, -2.5f);
+        aabb.size = (0.5f).xxx;
+        debug_draw_aabb(AT.globals.debug, aabb);
+        
+        ShaderDebugBoxDraw box;
+        box.color = float3(2,1,0);
+        box.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        box.vertices[0] = float3(0,0,0) - 0.5f - float3(0,0,2.5f);
+        box.vertices[1] = float3(0,0,1) - 0.5f - float3(0,0,2.5f);
+        box.vertices[2] = float3(0,1,0) - 0.5f - float3(0,0,2.5f);
+        box.vertices[3] = float3(0,1,1) - 0.5f - float3(0,0,2.5f);
+        box.vertices[4] = float3(1,0,0) - 0.5f - float3(0,0,2.5f);
+        box.vertices[5] = float3(1,0,1) - 0.5f - float3(0,0,2.5f);
+        box.vertices[6] = float3(1,1,0) - 0.5f - float3(0,0,2.5f);
+        box.vertices[7] = float3(1,1,1) - 0.5f - float3(0,0,2.5f);
+        debug_draw_box(AT.globals.debug, box);
+
+        ShaderDebugLineDraw line;
+        line.color = float3(2,1,0);
+        line.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        line.start = float3(0,0,0) - 0.5f - float3(0,0,2.5f);
+        line.end = float3(1,1,1) - 0.5f - float3(0,0,2.5f);
+        debug_draw_line(AT.globals.debug, line);
+
+        ShaderDebugConeDraw cone;
+        cone.color = float3(2,1,0);
+        cone.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        cone.position = float3(0,0,-2.5f);
+        cone.direction = normalize(float3(1,1,-1));
+        cone.size = 1.0f;
+        cone.angle = 0.8f;
+        debug_draw_cone(AT.globals.debug, cone);
+
+        ShaderDebugSphereDraw sphere;
+        sphere.color = float3(2,1,0);
+        sphere.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        sphere.position = float3(0,0,-2.5f);
+        sphere.radius = 2.0f;
+        debug_draw_sphere(AT.globals.debug, sphere);
     }
 
     const int2 index = svdtid.xy;
@@ -827,6 +896,13 @@ void entry_main_cs(
             output_value.rgb = shaded_color;
             break;
         }
+        
+        if (debug_mark_light_influence_counter && AT.globals.light_settings.debug_mark_influence)
+        {
+            float3 color = TurboColormap(float(debug_mark_light_influence_counter) * rcp(31.0f));
+            output_value.rgb = lerp(color, output_value.rgb * color, 0.75f);
+        }
+        
     }
     else 
     {

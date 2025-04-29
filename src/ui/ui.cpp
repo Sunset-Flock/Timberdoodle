@@ -862,6 +862,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             {
                 ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
                 ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
+                ImGui::Checkbox("Draw Point Light Influence", r_cast<bool*>(&render_data.light_settings.debug_draw_point_influence));
+                ImGui::Checkbox("Draw Spot Light Influence", r_cast<bool*>(&render_data.light_settings.debug_draw_spot_influence));
+                ImGui::Checkbox("Mark Influence", r_cast<bool*>(&render_data.light_settings.debug_mark_influence));
+                ImGui::Checkbox("Mark Influence Shadowed", r_cast<bool*>(&render_data.light_settings.debug_mark_influence_shadowed));
+                ImGui::SliderInt("Debug Point Light Idx", &render_data.light_settings.selected_debug_point_light, -1, render_data.light_settings.point_light_count-1);
+                ImGui::SliderInt("Debug Spot Light Idx", &render_data.light_settings.selected_debug_spot_light, -1, render_data.light_settings.spot_light_count-1);
             }
             if (ImGui::CollapsingHeader("Debug Visualizations"))
             {

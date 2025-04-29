@@ -1305,6 +1305,68 @@ auto Renderer::prepare_frame(
         .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA,
     });
 
+    
+    if (render_context->render_data.light_settings.debug_draw_point_influence)
+    {
+        u32 range[2] = {0, render_context->render_data.light_settings.point_light_count-1};
+        if (render_context->render_data.light_settings.selected_debug_point_light != -1)
+        {
+            range[0] = range[1] = render_context->render_data.light_settings.selected_debug_point_light;
+        }
+        for (u32 i = range[0]; i <= range[1]; ++i)
+        {
+            PointLight const& light = scene->_point_lights.at(i);
+
+            gpu_context->shader_debug_context.sphere_draws.draw(ShaderDebugSphereDraw{
+                .position = {
+                    light.position[0],
+                    light.position[1],
+                    light.position[2],
+                },
+                .radius = light.cutoff,
+                .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+                .color = std::bit_cast<daxa_f32vec3>(light.color),
+            });
+        }
+    }
+
+    if (render_context->render_data.light_settings.debug_draw_spot_influence)
+    {
+        u32 range[2] = {0, render_context->render_data.light_settings.spot_light_count-1};
+        if (render_context->render_data.light_settings.selected_debug_spot_light != -1)
+        {
+            range[0] = range[1] = render_context->render_data.light_settings.selected_debug_spot_light;
+        }
+        for (u32 i = range[0]; i <= range[1]; ++i)
+        {
+            SpotLight const& light = scene->_spot_lights.at(i);
+            
+            glm::mat4 transform4 = glm::mat4(
+                glm::vec4(light.transform[0], 0.0f),
+                glm::vec4(light.transform[1], 0.0f),
+                glm::vec4(light.transform[2], 0.0f),
+                glm::vec4(light.transform[3], 1.0f));
+            f32vec3 const spot_direction = transform4 * f32vec4(0.0f, 0.0f, -1.0f, 0.0f);
+
+            gpu_context->shader_debug_context.cone_draws.draw(ShaderDebugConeDraw{
+                .position = {
+                    light.transform[3][0],
+                    light.transform[3][1],
+                    light.transform[3][2],
+                },
+                .direction = {
+                    spot_direction[0],
+                    spot_direction[1],
+                    spot_direction[2],
+                },
+                .size = light.cutoff,
+                .angle = light.outer_cone_angle,
+                .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
+                .color = std::bit_cast<daxa_f32vec3>(light.color),
+            });
+        }
+    }
+
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);
 
     return true;
