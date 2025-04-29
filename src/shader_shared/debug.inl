@@ -54,6 +54,26 @@ struct ShaderDebugBoxDraw
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBoxDraw);
 
+struct ShaderDebugConeDraw
+{
+    daxa_f32vec3 position;
+    daxa_f32vec3 direction;
+    daxa_f32 size;
+    daxa_f32 angle;
+    daxa_u32 coord_space;
+    daxa_f32vec3 color;
+};
+DAXA_DECL_BUFFER_PTR(ShaderDebugConeDraw);
+
+struct ShaderDebugSphereDraw
+{
+    daxa_f32vec3 position;
+    daxa_f32 radius;
+    daxa_u32 coord_space;
+    daxa_f32vec3 color;
+};
+DAXA_DECL_BUFFER_PTR(ShaderDebugSphereDraw);
+
 struct ShaderDebugInput
 {
     daxa_i32vec2 texel_detector_pos;
@@ -72,6 +92,8 @@ struct ShaderDebugOutput
     daxa_u32 exceeded_rectangle_draw_capacity;
     daxa_u32 exceeded_aabb_draw_capacity;
     daxa_u32 exceeded_box_draw_capacity;
+    daxa_u32 exceeded_cone_draw_capacity;
+    daxa_u32 exceeded_sphere_draw_capacity;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugOutput);
 
@@ -90,6 +112,8 @@ DECL_DEBUG_DRAWS(ShaderDebugCircleDraw)
 DECL_DEBUG_DRAWS(ShaderDebugRectangleDraw)
 DECL_DEBUG_DRAWS(ShaderDebugAABBDraw)
 DECL_DEBUG_DRAWS(ShaderDebugBoxDraw)
+DECL_DEBUG_DRAWS(ShaderDebugConeDraw)
+DECL_DEBUG_DRAWS(ShaderDebugSphereDraw)
 
 struct ShaderDebugBufferHead
 {
@@ -98,6 +122,8 @@ struct ShaderDebugBufferHead
     DebugDraws(ShaderDebugRectangleDraw) rectangle_draws;
     DebugDraws(ShaderDebugAABBDraw) aabb_draws;
     DebugDraws(ShaderDebugBoxDraw) box_draws;
+    DebugDraws(ShaderDebugConeDraw) cone_draws;
+    DebugDraws(ShaderDebugSphereDraw) sphere_draws;
     ShaderDebugInput cpu_input;
     daxa_RWBufferPtr(ShaderDebugOutput) gpu_output;
 };
