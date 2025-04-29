@@ -847,6 +847,7 @@ void UIEngine::ui_scene_graph(Scene const & scene)
 void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
 {
     RenderGlobalData & render_data = render_context.render_data;
+    debug_visualization_index_override = 0;
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         ImGui::SeparatorText("General settings");
@@ -860,6 +861,33 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
             if (ImGui::CollapsingHeader("Lights Settings"))
             {
+                {
+                    auto modes = std::array{
+                        "NONE", // DEBUG_DRAW_MODE_NONE
+                        "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
+                        "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                        "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
+                        "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_ALBEDO,
+                        DEBUG_DRAW_MODE_SMOOTH_NORMAL,
+                        DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
+                        DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
+                    };
+                    ImGui::Combo("lights debug visualization", &lights_debug_visualization, modes.data(), modes.size());
+                    if (lights_debug_visualization != 0)
+                    {
+                        debug_visualization_index_override = mode_mappings[lights_debug_visualization];
+                    }
+                }
                 ImGui::InputFloat3("Mask Volume Size", &render_data.light_settings.mask_volume_size.x);
                 ImGui::InputInt3("Mask Volume Cell Count", &render_data.light_settings.mask_volume_cell_count.x);
                 ImGui::Checkbox("Draw Point Light Influence", r_cast<bool*>(&render_data.light_settings.debug_draw_point_influence));
@@ -869,6 +897,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::SliderInt("Debug Point Light Idx", &render_data.light_settings.selected_debug_point_light, -1, render_data.light_settings.point_light_count-1);
                 ImGui::SliderInt("Debug Spot Light Idx", &render_data.light_settings.selected_debug_spot_light, -1, render_data.light_settings.spot_light_count-1);
             }
+            
             if (ImGui::CollapsingHeader("Debug Visualizations"))
             {
                 auto modes = std::array{
@@ -905,7 +934,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "UV",                          // DEBUG_DRAW_MODE_UV
                     "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
                 };
-                ImGui::Combo("debug visualization", &render_data.settings.debug_draw_mode, modes.data(), modes.size());
+                ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), modes.size());
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
                 ImGui::InputInt("override_lod", &render_data.settings.lod_override);
                 ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
@@ -916,6 +945,51 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
         {
             if (ImGui::CollapsingHeader("Visbuffer Pipeline Settings"))
             {
+                {
+                    auto modes = std::array{
+                        "NONE", // DEBUG_DRAW_MODE_NONE
+                        "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
+                        "TRIANGLE_CONNECTIVITY", // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
+                        "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
+                        "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
+                        "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
+                        "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                        "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
+                        "DEPTH", // DEBUG_DRAW_MODE_DEPTH
+                        "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
+                        "FACE_NORMAL", // DEBUG_DRAW_MODE_FACE_NORMAL
+                        "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                        "MAPPED_NORMAL", // DEBUG_DRAW_MODE_MAPPED_NORMAL
+                        "FACE_TANGENT", // DEBUG_DRAW_MODE_FACE_TANGENT
+                        "SMOOTH_TANGENT", // DEBUG_DRAW_MODE_SMOOTH_TANGENT
+                        "UV", // DEBUG_DRAW_MODE_UV
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_OVERDRAW,
+                        DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY,
+                        DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID,
+                        DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID,
+                        DEBUG_DRAW_MODE_ENTITY_ID,
+                        DEBUG_DRAW_MODE_MESH_ID,
+                        DEBUG_DRAW_MODE_MESH_GROUP_ID,
+                        DEBUG_DRAW_MODE_MESH_LOD,
+                        DEBUG_DRAW_MODE_DEPTH,
+                        DEBUG_DRAW_MODE_ALBEDO,
+                        DEBUG_DRAW_MODE_FACE_NORMAL,
+                        DEBUG_DRAW_MODE_SMOOTH_NORMAL,
+                        DEBUG_DRAW_MODE_MAPPED_NORMAL,
+                        DEBUG_DRAW_MODE_FACE_TANGENT,
+                        DEBUG_DRAW_MODE_SMOOTH_TANGENT,
+                        DEBUG_DRAW_MODE_UV,
+                    };
+                    ImGui::Combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), modes.size());
+                    if (visbuffer_debug_visualization != 0)
+                    {
+                        debug_visualization_index_override = mode_mappings[visbuffer_debug_visualization];
+                    }
+                }
                 ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
                 ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
                 ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
@@ -938,6 +1012,33 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
+                {
+                    auto modes = std::array{
+                        "NONE",                        // DEBUG_DRAW_MODE_NONE
+                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
+                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF,
+                    };
+                    ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), modes.size());
+                    if (pgi_debug_visualization != 0)
+                    {
+                        debug_visualization_index_override = mode_mappings[pgi_debug_visualization];
+                    }
+                }
                 ImGui::Checkbox("Enable", reinterpret_cast<bool *>(&render_data.pgi_settings.enabled));
                 ImGui::Checkbox("Enable Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning));
                 ImGui::Checkbox("Enable Probe Repositioning Spring", reinterpret_cast<bool *>(&render_data.pgi_settings.probe_repositioning_spring_force));
@@ -963,38 +1064,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Debug Draw Probe Repositioning", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning));
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
                 ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
-                {
-                    static i32 pgi_debug_draw_mode = 0;
-                    auto modes = std::array{
-                        "NONE",                        // DEBUG_DRAW_MODE_NONE
-                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
-                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
-                        DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
-                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
-                        DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
-                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF,
-                    };
-                    bool const set = ImGui::Combo("pgi debug visualization", &pgi_debug_draw_mode, modes.data(), modes.size());
-                    if (set)
-                    {
-                        render_data.settings.debug_draw_mode = mode_mappings[pgi_debug_draw_mode];
-                    }
-                    if (mode_mappings[pgi_debug_draw_mode] != render_data.settings.debug_draw_mode)
-                    {
-                        pgi_debug_draw_mode = 0;
-                    }
-                }
                 auto debug_daw_modes = std::array{
                     "OFF",         // PGI_DEBUG_PROBE_DRAW_MODE_OFF
                     "IRRADIANCE",  // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
@@ -1011,6 +1080,41 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {
+                {
+                    auto modes = std::array{
+                        "NONE", // DEBUG_DRAW_MODE_NONE
+                        "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
+                        "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
+                        "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
+                        "VSM_CLIP_LEVEL", // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                        "VSM_POINT_LEVEL", // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
+                        "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
+                        "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID,
+                        DEBUG_DRAW_MODE_ENTITY_ID,
+                        DEBUG_DRAW_MODE_MESH_LOD,
+                        DEBUG_DRAW_MODE_VSM_OVERDRAW,
+                        DEBUG_DRAW_MODE_VSM_CLIP_LEVEL,
+                        DEBUG_DRAW_MODE_VSM_POINT_LEVEL,
+                        DEBUG_DRAW_MODE_DIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
+                        DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
+                    };
+                    ImGui::Combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), modes.size());
+                    if (vsm_debug_visualization != 0)
+                    {
+                        debug_visualization_index_override = mode_mappings[vsm_debug_visualization];
+                    }
+                }
                 bool enable = s_cast<bool>(render_context.render_data.vsm_settings.enable);
                 bool shadow_everything = s_cast<bool>(render_context.render_data.vsm_settings.shadow_everything);
                 bool force_clip_level = s_cast<bool>(render_context.render_data.vsm_settings.force_clip_level);
@@ -1081,6 +1185,14 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
             }
         }
+    }
+    if (debug_visualization_index_override != 0)
+    {
+        render_data.settings.debug_draw_mode = debug_visualization_index_override;
+    }
+    else
+    {
+        render_data.settings.debug_draw_mode = debug_visualization_index;
     }
     ImGui::End();
 }

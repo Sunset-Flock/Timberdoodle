@@ -95,6 +95,14 @@ struct UIEngine
         Window *window = {};
         SceneInterfaceState scene_interface = {};
 
+        i32 debug_visualization_index = {};
+        i32 debug_visualization_index_override = {};
+        bool lights_mark_volume = false;
+        i32 pgi_debug_visualization = {};
+        i32 lights_debug_visualization = {};
+        i32 visbuffer_debug_visualization = {};
+        i32 vsm_debug_visualization = {};
+
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
         void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state);
