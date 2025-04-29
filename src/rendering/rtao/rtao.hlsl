@@ -583,7 +583,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
     validity = min(validity, validity_frames);
 
-    acceptance = min(validity * rcp(validity_frames), 0.95f);
+    acceptance = min(validity * rcp(validity_frames), 0.99f);
     float exp_average = lerp(1.0f, 0.1f, acceptance);
 
     let new_ao = lerp(raw_ppd, accepted_history_ao, acceptance);

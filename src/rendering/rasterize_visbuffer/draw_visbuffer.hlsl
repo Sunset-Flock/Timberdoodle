@@ -628,7 +628,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
                 }
             }
 
-            if (true)
+            if (push.attach.globals.settings.enable_triangle_cull)
             {
                 if (cull_backfaces)
                 {
