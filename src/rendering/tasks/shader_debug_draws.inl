@@ -18,6 +18,16 @@ DAXA_DECL_TASK_HEAD_END
 #define DEBUG_OBJECT_DRAW_MODE_RECTANGLE 2
 #define DEBUG_OBJECT_DRAW_MODE_AABB 3
 #define DEBUG_OBJECT_DRAW_MODE_BOX 4
+#define DEBUG_OBJECT_DRAW_MODE_CONE 5
+#define DEBUG_OBJECT_DRAW_MODE_SPHERE 6
+
+#define DEBUG_OBJECT_LINE_VERTICES 2
+#define DEBUG_OBJECT_CIRCLE_VERTICES 128
+#define DEBUG_OBJECT_RECTANGLE_VERTICES 8
+#define DEBUG_OBJECT_AABB_VERTICES 24
+#define DEBUG_OBJECT_BOX_VERTICES 24
+#define DEBUG_OBJECT_CONE_VERTICES 64
+#define DEBUG_OBJECT_SPHERE_VERTICES (5*64)
 
 struct DebugDrawPush
 {
@@ -189,6 +199,28 @@ struct DebugDrawTask : DebugDrawH::Task
             render_cmd.draw_indirect({
                 .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
                 .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draws),
+                .draw_count = 1,
+                .draw_command_stride = sizeof(DrawIndirectStruct),
+                .is_indexed = false,
+            });
+        }
+        {
+            push.mode = DEBUG_OBJECT_DRAW_MODE_CONE;
+            render_cmd.push_constant(push);
+            render_cmd.draw_indirect({
+                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, cone_draws),
+                .draw_count = 1,
+                .draw_command_stride = sizeof(DrawIndirectStruct),
+                .is_indexed = false,
+            });
+        }
+        {
+            push.mode = DEBUG_OBJECT_DRAW_MODE_SPHERE;
+            render_cmd.push_constant(push);
+            render_cmd.draw_indirect({
+                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, sphere_draws),
                 .draw_count = 1,
                 .draw_command_stride = sizeof(DrawIndirectStruct),
                 .is_indexed = false,

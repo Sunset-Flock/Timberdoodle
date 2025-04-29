@@ -60,6 +60,16 @@ void debug_draw_box(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDe
     DEBUG_DRAW(debug_info, box, draw)
 }
 
+void debug_draw_cone(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugConeDraw draw)
+{
+    DEBUG_DRAW(debug_info, cone, draw)
+}
+
+void debug_draw_sphere(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugSphereDraw draw)
+{
+    DEBUG_DRAW(debug_info, sphere, draw)
+}
+
 void debug_write_i32(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, daxa_u32vec2 xy, int value, int channel)
 {
     if (all(equal(xy, deref(debug_info).cpu_input.texel_detector_pos)) && (channel >= 0) && (channel <= 4))

@@ -30,6 +30,8 @@ struct ShaderDebugDrawContext
     CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 256'000, .vertices = 8 };
     CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 64'000, .vertices = 24 };
     CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 64'000, .vertices = 24 };
+    CPUDebugDraws<ShaderDebugConeDraw> cone_draws = { .max_draws = 64'000, .vertices = 64 };
+    CPUDebugDraws<ShaderDebugConeDraw> sphere_draws = { .max_draws = 64'000, .vertices = (5*64) };
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
@@ -61,6 +63,8 @@ struct ShaderDebugDrawContext
         size += sizeof(ShaderDebugRectangleDraw) * rectangle_draws.max_draws;
         size += sizeof(ShaderDebugAABBDraw) * aabb_draws.max_draws;
         size += sizeof(ShaderDebugBoxDraw) * box_draws.max_draws;
+        size += sizeof(ShaderDebugConeDraw) * cone_draws.max_draws;
+        size += sizeof(ShaderDebugSphereDraw) * sphere_draws.max_draws;
         buffer = device.create_buffer({
             .size = size,
             .name = "shader debug buffer",
@@ -185,6 +189,8 @@ struct ShaderDebugDrawContext
         update_debug_draws(head.rectangle_draws, rectangle_draws);
         update_debug_draws(head.aabb_draws, aabb_draws);
         update_debug_draws(head.box_draws, box_draws);
+        update_debug_draws(head.cone_draws, cone_draws);
+        update_debug_draws(head.sphere_draws, sphere_draws);
 
         auto alloc = allocator.allocate_fill(head).value();
         recorder.copy_buffer_to_buffer({
@@ -218,6 +224,8 @@ struct ShaderDebugDrawContext
         upload_debug_draws(head.rectangle_draws, rectangle_draws);
         upload_debug_draws(head.aabb_draws, aabb_draws);
         upload_debug_draws(head.box_draws, box_draws);
+        upload_debug_draws(head.cone_draws, cone_draws);
+        upload_debug_draws(head.sphere_draws, sphere_draws);
     }
 };
 

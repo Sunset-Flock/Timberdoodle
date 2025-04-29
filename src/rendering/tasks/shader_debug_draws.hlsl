@@ -133,6 +133,74 @@ func box_line_vertex(uint vertex_index, uint instance_index, out float4 position
     color = box.color;
 }
 
+func cone_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    const ShaderDebugConeDraw cone = push.attachments.globals->debug->cone_draws.draws[instance_index];
+
+    static let SEGMENTS = DEBUG_OBJECT_CONE_VERTICES/4;
+    static let BASE_VERTICES = DEBUG_OBJECT_CONE_VERTICES/2;
+    
+    float3 tangent_side = normalize(cross(float3(0,0,1), cone.direction));
+    float3 tangent_up = normalize(cross(cone.direction, tangent_side));
+    let tan_angle = tan(cone.angle);
+
+    uint segment = vertex_index/2;
+    uint is_first = vertex_index%2;
+    let is_tip_vertex = !is_first && vertex_index < BASE_VERTICES;
+
+    segment = is_first ? segment : segment + 1;
+    let c = cos( 3.14 * 2 * (float(segment) * rcp(SEGMENTS)));
+    let s = sin( 3.14 * 2 * (float(segment) * rcp(SEGMENTS)));
+    float3 segment_base_pos = ((tangent_side * c + tangent_up * s) * tan_angle + cone.direction) * cone.size;
+    position = float4(is_tip_vertex ? float3(0,0,0) : segment_base_pos, 1.0f);
+    position.xyz += cone.position;
+
+    coord_space = cone.coord_space;
+    color = cone.color;
+}
+
+func sphere_line_vertex(uint vertex_index, uint instance_index, out float4 position, out uint coord_space, out float3 color)
+{
+    const ShaderDebugSphereDraw sphere = push.attachments.globals->debug->sphere_draws.draws[instance_index];
+
+    let CIRCLE_SEGMENTS = (DEBUG_OBJECT_SPHERE_VERTICES/5)/2;
+    let CIRCLE_VERTICES = DEBUG_OBJECT_SPHERE_VERTICES/5;
+
+    uint segment = ((vertex_index % CIRCLE_VERTICES) + 1) / 2;
+    const float rotation = float(segment) * (1.0f / (CIRCLE_VERTICES/2 - 1.0f)) * 2.0f * 3.14f;
+
+    let c = cos(rotation);
+    let s = sin(rotation);
+
+    let circle = vertex_index / CIRCLE_VERTICES;
+
+    if (circle == 0)
+    {
+        position = float4(float3(c, s, 0.0f), 1.0f);
+    }
+    if (circle == 1)
+    {
+        position = float4(float3(c * rsqrt(2), c * rsqrt(2), s), 1.0f);
+    }
+    if (circle == 2)
+    {
+        position = float4(float3(s * rsqrt(2), -s * rsqrt(2), c), 1.0f);
+    }
+    if (circle == 3)
+    {
+        position = float4(float3(0.0f, c, s), 1.0f);
+    }
+    if (circle == 4)
+    {
+        position = float4(float3(s, 0.0f, c), 1.0f);
+    }
+    position.xyz = position.xyz * sphere.radius;
+
+    position = position + float4(sphere.position, 0.0f);
+    coord_space = sphere.coord_space;
+    color = sphere.color;
+}
+
 [shader("vertex")]
 func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV_InstanceID) -> VertexToPixel
 {
@@ -164,6 +232,16 @@ func entry_vertex_line(uint vertex_index : SV_VertexID, uint instance_index : SV
         case DEBUG_OBJECT_DRAW_MODE_BOX:
         {
             box_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_CONE:
+        {
+            cone_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
+            break;
+        }
+        case DEBUG_OBJECT_DRAW_MODE_SPHERE:
+        {
+            sphere_line_vertex(vertex_index, instance_index, ret.position, coord_space, ret.color);
             break;
         }
     }
