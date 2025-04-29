@@ -31,7 +31,7 @@ struct ShaderDebugDrawContext
     CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 64'000, .vertices = 24 };
     CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 64'000, .vertices = 24 };
     CPUDebugDraws<ShaderDebugConeDraw> cone_draws = { .max_draws = 64'000, .vertices = 64 };
-    CPUDebugDraws<ShaderDebugConeDraw> sphere_draws = { .max_draws = 64'000, .vertices = (5*64) };
+    CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = { .max_draws = 64'000, .vertices = (5*64) };
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
