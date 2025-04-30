@@ -25,14 +25,24 @@ struct GPUScene
     daxa_BufferPtr(GPUSpotLight) spot_lights;
 };
 
+#define MARK_SELECTED_MODE_ENTITY 0
+#define MARK_SELECTED_MODE_MESH 1
+#define MARK_SELECTED_MODE_MESHLET 2
+#define MARK_SELECTED_MODE_TRIANGLE 3
+
 struct RenderGlobalData
 {
+    // UI Written Data:
     daxa_u32 hovered_entity_index;
     daxa_u32 selected_entity_index;
+    daxa_u32 selected_mesh_index;
+    daxa_u32 selected_meshlet_in_mesh_index;
+    daxa_u32 selected_triangle_in_meshlet_index;
+    daxa_i32 selected_mark_mode;
+    daxa_f32vec2 cursor_uv;
     
-    // please pass these fields to push constants directly
-    // indirection via globals is slow
-    GPUScene scene; 
+    // Renderer Written Data:
+    GPUScene scene; // Passing scene directly into push can yield good perf gains, avoid this field.
     CameraInfo main_camera;
     CameraInfo main_camera_prev_frame;
     CameraInfo view_camera;

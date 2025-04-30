@@ -105,7 +105,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state);
+        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state, Window & window);
 
         void tg_resource_debug_ui(RenderContext & render_context);
         void tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key);

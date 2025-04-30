@@ -168,6 +168,32 @@ float3 sRGB_OETF(float3 a) {
     return float3(sRGB_OETF(a.r), sRGB_OETF(a.g), sRGB_OETF(a.b));
 }
 
+float3 rotate_ldr_color(float3 v, float extra_rotation = 0.0f)
+{
+    return cos((v + extra_rotation) * 3.14);
+}
+
+func check_mark_selected(Texture2D<float> selecetd_mark, int2 size, int2 index, out bool self_marked, out bool mark_border)
+{
+    self_marked = selecetd_mark[index] > 0.0f;
+
+    let BORDER = 3;
+    bool surrounding_area_at_least_one_marked = false;
+    for (int x = -2; x <= 2; ++x)
+    {
+        for (int y = -2; y <= 2; ++y)
+        {
+            if (length(float2(x,y)) > 2.5) continue;
+
+            int2 sample_index = clamp(index + int2(x,y), int2(0,0), size-1);
+            let marked = selecetd_mark[sample_index] > 0.0f;
+            surrounding_area_at_least_one_marked = surrounding_area_at_least_one_marked || marked;
+        }
+    }
+
+    mark_border = !self_marked && surrounding_area_at_least_one_marked;
+}
+
 [[vk::push_constant]] WriteSwapchainPush push;
 [numthreads(WRITE_SWAPCHAIN_WG_X,WRITE_SWAPCHAIN_WG_Y,1)]
 void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
@@ -177,6 +203,8 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
         return;
     }
     float3 color = float3(0,0,0);
+    bool mark_selected = false;
+    bool mark_selected_border = false;
     if (deref(push.attachments.globals).settings.anti_aliasing_mode == AA_MODE_SUPER_SAMPLE)
     {
         for (uint y = 0; y < 2; ++y)
@@ -186,6 +214,10 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
                 const float4 exposed_color = push.attachments.color_image.get()[index * 2 + int2(x,y)];
                 const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
                 color += tonemapped_color * 0.25f;
+                bool mark, mark_border;
+                check_mark_selected(push.attachments.selected_mark_image.get(), push.size, index, mark, mark_border);
+                mark_selected = mark_selected || mark;
+                mark_selected_border = mark_selected_border || mark_border;
             }
         }
     }
@@ -193,20 +225,36 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     {
         const float4 exposed_color = push.attachments.color_image.get()[index];
         const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
-    
         color = tonemapped_color;
+
+        check_mark_selected(push.attachments.selected_mark_image.get(), push.size, index, mark_selected, mark_selected_border);
     }
 
     float4 debug_color = DEBUG;//push.attachments.debug_image.get()[index];
     color.rgb = mix(color.rgb, debug_color.rgb, debug_color.a);
 
+    // Selected Mark Border:
+    if (mark_selected_border)
+    {
+        color.rgb = lerp(color.rgb, rotate_ldr_color(color.rgb), 0.4f);
+    }
+    if (mark_selected)
+    {
+        let CHECKER_SIZE = 16;
+        let checker2 = (index + push.attachments.globals.frame_index/8) % (2*CHECKER_SIZE) > CHECKER_SIZE;
+        let checker = checker2.x ^ checker2.y;
+        let checker_boost = checker ? 0.3f : 0.0f;
+        color.rgb = lerp(color.rgb, rotate_ldr_color(color.rgb, checker_boost), 0.1f);
+    }
+
+    // Crosshair:
     int crosshair_extent = 16;
     int crosshair_thickness = 2;
-
     if ((all(index > (push.size/2-(crosshair_extent/2)) && all(index < (push.size/2+(crosshair_extent/2))))) && (any(index > (push.size/2-(crosshair_thickness/2)) && index < (push.size/2+(crosshair_thickness/2)))))
     {
-        color.rgb = fract(color.rgb + 0.5);
+        color.rgb = rotate_ldr_color(color.rgb);
     }
+
 
     float3 gamma_correct = sRGB_OETF(color);
 

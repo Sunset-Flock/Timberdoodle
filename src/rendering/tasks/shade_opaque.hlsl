@@ -459,8 +459,8 @@ void entry_main_cs(
         triangle_id = AT.vis_image.get()[index].x;
     }
 
-    const bool is_center_pixel = all(index == AT.globals->settings.render_target_size/2);
-    if (is_center_pixel)
+    const bool is_pixel_under_cursor = all(index == int2(floor(AT.globals->cursor_uv * AT.globals->settings.render_target_size)));
+    if (is_pixel_under_cursor)
     {
         debug_pixel = true;
     }
@@ -505,9 +505,50 @@ void entry_main_cs(
         tri_point.world_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.world_normal, primary_ray);
         tri_point.face_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.face_normal, primary_ray);
 
-        if (is_center_pixel)
+        {
+            bool mark = false;
+            switch (AT.globals.selected_mark_mode)
+            {
+                case MARK_SELECTED_MODE_ENTITY:
+                {
+                    mark = tri_geo.entity_index == AT.globals.selected_entity_index;
+                    break;
+                }
+                case MARK_SELECTED_MODE_MESH:
+                {
+                    mark = 
+                        tri_geo.entity_index == AT.globals.selected_entity_index &&
+                        tri_geo.mesh_index == AT.globals.selected_mesh_index;
+                    break;
+                }
+                case MARK_SELECTED_MODE_MESHLET:
+                {
+                    mark = 
+                        tri_geo.entity_index == AT.globals.selected_entity_index &&
+                        tri_geo.mesh_index == AT.globals.selected_mesh_index &&
+                        visbuf_tri.meshlet_index == AT.globals.selected_meshlet_in_mesh_index;
+                    break;
+                }
+                case MARK_SELECTED_MODE_TRIANGLE:
+                {
+                    mark = 
+                        tri_geo.entity_index == AT.globals.selected_entity_index &&
+                        tri_geo.mesh_index == AT.globals.selected_mesh_index &&
+                        visbuf_tri.meshlet_index == AT.globals.selected_meshlet_in_mesh_index && 
+                        visbuf_tri.meshlet_triangle_index == AT.globals.selected_triangle_in_meshlet_index;
+                    break;
+                }
+            }
+            AT.selected_mark_image.get()[index] = mark ? 1.0f : 0.0f;
+        }
+
+        if (is_pixel_under_cursor)
         {
             AT.globals.readback.hovered_entity = tri_geo.entity_index;
+            AT.globals.readback.hovered_mesh_in_meshgroup = tri_geo.in_mesh_group_index;
+            AT.globals.readback.hovered_mesh = tri_geo.mesh_index;
+            AT.globals.readback.hovered_meshlet_in_mesh = visbuf_tri.meshlet_index;
+            AT.globals.readback.hovered_triangle_in_meshlet = visbuf_tri.meshlet_triangle_index;
         }
 
 
@@ -634,18 +675,8 @@ void entry_main_cs(
         {
             indirect_lighting = AT.ao_image.get().Load(index).rgb;
         }
-
-        float3 highlight_lighting = {};
-        if (AT.globals.hovered_entity_index == tri_geo.entity_index)
-        {
-            highlight_lighting = float3(0.2,0.2,0.2) * 5;
-        }
-        if (AT.globals.selected_entity_index == tri_geo.entity_index)
-        {
-            highlight_lighting = float3(0.4,0.4,0.4) * 10;
-        }
         
-        const float3 lighting = directional_light_direct + point_lights_direct + spot_lights_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color + highlight_lighting;
+        const float3 lighting = directional_light_direct + point_lights_direct + spot_lights_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -902,11 +933,10 @@ void entry_main_cs(
             float3 color = TurboColormap(float(debug_mark_light_influence_counter) * rcp(31.0f));
             output_value.rgb = lerp(color, output_value.rgb * color, 0.75f);
         }
-        
     }
     else 
     {
-        if (is_center_pixel)
+        if (is_pixel_under_cursor)
         {
             AT.globals.readback.hovered_entity = ~0u;
         }

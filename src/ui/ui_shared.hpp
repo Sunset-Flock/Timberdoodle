@@ -44,7 +44,11 @@ namespace tido
 
         struct SceneInterfaceState
         {
-            u32 picked_entity = {};
+            u32 picked_entity = ~0u;
+            u32 picked_mesh_in_meshgroup = {};
+            u32 picked_mesh = {};
+            u32 picked_meshlet_in_mesh = {};
+            u32 picked_triangle_in_meshlet = {};
         };
     } // namespace ui
 } // namespace tido

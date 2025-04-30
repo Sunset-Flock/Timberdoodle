@@ -285,18 +285,15 @@ namespace tido
             }
             if (selected == 2)
             {
-                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left))
+                if (ImGui::IsMouseReleased(ImGuiMouseButton_Left) && ImGui::IsKeyDown(ImGuiKey_LeftShift) && !ImGui::IsAnyItemHovered())
                 {
-                    if (scene_interface.picked_entity == render_context.general_readback.hovered_entity)
-                    {
-                        scene_interface.picked_entity = ~0;
-                    }
-                    else
-                    {
-                        scene_interface.picked_entity = render_context.general_readback.hovered_entity;
-                    }
+                    scene_interface.picked_entity = render_context.general_readback.hovered_entity;
+                    scene_interface.picked_mesh_in_meshgroup = render_context.general_readback.hovered_mesh_in_meshgroup;
+                    scene_interface.picked_mesh = render_context.general_readback.hovered_mesh;
+                    scene_interface.picked_meshlet_in_mesh = render_context.general_readback.hovered_meshlet_in_mesh;
+                    scene_interface.picked_triangle_in_meshlet = render_context.general_readback.hovered_triangle_in_meshlet;
                 }
-                ImGui::BeginChild("Geometry Info", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
+                ImGui::BeginChild("Selected Geometry Info", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
                 {
                     auto camera_settings = [&]()
                     {
@@ -307,16 +304,33 @@ namespace tido
                             auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
 
-                            ImGui::Text("Entity Id %i", scene_interface.picked_entity);
+                            auto modes = std::array{
+                                "ENTITY", // MARK_SELECTED_MODE_ENTITY
+                                "MESH", // MARK_SELECTED_MODE_MESH
+                                "MESHLET", // MARK_SELECTED_MODE_MESHLET
+                                "TRIANGLE", // MARK_SELECTED_MODE_TRIANGLE
+                            };
+                            ImGui::Combo("Selected Mark Mode", &render_context.render_data.selected_mark_mode, modes.data(), modes.size());
 
+                            ImGui::Text(">>>Left Click + Left Shift< To Select<<<");
+                            ImGui::Text("Entity: idx:           %i", scene_interface.picked_entity);
                             if (scene_interface.picked_entity != ~0)
                             {
+
                                 auto ent_slot = scene._render_entities.slot_by_index(scene_interface.picked_entity);
     
                                 auto mesh_group_manifest_index = scene._render_entities.slot_by_index(scene_interface.picked_entity)->mesh_group_manifest_index.value();
                                 auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
-                                
-                                ImGui::Text(fmt::format("MeshGroup: {} (idx: {})", mesh_group.name, mesh_group_manifest_index).c_str());
+                                ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
+
+                                auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh];
+                                ImGui::Text(fmt::format("Entiy Position:     X: {}\n"
+                                                        "                    Y: {}\n"
+                                                        "                    Z: {}", ent_slot->combined_transform[3][0], ent_slot->combined_transform[3][1], ent_slot->combined_transform[3][2]).c_str());
+                                ImGui::Text(fmt::format("Mesh: idx:             {}", scene_interface.picked_mesh).c_str());
+                                ImGui::Text(fmt::format("Mesh In Meshgroup Idx: {}", scene_interface.picked_mesh_in_meshgroup).c_str());
+                                ImGui::Text(fmt::format("Meshlet: idx:          {}", scene_interface.picked_meshlet_in_mesh).c_str());
+                                ImGui::Text(fmt::format("Triangle: idx:         {}", scene_interface.picked_triangle_in_meshlet).c_str());
                             }
                             
                             ImGui::PopStyleColor();
@@ -337,6 +351,9 @@ namespace tido
                 // Set Render Data
                 render_context.render_data.hovered_entity_index = render_context.general_readback.hovered_entity;
                 render_context.render_data.selected_entity_index = scene_interface.picked_entity;
+                render_context.render_data.selected_mesh_index = scene_interface.picked_mesh;
+                render_context.render_data.selected_meshlet_in_mesh_index = scene_interface.picked_meshlet_in_mesh;
+                render_context.render_data.selected_triangle_in_meshlet_index = scene_interface.picked_triangle_in_meshlet;
 
                 ImGui::EndChild();
             }

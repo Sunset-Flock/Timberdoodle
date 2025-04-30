@@ -49,7 +49,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "VSM_Debug\\vsm_debug.gltf"; 
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunnies3.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunny.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube/cube.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld2.gltf";
@@ -64,6 +64,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "jungle_pack\\JungleRuins_Main_c.gltf";
     std::filesystem::path const DEFAULT_HARDCODED_FILE = "light_import_test\\light_import_test.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_lights_compressed\\bistro_lights_c.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -249,7 +250,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state);
+    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state, *_window);
     if (app_state.use_preset_camera)
     {
         app_state.cinematic_camera.process_input(*_window, app_state.delta_time);

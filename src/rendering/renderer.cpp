@@ -796,6 +796,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         pgi_info = ret.pgi_info;
         pgi_requests = ret.pgi_requests;
     }
+    auto selected_mark_image = tg.create_transient_image({
+        .format = daxa::Format::R8_UNORM,
+        .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
+        .name = "selected mark image",
+    });
+    tg.clear_image({selected_mark_image, {}, "clear selected mark image"});
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
         // TODO: Precompute once, and save
@@ -905,6 +911,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data,
                 .debug_lens_image = debug_lens_image,
                 .color_image = color_image,
+                .selected_mark_image = selected_mark_image,
                 .ao_image = ppd_image,
                 .vis_image = view_camera_visbuffer,
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
@@ -1029,6 +1036,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.add_task(WriteSwapchainTask{
         .views = WriteSwapchainTask::Views{
             .globals = render_context->tgpu_render_data,
+            .selected_mark_image = selected_mark_image,
             .debug_image = debug_image,
             .color_image = color_image,
             .swapchain = swapchain_image,

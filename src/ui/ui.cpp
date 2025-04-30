@@ -126,12 +126,20 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state)
+void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state, Window & window)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     // Clear Select Render Data
+    render_context.render_data.cursor_uv = {
+        std::clamp(s_cast<f32>(window.get_cursor_x()) / s_cast<f32>(window.get_width()), 0.0f, 1.0f),
+        std::clamp(s_cast<f32>(window.get_cursor_y()) / s_cast<f32>(window.get_height()), 0.0f, 1.0f),
+    };
+    if (window.is_cursor_captured())
+    {
+        render_context.render_data.cursor_uv = { 0.5f, 0.5f };
+    }
     render_context.render_data.hovered_entity_index = ~0u;
     render_context.render_data.selected_entity_index = ~0u;
 
