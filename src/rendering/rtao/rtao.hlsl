@@ -573,6 +573,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         }
         if (any(base_texel < 0.0f || (base_texel + 1.0f >= float2(camera.screen_size))))
         {
+            validity = 0;
             acceptance = 0.0f;
         }
         //accepted_history_ao = push.attach.history.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), pixel_prev_uv, 0.0f).x;
