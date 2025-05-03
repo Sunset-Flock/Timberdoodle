@@ -299,6 +299,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
 
 void UIEngine::tg_resource_debug_ui(RenderContext & render_context)
 {
+    render_context.tg_debug.ui_open = tg_debug_ui;
     if (tg_debug_ui && ImGui::Begin("TG Debug Clones", nullptr, ImGuiWindowFlags_NoCollapse))
     {
         bool const clear_search = ImGui::Button("clear");
@@ -1328,6 +1329,16 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
     bool auto_reset_timings = false;
     if (ImGui::Begin("Render statistics", nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        ImGui::SeparatorText("General");
+        {
+            ImGui::Text("Delta Time:                   %fms", app_state.delta_time * 1000.0f);
+            ImGui::Text("Frames Per Second:            %f", 1.0f / app_state.delta_time);
+            ImGui::Text("CPU Windowing:                %fms", app_state.time_taken_cpu_windowing * 1000.0f);
+            ImGui::Text("CPU Application:              %fms", app_state.time_taken_cpu_application * 1000.0f);
+            ImGui::Text("CPU Wait For GPU:             %fms", app_state.time_taken_cpu_wait_for_gpu * 1000.0f);
+            ImGui::Text("CPU Renderer Prepare:         %fms", app_state.time_taken_cpu_renderer_prepare * 1000.0f);
+            ImGui::Text("CPU Renderer Record + Submit: %fms", app_state.time_taken_cpu_renderer_record * 1000.0f);
+        }
         ImGui::SeparatorText("GPU Group Timings");
         {
             if (gather_perm_measurements)

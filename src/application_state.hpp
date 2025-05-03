@@ -17,5 +17,12 @@ struct ApplicationState
     bool reset_observer = false;
     bool decompose_bistro = false;
     f32 delta_time = 0.016666f;
+    u64 total_elapsed_us = 0;
+    f32 time_taken_cpu_windowing = 0.016666f;
+    f32 time_taken_cpu_application = 0.016666f;
+    f32 time_taken_cpu_wait_for_gpu = 0.016666f;
+    f32 time_taken_cpu_renderer_prepare = 0.016666f;
+    f32 time_taken_cpu_renderer_record = 0.016666f;
+    std::chrono::time_point<std::chrono::steady_clock> startup_time_point = {};
     std::chrono::time_point<std::chrono::steady_clock> last_time_point = {};
 };

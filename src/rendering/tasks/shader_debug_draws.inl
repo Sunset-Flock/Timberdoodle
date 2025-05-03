@@ -235,6 +235,10 @@ inline MAKE_COMPUTE_COMPILE_INFO(debug_task_draw_display_image_pipeline_info, ".
 
 void debug_task(daxa::TaskInterface ti, TgDebugContext & tg_debug, daxa::ComputePipeline& pipeline, bool pre_task)
 {
+    if (!tg_debug.ui_open)
+    {
+        return;
+    }
     if (pre_task)
     {
         std::string name = std::string(ti.task_name) + "(IDX:" + std::to_string(ti.task_index) + ')';

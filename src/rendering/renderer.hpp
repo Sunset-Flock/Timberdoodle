@@ -74,7 +74,8 @@ struct Renderer
     auto prepare_frame(
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
-        f32 const delta_time) -> bool;
+        f32 const delta_time,
+        u64 const total_elapsed_us) -> bool;
     void readback_statistics(daxa::TaskGraph & tg);
 
     daxa::TaskBuffer zero_buffer = {};

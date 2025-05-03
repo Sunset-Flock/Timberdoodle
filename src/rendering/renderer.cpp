@@ -112,7 +112,7 @@ Renderer::Renderer(
         {
             daxa::ImageInfo{
                 .format = daxa::Format::R32_UINT,
-                .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = "normal_history",
             },
             normal_history,
@@ -1032,6 +1032,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
+    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, "copy to normal history"});
 
     tg.add_task(WriteSwapchainTask{
         .views = WriteSwapchainTask::Views{
@@ -1065,7 +1066,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 auto Renderer::prepare_frame(
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
-    f32 const delta_time) -> bool
+    f32 const delta_time,
+    u64 const total_elapsed_us) -> bool
 {
     if (window->size.x == 0 || window->size.y == 0)
     {
@@ -1146,6 +1148,7 @@ auto Renderer::prepare_frame(
         render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
         render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
         render_context->render_data.delta_time = delta_time;
+        render_context->render_data.total_elapsed_us = total_elapsed_us;
 
         render_context->render_data.cull_data = fill_cull_data(*render_context);
 

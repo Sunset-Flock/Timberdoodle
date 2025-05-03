@@ -63,8 +63,8 @@ Application::Application()
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
     // std::filesystem::path const DEFAULT_HARDCODED_FILE = "jungle_pack\\JungleRuins_Main_c.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "light_import_test\\light_import_test.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_lights_compressed\\bistro_lights_c.gltf";
+    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "light_import_test\\light_import_test.gltf";
+    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_lights_compressed\\bistro_lights_c.gltf";
 
     auto const result = _scene->load_manifest_from_gltf({
         .root_path = DEFAULT_HARDCODED_PATH,
@@ -100,41 +100,69 @@ Application::Application()
     }
     // =========================================================================
 
-    app_state.last_time_point = std::chrono::steady_clock::now();
+    app_state.last_time_point = app_state.startup_time_point = std::chrono::steady_clock::now();
     _renderer->render_context->render_times.enable_render_times = true;
 }
-using FpMilliseconds = std::chrono::duration<float, std::chrono::milliseconds::period>;
+
+using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::period>;
 
 auto Application::run() -> i32
 {
     while (app_state.keep_running)
     {
         auto new_time_point = std::chrono::steady_clock::now();
-        app_state.delta_time = std::chrono::duration_cast<FpMilliseconds>(new_time_point - app_state.last_time_point).count() * 0.001f;
+        app_state.delta_time = std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.last_time_point).count() / 1'000'000.0f;
         app_state.last_time_point = new_time_point;
-        _window->update(app_state.delta_time);
-        app_state.keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
-        i32vec2 new_window_size;
-        glfwGetWindowSize(this->_window->glfw_handle, &new_window_size.x, &new_window_size.y);
-        if (this->_window->size.x != new_window_size.x || _window->size.y != new_window_size.y)
+        app_state.total_elapsed_us = std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.startup_time_point).count();
+
         {
-            this->_window->size = new_window_size;
-            _renderer->window_resized();
+            auto start_time_taken_cpu_windowing = std::chrono::steady_clock::now();
+            _window->update(app_state.delta_time);
+            app_state.keep_running &= !static_cast<bool>(glfwWindowShouldClose(_window->glfw_handle));
+            i32vec2 new_window_size;
+            glfwGetWindowSize(this->_window->glfw_handle, &new_window_size.x, &new_window_size.y);
+            if (this->_window->size.x != new_window_size.x || _window->size.y != new_window_size.y)
+            {
+                this->_window->size = new_window_size;
+                _renderer->window_resized();
+            }
+            auto end_time_taken_cpu_windowing = std::chrono::steady_clock::now();
+            app_state.time_taken_cpu_windowing = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_windowing - start_time_taken_cpu_windowing).count() / 1'000'000.0f;
         }
         if (_window->size.x != 0 && _window->size.y != 0)
         {
-            update();
-            auto const camera_info = app_state.use_preset_camera ? 
+            {
+                auto start_time_taken_cpu_application = std::chrono::steady_clock::now();
+                update();
+                auto end_time_taken_cpu_application = std::chrono::steady_clock::now();
+                app_state.time_taken_cpu_application = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_application - start_time_taken_cpu_application).count() / 1'000'000.0f;
+            }
+            {
+                auto start_time_taken_cpu_wait_for_gpu = std::chrono::steady_clock::now();
+                _gpu_context->swapchain.wait_for_next_frame();
+                auto end_time_taken_cpu_wait_for_gpu = std::chrono::steady_clock::now();
+                app_state.time_taken_cpu_wait_for_gpu = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_wait_for_gpu - start_time_taken_cpu_wait_for_gpu).count() / 1'000'000.0f;
+            }
+            bool execute_frame = {};
+            {
+                auto start_time_taken_cpu_renderer_prepare = std::chrono::steady_clock::now();
+                auto const camera_info = app_state.use_preset_camera ? 
                 app_state.cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
                 app_state.camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
-
-            bool const execute_frame = _renderer->prepare_frame(
-                camera_info,
-                app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
-                app_state.delta_time);
+                execute_frame = _renderer->prepare_frame(
+                    camera_info,
+                    app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
+                    app_state.delta_time,
+                    app_state.total_elapsed_us);
+                auto end_time_taken_cpu_renderer_prepare = std::chrono::steady_clock::now();
+                app_state.time_taken_cpu_renderer_prepare = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_prepare - start_time_taken_cpu_renderer_prepare).count() / 1'000'000.0f;
+            }
             if (execute_frame)
             {
+                auto start_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
                 _renderer->main_task_graph.execute({});
+                auto end_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
+                app_state.time_taken_cpu_renderer_record = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_record - start_time_taken_cpu_renderer_record).count() / 1'000'000.0f;
             }
         }
         _gpu_context->device.collect_garbage();
@@ -238,8 +266,6 @@ void Application::update()
         .command_lists = std::span{cmd_lists.data(), cmd_list_count},
         .signal_binary_semaphores = std::span{ &_renderer->render_context->lighting_phase_wait, 1 }
     });
-
-    _gpu_context->device.wait_idle();
 
     // ===== Update GPU Scene Buffers =====
 

@@ -47,6 +47,7 @@ struct RenderGlobalData
     CameraInfo main_camera_prev_frame;
     CameraInfo view_camera;
     CameraInfo view_camera_prev_frame;
+    daxa_u64 total_elapsed_us;
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;

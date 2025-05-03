@@ -433,19 +433,18 @@ static const float kernel[kWidth][kWidth] = {
 
 float DepthWeight(float linear_depth_a, float linear_depth_b, float3 normalCur, float3 viewDir, float4x4 proj, float phi)
 {  
-  float angleFactor = max(0.25, -dot(normalCur, viewDir));
+    float angleFactor = max(0.25, -dot(normalCur, viewDir));
 
-  float diff = abs(linear_depth_a - linear_depth_b);
-  return exp(-diff * angleFactor / phi);
+    float diff = abs(linear_depth_a - linear_depth_b);
+    return exp(-diff * angleFactor / phi);
 }
 
 float NormalWeight(float3 normalPrev, float3 normalCur, float phi)
 {
-  // float d = max(0.05, dot(normalCur, normalPrev));
-  // return d * d;
-  float3 dd = normalPrev - normalCur;
-  float d = dot(dd, dd);
-  return exp(-d / phi);
+    return max(0.01f, square(dot(normalPrev, normalCur)));
+    float3 dd = normalPrev - normalCur;
+    float d = dot(dd, dd);
+    return exp(-d / phi);
 }
 
 #define DENOISER_TAP_WIDTH 1
@@ -460,6 +459,8 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
     {
         return;
     }
+
+    let VALIDITY_FRAMES = 8;
 
     CameraInfo camera = push.attach.globals->main_camera;
 
@@ -494,16 +495,16 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
                 float depth_linear = linearise_depth(depth, camera.near_plane);
 
-                float normalWeight = NormalWeight(normal, local_normal, 0.01f /*TODO*/);
+                float normalWeight = NormalWeight(normal, local_normal, 0.1f /*TODO*/);
                 float depthWeight = DepthWeight(depth_linear, local_depth_linear, local_normal, ray, camera.proj, 0.1f /*TODO*/);
                 
-                float weight = depthWeight * normalWeight;
-                raw_ppd += irrad * weight * kernelWeight;
-                raw_ppd_weight_acc += weight * kernelWeight;
+                float weight = depthWeight * normalWeight * kernelWeight;
+                raw_ppd += pow(irrad, 0.2f) * weight;
+                raw_ppd_weight_acc += weight;
             }
         }
     }
-    raw_ppd *= rcp(raw_ppd_weight_acc);
+    raw_ppd = pow(raw_ppd * rcp(raw_ppd_weight_acc), 5.0f);
     raw_ppd = clamp(raw_ppd, float3(0,0,0), (100000000000.0f).xxx);
 
     float non_linear_depth = push.attach.depth.get()[index];
@@ -534,13 +535,15 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         float4 history_validity = push.attach.ppd_history.get().GatherAlpha(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
         float4 history_depth = push.attach.depth_history.get().GatherRed(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
         uint4 history_normal = push.attach.normal_history.get().GatherRed(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
-        //history_ao = max(history_ao, 0.0f);
+        let hist_normal_tex = push.attach.depth_history.get();
         float4 sample_linear_weights = float4(
             (1.0f - interpolants.x) * (1.0f - interpolants.y),
             interpolants.x * (1.0f - interpolants.y),
             (1.0f - interpolants.x) * interpolants.y,
             interpolants.x * interpolants.y
         );
+
+        push.attach.debug_image.get()[index] = float4(uncompress_normal_octahedral_32(push.attach.normal_history.get()[index]), 1.0f);
 
         float linear_prev_depth = linearise_depth(prev_frame_ndc.z, camera.near_plane);
         float3 interpolated_ao = 0.0f;
@@ -554,14 +557,14 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             float acceptable_diff = 0.05f;
             const float depth_weight = DepthWeight(linear_depth, linear_prev_depth, local_normal, ray, camera.proj, 0.1);
             float3 normal = uncompress_normal_octahedral_32(history_normal[i]);
-            float normalWeight = 1.0f;//NormalWeight(normal, local_normal, 0.01f /*TODO*/);
+            float normalWeight = NormalWeight(normal, local_normal, 0.01f /*TODO*/);
             float validity_weight = square(history_validity[i]);
 
-            if (depth_weight > 0.1)
+            if (depth_weight > 0.1f)
             {
-                float weight = sample_linear_weights[i] * depth_weight * normalWeight * history_validity[i];
+                float weight = sample_linear_weights[i] * depth_weight * normalWeight * square(history_validity[i] * rcp(VALIDITY_FRAMES));
                 interpolated_ao_weight_sum += weight;
-                interpolated_ao += float3(history_ao_r[i], history_ao_g[i], history_ao_b[i]) * weight;
+                interpolated_ao += pow(float3(history_ao_r[i], history_ao_g[i], history_ao_b[i]), 0.2f) * weight; // pow used to blend in a more perceptual color space relative to perception of brightness
                 interpolated_validity_sum += history_validity[i] * weight;
             }
         }
@@ -569,7 +572,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         {
             validity = interpolated_validity_sum * rcp(interpolated_ao_weight_sum);
             acceptance = 1.0f;
-            accepted_history_ao = interpolated_ao * rcp(interpolated_ao_weight_sum);
+            accepted_history_ao = pow(interpolated_ao * rcp(interpolated_ao_weight_sum), 5.0f);
         }
         if (any(base_texel < 0.0f || (base_texel + 1.0f >= float2(camera.screen_size))))
         {
@@ -580,11 +583,9 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         //push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
-    let validity_frames = 8;
+    validity = min(validity, VALIDITY_FRAMES);
 
-    validity = min(validity, validity_frames);
-
-    acceptance = min(validity * rcp(validity_frames), 0.99f);
+    acceptance = min(validity * rcp(VALIDITY_FRAMES), 0.99f);
     float exp_average = lerp(1.0f, 0.1f, acceptance);
 
     let new_ao = lerp(raw_ppd, accepted_history_ao, acceptance);

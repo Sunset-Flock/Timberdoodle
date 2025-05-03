@@ -65,6 +65,7 @@ struct TgDebugImageInspectorState
 struct TgDebugContext
 {
     daxa_f32vec2 override_mouse_picker_uv = {};
+    bool ui_open = {};
     bool request_mouse_picker_override = {};
     bool override_mouse_picker = {};
     bool override_frozen_state = {};
