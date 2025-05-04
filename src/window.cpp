@@ -260,6 +260,10 @@ std::string open_file_dialog()
 {
     OPENFILENAME ofn;        // common dialog box structure
     TCHAR szFile[260] = {0}; // if using TCHAR macros
+    
+    // Save current working directory
+    char originalDir[MAX_PATH];
+    GetCurrentDirectoryA(MAX_PATH, originalDir);
 
     // Initialize OPENFILENAME
     ZeroMemory(&ofn, sizeof(ofn));
@@ -280,6 +284,9 @@ std::string open_file_dialog()
     {
         result = std::string(ofn.lpstrFile);
     }
+    
+    // Restore original working directory
+    SetCurrentDirectoryA(originalDir);
 
     return result;
 }
