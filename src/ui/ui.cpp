@@ -1019,6 +1019,29 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             }
             if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTGI)"))
             {
+                {
+                    auto modes = std::array{
+                        "NONE",                        // DEBUG_DRAW_MODE_NONE
+                        "PER_PIXEL_DIFFUSE",           // DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE
+                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "TRACE_CLOCKS",                // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
+                    };
+                    auto mode_mappings = std::array{
+                        DEBUG_DRAW_MODE_NONE,
+                        DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                        DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS,
+                    };
+                    ImGui::Combo("ppd debug visualization", &ppd_debug_visualization, modes.data(), modes.size());
+                    if (ppd_debug_visualization != 0)
+                    {
+                        debug_visualization_index_override = mode_mappings[ppd_debug_visualization];
+                    }
+                }
                 auto const modes = std::array{
                     "NONE",                                         // PER_PIXEL_DIFFUSE_MODE_NONE
                     "RAY_TRACED_AMBIENT_OCCLUSION",                 // PER_PIXEL_DIFFUSE_MODE_RTAO
