@@ -663,8 +663,7 @@ void entry_main_cs(
         const bool ao_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO) && !AT.ao_image.id.is_empty();
         if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
-            ambient_occlusion = AT.ao_image.get().Load(index).r;
-            ambient_occlusion = pow(ambient_occlusion, 1.1f);
+            ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.1f);
         }
 
         const bool rtgi_enabled = 
