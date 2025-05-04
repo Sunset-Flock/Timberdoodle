@@ -255,3 +255,31 @@ u32 Window::get_height() const
     glfwGetWindowSize(this->glfw_handle, &w, &h);
     return h;
 }
+
+std::string open_file_dialog()
+{
+    OPENFILENAME ofn;        // common dialog box structure
+    TCHAR szFile[260] = {0}; // if using TCHAR macros
+
+    // Initialize OPENFILENAME
+    ZeroMemory(&ofn, sizeof(ofn));
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = nullptr;
+    ofn.lpstrFile = szFile;
+    ofn.nMaxFile = sizeof(szFile);
+    ofn.lpstrFilter = ("GLTF\0*.gltf\0");
+    ofn.nFilterIndex = 1;
+    ofn.lpstrFileTitle = NULL;
+    ofn.nMaxFileTitle = 0;
+    ofn.lpstrInitialDir = NULL;
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+
+    std::string result;
+
+    if (GetOpenFileName(&ofn) == TRUE)
+    {
+        result = std::string(ofn.lpstrFile);
+    }
+
+    return result;
+}

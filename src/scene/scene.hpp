@@ -316,4 +316,6 @@ struct Scene
     bool entities_changed = {};
     auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;
     void write_gpu_mesh_instances_buffer(CPUMeshInstances const& mesh_instances);
+
+    void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);
 };

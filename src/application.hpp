@@ -25,6 +25,8 @@ public:
     ~Application();
 
     auto run() -> i32;
+    void load_scene(std::filesystem::path const & path);
+
 private:
     void update();
     /**

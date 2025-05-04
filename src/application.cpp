@@ -40,35 +40,22 @@ Application::Application()
     _threadpool->async_dispatch(comp_pipelines_task);
     _threadpool->block_on(comp_pipelines_task);
 
-    // TODO(ui): DO NOT ALWAYS JUST LOAD THIS UNCONDITIONALLY!
-    // TODO(ui): ADD UI FOR LOADING IN THE EDITOR!
-    std::filesystem::path const DEFAULT_HARDCODED_PATH = ".\\assets";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro\\bistro.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_compressed\\bistro_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_fix_ball_compressed\\bistro_fix_ball_c.gltf"; 
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "VSM_Debug\\vsm_debug.gltf"; 
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "medium\\medium.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "hermitcraft\\large.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "bunnies\\bunny.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "battle_scene_compressed\\battle_scene_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cube/cube.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "TestWorld\\TestWorld2.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "flying_world\\flying_world.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "cliff\\cliff.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_rock\\Beach_Rock_Formation_wfkiddlva_Raw.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_statue\\Roman_Statue_tgeodcxda_Raw.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "megascan_icelandrock\\Icelandic_Mossy_Rock_Formation_sktsW_Raw.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sponza_compressed\\sponza_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "sun_temple\\sun_temple.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "small_city\\small_city.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "track\\track.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "jungle_pack\\JungleRuins_Main_c.gltf";
-    // std::filesystem::path const DEFAULT_HARDCODED_FILE = "light_import_test\\light_import_test.gltf";
-    std::filesystem::path const DEFAULT_HARDCODED_FILE = "bistro_lights_compressed\\bistro_lights_c.gltf";
+    app_state.last_time_point = app_state.startup_time_point = std::chrono::steady_clock::now();
+    _renderer->render_context->render_times.enable_render_times = true;
+}
+
+using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::period>;
+
+void Application::load_scene(std::filesystem::path const & path)
+{
+    if (!path.has_filename() || !path.has_parent_path())
+    {
+        return;
+    }
 
     auto const result = _scene->load_manifest_from_gltf({
-        .root_path = DEFAULT_HARDCODED_PATH,
-        .asset_name = DEFAULT_HARDCODED_FILE,
+        .root_path = path.parent_path(),
+        .asset_name = path.filename(),
         .thread_pool = _threadpool,
         .asset_processor = _asset_manager,
     });
@@ -76,7 +63,7 @@ Application::Application()
     if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
     {
         DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string(), Scene::to_string(*err)));
+            path.string(), Scene::to_string(*err)));
     }
     // TODO(msakmary) HACKY - fix this
     // =========================================================================
@@ -89,22 +76,16 @@ Application::Application()
         for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
         {
             RenderEntity const * r_ent = _scene->_render_entities.slot_by_index(entity_i);
-            if(r_ent->name == "DYNAMIC_sphere")
+            if (r_ent->name == "DYNAMIC_sphere")
             {
                 app_state.dynamic_ball = _scene->_render_entities.id_from_index(entity_i);
             }
         }
 
-        DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success",
-            (DEFAULT_HARDCODED_PATH / DEFAULT_HARDCODED_FILE).string()));
+        DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success", path.string()));
     }
     // =========================================================================
-
-    app_state.last_time_point = app_state.startup_time_point = std::chrono::steady_clock::now();
-    _renderer->render_context->render_times.enable_render_times = true;
 }
-
-using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::period>;
 
 auto Application::run() -> i32
 {
@@ -172,6 +153,13 @@ auto Application::run() -> i32
 
 void Application::update()
 {
+    if (!app_state.desired_scene_path.empty())
+    {
+        fmt::print("Requested load: {}\n", app_state.desired_scene_path);
+        load_scene(app_state.desired_scene_path);
+        app_state.desired_scene_path.clear();
+    }
+
     // TODO(msakmary) HACKY - fix this
     // ===== Saky's Ball =====
     {

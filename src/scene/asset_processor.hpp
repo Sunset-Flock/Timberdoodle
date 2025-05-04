@@ -171,6 +171,8 @@ struct AssetProcessor
     };
     auto record_gpu_load_processing_commands() -> RecordCommandsRet;
 
+    void clear();
+
   private:
     static inline std::string_view const VERT_ATTRIB_POSITION_NAME = "POSITION";
     static inline std::string_view const VERT_ATTRIB_TEXCOORD0_NAME = "TEXCOORD_0";

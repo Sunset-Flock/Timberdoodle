@@ -101,5 +101,12 @@ namespace tido
             {
                 return _slots.size();
             }
+
+            void clear()
+            {
+                _slots.clear();
+                _versions.clear();
+                _free_list.clear();
+            }
         };
 }

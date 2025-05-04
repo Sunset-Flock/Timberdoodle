@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <string>
 
 #include "timberdoodle.hpp"
 using namespace tido::types;
@@ -72,3 +73,5 @@ struct Window
     i32 cursor_pos_change_x = {};
     i32 cursor_pos_change_y = {};
 };
+
+std::string open_file_dialog();

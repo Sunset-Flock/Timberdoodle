@@ -1440,3 +1440,15 @@ auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
     ret.upload_commands = recorder.complete_current_commands();
     return ret;
 }
+
+void AssetProcessor::clear()
+{
+    {
+        std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
+        _upload_mesh_queue.clear();
+    }
+    {
+        std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
+        _upload_texture_queue.clear();
+    }
+}

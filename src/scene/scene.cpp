@@ -115,6 +115,9 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 
 auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
 {
+    // TODO: Ask Saky: how should the asset processor stuff be handled?
+    // clear(info.thread_pool, info.asset_processor);
+
     RenderEntityId root_r_ent_id = {};
     {
         auto load_result = get_load_manifest_data_from_gltf(*this, info);
@@ -563,6 +566,8 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
     return root_r_ent_id;
 }
 
+// std::vector<std::shared_ptr<Task>> scene_load_tasks;
+
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
 {
     struct LoadMeshTask : Task
@@ -603,20 +608,20 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
         auto const & mesh_manifest_lod_group_entry = scene._mesh_lod_group_manifest.at(curr_asset.mesh_manifest_offset + mesh_lod_group_manifest_index);
         // Launch loading of this mesh
         // TODO: ADD DUMMY MATERIAL INDEX!
-        info.thread_pool->async_dispatch(
-            std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
-                .load_info = {
-                    .asset_path = curr_asset.path,
-                    .asset = curr_asset.gltf_asset.get(),
-                    .gltf_mesh_index = mesh_manifest_lod_group_entry.asset_local_mesh_index,
-                    .gltf_primitive_index = mesh_manifest_lod_group_entry.asset_local_primitive_index,
-                    .global_material_manifest_offset = curr_asset.material_manifest_offset,
-                    .mesh_lod_manifest_index = mesh_lod_group_manifest_index,
-                    .material_manifest_index = mesh_manifest_lod_group_entry.material_index.value_or(INVALID_MANIFEST_INDEX),
-                },
-                .asset_processor = info.asset_processor.get(),
-            }),
-            TaskPriority::LOW);
+        auto task = std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
+            .load_info = {
+                .asset_path = curr_asset.path,
+                .asset = curr_asset.gltf_asset.get(),
+                .gltf_mesh_index = mesh_manifest_lod_group_entry.asset_local_mesh_index,
+                .gltf_primitive_index = mesh_manifest_lod_group_entry.asset_local_primitive_index,
+                .global_material_manifest_offset = curr_asset.material_manifest_offset,
+                .mesh_lod_manifest_index = mesh_lod_group_manifest_index,
+                .material_manifest_index = mesh_manifest_lod_group_entry.material_index.value_or(INVALID_MANIFEST_INDEX),
+            },
+            .asset_processor = info.asset_processor.get(),
+        });
+        // scene_load_tasks.push_back(task);
+        info.thread_pool->async_dispatch(task, TaskPriority::LOW);
     }
 }
 
@@ -687,19 +692,19 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
         if (!texture_manifest_entry.material_manifest_indices.empty())
         {
             // Launch loading of this texture
-            info.thread_pool->async_dispatch(
-                std::make_shared<LoadTextureTask>(LoadTextureTask::TaskInfo{
-                    .load_info = {
-                        .asset_path = curr_asset.path,
-                        .asset = curr_asset.gltf_asset.get(),
-                        .gltf_texture_index = texture_manifest_entry.asset_local_index,
-                        .gltf_image_index = texture_manifest_entry.asset_local_image_index,
-                        .texture_manifest_index = texture_manifest_index,
-                        .texture_material_type = texture_manifest_entry.type,
-                    },
-                    .asset_processor = info.asset_processor.get(),
-                }),
-                TaskPriority::LOW);
+            auto task = std::make_shared<LoadTextureTask>(LoadTextureTask::TaskInfo{
+                .load_info = {
+                    .asset_path = curr_asset.path,
+                    .asset = curr_asset.gltf_asset.get(),
+                    .gltf_texture_index = texture_manifest_entry.asset_local_index,
+                    .gltf_image_index = texture_manifest_entry.asset_local_image_index,
+                    .texture_manifest_index = texture_manifest_index,
+                    .texture_material_type = texture_manifest_entry.type,
+                },
+                .asset_processor = info.asset_processor.get(),
+            });
+            // scene_load_tasks.push_back(task);
+            info.thread_pool->async_dispatch(task, TaskPriority::LOW);
         }
         else
         {
@@ -1543,4 +1548,88 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
     std::memcpy(host_address, &buffer_head, sizeof(MeshInstancesBufferHead));
 
     cpu_mesh_instance_counts.vsm_invalidate_instance_count = cpu_mesh_instances.vsm_invalidate_draw_list.size();
+}
+
+void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
+{
+    // for (auto &task : scene_load_tasks)
+    // {
+    //     thread_pool->block_on(task);
+    // }
+    asset_processor->clear();
+
+    // NOTE(grundlett): Destroy all GPU resources (from destructor)
+    {
+        if (!_gpu_mesh_group_indices_array_buffer.is_empty()) { _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer); }
+        if (!_scene_blas.is_empty()) { _device.destroy_blas(_scene_blas); }
+
+        for (auto & mesh_group : _mesh_group_manifest)
+        {
+            if(!mesh_group.blas.is_empty())
+            {
+                _device.destroy_blas(mesh_group.blas);
+            }
+        }
+
+        for (auto & mesh : _mesh_lod_group_manifest)
+        {
+            if (mesh.runtime.has_value())
+            {
+                for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
+                {
+                    _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
+                    if (!mesh.runtime.value().blas_lods[lod].is_empty())
+                    {
+                        _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
+                    }
+                }
+            }
+        }
+
+        for (auto & texture : _material_texture_manifest)
+        {
+            if (texture.runtime_texture.has_value())
+            {
+                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_texture.value()));
+            }
+            if (texture.secondary_runtime_texture.has_value())
+            {
+                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.secondary_runtime_texture.value()));
+            }
+        }
+
+        for (auto & buffer : mesh_instances_buffer.get_state().buffers)
+            _device.destroy_buffer(buffer);
+        mesh_instances_buffer.set_buffers({});
+
+        for (auto & tlas : _scene_tlas.get_state().tlas)
+            _device.destroy_tlas(tlas);
+        _scene_tlas.set_tlas({
+            .tlas = std::array{gpu_context->dummy_tlas_id},
+        });
+    }
+
+    // NOTE(grundlett): clear all state
+    {
+        _render_entities.clear();
+        _dirty_render_entities.clear();
+        dirty_material_entry_indices.clear();
+        _modified_render_entities.clear();
+        _newly_completed_mesh_groups.clear();
+        _mesh_as_build_queue.clear();
+
+        _gltf_asset_manifest.clear();
+        _material_texture_manifest.clear();
+        _material_manifest.clear();
+        _mesh_lod_group_manifest.clear();
+        _mesh_lod_group_manifest_indices.clear();
+        _mesh_group_manifest.clear();
+        _point_lights.clear();
+        _spot_lights.clear();
+
+        _new_mesh_lod_group_manifest_entries = {};
+        _new_mesh_group_manifest_entries = {};
+        _new_material_manifest_entries = {};
+        _new_texture_manifest_entries = {};
+    }
 }

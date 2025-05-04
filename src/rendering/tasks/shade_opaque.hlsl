@@ -14,6 +14,7 @@
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/lights.hlsl"
+#include "../path_trace/kajiya/math_const.hlsl"
 
 static int debug_mark_light_influence_counter = 0;
 
@@ -674,8 +675,8 @@ void entry_main_cs(
         {
             indirect_lighting = AT.ao_image.get().Load(index).rgb;
         }
-        
-        const float3 lighting = directional_light_direct + point_lights_direct + spot_lights_direct + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
+
+        const float3 lighting = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
 
         let shaded_color = albedo.rgb * lighting;
 
@@ -801,7 +802,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct + point_lights_direct + spot_lights_direct;
+                output_value.rgb = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI;
                 break;
             }
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
@@ -828,7 +829,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_ALL_DIFFUSE:
             {
-                output_value.rgb = directional_light_direct + point_lights_direct + spot_lights_direct + indirect_lighting * ambient_occlusion + material.emissive_color;
+                output_value.rgb = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + indirect_lighting * ambient_occlusion + material.emissive_color;
                 break;
             }
             case DEBUG_DRAW_MODE_UV:

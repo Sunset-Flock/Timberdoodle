@@ -165,6 +165,14 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
 
     if (ImGui::BeginMainMenuBar())
     {
+        if (ImGui::BeginMenu("File"))
+        {
+            if (ImGui::MenuItem("Open"))
+            {
+                app_state.desired_scene_path = open_file_dialog();
+            }
+            ImGui::EndMenu();
+        }
         if (ImGui::BeginMenu("Widgets"))
         {
             ImGui::MenuItem("Settings", NULL, &renderer_settings);

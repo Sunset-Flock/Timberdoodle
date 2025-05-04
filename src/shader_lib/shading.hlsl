@@ -12,6 +12,7 @@
 #include "shader_lib/geometry.hlsl"
 #include "shader_lib/pgi.hlsl"
 #include "shader_lib/lights.hlsl"
+#include "../rendering/path_trace/kajiya/math_const.hlsl"
 
 // DO NOT INCLUDE VSM SHADING NOR RAY TRACED SHADING HEADERS HERE!
 
@@ -283,12 +284,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         diffuse_light += indirect_diffuse;
     }
 
-    // Emissive
-    {
-        diffuse_light += material_point.emissive;
-    }
-
-    return float4(material_point.albedo * diffuse_light * (1.0f / 3.14f), material_point.alpha);
+    return float4(material_point.albedo * diffuse_light * M_FRAC_1_PI + material_point.emissive, material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;
