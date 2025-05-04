@@ -15,6 +15,8 @@ struct LightSettings
     daxa_b32 debug_mark_influence_shadowed;
     daxa_i32 selected_debug_point_light;
     daxa_i32 selected_debug_spot_light;
+    daxa_b32 cull_all_point_lights;
+    daxa_b32 cull_all_spot_lights;
     // Calculated in resolve:
     daxa_f32vec3 mask_volume_min_pos;
     daxa_f32vec3 mask_volume_cell_size;
@@ -33,7 +35,9 @@ struct LightSettings
             debug_mark_influence{ false },
             debug_mark_influence_shadowed{ false },
             selected_debug_point_light{ -1 },
-            selected_debug_spot_light{ -1 }
+            selected_debug_spot_light{ -1 },
+            cull_all_point_lights{ false },
+            cull_all_spot_lights{ false }
         {
         }
         auto operator==(LightSettings const & other) const -> bool

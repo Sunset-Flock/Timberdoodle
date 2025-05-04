@@ -51,6 +51,14 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
         u32 bit_idx = l - 32 * uint_idx;
         (&settings.spot_light_mask.x)[uint_idx] |= (1u << bit_idx);
     }
+    if (settings.cull_all_point_lights)
+    {
+        settings.point_light_mask = {};
+    }
+    if (settings.cull_all_spot_lights)
+    {
+        settings.spot_light_mask = {};
+    }
 }
 
 inline auto lights_significant_settings_change(LightSettings const & prev, LightSettings const & curr) -> bool

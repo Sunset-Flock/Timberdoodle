@@ -241,7 +241,7 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     if (mark_selected)
     {
         let CHECKER_SIZE = 16;
-        let checker2 = (index + push.attachments.globals.frame_index/8) % (2*CHECKER_SIZE) > CHECKER_SIZE;
+        let checker2 = (index + push.attachments.globals.total_elapsed_us/40000) % (2*CHECKER_SIZE) > CHECKER_SIZE;
         let checker = checker2.x ^ checker2.y;
         let checker_boost = checker ? 0.3f : 0.0f;
         color.rgb = lerp(color.rgb, rotate_ldr_color(color.rgb, checker_boost), 0.1f);

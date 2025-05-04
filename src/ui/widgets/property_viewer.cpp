@@ -323,7 +323,7 @@ namespace tido
                                 auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
                                 ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
 
-                                auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh];
+                                auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh/MAX_MESHES_PER_LOD_GROUP];
                                 ImGui::Text(fmt::format("Entiy Position:     X: {}\n"
                                                         "                    Y: {}\n"
                                                         "                    Z: {}", ent_slot->combined_transform[3][0], ent_slot->combined_transform[3][1], ent_slot->combined_transform[3][2]).c_str());
