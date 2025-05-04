@@ -668,8 +668,8 @@ void entry_main_cs(
         }
 
         const bool rtgi_enabled = 
-            (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI || 
-            AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID) && 
+            (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI || 
+            AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI) && 
             !AT.ao_image.id.is_empty();
         if (rtgi_enabled && (AT.globals.settings.draw_from_observer == 0))
         {
@@ -810,13 +810,13 @@ void entry_main_cs(
                 output_value.rgb = indirect_lighting;
                 break;
             }
-            case DEBUG_DRAW_MODE_AMBIENT_OCCLUSION:
+            case DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE:
             {
                 if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
                 {
                     output_value.rgb = ambient_occlusion;
                 }
-                else if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI || AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+                else if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI || AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
                 {
                     output_value.rgb = indirect_lighting;
                 }

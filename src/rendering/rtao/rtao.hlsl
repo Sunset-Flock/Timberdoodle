@@ -17,8 +17,6 @@
 #include "shader_lib/vsm_sampling.hlsl"
 
 #define PI 3.1415926535897932384626433832795
-#define RTAO_RANGE 1.5f
-#define RTAO_RANGE_FALLOFF 1
 
 [[vk::push_constant]] RayTraceAmbientOcclusionPush rt_ao_push;
 
@@ -112,7 +110,7 @@ void ray_gen()
             {
                 RayDesc ray = {};
                 ray.Origin = sample_pos;
-                ray.TMax = RTAO_RANGE;
+                ray.TMax = push.attach.globals.ppd_settings.ao_range;
                 ray.TMin = 0.0f;
 
                 float ao_factor = 0.0f;
@@ -134,13 +132,13 @@ void ray_gen()
             {
                 RayDesc ray = {};
                 ray.Origin = sample_pos;
-                if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
+                if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
                 {
                     ray.TMax = 1000000000.0f;
                 }
-                else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+                else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI)
                 {
-                    ray.TMax = 4.0f;
+                    ray.TMax = push.attach.globals.ppd_settings.short_range_rtgi_range;
                 }
                 ray.TMin = 0.0f;
 
@@ -312,31 +310,27 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             const uint mesh_instance_index = InstanceID();
             MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
             GPUMesh *mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
+
+            
+            float3 color = GPU_MATERIAL_FALLBACK.base_color;
             if (mesh.material_index == INVALID_MANIFEST_INDEX)
             {
-                return;
+                const GPUMaterial *material = push.attach.globals.scene.materials + mesh.material_index;
+                
+                float3 color = material.base_color;
+
+                if (!material.diffuse_texture_id.is_empty())
+                {
+                    let albedo_tex = Texture2D<float3>::get(material.diffuse_texture_id);
+                    let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), float2(0,0), 16).rgb;
+                    color = color * albedo;
+                }
             }
-            const GPUMaterial *material = push.attach.globals.scene.materials + mesh.material_index;
 
-            let luma_constant = (material.base_color.r + material.base_color.g + material.base_color.b) / 3.0f;
+            let luma = clamp((color.r + color.g + color.b) / 3.0f, 0.01f, 0.8f);
 
-            payload.power = 1.0f - square(luma_constant);
-
-            if (material.diffuse_texture_id.is_empty())
-            {
-                return;
-            }
-
-            let albedo_tex = Texture2D<float3>::get(material.diffuse_texture_id);
-            let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), float2(0,0), 16).rgb;
-
-            let luma = (albedo.r + albedo.g + albedo.b) / 3.0f;
-
-            payload.power = 1.0f - square(square(luma))
-            #if RTAO_RANGE_FALLOFF
-            * sqrt((RTAO_RANGE - RayTCurrent())/RTAO_RANGE)
-            #endif
-            ;
+            payload.power = 1.0f - square(square(square(square(luma))));
+            payload.power *= sqrt((push.attach.globals.ppd_settings.ao_range - RayTCurrent())/push.attach.globals.ppd_settings.ao_range);
         }
     }
     else // RTGI
@@ -396,14 +390,14 @@ void miss(inout RayPayload payload)
     let push = rt_ao_push;
     payload.miss = true;
 
-    if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI)
+    if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
     {
         if (!payload.skip_sky_shading_on_miss)
         {
             payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
         }
     }
-    else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+    else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI)
     {
         let push = rt_ao_push;
         payload.color = pgi_sample_irradiance(
@@ -585,7 +579,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
     validity = min(validity, VALIDITY_FRAMES);
 
-    acceptance = min(validity * rcp(VALIDITY_FRAMES), 0.99f);
+    acceptance = min(validity * rcp(VALIDITY_FRAMES), push.attach.globals.ppd_settings.denoiser_accumulation_max_epsi);
     float exp_average = lerp(1.0f, 0.1f, acceptance);
 
     let new_ao = lerp(raw_ppd, accepted_history_ao, acceptance);

@@ -843,8 +843,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         daxa::TaskImageView ppd_image = daxa::NullTaskImage;
         if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO ||
-            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI ||
-            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTGI_HYBRID)
+            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI ||
+            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
         {
             auto ppd_raw_image_info = daxa::TaskTransientImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
