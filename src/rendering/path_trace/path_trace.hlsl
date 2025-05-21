@@ -401,28 +401,67 @@ void ray_gen()
                         }
                         
                         // NOTE(grundlett): Not yet implemented
-                        #if 0
-                        if (USE_LIGHTS && frame_constants.triangle_light_count > 0/* && path_length > 0*/) {   // rtr comp
-                            const float light_selection_pmf = 1.0 / frame_constants.triangle_light_count;
-                            const uint light_idx = hash1_mut(rng) % frame_constants.triangle_light_count;
-                            //const float light_selection_pmf = 1;
-                            //for (uint light_idx = 0; light_idx < frame_constants.triangle_light_count; light_idx += 1)
+                        LightSettings light_settings = AT.globals.light_settings;
+                        int light_count = light_settings.light_count;
+
+                        if (USE_LIGHTS && light_count > 0/* && path_length > 0*/) {   // rtr comp
+                            const float light_selection_pmf = 1.0 / light_count;
+                            const uint light_idx = hash1_mut(rng) % light_count;
+                            // const float light_selection_pmf = 1;
+                            // for (uint light_idx = 0; light_idx < light_count; light_idx += 1)
                             {
                                 const float2 urand = float2(
                                     uint_to_u01_float(hash1_mut(rng)),
                                     uint_to_u01_float(hash1_mut(rng))
                                 );
 
-                                TriangleLight triangle_light = TriangleLight::from_packed(triangle_lights_dyn[light_idx]);
-                                LightSampleResultArea light_sample = sample_triangle_light(triangle_light.as_triangle(), urand);
-                                const float3 shadow_ray_origin = primary_hit.position;
-                                const float3 to_light_ws = light_sample.pos - primary_hit.position;
+                                // TriangleLight triangle_light = TriangleLight::from_packed(triangle_lights_dyn[light_idx]);
+                                // LightSampleResultArea light_sample = sample_triangle_light(triangle_light.as_triangle(), urand);
+
+                                float3 light_radiance;
+                                float3 light_sample_pos;
+                                float unshadowed_distance; // NOTE(grundlett): Should match near plane of point/spot light camera
+
+                                if (light_idx < light_settings.point_light_count)
+                                {
+                                    GPUPointLight light = AT.globals.scene.point_lights[light_idx];
+                                    light_radiance = light.intensity * light.color;
+                                    light_sample_pos = light.position;
+                                    unshadowed_distance = 0.6;
+                                }
+                                else
+                                {
+                                    GPUSpotLight light = AT.globals.scene.spot_lights[light_idx - light_settings.point_light_count];
+                                    light_radiance = light.intensity * light.color;
+                                    light_sample_pos = light.position;
+                                    unshadowed_distance = 0.001;
+                                }
+                                const float light_sample_pdf_value = 1;
+
+                                const float3 shadow_ray_origin = rt_calc_ray_start(primary_hit.position, gbuffer.normal, outgoing_ray.Direction);
+                                const float3 to_light_ws = light_sample_pos - primary_hit.position;
                                 const float dist_to_light2 = dot(to_light_ws, to_light_ws);
                                 const float3 to_light_norm_ws = to_light_ws * rsqrt(dist_to_light2);
 
+                                const float3 light_sample_normal = -to_light_norm_ws;
+
+                                if (light_idx >= light_settings.point_light_count)
+                                {
+                                    GPUSpotLight light = AT.globals.scene.spot_lights[light_idx - light_settings.point_light_count];
+                                    // the scale and offset computations can be done CPU-side
+                                    float cos_outer = cos(light.outer_cone_angle);
+                                    float spot_scale = 1.0 / max(cos(light.inner_cone_angle) - cos_outer, 1e-4);
+                                    float spot_offset = -cos_outer * spot_scale;
+                                    float cd = dot(-to_light_norm_ws, light.direction);
+
+                                    float angle_attenuation = clamp(cd * spot_scale + spot_offset, 0.0, 1.0);
+                                    angle_attenuation = angle_attenuation * angle_attenuation;
+                                    light_radiance *= angle_attenuation;
+                                }
+
                                 const float to_psa_metric =
                                     max(0.0, dot(to_light_norm_ws, gbuffer.normal))
-                                    * max(0.0, dot(to_light_norm_ws, -light_sample.normal))
+                                    * max(0.0, dot(to_light_norm_ws, -light_sample_normal))
                                     / dist_to_light2;
 
                                 if (to_psa_metric > 0.0) {
@@ -434,17 +473,16 @@ void ray_gen()
                                             new_ray(
                                                 shadow_ray_origin,
                                                 to_light_norm_ws,
-                                                1e-3,
-                                                sqrt(dist_to_light2) - 2e-3
+                                                0.0,
+                                                sqrt(dist_to_light2) - unshadowed_distance
                                         ));
 
                                     total_radiance +=
                                         select(is_shadowed, 0,
-                                            throughput * triangle_light.radiance() * brdf.evaluate(wo, wi) / light_sample.pdf.value * to_psa_metric / light_selection_pmf);
+                                            throughput * light_radiance * brdf.evaluate(wo, wi) / light_sample_pdf_value * to_psa_metric / light_selection_pmf);
                                 }
                             }
                         }
-                        #endif
                     }
 
                     float3 urand;
