@@ -21,7 +21,7 @@ struct PGIState
 
     // TODO(pahrens): rename to irradiance
     daxa::TaskImage probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
-    daxa::TaskImageView probe_radiance_view = daxa::NullTaskImage;
+    daxa::TaskImageView probe_irradiance_view = daxa::NullTaskImage;
     daxa::TaskImage probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe visibility texture"});
     daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
     daxa::TaskImage probe_info = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe info texture"});
@@ -123,20 +123,16 @@ auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData con
 
 auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView;
 
-struct TaskPGIAllInfo
+struct TaskPgiUpdateInfo
 {
     daxa::TaskGraph& tg;
     RenderContext* render_context = {};
     PGIState& pgi_state;
-    daxa::TaskImageView view_camera_depth = {};
-    daxa::TaskImageView view_camera_face_normal_image = {};
-    daxa::TaskImageView view_camera_detail_normal_image = {};
     daxa::TaskImageView light_mask_volume = {};
     daxa::TaskBufferView mesh_instances = {};
-    daxa::TaskTlas tlas = {};
+    daxa::TaskTlasView tlas = {};
     daxa::TaskImageView sky_transmittance = {};
     daxa::TaskImageView sky = {};
-    daxa::TaskImageView debug_image = {};
     // VSM:
     daxa::TaskBufferView vsm_globals = {};
     daxa::TaskBufferView vsm_point_lights = {};
@@ -144,13 +140,29 @@ struct TaskPGIAllInfo
     daxa::TaskImageView vsm_memory_block = {};
     daxa::TaskImageView vsm_point_spot_page_table = {};
 };
-struct TaskPGIAllOut
+struct TaskPGIUpdateOut
 {
     daxa::TaskBufferView pgi_indirections = {};
-    daxa::TaskImageView pgi_screen_irradiance = {};
-    daxa::TaskImageView pgi_radiance = {};
+    daxa::TaskImageView pgi_irradiance = {};
     daxa::TaskImageView pgi_visibility = {};
     daxa::TaskImageView pgi_info = {};
     daxa::TaskImageView pgi_requests = {};
 };
-auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut;
+auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut;
+
+struct TaskPGIEvalScreenIrradianceInfo
+{
+    daxa::TaskGraph& tg;
+    RenderContext* render_context = {};
+    PGIState& pgi_state;
+    daxa::TaskImageView view_camera_depth = {};
+    daxa::TaskImageView view_camera_face_normal_image = {};
+    daxa::TaskImageView view_camera_detail_normal_image = {};
+    daxa::TaskImageView debug_image = {};
+    daxa::TaskImageView clocks_image = {};
+    daxa::TaskImageView pgi_irradiance = {};
+    daxa::TaskImageView pgi_visibility = {};
+    daxa::TaskImageView pgi_info = {};
+    daxa::TaskImageView pgi_requests = {};
+};
+auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & info) -> daxa::TaskImageView;

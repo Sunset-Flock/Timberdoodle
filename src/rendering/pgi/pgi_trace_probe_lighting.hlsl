@@ -83,7 +83,7 @@ func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, flo
     RayDesc ray = {};
     ray.Direction = normalize(light_position - position);
     ray.Origin = start;
-    ray.TMax = length(light_position - position) * 1.01f;
+    ray.TMax = length(light_position - position) * 1.01f; 
     ray.TMin = 0.0f;
 
     RayPayload payload;
@@ -217,11 +217,6 @@ void entry_ray_gen()
         float3 offset = tangent * offset_len;
         sample_origin += offset;
 
-        ShaderDebugLineDraw line = {};
-        line.start = probe_position;
-        line.end = sample_origin;
-        line.color = float3(0,0,1);
-        //debug_draw_line(push.attach.globals.debug, line);
         ShaderDebugCircleDraw circle = {};
         circle.position = sample_origin;
         circle.radius = 0.01;
@@ -305,7 +300,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         payload.color_depth.rgb = float3(0,0,0);
         if (!backface)
         {
-            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester( push.attach.tlas.get(), push.attach.globals);
+            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
             payload.color_depth.rgb = shade_material<SHADING_QUALITY_LOW>(
                 push.attach.globals, 
                 push.attach.sky_transmittance,

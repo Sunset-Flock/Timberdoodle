@@ -238,6 +238,7 @@ struct VSMState
                         .format = daxa::Format::R32_SFLOAT,
                         .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
                         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+                        .sharing_mode = daxa::SharingMode::CONCURRENT,
                         .name = "vsm memory block physical image",
                     }),
                 },
@@ -298,28 +299,24 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
-        const u32 mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
+        u32 const mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
         // Point lights.
         {
             daxa::ImageId page_image_id{};
 
-            page_image_id = gpu_context->device.create_image({
-                .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
+            page_image_id = gpu_context->device.create_image({.flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
                 .mip_level_count = mip_levels,
                 .array_layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
-                .usage = 
+                .usage =
                     daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                     daxa::ImageUsageFlagBits::SHADER_STORAGE |
                     daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .name = fmt::format("vsm point spot table phys image")
-            });
+                .name = fmt::format("vsm point spot table phys image")});
 
-            point_spot_page_tables = daxa::TaskImage({
-                .initial_images = { .images = std::array{page_image_id} },
-                .name = "vsm point spot tables"
-            });
+            point_spot_page_tables = daxa::TaskImage({.initial_images = {.images = std::array{page_image_id}},
+                .name = "vsm point spot tables"});
         }
 
         auto upload_task_graph = daxa::TaskGraph({
@@ -331,12 +328,10 @@ struct VSMState
         upload_task_graph.use_persistent_image(point_spot_page_tables);
 
         auto const page_table_array_view = page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const point_spot_table_array_view = point_spot_page_tables.view().view({
-            .base_mip_level = 0,
+        auto const point_spot_table_array_view = point_spot_page_tables.view().view({.base_mip_level = 0,
             .level_count = mip_levels,
             .base_array_layer = 0,
-            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS
-        });
+            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
 
         upload_task_graph.add_task(daxa::InlineTask{"Upload VSM Constants"}
                 .tf.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_spot_table_array_view)
@@ -360,10 +355,7 @@ struct VSMState
                             .dst_image = ti.get(point_spot_table_array_view).ids[0],
                             .dst_slice = ti.get(point_spot_table_array_view).view.slice,
                         });
-                    }
-                )
-        );
-        upload_task_graph.submit({});
+                    }));
         upload_task_graph.complete({});
         upload_task_graph.execute({});
     }
@@ -446,17 +438,15 @@ struct VSMState
             .name = "vsm dirty hiz",
         });
 
-        for(i32 mip = 0; mip < 7; ++mip)
+        for (i32 mip = 0; mip < 7; ++mip)
         {
-            const u32 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << mip);
-            point_dirty_pages_hiz_mips.at(mip) = tg.create_transient_image({
-                .dimensions = 2,
+            u32 const base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << mip);
+            point_dirty_pages_hiz_mips.at(mip) = tg.create_transient_image({.dimensions = 2,
                 .format = daxa::Format::R8_UINT,
                 .size = daxa::Extent3D{base_resolution, base_resolution, 1},
                 .mip_level_count = s_cast<u32>(std::log2(base_resolution) + 1),
                 .array_layer_count = (MAX_POINT_LIGHTS * 6) + MAX_SPOT_LIGHTS,
-                .name = fmt::format("vsm dirty hiz mip {}", mip)
-            });
+                .name = fmt::format("vsm dirty hiz mip {}", mip)});
         }
 
         overdraw_debug_image = daxa::NullTaskImage;

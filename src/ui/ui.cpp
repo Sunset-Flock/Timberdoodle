@@ -871,6 +871,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
         {
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
+            ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
             std::array<char const * const, 2> aa_modes = {
                 "NONE",
                 "SUPER_SAMPLE",

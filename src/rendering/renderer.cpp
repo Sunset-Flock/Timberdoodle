@@ -113,6 +113,7 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R32_UINT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "normal_history",
             },
             normal_history,
@@ -121,6 +122,7 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "ppd_history",
             },
             ppd_history,
@@ -424,7 +426,7 @@ void Renderer::clear_select_buffers()
                     allocate_fill_copy(ti, mesh_instances_prev_reset, ti.get(meshlet_instances_last_frame));
                 }));
     tg.use_persistent_image(ppd_history);
-    tg.clear_image({ppd_history.view(), {}, "clear ppd history"});
+    tg.clear_image({ppd_history.view(), {}, daxa::QUEUE_MAIN, "clear ppd history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     // tg.use_persistent_buffer(exposure_state);
@@ -538,6 +540,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
         .reorder_tasks = true,
+        .use_split_barriers = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
@@ -579,7 +582,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
     tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
-    tg.use_persistent_tlas(scene->_scene_tlas);
 
     // TODO: Move into an if and create persistent state only if necessary.
     tg.use_persistent_image(pgi_state.probe_radiance);
@@ -588,6 +590,22 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(pgi_state.cell_requests);
 
     tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
+
+    daxa::TaskImageView clocks_image = daxa::NullTaskImage;
+
+    if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS || 
+        render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS)
+    {
+        clocks_image = tg.create_transient_image({
+            .format = daxa::Format::R32_UINT,
+            .size = {
+                render_context->render_data.settings.render_target_size.x,
+                render_context->render_data.settings.render_target_size.y,
+                1,
+            },
+            .name = "clocks_image",
+        });
+    }
 
     auto debug_image = tg.create_transient_image({
         .format = daxa::Format::R32G32B32A32_SFLOAT,
@@ -613,6 +631,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     gpu_context->shader_debug_context.update_debug_buffer(ti.device, ti.recorder, *ti.allocator);
                     render_context->render_times.reset_timestamps_for_current_frame(ti.recorder);
                 }));
+                
+    if (render_context->render_data.settings.enable_async_compute)
+    {
+        tg.submit({}); // Submit to allow for concurrent queue access to globals.
+    }
 
     auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_history});
     daxa::TaskImageView main_camera_visbuffer = visbuffer_ret.main_camera_visbuffer;
@@ -620,6 +643,56 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_visbuffer = visbuffer_ret.view_camera_visbuffer;
     daxa::TaskImageView view_camera_depth = visbuffer_ret.view_camera_depth;
     daxa::TaskImageView overdraw_image = visbuffer_ret.view_camera_overdraw;
+
+    auto sky = tg.create_transient_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {render_context->render_data.sky_settings.sky_dimensions.x, render_context->render_data.sky_settings.sky_dimensions.y, 1},
+        .name = "sky look up table",
+    });
+    auto luminance_histogram = tg.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
+
+    daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
+    tg.add_task(ComputeSkyTask{
+        .views = ComputeSkyTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
+            .multiscattering = multiscattering,
+            .sky = sky,
+        },
+        .render_context = render_context.get(),
+    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+    tg.add_task(SkyIntoCubemapTask{
+        .views = SkyIntoCubemapTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .transmittance = transmittance,
+            .sky = sky,
+            .ibl_cube = sky_ibl_view,
+        },
+        .gpu_context = gpu_context,
+    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+
+    daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
+    tg.add_task(CullLightsTask{
+        .views = CullLightsTask::Views{
+            .globals = render_context->tgpu_render_data,
+            .light_mask_volume = light_mask_volume,
+        },
+        .render_context = render_context.get(),
+    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+    
+    auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
+    tg.add_task(daxa::InlineTask::Compute("build scene tlas")
+        .acceleration_structure_build.writes(scene_main_tlas)
+        .executes(
+            [=](daxa::TaskInterface ti)
+            {
+                scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
+            }),
+            render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+
+    // Flush commands for lower latency and better async compute overlap in early commands.
+    // Also required to allow for access to tlas, sky and light mask when using async compute
+    tg.submit({}); 
 
     daxa::TaskImageView main_camera_face_normal_image = tg.create_transient_image({
         .format = GBUFFER_NORMAL_FORMAT,
@@ -648,7 +721,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .render_context = render_context.get(),
     });
 
-    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, "copy detail normals to history"});
+    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy detail normals to history"});
 
     // Some following passes need either the main views camera OR the views cameras perspective.
     // The observer camera is not always appropriate to be used.
@@ -680,47 +753,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
     }
-
-    auto sky = tg.create_transient_image({
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
-        .size = {render_context->render_data.sky_settings.sky_dimensions.x, render_context->render_data.sky_settings.sky_dimensions.y, 1},
-        .name = "sky look up table",
-    });
-    auto luminance_histogram = tg.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
-
-    daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
-    tg.add_task(ComputeSkyTask{
-        .views = ComputeSkyTask::Views{
-            .globals = render_context->tgpu_render_data,
-            .transmittance = transmittance,
-            .multiscattering = multiscattering,
-            .sky = sky,
-        },
-        .render_context = render_context.get(),
-    });
-    tg.add_task(SkyIntoCubemapTask{
-        .views = SkyIntoCubemapTask::Views{
-            .globals = render_context->tgpu_render_data,
-            .transmittance = transmittance,
-            .sky = sky,
-            .ibl_cube = sky_ibl_view,
-        },
-        .gpu_context = gpu_context,
-    });
-
-    waiter = {render_context->lighting_phase_wait};
-    tg.submit({
-        .additional_wait_binary_semaphores = &waiter,
-    });
-
-    daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
-    tg.add_task(CullLightsTask{
-        .views = CullLightsTask::Views{
-            .globals = render_context->tgpu_render_data,
-            .light_mask_volume = light_mask_volume,
-        },
-        .render_context = render_context.get(),
-    });
 
     if (render_context->render_data.vsm_settings.enable)
     {
@@ -761,47 +793,120 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
         .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
+        
+    daxa::TaskImageView ppd_image = daxa::NullTaskImage;
+    if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO ||
+        render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI ||
+        render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
+    {
+        auto ppd_raw_image_info = daxa::TaskTransientImageInfo{
+            .format = daxa::Format::R16G16B16A16_SFLOAT,
+            .size = {
+                render_context->render_data.settings.render_target_size.x,
+                render_context->render_data.settings.render_target_size.y,
+                1,
+            },
+            .name = "ppd_raw_image",
+        };
+        auto ppd_raw_image = tg.create_transient_image(ppd_raw_image_info);
+        auto ppd_image_info = ppd_raw_image_info;
+        ppd_image_info.name = "ppd_image";
+        ppd_image = tg.create_transient_image(ppd_image_info);
+        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.add_task(RayTraceAmbientOcclusionTask{
+            .views = RayTraceAmbientOcclusionTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .debug_lens_image = daxa::NullTaskImage,
+                .debug_image = daxa::NullTaskImage,
+                .clocks_image = daxa::NullTaskImage,
+                .ppd_raw_image = ppd_raw_image,
+                .view_cam_depth = main_camera_depth,
+                .view_cam_detail_normals = main_camera_detail_normal_image,
+                .view_cam_visbuffer = main_camera_visbuffer,
+                .sky = daxa::NullTaskImage,
+                .sky_transmittance = daxa::NullTaskImage,
+                .meshlet_instances = meshlet_instances,
+                .mesh_instances = scene->mesh_instances_buffer,
+                .tlas = scene_main_tlas,
+                .light_mask_volume = daxa::NullTaskImage,
+                .pgi_irradiance = daxa::NullTaskImage,
+                .pgi_visibility = daxa::NullTaskImage,
+                .pgi_info = daxa::NullTaskImage,
+                .pgi_requests = daxa::NullTaskImage,
+                .vsm_globals = daxa::NullTaskBuffer,
+                .vsm_point_lights = daxa::NullTaskBuffer,
+                .vsm_spot_lights = daxa::NullTaskBuffer,
+                .vsm_memory_block = daxa::NullTaskImage,
+                .vsm_point_spot_page_table = daxa::NullTaskImage,
+            },
+            .gpu_context = gpu_context,
+            .render_context = render_context.get(),
+        });
+
+        tg.add_task(RTAODeoinserTask{
+            .views = RTAODeoinserTask::Views{
+                .globals = render_context->tgpu_render_data,
+                .debug_image = daxa::NullTaskImage,
+                .depth_history = depth_history,
+                .normal_history = normal_history,
+                .ppd_history = ppd_history,
+                .depth = main_camera_depth,
+                .normals = main_camera_detail_normal_image,
+                .ppd_raw = ppd_raw_image,
+                .ppd_image = ppd_image,
+            },
+            .gpu_context = gpu_context,
+            .render_context = render_context.get(),
+        });
+        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
+    }
 
     daxa::TaskBufferView pgi_indirections = {};
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
-    daxa::TaskImageView pgi_radiance = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_irradiance = daxa::NullTaskImage;
     daxa::TaskImageView pgi_visibility = daxa::NullTaskImage;
     daxa::TaskImageView pgi_info = daxa::NullTaskImage;
     daxa::TaskImageView pgi_requests = daxa::NullTaskImage;
     if (render_context->render_data.pgi_settings.enabled)
     {
-        auto ret = task_pgi_all({
+        auto ret = task_pgi_update({
             tg,
             render_context.get(),
             pgi_state,
-            main_camera_depth,
-            main_camera_face_normal_image,
-            main_camera_detail_normal_image,
             light_mask_volume,
             scene->mesh_instances_buffer,
-            scene->_scene_tlas,
+            scene_main_tlas,
             transmittance,
             sky,
-            debug_image,
             vsm_state.globals,
             vsm_state.vsm_point_lights,
             vsm_state.vsm_spot_lights,
             vsm_state.memory_block,
             vsm_point_spot_page_table_view,
         });
-        pgi_screen_irrdiance = ret.pgi_screen_irradiance;
         pgi_indirections = ret.pgi_indirections;
-        pgi_radiance = ret.pgi_radiance;
+        pgi_irradiance = ret.pgi_irradiance;
         pgi_visibility = ret.pgi_visibility;
         pgi_info = ret.pgi_info;
         pgi_requests = ret.pgi_requests;
+        pgi_screen_irrdiance = task_pgi_eval_screen_irradiance({
+            tg,
+            render_context.get(),
+            pgi_state,
+            main_camera_depth,
+            main_camera_face_normal_image,
+            main_camera_detail_normal_image,
+            debug_image,
+            clocks_image,
+        });
     }
     auto selected_mark_image = tg.create_transient_image({
         .format = daxa::Format::R8_UNORM,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "selected mark image",
     });
-    tg.clear_image({selected_mark_image, {}, "clear selected mark image"});
+    tg.clear_image({selected_mark_image, {}, daxa::QUEUE_MAIN, "clear selected mark image"});
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
         // TODO: Precompute once, and save
@@ -833,7 +938,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .exposure = exposure_state,
                 .meshlet_instances = meshlet_instances,
                 .mesh_instances = scene->mesh_instances_buffer,
-                .tlas = scene->_scene_tlas,
+                .tlas = scene_main_tlas,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
@@ -841,71 +946,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     else
     {
-        daxa::TaskImageView ppd_image = daxa::NullTaskImage;
-        if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO ||
-            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI ||
-            render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
-        {
-            auto ppd_raw_image_info = daxa::TaskTransientImageInfo{
-                .format = daxa::Format::R16G16B16A16_SFLOAT,
-                .size = {
-                    render_context->render_data.settings.render_target_size.x,
-                    render_context->render_data.settings.render_target_size.y,
-                    1,
-                },
-                .name = "ppd_raw_image",
-            };
-            auto ppd_raw_image = tg.create_transient_image(ppd_raw_image_info);
-            auto ppd_image_info = ppd_raw_image_info;
-            ppd_image_info.name = "ppd_image";
-            ppd_image = tg.create_transient_image(ppd_image_info);
-            tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-            tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-            tg.add_task(RayTraceAmbientOcclusionTask{
-                .views = RayTraceAmbientOcclusionTask::Views{
-                    .globals = render_context->tgpu_render_data,
-                    .debug_lens_image = debug_lens_image,
-                    .debug_image = debug_image,
-                    .ppd_raw_image = ppd_raw_image,
-                    .view_cam_depth = main_camera_depth,
-                    .view_cam_detail_normals = main_camera_detail_normal_image,
-                    .view_cam_visbuffer = main_camera_visbuffer,
-                    .sky = sky,
-                    .sky_transmittance = transmittance,
-                    .meshlet_instances = meshlet_instances,
-                    .mesh_instances = scene->mesh_instances_buffer,
-                    .tlas = scene->_scene_tlas,
-                    .light_mask_volume = light_mask_volume,
-                    .pgi_radiance = pgi_radiance,
-                    .pgi_visibility = pgi_visibility,
-                    .pgi_info = pgi_info,
-                    .pgi_requests = pgi_requests,
-                    .vsm_globals = vsm_state.globals,
-                    .vsm_point_lights = vsm_state.vsm_point_lights,
-                    .vsm_spot_lights = vsm_state.vsm_spot_lights,
-                    .vsm_memory_block = vsm_state.memory_block,
-                    .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
-                },
-                .gpu_context = gpu_context,
-                .render_context = render_context.get(),
-            });
-            tg.add_task(RTAODeoinserTask{
-                .views = RTAODeoinserTask::Views{
-                    .globals = render_context->tgpu_render_data,
-                    .debug_image = debug_image,
-                    .depth_history = depth_history,
-                    .normal_history = normal_history,
-                    .ppd_history = ppd_history,
-                    .depth = main_camera_depth,
-                    .normals = main_camera_detail_normal_image,
-                    .ppd_raw = ppd_raw_image,
-                    .ppd_image = ppd_image,
-                },
-                .gpu_context = gpu_context,
-                .render_context = render_context.get(),
-            });
-            tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
-        }
         tg.add_task(ShadeOpaqueTask{
             .views = ShadeOpaqueTask::Views{
                 .globals = render_context->tgpu_render_data,
@@ -917,6 +957,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
                 .depth = view_camera_depth,
                 .debug_image = debug_image,
+                .clocks_image = clocks_image,
                 .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
                 .transmittance = transmittance,
                 .sky = sky,
@@ -940,11 +981,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .spot_lights = scene->_gpu_spot_lights,
                 .mesh_instances = scene->mesh_instances_buffer,
                 .light_mask_volume = light_mask_volume,
-                .pgi_radiance = pgi_radiance,
+                .pgi_irradiance = pgi_irradiance,
                 .pgi_visibility = pgi_visibility,
                 .pgi_info = pgi_info,
                 .pgi_requests = pgi_requests,
-                .tlas = scene->_scene_tlas,
+                .tlas = scene_main_tlas,
             },
             .render_context = render_context.get(),
         });
@@ -996,7 +1037,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "debug depth",
     });
-    tg.copy_image_to_image({view_camera_depth, debug_draw_depth, "copy depth to debug depth"});
+    tg.copy_image_to_image({view_camera_depth, debug_draw_depth, daxa::QUEUE_MAIN, "copy depth to debug depth"});
     if (render_context->render_data.pgi_settings.enabled)
     {
         tg.add_task(PGIDrawDebugProbesTask{
@@ -1006,11 +1047,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .probe_indirections = pgi_indirections,
                 .color_image = color_image,
                 .depth_image = debug_draw_depth,
-                .probe_radiance = pgi_state.probe_radiance_view,
+                .probe_radiance = pgi_state.probe_irradiance_view,
                 .probe_visibility = pgi_state.probe_visibility_view,
                 .probe_info = pgi_state.probe_info_view,
                 .probe_requests = pgi_state.cell_requests_view,
-                .tlas = scene->_scene_tlas,
+                .tlas = scene_main_tlas,
             },
             .render_context = render_context.get(),
             .pgi_state = &pgi_state,
@@ -1032,7 +1073,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
-    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, "copy to normal history"});
+    tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy to normal history"});
 
     tg.add_task(WriteSwapchainTask{
         .views = WriteSwapchainTask::Views{
@@ -1379,6 +1420,6 @@ auto Renderer::prepare_frame(
     }
 
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);
-
+    
     return true;
 }

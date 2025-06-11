@@ -36,14 +36,6 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
     _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
     mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
-    _scene_tlas = daxa::TaskTlas{
-        {
-            .initial_tlas = {
-                .tlas = std::array{gpu_context->dummy_tlas_id},
-            },
-            .name = "scene tlas",
-        },
-    };
     _scene_as_indirections = tido::make_task_buffer(_device, _indirections_count, "_scene_as_indirections", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
 }
 
@@ -89,9 +81,6 @@ Scene::~Scene()
 
     for (auto & buffer : mesh_instances_buffer.get_state().buffers)
         _device.destroy_buffer(buffer);
-
-    for (auto & tlas : _scene_tlas.get_state().tlas)
-        _device.destroy_tlas(tlas);
 }
 // TODO: Loading god function.
 struct LoadManifestFromFileContext
@@ -1270,7 +1259,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         _mesh_as_build_queue.pop_back();
     }
 
-    auto recorder = _device.create_command_recorder({});
+    auto recorder = _device.create_command_recorder({daxa::QueueFamily::MAIN});
     if (!build_infos.empty())
     {
         DEBUG_MSG(fmt::format("[DEBUG][Scene::create_and_record_build_as()] Building {} blases this frame", build_infos.size()));
@@ -1284,11 +1273,12 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
     return recorder.complete_current_commands();
 }
 
-auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instances) -> daxa::ExecutableCommandList
+void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas)
 {
-    auto recorder = _device.create_command_recorder({});
+    auto & mesh_instances = this->current_frame_mesh_instances;
 
     std::vector<daxa_BlasInstanceData> blas_instances = {};
+    blas_instances.reserve(mesh_instances.mesh_instances.size());
     for (u32 mesh_inst_i = 0; mesh_inst_i < mesh_instances.mesh_instances.size(); ++mesh_inst_i)
     {
         MeshInstance const& mesh_instance =  mesh_instances.mesh_instances[mesh_inst_i];
@@ -1318,7 +1308,7 @@ auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instanc
     if (!blas_instances.empty())
     {
         blas_instances_buffer = _device.create_buffer({.size = sizeof(daxa_BlasInstanceData) * blas_instances.size(),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "blas instances buffer"});
         recorder.destroy_buffer_deferred(blas_instances_buffer);
 
@@ -1328,7 +1318,7 @@ auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instanc
     }
     else
     {
-        return recorder.complete_current_commands();
+        return;
     }
 
     auto tlas_blas_instances_infos = std::array{daxa::TlasInstanceInfo{
@@ -1345,26 +1335,13 @@ auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instanc
 
     daxa::AccelerationStructureBuildSizesInfo const tlas_build_sizes = _device.tlas_build_sizes(tlas_build_info);
 
-    if (_scene_tlas.get_state().tlas.size() != 0)
-    {
-        _device.destroy_tlas(_scene_tlas.get_state().tlas[0]);
-    }
-
-    auto scene_tlas_id = _device.create_tlas({
-        .size = tlas_build_sizes.acceleration_structure_size,
-        .name = "scene tlas",
-    });
-
-    _scene_tlas.set_tlas({
-        .tlas = std::array{scene_tlas_id},
-        .latest_access = daxa::AccessConsts::NONE,
-    });
+    DAXA_DBG_ASSERT_TRUE_M(tlas_build_sizes.acceleration_structure_size <= _device.info(tlas).value().size, "Tlas Size Overflow");
 
     DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_tlas_build_scratch_buffer_size,
-        "[ERROR][Scene::create_tlas_from_mesh_instances] Tlas too big for scratch buffer - create bigger scratch buffer");
+        "[ERROR][Scene::build_tlas_from_mesh_instances] Tlas too big for scratch buffer - create bigger scratch buffer");
 
     daxa::DeviceAddress scratch_device_address = _device.buffer_device_address(_gpu_tlas_build_scratch_buffer.get_state().buffers[0]).value();
-    tlas_build_info.dst_tlas = scene_tlas_id;
+    tlas_build_info.dst_tlas = tlas;
     tlas_build_info.scratch_data = scratch_device_address;
 
     recorder.build_acceleration_structures({.tlas_build_infos = std::array{tlas_build_info}});
@@ -1372,8 +1349,6 @@ auto Scene::create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instanc
         .src_access = daxa::AccessConsts::ACCELERATION_STRUCTURE_BUILD_READ_WRITE,
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
-
-    return recorder.complete_current_commands();
 }
 
 auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
@@ -1601,12 +1576,6 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
         for (auto & buffer : mesh_instances_buffer.get_state().buffers)
             _device.destroy_buffer(buffer);
         mesh_instances_buffer.set_buffers({});
-
-        for (auto & tlas : _scene_tlas.get_state().tlas)
-            _device.destroy_tlas(tlas);
-        _scene_tlas.set_tlas({
-            .tlas = std::array{gpu_context->dummy_tlas_id},
-        });
     }
 
     // NOTE(grundlett): clear all state

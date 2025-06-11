@@ -58,7 +58,7 @@ GPUContext::GPUContext(Window const & window)
                   default:                           return 0;
               }
           },
-          .present_mode = daxa::PresentMode::IMMEDIATE,
+          .present_mode = daxa::PresentMode::FIFO_RELAXED,
           .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
           .name = "Sandbox Swapchain",
       })},

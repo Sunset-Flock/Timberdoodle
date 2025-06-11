@@ -232,6 +232,7 @@ struct Settings
     daxa_b32 enable_prefix_sum_work_expansion;
     daxa_i32 lod_override;
     daxa_f32 lod_acceptable_pixel_error;
+    daxa_i32 enable_async_compute;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -262,7 +263,8 @@ struct Settings
           enable_separate_compute_meshlet_culling{0},
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
-          lod_acceptable_pixel_error{ 2.0f }
+          lod_acceptable_pixel_error{ 2.0f },
+          enable_async_compute{ 0 }
     {
     }
 #endif

@@ -92,6 +92,8 @@ func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 p
 
 [[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
+#define PGI_PERCEPTUAL_EXPONENT 4.0f
+
 func entry_update_probe_irradiance(
     int3 dtid,
 ) 
@@ -140,8 +142,6 @@ func entry_update_probe_irradiance(
     uint3 trace_result_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
     float2 trace_texel_noise = pgi_probe_trace_noise(probe_index, frame_index); // used to reconstruct directions used for traces.
     float acc_weight = 0.0f;
-    float cos_wrap_around = settings.cos_wrap_around;
-    float cos_wrap_around_rcp = rcp(cos_wrap_around + 1.0f);
     float rcp_s = rcp(s);
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
     for (int y = 0; y < s; ++y)
@@ -149,9 +149,9 @@ func entry_update_probe_irradiance(
     {
         float2 trace_tex_uv = (float2(x,y) + trace_texel_noise) * rcp_s;
         float3 trace_direction = pgi_probe_uv_to_probe_normal(trace_tex_uv); // Trace direction is identical to the one used in tracer.
-        float cos_weight = max(0.0f, (cos_wrap_around + dot(trace_direction, probe_texel_normal)) * cos_wrap_around_rcp);
+        float cos_weight = max(0.0f, dot(trace_direction, probe_texel_normal));
         int3 sample_texture_index = trace_result_texture_base_index + int3(x,y,0);
-        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches are poorly optimized.
+        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
             cosine_convoluted_trace_result += sample * cos_weight;
@@ -162,7 +162,9 @@ func entry_update_probe_irradiance(
     // If we have 0 weight we have no samples to blend so we dont blend at all.
     if (acc_weight > 0.0f)
     {
-        cosine_convoluted_trace_result *= rcp(acc_weight);
+        // We div by the sum of cosine weights to reduce variance.
+        // To compensate we have to multiply the result by 2.
+        cosine_convoluted_trace_result *= rcp(2.0f * acc_weight);
     }
 
     float3 new_radiance = cosine_convoluted_trace_result.rgb;
@@ -174,13 +176,13 @@ func entry_update_probe_irradiance(
     float hysteresis = prev_frame_texel.a;
     {
         // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
-        float3 lighting_change3 = abs(pow(prev_frame_radiance + 0.000000000001f, 0.2f) - pow(new_radiance + 0.000000000001f, 0.2f));
+        float3 lighting_change3 = abs(pow(prev_frame_radiance + 0.000000000001f, (1.0f / PGI_PERCEPTUAL_EXPONENT)) - pow(new_radiance + 0.000000000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)));
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
         float factor = 0.5f - lighting_change * 4;
         hysteresis += clamp(factor, -0.02f, 0.02f);
         hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
-    hysteresis = clamp(hysteresis, 0.75f, 0.99f);
+    hysteresis = clamp(hysteresis, 0.75f, 0.96f);
     float blend = hysteresis;
     if (probe_info.validity < 0.5f)
     {
@@ -202,7 +204,7 @@ func entry_update_probe_irradiance(
         hysteresis = 0.5f;
     }
     // Perform blend in perceptual space. Reduces noise and increased convergence from bright to drark drastically.
-    new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, 0.2f), pow(prev_frame_radiance + 0.0000001f, 0.2f), blend), 5.0f);
+    new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_frame_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
     float4 value = float4(new_radiance, hysteresis);
@@ -315,7 +317,7 @@ func entry_update_probe_visibility(
             push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_trace_tex_index,0)] = float2(0.05,power_cos_weight);
         }
         #endif
-        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches are poorly optimized.
+        // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;

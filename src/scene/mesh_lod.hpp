@@ -75,25 +75,27 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
     }
     else
     {
+        // Calculate perspective and size based on lod 0:
+        GPUMesh const & mesh_lod0 = mesh_lod_group.runtime->lods[0]; 
+        f32 const aabb_extent_x = glm::length(r_ent->combined_transform[0]) * mesh_lod0.aabb.size.x;
+        f32 const aabb_extent_y = glm::length(r_ent->combined_transform[1]) * mesh_lod0.aabb.size.y;
+        f32 const aabb_extent_z = glm::length(r_ent->combined_transform[2]) * mesh_lod0.aabb.size.z;
+        f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
+
+        glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh_lod0.aabb.center), 1.0f);
+        f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
+
+        f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
+
+        // Assumes a 90 fov camera for simplicity
+        f32 const fov90_distance_to_screen_ratio = 2.0f;
+        f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
+        f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
+        f32 const rough_aabb_pixel_size = aabb_size_at_1m / pixel_size_at_1m;
+
         for (u32 lod = 1; lod < mesh_lod_group.runtime->lod_count; ++lod)
         {
             GPUMesh const & mesh = mesh_lod_group.runtime->lods[lod]; 
-            f32 const aabb_extent_x = glm::length(r_ent->combined_transform[0]) * mesh.aabb.size.x;
-            f32 const aabb_extent_y = glm::length(r_ent->combined_transform[1]) * mesh.aabb.size.y;
-            f32 const aabb_extent_z = glm::length(r_ent->combined_transform[2]) * mesh.aabb.size.z;
-            f32 const aabb_rough_extent = std::max(std::max(aabb_extent_x, aabb_extent_y), aabb_extent_z);
-
-            glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh.aabb.center), 1.0f);
-            f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
-
-            f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
-
-            // Assumes a 90 fov camera for simplicity
-            f32 const fov90_distance_to_screen_ratio = 2.0f;
-            f32 const pixel_size_at_1m = fov90_distance_to_screen_ratio / rough_resolution;
-            f32 const aabb_size_at_1m = (aabb_rough_extent / aabb_rough_camera_distance);
-            f32 const rough_aabb_pixel_size = aabb_size_at_1m / pixel_size_at_1m;
-
             f32 const rough_pixel_error = rough_aabb_pixel_size * mesh.lod_error;
             if (rough_pixel_error < render_data.settings.lod_acceptable_pixel_error)
             {
@@ -103,7 +105,6 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
             {
                 break;
             }
-
             // gpu_context->shader_debug_context.cpu_debug_aabb_draws.push_back(ShaderDebugAABBDraw{
             //     .position = std::bit_cast<daxa_f32vec3>(aabb_center),
             //     .size = daxa_f32vec3(aabb_extent_x, aabb_extent_y, aabb_extent_z),

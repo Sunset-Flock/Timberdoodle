@@ -290,3 +290,4 @@ std::string open_file_dialog()
 
     return result;
 }
+

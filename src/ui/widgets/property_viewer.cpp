@@ -321,6 +321,8 @@ namespace tido
     
                                 auto mesh_group_manifest_index = scene._render_entities.slot_by_index(scene_interface.picked_entity)->mesh_group_manifest_index.value();
                                 auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
+                                MeshLodGroupManifestEntry const & mesh_lod_group_manifest = scene._mesh_lod_group_manifest[mesh_group.mesh_lod_group_manifest_indices_array_offset];
+                                MaterialManifestEntry const & material_manifest = scene._material_manifest.at(mesh_lod_group_manifest.material_index.value_or(0));
                                 ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
 
                                 auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh/MAX_MESHES_PER_LOD_GROUP];
@@ -331,6 +333,7 @@ namespace tido
                                 ImGui::Text(fmt::format("Mesh In Meshgroup Idx: {}", scene_interface.picked_mesh_in_meshgroup).c_str());
                                 ImGui::Text(fmt::format("Meshlet: idx:          {}", scene_interface.picked_meshlet_in_mesh).c_str());
                                 ImGui::Text(fmt::format("Triangle: idx:         {}", scene_interface.picked_triangle_in_meshlet).c_str());
+                                ImGui::Text(fmt::format("Material:              {}", material_manifest.name).c_str());
                             }
                             
                             ImGui::PopStyleColor();

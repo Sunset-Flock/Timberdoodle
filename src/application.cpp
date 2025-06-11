@@ -224,13 +224,13 @@ void Application::update()
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
-    auto frame_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
+    _scene->current_frame_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
     // ===== Update GPU Scene Buffers =====
 
-    _scene->write_gpu_mesh_instances_buffer(frame_mesh_instances);
+    _scene->write_gpu_mesh_instances_buffer(_scene->current_frame_mesh_instances);
 
     usize cmd_list_count = 0ull;
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
@@ -242,17 +242,9 @@ void Application::update()
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-
-    cmd_lists.at(cmd_list_count++) = _scene->create_tlas_from_mesh_instances(frame_mesh_instances);
-    _gpu_context->device.submit_commands({.command_lists = std::span{cmd_lists.data(), cmd_list_count}});
-
-
-    
-    cmd_list_count = 0;
     cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
     _gpu_context->device.submit_commands({
         .command_lists = std::span{cmd_lists.data(), cmd_list_count},
-        .signal_binary_semaphores = std::span{ &_renderer->render_context->lighting_phase_wait, 1 }
     });
 
     // ===== Update GPU Scene Buffers =====

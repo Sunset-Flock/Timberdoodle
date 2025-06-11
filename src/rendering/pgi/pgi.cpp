@@ -1951,7 +1951,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    probe_radiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
+    probe_irradiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
     probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
     probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
     cell_requests_view = this->cell_requests.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
@@ -1964,7 +1964,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
     tg.use_persistent_image(probe_visibility);
     tg.use_persistent_image(probe_info);
     tg.use_persistent_image(cell_requests);
-    tg.clear_image({.view = probe_radiance_view, .name = "clear pgi radiance"});
+    tg.clear_image({.view = probe_irradiance_view, .name = "clear pgi radiance"});
     tg.clear_image({.view = probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = probe_info_view, .name = "clear pgi info"});
     tg.clear_image({.view = cell_requests_view, .name = "clear pgi cell requests"});
@@ -1982,7 +1982,7 @@ void PGIState::cleanup(daxa::Device& device)
     if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
     {
         device.destroy_image(this->probe_radiance.get_state().images[0]);
-        probe_radiance_view = daxa::NullTaskImage;
+        probe_irradiance_view = daxa::NullTaskImage;
     }
     if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
     {
@@ -2067,7 +2067,7 @@ auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & 
     });
 }
 
-auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
+auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
 {
     daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
@@ -2089,7 +2089,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
             .globals = info.render_context->tgpu_render_data,
             .probe_indirections = pgi_indirections,
             .light_mask_volume = info.light_mask_volume,
-            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_radiance = info.pgi_state.probe_irradiance_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_info = info.pgi_state.probe_info_view,
             .probe_requests = info.pgi_state.cell_requests_view,
@@ -2124,7 +2124,7 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .views = PGIUpdateProbeTexelsTask::Views{
             .globals = info.render_context->tgpu_render_data,
             .probe_indirections = pgi_indirections,
-            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_radiance = info.pgi_state.probe_irradiance_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_info = info.pgi_state.probe_info_view,
             .trace_result = pgi_trace_result,
@@ -2132,16 +2132,30 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
+
+
+    TaskPGIUpdateOut ret = {};
+    ret.pgi_indirections = pgi_indirections;
+    ret.pgi_irradiance = info.pgi_state.probe_irradiance_view;
+    ret.pgi_visibility = info.pgi_state.probe_visibility_view;
+    ret.pgi_info = info.pgi_state.probe_info_view;
+    ret.pgi_requests = info.pgi_state.cell_requests_view;
+    return ret;
+}
+
+auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & info) -> daxa::TaskImageView
+{
     auto pgi_screen_irrdiance = pgi_create_screen_irradiance(info.tg, info.render_context->render_data);
     info.tg.add_task(PGIEvalScreenIrradianceTask{
         .views = PGIEvalScreenIrradianceTask::Views{
             .globals = info.render_context->tgpu_render_data,
             .debug_image = info.debug_image,
+            .clocks_image = info.clocks_image,
             .main_cam_depth = info.view_camera_depth,
             .main_cam_face_normals = info.view_camera_face_normal_image,
             .main_cam_detail_normals = info.view_camera_detail_normal_image,
             .probe_info = info.pgi_state.probe_info_view,
-            .probe_radiance = info.pgi_state.probe_radiance_view,
+            .probe_radiance = info.pgi_state.probe_irradiance_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_requests = info.pgi_state.cell_requests_view,
             .irradiance_depth = pgi_screen_irrdiance,
@@ -2149,13 +2163,5 @@ auto task_pgi_all(TaskPGIAllInfo const & info) -> TaskPGIAllOut
         .render_context = info.render_context,
         .pgi_state = &info.pgi_state,
     });
-
-    TaskPGIAllOut ret = {};
-    ret.pgi_indirections = pgi_indirections;
-    ret.pgi_screen_irradiance = pgi_screen_irrdiance;
-    ret.pgi_radiance = info.pgi_state.probe_radiance_view;
-    ret.pgi_visibility = info.pgi_state.probe_visibility_view;
-    ret.pgi_info = info.pgi_state.probe_info_view;
-    ret.pgi_requests = info.pgi_state.cell_requests_view;
-    return ret;
+    return pgi_screen_irrdiance;
 }

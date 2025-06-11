@@ -165,7 +165,7 @@ void ray_gen()
     let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS)
     {
-        push.attach.debug_image.get()[index] = float4((clk_end - clk_start),0,0,0);
+        push.attach.clocks_image.get()[index] = uint(clk_end - clk_start);
     }
 }
 
@@ -374,12 +374,12 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.light_mask_volume.get(),
-                push.attach.pgi_radiance.get(), 
+                push.attach.pgi_irradiance.get(), 
                 push.attach.pgi_visibility.get(), 
                 push.attach.pgi_info.get(),
                 push.attach.pgi_requests.get_formatted(),
                 request_mode
-            ).rgb;
+            ).rgb * (2.0f * 3.141f);
         }
     }
 }
@@ -408,7 +408,7 @@ void miss(inout RayPayload payload)
             payload.normal, 
             push.attach.globals.main_camera.position,
             normalize(WorldRayOrigin() - push.attach.globals.main_camera.position), 
-            push.attach.pgi_radiance.get(), 
+            push.attach.pgi_irradiance.get(), 
             push.attach.pgi_visibility.get(), 
             push.attach.pgi_info.get(), 
             push.attach.pgi_requests.get_formatted(), 
@@ -537,7 +537,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             interpolants.x * interpolants.y
         );
 
-        push.attach.debug_image.get()[index] = float4(uncompress_normal_octahedral_32(push.attach.normal_history.get()[index]), 1.0f);
+        // push.attach.debug_image.get()[index] = float4(uncompress_normal_octahedral_32(push.attach.normal_history.get()[index]), 1.0f);
 
         float linear_prev_depth = linearise_depth(prev_frame_ndc.z, camera.near_plane);
         float3 interpolated_ao = 0.0f;

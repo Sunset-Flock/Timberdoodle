@@ -170,7 +170,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
     const float3 view_projected_world_pos = (mul(vsm_shifted_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
-    const float view_space_offset = 0.04 / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
+    const float view_space_offset = 0.04;// / abs(sun_norm_dot);//0.004 * pow(2.0, clip_info.clip_level);// / max(abs(sun_norm_dot), 0.05);
     const float3 offset_view_pos = float3(view_projected_world_pos.xy, view_projected_world_pos.z + view_space_offset);
 
     const float4 vsm_projected_world = mul(vsm_shadow_proj, float4(offset_view_pos, 1.0));
@@ -378,15 +378,51 @@ struct VsmLightVisibilityTester : LightVisibilityTesterI
     }
 }
 
+groupshared uint gs_sorter_array[1024]; // Shared memory for sorting
+void BitonicSort(uint in_group_thread)
+{
+    uint index = in_group_thread;
+
+    // Bitonic sorting phase
+    for (uint k = 2; k <= 1024; k *= 2)
+    {
+        for (uint j = k / 2; j > 0; j /= 2)
+        {
+            uint ixj = index ^ j;
+            if (ixj > index)
+            {
+                if ((index & k) == 0)
+                {
+                    if (gs_sorter_array[index] > gs_sorter_array[ixj])
+                    {
+                        uint temp = gs_sorter_array[index];
+                        gs_sorter_array[index] = gs_sorter_array[ixj];
+                        gs_sorter_array[ixj] = temp;
+                    }
+                }
+                else
+                {
+                    if (gs_sorter_array[index] < gs_sorter_array[ixj])
+                    {
+                        uint temp = gs_sorter_array[index];
+                        gs_sorter_array[index] = gs_sorter_array[ixj];
+                        gs_sorter_array[ixj] = temp;
+                    }
+                }
+            }
+            GroupMemoryBarrierWithGroupSync();
+        }
+    }
+}
+
 [numthreads(SHADE_OPAQUE_WG_X, SHADE_OPAQUE_WG_Y, 1)]
 [shader("compute")]
 void entry_main_cs(
-    uint3 svdtid : SV_DispatchThreadID
+    uint3 svdtid : SV_DispatchThreadID,
+    uint2 in_group_id : SV_GroupThreadID,
 )
 {
     let push = push_opaque;
-
-    let clk_start = clockARB();
 
     if (svdtid.x == 0 && svdtid.y == 0)
     {
@@ -451,14 +487,39 @@ void entry_main_cs(
         debug_draw_sphere(AT.globals.debug, sphere);
     }
 
-    const int2 index = svdtid.xy;
-    const float2 screen_uv = (float2(svdtid.xy) + 0.5f) * AT.globals->settings.render_target_size_inv;
+    int2 index = svdtid.xy;
+
+    // Sort threads
+    uint sort_key = 0;
+    if (false) {
+        uint triangle_id = INVALID_TRIANGLE_ID;
+        if(all(lessThan(index, AT.globals->settings.render_target_size)))
+        {
+            triangle_id = AT.vis_image.get()[index].x;
+        }
+        bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
+    
+        sort_key = (triangle_id << 10u) | (in_group_id.y << 5u) | (in_group_id.x);
+        gs_sorter_array[in_group_id.x + in_group_id.y * 32] = sort_key;
+        GroupMemoryBarrierWithGroupSync();
+        BitonicSort(in_group_id.x + in_group_id.y * 32);
+        GroupMemoryBarrierWithGroupSync();
+        uint resorted_payload = gs_sorter_array[in_group_id.x + in_group_id.y * 32];
+        uint2 resorted_in_group_id = uint2(resorted_payload & 0x1F, (resorted_payload >> 5u) & 0x1F);
+    
+        index = index - in_group_id + resorted_in_group_id;
+    }
+
+    let clk_start = clockARB();
 
     uint triangle_id = INVALID_TRIANGLE_ID;
     if(all(lessThan(index, AT.globals->settings.render_target_size)))
     {
         triangle_id = AT.vis_image.get()[index].x;
     }
+    bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
+
+    const float2 screen_uv = (float2(svdtid.xy) + 0.5f) * AT.globals->settings.render_target_size_inv;
 
     const bool is_pixel_under_cursor = all(index == int2(floor(AT.globals->cursor_uv * AT.globals->settings.render_target_size)));
     if (is_pixel_under_cursor)
@@ -471,7 +532,6 @@ void entry_main_cs(
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
 
-    bool triangle_id_valid = triangle_id != INVALID_TRIANGLE_ID;
 
     float4x4 view_proj = AT.globals->view_camera.view_proj;
     float3 camera_position = AT.globals->view_camera.position;
@@ -640,7 +700,7 @@ void entry_main_cs(
                     material_point.normal,
                     camera.position,
                     primary_ray,
-                    AT.pgi_radiance.get(),
+                    AT.pgi_irradiance.get(),
                     AT.pgi_visibility.get(),
                     AT.pgi_info.get(),
                     AT.pgi_requests.get(),
@@ -676,9 +736,8 @@ void entry_main_cs(
             indirect_lighting = AT.ao_image.get().Load(index).rgb;
         }
 
-        const float3 lighting = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + (indirect_lighting.rgb * ambient_occlusion) + material.emissive_color;
-
-        let shaded_color = albedo.rgb * lighting;
+        const float3 lighting = (directional_light_direct + point_lights_direct + spot_lights_direct) + (indirect_lighting.rgb * ambient_occlusion);
+        let shaded_color = albedo.rgb * M_FRAC_1_PI * lighting + material.emissive_color;
 
 
         float3 dummy_color = float3(1,0,1);
@@ -959,21 +1018,25 @@ void entry_main_cs(
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
         
+    uint clocks = 0;
     switch(push.attachments.attachments.globals.settings.debug_draw_mode)
     {
         case DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS:
         {
             let clk_end = clockARB();
-            output_value.rgb = TurboColormap(float(clk_end - clk_start) * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
+            clocks = uint(clk_end) - uint(clk_start);
             break;
         }
         case DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS:
         case DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS:
         {
-            let dgb_img_v = RWTexture2D<float4>::get(push.attachments.attachments.debug_image)[index];
-            output_value.rgb = TurboColormap(dgb_img_v.x * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
+            clocks = push.attachments.attachments.clocks_image.get()[index];
             break;
         }
+    }
+    if (clocks != 0)
+    {
+        output_value.rgb = TurboColormap(clocks * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
     }
 
     const float exposure = deref(AT.exposure);

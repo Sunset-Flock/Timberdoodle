@@ -20,6 +20,7 @@ DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, vis_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, pgi_screen_irrdiance)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, debug_image)
+DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, clocks_image)
 DAXA_TH_IMAGE_ID(READ, REGULAR_2D, vsm_overdraw_debug)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, transmittance)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
@@ -43,7 +44,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUPointLight), point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUSpotLight), spot_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_irradiance)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, pgi_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_info)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::RWTexture2DArrayId<daxa_u32>, pgi_requests)
@@ -62,8 +63,8 @@ struct ShadeOpaquePush
     daxa_f32vec2 inv_size;
 };
 
-#define SHADE_OPAQUE_WG_X 8
-#define SHADE_OPAQUE_WG_Y 16
+#define SHADE_OPAQUE_WG_X 32
+#define SHADE_OPAQUE_WG_Y 32
 
 #if defined(__cplusplus)
 

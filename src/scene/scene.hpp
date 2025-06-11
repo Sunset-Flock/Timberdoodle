@@ -260,7 +260,6 @@ struct Scene
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
 
-    daxa::TaskTlas _scene_tlas = {};
     daxa::BlasId _scene_blas = {};
     daxa::TaskBuffer _scene_as_indirections = {};
 
@@ -306,12 +305,13 @@ struct Scene
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
 
     auto create_mesh_acceleration_structures() -> daxa::ExecutableCommandList;
-    auto create_tlas_from_mesh_instances(CPUMeshInstances const& mesh_instances) -> daxa::ExecutableCommandList;
+    void build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas);
 
     /// --- Transient Processes ---
 
     // Populated by process entities every frame
     CPUMeshInstanceCounts cpu_mesh_instance_counts = {};                            // Useful for cpu driven dispatches and draws. Only really need counts on cpu.
+    CPUMeshInstances current_frame_mesh_instances = {};
     daxa::TaskBuffer mesh_instances_buffer = {};
     bool entities_changed = {};
     auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;

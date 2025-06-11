@@ -65,7 +65,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
     let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS)
     {
-        push.attach.debug_image.get()[dtid] = float4((clk_end - clk_start),0,0,0);
+        push.attach.clocks_image.get()[dtid] = uint(clk_end - clk_start);
     }
 }
 

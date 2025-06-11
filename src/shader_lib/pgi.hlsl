@@ -546,7 +546,7 @@ func pgi_sample_irradiance_cascade(
     }
     else
     {
-        return float4(clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f), weight_accum);
+        return float4(clamp(square(accum * rcp(weight_accum)), float3(0,0,0), float3(1,1,1) * 100000.0f) * (2.0f * 3.141f), weight_accum);
     }
 }
 
@@ -727,7 +727,7 @@ func pgi_sample_irradiance_nearest(
 
     if (weight_accum < 0.201f)
     {
-        return pgi_sample_irradiance(
+        return pgi_sample_irradiance_cascade(
             globals,
             settings,
             position,
@@ -739,12 +739,13 @@ func pgi_sample_irradiance_nearest(
             probe_visibility,
             probe_infos,
             probe_requests,
-            probe_request_mode
-        );
+            probe_request_mode,
+            cascade
+        ).rgb;
     }
     else
     {
-        return clamp(accum * rcp(weight_accum), float3(0,0,0), float3(1,1,1) * 100000.0f);
+        return clamp(accum * rcp(weight_accum), float3(0,0,0), float3(1,1,1) * 100000.0f) * (2.0f * 3.141f);
     }
 }
 
