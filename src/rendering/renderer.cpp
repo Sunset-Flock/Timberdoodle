@@ -846,8 +846,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto ppd_image_info = ppd_raw_image_info;
         ppd_image_info.name = "ppd_image";
         ppd_image = tg.create_transient_image(ppd_image_info);
-        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN});
-        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN});
+        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN});
+        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN});
         tg.add_task(RayTraceAmbientOcclusionTask{
             .views = RayTraceAmbientOcclusionTask::Views{
                 .globals = render_context->tgpu_render_data,
@@ -876,7 +876,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
-        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
 
         tg.add_task(RTAODeoinserTask{
             .views = RTAODeoinserTask::Views{
@@ -892,8 +892,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
-        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
-        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN, .name = "copy new ppd to ppd history"});
+        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
+        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN, .name = "copy new ppd to ppd history"});
     }
 
     tg.submit({});
