@@ -11,7 +11,6 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/raytracing.inl"
-#include "../../shader_shared/geometry_pipeline.inl"
 
 #define REF_PT_X 8
 #define REF_PT_Y 8

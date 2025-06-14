@@ -33,9 +33,6 @@ namespace raster_visbuf
     {
         TaskDrawVisbufferAllOut ret = {};
 
-        bool visbuffer_culled_first_pass = (info.render_context->render_data.settings.enable_visbuffer_two_pass_culling != 0);
-        bool hiz_culled_first_pass = !visbuffer_culled_first_pass;
-
         // === Create Render Targets ===
 
         ret.view_camera_overdraw = daxa::NullTaskImage;
@@ -69,32 +66,16 @@ namespace raster_visbuf
                         allocate_fill_copy(ti, mesh_instances_reset, ti.get(info.meshlet_instances));
                     }));
 
-        daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
-        task_select_first_pass_meshlets(SelectFirstPassMeshletsInfo{
-            .render_context = info.render_context.get(),
-            .tg = info.tg,
-            .mesh_instances = info.scene->mesh_instances_buffer,
-            .visible_meshlets_prev = info.visible_meshlet_instances,
-            .meshlet_instances_last_frame = info.meshlet_instances_last_frame,
-            .meshlet_instances = info.meshlet_instances,
-            .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
+        daxa::TaskBufferView first_pass_meshlet_bitfield = info.tg.create_transient_buffer({
+            .size = sizeof(FirstPassMeshletBitfield),
+            .name = "first_pass_meshlet_bitfield",
+        });
+        info.tg.clear_buffer({
+            .buffer = first_pass_meshlet_bitfield,
+            .name = "clear first_pass_meshlet_bitfield"
         });
 
-        if (visbuffer_culled_first_pass)
-        {
-            task_draw_visbuffer({
-                .render_context = info.render_context.get(),
-                .tg = info.tg,
-                .pass = VISBUF_FIRST_PASS,
-                .clear_render_targets = true,
-                .meshlet_instances = info.meshlet_instances,
-                .vis_image = ret.main_camera_visbuffer,
-                .debug_image = info.debug_image,
-                .depth_image = renderable_depth,
-                .overdraw_image = ret.view_camera_overdraw,
-            });
-        }
-        else
+        // First Pass
         {
             daxa::TaskImageView first_pass_hiz = {};
             task_gen_hiz_single_pass({info.render_context.get(), info.tg, info.depth_history, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::index<"VISBUFFER","FIRST_PASS_GEN_HIZ">()});
@@ -108,6 +89,7 @@ namespace raster_visbuf
                 .render_time_index = RenderTimes::index<"VISBUFFER","FIRST_PASS_CULL_MESHES">(),
                 .hiz = first_pass_hiz,
                 .globals = info.render_context->tgpu_render_data,
+                .first_pass_meshlet_bitfield = first_pass_meshlet_bitfield,
                 .mesh_instances = info.scene->mesh_instances_buffer,
                 .meshlet_expansions = opaque_meshlet_expansions,
             });
@@ -117,8 +99,8 @@ namespace raster_visbuf
                 .tg = info.tg,
                 .first_pass = true,
                 .clear_render_targets = true,
+                .first_pass_meshlet_bitfield = first_pass_meshlet_bitfield,
                 .meshlet_cull_po2expansion = opaque_meshlet_expansions,
-                .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
                 .hiz = first_pass_hiz,
                 .meshlet_instances = info.meshlet_instances,
                 .mesh_instances = info.scene->mesh_instances_buffer,
@@ -129,39 +111,42 @@ namespace raster_visbuf
             });
         }
 
-        daxa::TaskImageView hiz = {};
-        task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::index<"VISBUFFER","SECOND_PASS_GEN_HIZ">()});
+        // Second Pass
+        {
+            daxa::TaskImageView hiz = {};
+            task_gen_hiz_single_pass({info.render_context.get(), info.tg, ret.main_camera_depth, info.render_context->tgpu_render_data, info.debug_image, &hiz, RenderTimes::index<"VISBUFFER","SECOND_PASS_GEN_HIZ">()});
 
-        std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
-        tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
-            .render_context = info.render_context.get(),
-            .tg = info.tg,
-            .cull_meshes = true,
-            .cull_against_last_frame = false,
-            .render_time_index = RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_MESHES">(),
-            .hiz = hiz,
-            .globals = info.render_context->tgpu_render_data,
-            .mesh_instances = info.scene->mesh_instances_buffer,
-            .meshlet_expansions = opaque_meshlet_expansions,
-        });
+            std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
+            tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{
+                .render_context = info.render_context.get(),
+                .tg = info.tg,
+                .cull_meshes = true,
+                .cull_against_last_frame = false,
+                .render_time_index = RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_MESHES">(),
+                .hiz = hiz,
+                .globals = info.render_context->tgpu_render_data,
+                .mesh_instances = info.scene->mesh_instances_buffer,
+                .meshlet_expansions = opaque_meshlet_expansions,
+            });
 
-        task_cull_and_draw_visbuffer({
-            .render_context = info.render_context.get(),
-            .tg = info.tg,
-            .meshlet_cull_po2expansion = opaque_meshlet_expansions,
-            .first_pass_meshlets_bitfield_arena = first_pass_meshlets_bitfield_arena,
-            .hiz = hiz,
-            .meshlet_instances = info.meshlet_instances,
-            .mesh_instances = info.scene->mesh_instances_buffer,
-            .vis_image = ret.main_camera_visbuffer,
-            .debug_image = info.debug_image,
-            .depth_image = renderable_depth,
-            .overdraw_image = ret.view_camera_overdraw,
-        });
+            task_cull_and_draw_visbuffer({
+                .render_context = info.render_context.get(),
+                .tg = info.tg,
+                .first_pass_meshlet_bitfield = first_pass_meshlet_bitfield,
+                .meshlet_cull_po2expansion = opaque_meshlet_expansions,
+                .hiz = hiz,
+                .meshlet_instances = info.meshlet_instances,
+                .mesh_instances = info.scene->mesh_instances_buffer,
+                .vis_image = ret.main_camera_visbuffer,
+                .debug_image = info.debug_image,
+                .depth_image = renderable_depth,
+                .overdraw_image = ret.view_camera_overdraw,
+            });
+        }
 
         info.tg.clear_buffer({.buffer = info.visible_meshlet_instances, .size = 4, .clear_value = 0});
-        if (visbuffer_culled_first_pass)
-        {
+        // unused for now, will be used later for perfect f+ drawing.
+        if (false) {
             auto visible_meshlets_bitfield = info.tg.create_transient_buffer({
                 sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
                 "visible meshlets bitfield",
@@ -206,7 +191,6 @@ namespace raster_visbuf
                     .tg = info.tg,
                     .pass = VISBUF_FIRST_PASS,
                     .observer = true,
-                    .hiz = hiz,
                     .meshlet_instances = info.meshlet_instances,
                     .meshes = info.scene->_gpu_mesh_manifest,
                     .material_manifest = info.scene->_gpu_material_manifest,
@@ -223,7 +207,6 @@ namespace raster_visbuf
                     .tg = info.tg,
                     .pass = VISBUF_SECOND_PASS,
                     .observer = true,
-                    .hiz = hiz,
                     .meshlet_instances = info.meshlet_instances,
                     .meshes = info.scene->_gpu_mesh_manifest,
                     .material_manifest = info.scene->_gpu_material_manifest,

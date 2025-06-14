@@ -171,8 +171,7 @@ func generic_mesh_compute_raster(
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
     daxa_BufferPtr(daxa_u32) micro_index_buffer = deref_i(push.meshes, meshlet_instance.mesh_index).micro_indices;
     const bool observer_pass = push.draw_data.observer;
-    const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).view_camera.view_proj : 

@@ -113,41 +113,20 @@ inline auto get_opaque_draw_list_buffer_size() -> daxa::usize
 }
 #endif // #if defined(__cplusplus)
 
-/// NOTE: In the future we want a TransparentMeshDrawListBufferHead, that has a much larger array for custom material permutations.
+#define FIRST_PASS_MESHLET_BITFIELD_U32_SIZE (1u<<22u) // 16mb
+#define FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE (MAX_MESH_INSTANCES)
+#define FIRST_PASS_MESHLET_BITFIELD_U32_BITFIELD_SIZE (FIRST_PASS_MESHLET_BITFIELD_U32_SIZE - FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE)
 
-#if defined(DAXA_SHADER)
-#if (DAXA_LANGUAGE == DAXA_LANGUAGE_GLSL)
-
-DAXA_DECL_BUFFER_REFERENCE_ALIGN(4) SFPMBitfieldRef
+struct FirstPassMeshletBitfield
 {
-    daxa_u32 entity_to_meshlist_offsets[MAX_ENTITIES];
-    daxa_u32 dynamic_offset;
-    daxa_u32 dynamic_section[];
+    daxa_u32 meshlet_instance_offsets[FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE];
+    daxa_u32 bitfield[FIRST_PASS_MESHLET_BITFIELD_U32_BITFIELD_SIZE];
 };
 
-#else
-
-#define SFPMBitfieldRef SFPMMeshletBitfieldBuffer*
-
-struct SFPMMeshletBitfieldBuffer
-{
-    daxa_u32 entity_to_meshlist_offsets[MAX_ENTITIES];
-    daxa_u32 dynamic_offset;
-    daxa_u32 dynamic_section[1];
-};
-
-#endif 
-#endif // #if !defined(__cplusplus)
-
-
-#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_SECTION_START (MAX_ENTITIES + 1)
-#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID (0u)
-#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED (~0u ^ 1u)
-#define FIRST_PASS_MESHLET_BITFIELD_OFFSET_DEBUG (~0u ^ 2u)
-
-#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_BASE_OFFSET MAX_ENTITIES
-#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE (1u<<22u)
-#define FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_DYNAMIC_SIZE (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE - FIRST_OPAQUE_PASS_BITFIELD_ARENA_BASE_OFFSET)
+#if defined(__cplusplus)
+// Assert we reach a minimal sensible size.
+static_assert(FIRST_PASS_MESHLET_BITFIELD_U32_SIZE >= FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE * 4);
+#endif
 
 /// --- Mesh Instance Draw List End ---
 

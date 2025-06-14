@@ -37,7 +37,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), glob
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, po2expansion)
 DAXA_TH_BUFFER_PTR(READ, daxa_u64, masked_po2expansion)
-DAXA_TH_BUFFER_PTR(READ_WRITE, SFPMBitfieldRef, first_pass_meshlets_bitfield_arena)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(FirstPassMeshletBitfield), first_pass_meshlet_bitfield)
 // Draw Attachments:
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)

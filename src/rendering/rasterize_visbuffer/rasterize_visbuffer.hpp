@@ -7,7 +7,6 @@
 #include "cull_meshes.inl"
 #include "analyze_visbuffer.inl"
 #include "gen_hiz.inl"
-#include "select_first_pass_meshlets.inl"
 #include "draw_visbuffer.hpp"
 
 #include "../scene_renderer_context.hpp"

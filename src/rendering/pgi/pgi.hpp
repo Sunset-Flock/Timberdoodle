@@ -2,7 +2,6 @@
 #include <daxa/daxa.inl>
 #include <daxa/utils/task_graph.inl>
 #include "../../gpu_context.hpp"
-#include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/vsm_shared.inl"
 #include "../../shader_shared/gpu_work_expansion.inl"

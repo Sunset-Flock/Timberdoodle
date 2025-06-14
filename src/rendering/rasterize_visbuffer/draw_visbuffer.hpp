@@ -285,8 +285,8 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskGraph & tg;
     bool first_pass = {};
     bool clear_render_targets = {};
+    daxa::TaskBufferView first_pass_meshlet_bitfield = {};
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> meshlet_cull_po2expansion = {};
-    daxa::TaskBufferView first_pass_meshlets_bitfield_arena = {};
     daxa::TaskImageView hiz = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView mesh_instances = {};
@@ -308,7 +308,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .hiz = info.hiz.override_stage(stage),
                 .po2expansion = info.meshlet_cull_po2expansion[0].override_stage(stage),
                 .masked_po2expansion = info.meshlet_cull_po2expansion[1].override_stage(stage),
-                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
+                .first_pass_meshlet_bitfield = info.first_pass_meshlet_bitfield.override_stage(stage),
                 .meshlet_instances = info.meshlet_instances.override_stage(stage),
                 .mesh_instances = info.mesh_instances.override_stage(stage),
                 .overdraw_image = info.overdraw_image.override_stage(stage),
@@ -361,7 +361,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .hiz = info.hiz.override_stage(stage),
                 .po2expansion = info.meshlet_cull_po2expansion[0].override_stage(stage),
                 .masked_po2expansion = info.meshlet_cull_po2expansion[1].override_stage(stage),
-                .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
+                .first_pass_meshlet_bitfield = info.first_pass_meshlet_bitfield.override_stage(stage),
                 .meshlet_instances = info.meshlet_instances.override_stage(stage),
                 .mesh_instances = info.mesh_instances.override_stage(stage),
                 .overdraw_image = info.overdraw_image.override_stage(stage),

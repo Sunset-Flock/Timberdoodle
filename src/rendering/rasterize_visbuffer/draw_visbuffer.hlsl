@@ -181,8 +181,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 {          
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
     const bool observer_pass = push.draw_data.observer;
-    const bool visbuffer_two_pass_cull = push.attach.globals.settings.enable_visbuffer_two_pass_culling;
-    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass && !visbuffer_two_pass_cull);
+    cull_hiz_occluded = cull_hiz_occluded && !(observer_pass);
     const daxa_f32mat4x4 view_proj = 
         observer_pass ? 
         deref(push.attach.globals).view_camera.view_proj : 
@@ -588,20 +587,20 @@ struct MeshletCullWriteoutResult
 }
 
 /// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
-func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_instance) -> MeshletCullWriteoutResult
+func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshlet_instance) -> MeshletCullWriteoutResult
 {
     let push = cull_meshlets_draw_visbuffer_push;    
 
     if (draw_meshlet && (push.draw_data.pass_index == VISBUF_SECOND_PASS))
     {
-        draw_meshlet = draw_meshlet && !is_meshlet_drawn_in_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
+        draw_meshlet = draw_meshlet && !mehslet_bitfield_check_bit( meshlet_instance, push.attach.first_pass_meshlet_bitfield );
     }
     
     if (draw_meshlet)
     {
-        GPUMesh mesh_data = deref_i(push.meshes, meshle_instance.mesh_index);
+        GPUMesh mesh_data = deref_i(push.meshes, meshlet_instance.mesh_index);
         draw_meshlet = draw_meshlet && mesh_data.mesh_buffer.value != 0; // Check if mesh is loaded.
-        draw_meshlet = draw_meshlet && (meshle_instance.meshlet_index < mesh_data.meshlet_count);
+        draw_meshlet = draw_meshlet && (meshlet_instance.meshlet_index < mesh_data.meshlet_count);
     }
     
     // We still continue to run the task shader even with invalid meshlets.
@@ -614,7 +613,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
         draw_meshlet = draw_meshlet && !is_meshlet_occluded(
             push.attach.globals.debug,
             cull_camera,
-            meshle_instance,
+            meshlet_instance,
             push.entity_combined_transforms,
             push.meshes,
             push.attach.globals.cull_data,
@@ -624,7 +623,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
     // Only mark as drawn if it passes the visibility test!
     if (draw_meshlet && (push.draw_data.pass_index == VISBUF_FIRST_PASS))
     {
-        mark_meshlet_as_drawn_first_pass( meshle_instance, push.attach.first_pass_meshlets_bitfield_arena );
+        mehslet_bitfield_set_bit( meshlet_instance, push.attach.first_pass_meshlet_bitfield );
     }
 
     uint surviving_meshlet_count = WaveActiveSum(draw_meshlet ? 1u : 0u);
@@ -665,7 +664,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshle_i
 
             if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
             {
-                deref_i(deref(push.attach.meshlet_instances).meshlets, meshlet_instance_idx) = meshle_instance;
+                deref_i(deref(push.attach.meshlet_instances).meshlets, meshlet_instance_idx) = meshlet_instance;
             }
             else
             {

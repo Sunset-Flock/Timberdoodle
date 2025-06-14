@@ -5,7 +5,6 @@
 
 #include "../../shader_shared/shared.inl"
 #include "../../shader_shared/globals.inl"
-#include "../../shader_shared/geometry.inl"
 
 #define GEN_HIZ_X 16
 #define GEN_HIZ_Y 16

@@ -11,7 +11,6 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 #include "../../shader_shared/raytracing.inl"
-#include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/per_pixel_diffuse.inl"
 
 #define RT_AO_X 8

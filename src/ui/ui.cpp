@@ -1014,7 +1014,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_mesh_cull", reinterpret_cast<bool *>(&render_data.settings.enable_mesh_cull));
                 ImGui::Checkbox("enable_meshlet_cull", reinterpret_cast<bool *>(&render_data.settings.enable_meshlet_cull));
                 ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
-                ImGui::Checkbox("enable_visbuffer_two_pass_culling", reinterpret_cast<bool *>(&render_data.settings.enable_visbuffer_two_pass_culling));
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
             }
@@ -1255,8 +1254,8 @@ void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderConte
     u32 second_pass_meshlets_post_cull = render_context.general_readback.second_pass_meshlet_count_post_cull;
     u32 total_meshlets_drawn = first_pass_meshlets_post_cull + second_pass_meshlets_post_cull;
 
-    u32 used_dynamic_section_sfpm_bitfield = (render_context.general_readback.sfpm_bitfield_arena_requested * 4) / 1000;
-    u32 dynamic_section_sfpm_bitfield_size = (FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE * 4 - (4 * MAX_ENTITIES)) / 1000;
+    u32 meshlet_bitfield_used_size = ((FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE + render_context.general_readback.first_pass_meshlet_bitfield_requested_dynamic_size) * 4u) / 1000u;
+    u32 meshlet_bitfield_total_size = ((FIRST_PASS_MESHLET_BITFIELD_U32_SIZE) * 4u) / 1000u;
     struct VisbufferPipelineStat
     {
         char const * name = {};
@@ -1273,7 +1272,7 @@ void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderConte
         VisbufferPipelineStat{"Second Pass Meshlets Pre Cull", "", second_pass_meshlets_pre_cull, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS},
         VisbufferPipelineStat{"Second Pass Meshlets Post Cull", "", second_pass_meshlets_post_cull, MAX_MESHLET_INSTANCES},
         VisbufferPipelineStat{"Total Meshlet Instances Post Cull", "", total_meshlets_drawn, MAX_MESHLET_INSTANCES},
-        VisbufferPipelineStat{"First Pass Bitfield Use", "kb", used_dynamic_section_sfpm_bitfield, dynamic_section_sfpm_bitfield_size},
+        VisbufferPipelineStat{"First Pass Bitfield Use", "kb", meshlet_bitfield_used_size, meshlet_bitfield_total_size},
     };
     if (ImGui::CollapsingHeader("Visbuffer Pipeline Statistics"))
     {

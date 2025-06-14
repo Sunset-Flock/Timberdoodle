@@ -118,8 +118,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             AT.point_hip,
             light_idx,
             base_resolution,
-            AT.globals
-            ))
+            AT.globals))
         {
             return;
         }
@@ -128,6 +127,17 @@ void main(uint3 thread_id : SV_DispatchThreadID)
 
     let vsm = !AT.hip.is_empty() || (push.mip_level != -1);
     let separate_compute_meshlet_cull = (AT.globals.settings.enable_separate_compute_meshlet_culling) && !vsm;
+
+    if (AT.first_pass_meshlet_bitfield != (FirstPassMeshletBitfield*)0 && source_mesh_instance_index < FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE)
+    {
+        uint allocated_offset = 0;
+        uint meshlet_u32_bitfield_size = round_up_div(mesh.meshlet_count, 32);
+        InterlockedAdd(AT.globals.readback.first_pass_meshlet_bitfield_requested_dynamic_size, meshlet_u32_bitfield_size, allocated_offset);
+        if ((allocated_offset + meshlet_u32_bitfield_size) < FIRST_PASS_MESHLET_BITFIELD_U32_BITFIELD_SIZE)
+        {
+            AT.first_pass_meshlet_bitfield.meshlet_instance_offsets[source_mesh_instance_index] = allocated_offset + 1;
+        }
+    }
 
     if (AT.globals.settings.enable_prefix_sum_work_expansion)
     {

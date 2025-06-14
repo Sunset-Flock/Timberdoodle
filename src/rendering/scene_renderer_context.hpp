@@ -117,9 +117,6 @@ namespace RenderTimes
         GroupNames{
             "VISBUFFER",
             {
-                "FIRST_PASS_ALLOC_BITFIELD_0",
-                "FIRST_PASS_ALLOC_BITFIELD_1",
-                "FIRST_PASS_SELECT_MESHLETS",
                 "FIRST_PASS_GEN_HIZ",
                 "FIRST_PASS_CULL_MESHES",
                 "FIRST_PASS_CULL_MESHLETS_COMPUTE",
@@ -130,7 +127,6 @@ namespace RenderTimes
                 "SECOND_PASS_CULL_MESHLETS_COMPUTE",
                 "SECOND_PASS_CULL_AND_DRAW",
                 "SECOND_PASS_DRAW",
-                "ANALYZE",
             },
         },
         GroupNames{

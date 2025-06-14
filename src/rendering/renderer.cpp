@@ -230,17 +230,13 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {pgi_upscale_screen_irradiance_compute_compile_info()},
-        {sfpm_allocate_ent_bitfield_lists()},
-        {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
-        {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},

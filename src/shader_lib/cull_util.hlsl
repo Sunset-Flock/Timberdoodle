@@ -34,106 +34,52 @@
 //     return out_of_frustum;
 // }
 
-bool is_meshlet_drawn_in_first_pass(
-    MeshletInstance meshlet_inst,
-    SFPMBitfieldRef first_pass_meshlets_bitfield_arena
+bool mehslet_bitfield_check_bit(
+    MeshletInstance meshlet_instance,
+    FirstPassMeshletBitfield* meshlet_bitfield
 )
 {
-    const uint first_pass_meshgroup_bitfield_offset = first_pass_meshlets_bitfield_arena.entity_to_meshlist_offsets[meshlet_inst.entity_index];
-    if ((first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
-        (first_pass_meshgroup_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
+    if (meshlet_instance.mesh_instance_index >= FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE) // Out of bounds
     {
-        const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + meshlet_inst.in_mesh_group_index;
-        if (mesh_instance_bitfield_offset_offset >= FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_SIZE)
-        {
-            return false;
-        }
-        // Offset is valid, need to check if mesh instance offset is valid now.
-        const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset];
-        if ((first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) && 
-            (first_pass_mesh_instance_bitfield_offset != FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
-        {
-            // Offset is valid, must check bitfield now.
-            uint in_bitfield_u32_index = meshlet_inst.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
-            const uint in_u32_bit = meshlet_inst.meshlet_index % 32;
-            const uint in_u32_mask = 1u << in_u32_bit;
-            const uint bitfield_u32 = first_pass_meshlets_bitfield_arena.dynamic_section[in_bitfield_u32_index];
-            const bool meshlet_drawn_first_pass = (bitfield_u32 & in_u32_mask) != 0;
-            // DEBUG_INDEX(
-            //     mesh_instance_bitfield_offset_offset,
-            //     0, 
-            //     first_pass_meshlets_bitfield_arena.offsets_section_size - 1,
-            //     "ASSERT ERROR: OUT OF BOUNDS ACCESS IN is_meshlet_drawn_in_first_pass on");
-            if (meshlet_drawn_first_pass)
-            {
-                return true;
-            }
-        }
+        return false;
     }
-    return false;
+
+    uint offset = meshlet_bitfield.meshlet_instance_offsets[meshlet_instance.mesh_instance_index];
+    if (offset == 0)
+    {
+        return false;
+    }
+    offset = offset - 1;
+
+    uint u32_index = meshlet_instance.meshlet_index / 32;
+    uint u32_bit_index = meshlet_instance.meshlet_index % 32;
+    uint bitfield_u32 = meshlet_bitfield.bitfield[offset + u32_index];
+    bool is_visibility_bit_set = ((bitfield_u32 >> u32_bit_index) & 1u) != 0;
+    return is_visibility_bit_set;
 }
 
-#define VALIDATE_MARK_MESHLET_AS_FIRST_PASS 0
-// Sets meshlet bitfield bit for first pass.
-// Returns if allocation was successful.
-void mark_meshlet_as_drawn_first_pass(
-    MeshletInstance meshlet_inst,
-    SFPMBitfieldRef first_pass_meshlets_bitfield_arena
+void mehslet_bitfield_set_bit(
+    MeshletInstance meshlet_instance,
+    FirstPassMeshletBitfield* meshlet_bitfield
 )
 {
-    if (meshlet_inst.entity_index >= MAX_ENTITIES)
+    if (meshlet_instance.mesh_instance_index >= FIRST_PASS_MESHLET_BITFIELD_U32_OFFSETS_SIZE) // Out of bounds
     {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("Entity index out of bounds: %i\n", meshlet_inst.entity_index);
-#endif
         return;
     }
-    const uint first_pass_meshgroup_bitfield_offset = first_pass_meshlets_bitfield_arena.entity_to_meshlist_offsets[meshlet_inst.entity_index];
-    if ((first_pass_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) || 
-        (first_pass_meshgroup_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
+
+    uint offset = meshlet_bitfield.meshlet_instance_offsets[meshlet_instance.mesh_instance_index];
+    if (offset == 0)
     {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("first_pass_meshgroup_bitfield_offset invalid: %i\n", first_pass_meshgroup_bitfield_offset);
-#endif
         return;
     }
-    if (first_pass_meshgroup_bitfield_offset >= FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_DYNAMIC_SIZE)
-    {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("first_pass_meshgroup_bitfield_offset out of bounds: %i\n", first_pass_meshgroup_bitfield_offset);
-#endif
-        return;
-    }
-    const uint mesh_instance_bitfield_offset_offset = first_pass_meshgroup_bitfield_offset + meshlet_inst.in_mesh_group_index;
-    if (mesh_instance_bitfield_offset_offset >= FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_DYNAMIC_SIZE)
-    {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("mesh_instance_bitfield_offset_offset out of bounds: %i\n", mesh_instance_bitfield_offset_offset);
-#endif
-        return;
-    }
-    // Offset is valid, need to check if mesh instance offset is valid now.
-    const uint first_pass_mesh_instance_bitfield_offset = first_pass_meshlets_bitfield_arena.dynamic_section[mesh_instance_bitfield_offset_offset];
-    if ((first_pass_mesh_instance_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_INVALID) || 
-        (first_pass_mesh_instance_bitfield_offset == FIRST_PASS_MESHLET_BITFIELD_OFFSET_LOCKED))
-    {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("first_pass_mesh_instance_bitfield_offset invalid: %i\n", first_pass_mesh_instance_bitfield_offset);
-#endif
-        return;
-    }
-    const uint in_bitfield_u32_index = meshlet_inst.meshlet_index / 32 + first_pass_mesh_instance_bitfield_offset;
-    const uint in_u32_bit = meshlet_inst.meshlet_index % 32;
-    const uint in_u32_mask = 1u << in_u32_bit;
-    uint prior_bitfield_u32 = 0;
-    if (in_bitfield_u32_index >= FIRST_OPAQUE_PASS_BITFIELD_ARENA_U32_DYNAMIC_SIZE)
-    {
-#if VALIDATE_MARK_MESHLET_AS_FIRST_PASS
-        printf("in_bitfield_u32_index out of bounds: %i\n", in_bitfield_u32_index);
-#endif
-        return;
-    }
-    InterlockedOr(first_pass_meshlets_bitfield_arena.dynamic_section[in_bitfield_u32_index], in_u32_mask, prior_bitfield_u32);
+    offset = offset - 1;
+    
+    uint u32_index = meshlet_instance.meshlet_index / 32;
+    uint u32_bit_index = meshlet_instance.meshlet_index % 32;
+
+    uint bitfield_u32 = 1u << u32_bit_index;
+    InterlockedAdd(meshlet_bitfield.bitfield[offset + u32_index], bitfield_u32);
 }
 
 BoundingSphere calculate_meshlet_ws_bounding_sphere(
