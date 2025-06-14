@@ -335,7 +335,7 @@ daxa_f32vec2 hash2(daxa_f32vec2 p) {
 daxa_f32vec3 toSpherical(daxa_f32vec3 p) {
     daxa_f32 r = length(p);
     daxa_f32 t = acos(p.z / r);
-    daxa_f32 ph = atan(p.y / p.x);
+    daxa_f32 ph = atan2(p.y, p.x);
     return daxa_f32vec3(r, t, ph);
 }
 
