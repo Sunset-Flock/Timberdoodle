@@ -226,7 +226,6 @@ struct Settings
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
-    daxa_b32 enable_atomic_visbuffer;
     daxa_b32 enable_visbuffer_two_pass_culling;
     daxa_b32 enable_separate_compute_meshlet_culling;
     daxa_b32 enable_prefix_sum_work_expansion;
@@ -259,7 +258,6 @@ struct Settings
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
           enable_triangle_cull{1},
-          enable_atomic_visbuffer{0},
           enable_visbuffer_two_pass_culling{0},
           enable_separate_compute_meshlet_culling{ 0 }, // crashes tido every so often
           enable_prefix_sum_work_expansion{0},

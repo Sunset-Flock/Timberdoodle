@@ -96,7 +96,7 @@ struct Renderer
 
     // Render Targets:
     daxa::TaskImage swapchain_image = {};
-    daxa::TaskImage depth_history = {};       // f32
+    daxa::TaskImage depth_history = {};
     daxa::TaskImage path_trace_history = {};
     daxa::TaskImage normal_history = {};
     daxa::TaskImage ppd_history = {};

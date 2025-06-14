@@ -16,8 +16,6 @@ namespace raster_visbuf
 {
     auto create_visbuffer(daxa::TaskGraph & tg, RenderContext const & render_context, char const * name = "view_camera_visbuffer") -> daxa::TaskImageView;
 
-    auto create_atomic_visbuffer(daxa::TaskGraph & tg, RenderContext const & render_context) -> daxa::TaskImageView;
-
     auto create_depth(daxa::TaskGraph & tg, RenderContext const & render_context, char const * name = "main_camera_depth") -> daxa::TaskImageView;
 
     struct TaskDrawVisbufferAllInfo

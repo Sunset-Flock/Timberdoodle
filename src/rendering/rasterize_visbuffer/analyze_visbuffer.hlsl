@@ -56,21 +56,11 @@ void main(uint2 group_id : SV_GroupID, uint in_group_id : SV_GroupThreadID)
     let tex = RWTexture2D<uint>::get(push.attach.visbuffer);                    // TODO: task attachment access generic to allow for sampled usage to allow for gather
     // let smpler = SamplerState::get(push.attach.globals.samplers.linear_clamp);
     uint4 vis_ids;
-    if (push.attach.globals.settings.enable_atomic_visbuffer)
-    {
-        vis_ids[0] = uint(RWTexture2D<daxa::u64>::get_formatted(push.attach.visbuffer)[sampleIndex + uint2(0,0)]);
-        vis_ids[1] = uint(RWTexture2D<daxa::u64>::get_formatted(push.attach.visbuffer)[sampleIndex + uint2(0,1)]);
-        vis_ids[2] = uint(RWTexture2D<daxa::u64>::get_formatted(push.attach.visbuffer)[sampleIndex + uint2(1,0)]);
-        vis_ids[3] = uint(RWTexture2D<daxa::u64>::get_formatted(push.attach.visbuffer)[sampleIndex + uint2(1,1)]);
-    }
-    else
-    {
-        vis_ids[0] = tex[sampleIndex + uint2(0,0)];
-        vis_ids[1] = tex[sampleIndex + uint2(0,1)];
-        vis_ids[2] = tex[sampleIndex + uint2(1,0)];
-        vis_ids[3] = tex[sampleIndex + uint2(1,1)];
-        // vis_ids = tex.GatherRed(smplr, gather_uv);   // TODO: task attachment access generic to allow for sampled usage to allow for gather
-    }
+    vis_ids[0] = tex[sampleIndex + uint2(0,0)];
+    vis_ids[1] = tex[sampleIndex + uint2(0,1)];
+    vis_ids[2] = tex[sampleIndex + uint2(1,0)];
+    vis_ids[3] = tex[sampleIndex + uint2(1,1)];
+    // vis_ids = tex.GatherRed(smplr, gather_uv);   // TODO: task attachment access generic to allow for sampled usage to allow for gather
     uint list_mask = 0;
     uint4 meshlet_triangle_masks = {0,0,0,0};
     uint4 meshlet_instance_indices = {0,0,0,0};

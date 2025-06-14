@@ -6,7 +6,6 @@
 #include "../tasks/misc.hpp"
 
 inline MAKE_COMPUTE_COMPILE_INFO(cull_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_compute_meshlet_cull")
-inline MAKE_COMPUTE_COMPILE_INFO(draw_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_mesh_opaque_compute_raster")
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
 
@@ -16,27 +15,19 @@ using DrawVisbuffer_WriteCommandTask2 = SimpleComputeTask<
     SLANG_DRAW_VISBUFFER_SHADER_PATH,
     "entry_write_commands">;
 
-using SplitAtomicVisbufferTask = SimpleComputeTask<
-    SplitAtomicVisbufferH::Task,
-    SplitAtomicVisbufferPush,
-    SLANG_DRAW_VISBUFFER_SHADER_PATH,
-    "entry_split_atomic_visbuffer">;
-
 struct DrawVisbufferPipelineConfig
 {
-    bool atomic_visbuffer = {};
     bool task_shader_cull = {};
     bool alpha_masked_geo = {};
     auto to_index() const -> u32
     {
-        return (atomic_visbuffer ? 1 : 0) + (task_shader_cull ? 2 : 0) + (alpha_masked_geo ? 4 : 0);
+        return (task_shader_cull ? 1 : 0) + (alpha_masked_geo ? 2 : 0);
     }
     static auto from_index(u32 index) -> DrawVisbufferPipelineConfig
     {
         DrawVisbufferPipelineConfig ret = {};
-        ret.atomic_visbuffer = (index & 1) != 0;
-        ret.task_shader_cull = (index & 2) != 0;
-        ret.alpha_masked_geo = (index & 4) != 0;
+        ret.task_shader_cull = (index & 1) != 0;
+        ret.alpha_masked_geo = (index & 2) != 0;
         return ret;
     }
     static constexpr auto index_count() -> u32
@@ -47,31 +38,27 @@ struct DrawVisbufferPipelineConfig
 static inline auto create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig config) -> daxa::RasterPipelineCompileInfo
 {
     auto ret = daxa::RasterPipelineCompileInfo{};
-    if (!config.atomic_visbuffer)
-    {    
-        ret.depth_test = {
-            .depth_attachment_format = daxa::Format::D32_SFLOAT,
-            .enable_depth_write = true,
-            .depth_test_compare_op = daxa::CompareOp::GREATER,
-            .min_depth_bounds = 0.0f,
-            .max_depth_bounds = 1.0f,
-        };
-        ret.color_attachments = {
-            daxa::RenderAttachment{
-                .format = daxa::Format::R32_UINT,
-            },
-        };
-    }
+    ret.depth_test = {
+        .depth_attachment_format = daxa::Format::D32_SFLOAT,
+        .enable_depth_write = true,
+        .depth_test_compare_op = daxa::CompareOp::GREATER,
+        .min_depth_bounds = 0.0f,
+        .max_depth_bounds = 1.0f,
+    };
+    ret.color_attachments = {
+        daxa::RenderAttachment{
+            .format = daxa::Format::R32_UINT,
+        },
+    };
     char const * task_cull_suffix = config.task_shader_cull ? "_meshlet_cull" : "";
     char const * geo_suffix = config.alpha_masked_geo ? "_masked" : "_opaque";
-    char const * atomic_fragment_suffix = config.atomic_visbuffer ? "_atomicvis" : "";
-    ret.name = std::string("DrawVisbuffer") + task_cull_suffix + geo_suffix + atomic_fragment_suffix;
+    ret.name = std::string("DrawVisbuffer") + task_cull_suffix + geo_suffix;
     ret.raster.static_state_sample_count = daxa::None; // Set to use dynamic state for msaa.
     ret.push_constant_size = config.task_shader_cull ? s_cast<u32>(sizeof(CullMeshletsDrawVisbufferPush)) : s_cast<u32>(sizeof(DrawVisbufferPush));
     ret.fragment_shader_info = daxa::ShaderCompileInfo{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
         .compile_options = {
-            .entry_point = std::string("entry_fragment") + task_cull_suffix + geo_suffix + atomic_fragment_suffix,
+            .entry_point = std::string("entry_fragment") + task_cull_suffix + geo_suffix,
             .language = daxa::ShaderLanguage::SLANG,
         },
     };    
@@ -100,10 +87,6 @@ inline static std::array<daxa::RasterPipelineCompileInfo, DrawVisbufferPipelineC
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(1)),
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(2)),
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(3)),
-    create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(4)),
-    create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(5)),
-    create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(6)),
-    create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(7)),
 };
 
 struct DrawVisbufferTask : DrawVisbufferH::Task
@@ -127,91 +110,59 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
 
         render_context->render_times.start_gpu_timer(ti.recorder, render_time_index);
 
-        bool const atomic_visbuffer = !ti.id(AT.atomic_visbuffer).is_empty();
-        bool const compute_raster = atomic_visbuffer;
-        if (compute_raster)
-        {
-            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
-            {
-                ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(draw_meshlets_compute_pipeline_compile_info().name));
-                DrawVisbufferPush push{ 
-                    .attach = ti.attachment_shader_blob,
-                    .draw_data = {
-                        .pass_index = pass,
-                        .draw_list_section_index = opaque_draw_list_type,
-                        .observer = observer,
-                    },
-                    .meshes = render_context->render_data.scene.meshes,
-                    .materials = render_context->render_data.scene.materials,
-                    .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
-                };
-                ti.recorder.push_constant(push);
-                ti.recorder.dispatch_indirect({
-                    .indirect_buffer = ti.id(AT.draw_commands),
-                    .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
-                });
-            }
-        }
-        else
-        {
-            auto [x, y, z] = ti.device.image_info(ti.id(AT.depth_image)).value().size;
-            auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-            daxa::RenderPassBeginInfo render_pass_begin_info = {
-                .render_area = daxa::Rect2D{.width = x, .height = y},
+        auto [x, y, z] = ti.device.image_info(ti.id(AT.depth_image)).value().size;
+        auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
+        daxa::RenderPassBeginInfo render_pass_begin_info = {
+            .render_area = daxa::Rect2D{.width = x, .height = y},
+        };
+        render_pass_begin_info.depth_attachment =
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.id(AT.depth_image).default_view(),
+                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .load_op = load_op,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = daxa::DepthValue{0.0f, 0},
             };
-            if (!atomic_visbuffer)
-            {
-                render_pass_begin_info.depth_attachment =
-                    daxa::RenderAttachmentInfo{
-                        .image_view = ti.id(AT.depth_image).default_view(),
-                        .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                        .load_op = load_op,
-                        .store_op = daxa::AttachmentStoreOp::STORE,
-                        .clear_value = daxa::DepthValue{0.0f, 0},
-                    };
-                render_pass_begin_info.color_attachments.push_back(
-                    daxa::RenderAttachmentInfo{
-                        .image_view = ti.id(AT.vis_image).default_view(),
-                        .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                        .load_op = load_op,
-                        .store_op = daxa::AttachmentStoreOp::STORE,
-                        .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
-                    }
-                );
+        render_pass_begin_info.color_attachments.push_back(
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.id(AT.vis_image).default_view(),
+                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .load_op = load_op,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
             }
+        );
 
-            auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
-            render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
+        auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
+        render_cmd.set_rasterization_samples(daxa::RasterizationSamples::E1);
 
-            for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
-            {
-                auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
-                    .atomic_visbuffer = atomic_visbuffer,
-                    .task_shader_cull = false, 
-                    .alpha_masked_geo = opaque_draw_list_type != 0,
-                }.to_index()];
-                render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
-                DrawVisbufferPush push{ 
-                    .attach = ti.attachment_shader_blob,
-                    .draw_data = {
-                        .pass_index = pass,
-                        .draw_list_section_index = opaque_draw_list_type,
-                        .observer = observer,
-                    },
-                    .meshes = render_context->render_data.scene.meshes,
-                    .materials = render_context->render_data.scene.materials,
-                    .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
-                };
-                render_cmd.push_constant(push);
-                render_cmd.draw_mesh_tasks_indirect({
-                    .indirect_buffer = ti.id(AT.draw_commands),
-                    .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
-                    .draw_count = 1,
-                    .stride = sizeof(DispatchIndirectStruct),
-                });
-            }
-            ti.recorder = std::move(render_cmd).end_renderpass();
+        for (u32 opaque_draw_list_type = 0; opaque_draw_list_type < 2; ++opaque_draw_list_type)
+        {
+            auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
+                .task_shader_cull = false, 
+                .alpha_masked_geo = opaque_draw_list_type != 0,
+            }.to_index()];
+            render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(pipeline_info.name));
+            DrawVisbufferPush push{ 
+                .attach = ti.attachment_shader_blob,
+                .draw_data = {
+                    .pass_index = pass,
+                    .draw_list_section_index = opaque_draw_list_type,
+                    .observer = observer,
+                },
+                .meshes = render_context->render_data.scene.meshes,
+                .materials = render_context->render_data.scene.materials,
+                .entity_combined_transforms = render_context->render_data.scene.entity_combined_transforms,
+            };
+            render_cmd.push_constant(push);
+            render_cmd.draw_mesh_tasks_indirect({
+                .indirect_buffer = ti.id(AT.draw_commands),
+                .offset = sizeof(DispatchIndirectStruct) * opaque_draw_list_type,
+                .draw_count = 1,
+                .stride = sizeof(DispatchIndirectStruct),
+            });
         }
+        ti.recorder = std::move(render_cmd).end_renderpass();
 
         render_context->render_times.end_gpu_timer(ti.recorder, render_time_index);
     }
@@ -226,31 +177,27 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
     void callback(daxa::TaskInterface ti)
     {
         auto load_op = clear_render_targets ? daxa::AttachmentLoadOp::CLEAR : daxa::AttachmentLoadOp::LOAD;
-        bool const atomic_visbuffer = !ti.id(AT.atomic_visbuffer).is_empty();
         auto [x, y, z] = ti.info(AT.vis_image).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info = {
             .render_area = daxa::Rect2D{.width = x, .height = y},
         };
-        if (!atomic_visbuffer)
-        {
-            render_pass_begin_info.depth_attachment =
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.view(AT.depth_image),
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = load_op,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = daxa::DepthValue{0.0f, 0},
-                };
-            render_pass_begin_info.color_attachments.push_back(
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.view(AT.vis_image),
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-                    .load_op = load_op,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
-                }
-            );
-        }
+        render_pass_begin_info.depth_attachment =
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.view(AT.depth_image),
+                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .load_op = load_op,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = daxa::DepthValue{0.0f, 0},
+            };
+        render_pass_begin_info.color_attachments.push_back(
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.view(AT.vis_image),
+                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .load_op = load_op,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
+            }
+        );
 
         u32 render_time_index = first_pass ? RenderTimes::index<"VISBUFFER","FIRST_PASS_CULL_AND_DRAW">() : RenderTimes::index<"VISBUFFER","SECOND_PASS_CULL_AND_DRAW">(); 
 
@@ -261,7 +208,6 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         {
             auto buffer = ti.id(opaque_draw_list_type == PREPASS_DRAW_LIST_OPAQUE ? AT.po2expansion : AT.masked_po2expansion);
             auto const & pipeline_info = draw_visbuffer_mesh_shader_pipelines[DrawVisbufferPipelineConfig{
-                .atomic_visbuffer = atomic_visbuffer,
                 .task_shader_cull = true, 
                 .alpha_masked_geo = opaque_draw_list_type != 0,
             }.to_index()];
@@ -345,20 +291,12 @@ struct TaskCullAndDrawVisbufferInfo
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskImageView vis_image = {};
-    daxa::TaskImageView atomic_visbuffer = {};
     daxa::TaskImageView debug_image = {};    
     daxa::TaskImageView depth_image = {};
     daxa::TaskImageView overdraw_image = {};
 };
 inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & info)
 {
-    bool const atomic_visbuffer = !info.atomic_visbuffer.is_null();
-    bool const atomic_visbuf_clear = info.clear_render_targets && atomic_visbuffer;
-    if (atomic_visbuf_clear)
-    {
-        info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
-    }
-
     u32 const pass = info.first_pass ? VISBUF_FIRST_PASS : VISBUF_SECOND_PASS;
 
     if (info.render_context->render_data.settings.enable_separate_compute_meshlet_culling)
@@ -373,7 +311,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
                 .meshlet_instances = info.meshlet_instances.override_stage(stage),
                 .mesh_instances = info.mesh_instances.override_stage(stage),
-                .atomic_visbuffer = info.atomic_visbuffer.override_stage(stage),
                 .overdraw_image = info.overdraw_image.override_stage(stage),
                 .vis_image = info.vis_image,
                 .depth_image = info.depth_image,
@@ -405,14 +342,13 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .draw_commands = draw_commands_array,
                 .hiz = info.hiz,
                 .meshlet_instances = info.meshlet_instances,
-                .atomic_visbuffer = info.atomic_visbuffer,
                 .overdraw_image = info.overdraw_image,
                 .vis_image = info.vis_image,
                 .depth_image = info.depth_image,
             },
             .render_context = info.render_context,
             .pass = pass,
-            .clear_render_targets = !atomic_visbuf_clear && info.clear_render_targets,
+            .clear_render_targets = info.clear_render_targets,
         };
         info.tg.add_task(draw_task);
     }
@@ -428,14 +364,13 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 .first_pass_meshlets_bitfield_arena = info.first_pass_meshlets_bitfield_arena.override_stage(stage),
                 .meshlet_instances = info.meshlet_instances.override_stage(stage),
                 .mesh_instances = info.mesh_instances.override_stage(stage),
-                .atomic_visbuffer = info.atomic_visbuffer.override_stage(stage),
                 .overdraw_image = info.overdraw_image.override_stage(stage),
                 .vis_image = info.vis_image,
                 .depth_image = info.depth_image,
             },
             .render_context = info.render_context,
             .first_pass = info.first_pass,
-            .clear_render_targets = !atomic_visbuf_clear && info.clear_render_targets,
+            .clear_render_targets = info.clear_render_targets,
         });
     }
 }
@@ -452,7 +387,6 @@ struct TaskDrawVisbufferInfo
     daxa::TaskBufferView meshes = {};
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskBufferView combined_transforms = {};
-    daxa::TaskImageView atomic_visbuffer = {};
     daxa::TaskImageView vis_image = {};
     daxa::TaskImageView debug_image = {};    
     daxa::TaskImageView depth_image = {};
@@ -466,13 +400,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
     });
 
-    bool const atomic_visbuf = !info.atomic_visbuffer.is_null() && info.depth_image.is_null() && info.vis_image.is_null();
-    bool const atomic_visbuf_clear = atomic_visbuf && info.clear_render_targets;
-    if (atomic_visbuf_clear)
-    {
-        info.tg.clear_image({info.atomic_visbuffer, std::array{INVALID_TRIANGLE_ID, 0u, 0u, 0u}});
-    }
-
     DrawVisbuffer_WriteCommandTask2 write_task = {
         .views = DrawVisbuffer_WriteCommandTask2::Views{
             .globals = info.render_context->tgpu_render_data,
@@ -485,7 +412,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
     };
     info.tg.add_task(write_task);
 
-    if (info.overdraw_image != daxa::NullTaskImage)
+    if (info.overdraw_image != daxa::NullTaskImage && info.clear_render_targets)
     {
         info.tg.clear_image({info.overdraw_image, std::array{0u, 0u, 0u, 0u}});
     }
@@ -496,7 +423,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
             .draw_commands = draw_commands_array,
             .hiz = info.hiz,
             .meshlet_instances = info.meshlet_instances,
-            .atomic_visbuffer = info.atomic_visbuffer,
             .overdraw_image = info.overdraw_image,
             .vis_image = info.vis_image,
             .depth_image = info.depth_image,
@@ -504,7 +430,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         .render_context = info.render_context,
         .pass = info.pass,
         .observer = info.observer,
-        .clear_render_targets = !atomic_visbuf_clear && info.clear_render_targets,
+        .clear_render_targets = info.clear_render_targets,
     };
     info.tg.add_task(draw_task);
 }

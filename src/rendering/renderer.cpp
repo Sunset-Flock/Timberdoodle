@@ -68,7 +68,8 @@ Renderer::Renderer(
         meshlet_instances_last_frame,
         visible_meshlet_instances,
         visible_mesh_instances,
-        exposure_state};
+        exposure_state,
+    };
 
     swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
@@ -206,10 +207,6 @@ void Renderer::compile_pipelines()
         {draw_visbuffer_mesh_shader_pipelines[1]},
         {draw_visbuffer_mesh_shader_pipelines[2]},
         {draw_visbuffer_mesh_shader_pipelines[3]},
-        {draw_visbuffer_mesh_shader_pipelines[4]},
-        {draw_visbuffer_mesh_shader_pipelines[5]},
-        {draw_visbuffer_mesh_shader_pipelines[6]},
-        {draw_visbuffer_mesh_shader_pipelines[7]},
         {cull_and_draw_directional_pages_pipelines[0]},
         {cull_and_draw_directional_pages_pipelines[1]},
         {cull_and_draw_point_pages_pipelines[0]},
@@ -241,7 +238,6 @@ void Renderer::compile_pipelines()
         {sfpm_allocate_ent_bitfield_lists()},
         {gen_hiz_pipeline_compile_info2()},
         {cull_meshlets_compute_pipeline_compile_info()},
-        {draw_meshlets_compute_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(alloc_entity_to_mesh_instances_offsets_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(set_entity_meshlets_visibility_bitmasks_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(prepopulate_meshlet_instances_pipeline_compile_info())},
@@ -272,7 +268,6 @@ void Renderer::compile_pipelines()
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
-        {tido::upgrade_compute_pipeline_compile_info(SplitAtomicVisbufferTask::pipeline_compile_info)},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
@@ -824,7 +819,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         pgi_visibility = ret.pgi_visibility;
         pgi_info = ret.pgi_info;
         pgi_requests = ret.pgi_requests;
-
 
         pgi_screen_irrdiance = task_pgi_eval_screen_irradiance({
             tg,
