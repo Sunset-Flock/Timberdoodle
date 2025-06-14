@@ -178,11 +178,11 @@ func entry_update_probe_irradiance(
         // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
         float3 lighting_change3 = abs(pow(prev_frame_radiance + 0.000000000001f, (1.0f / PGI_PERCEPTUAL_EXPONENT)) - pow(new_radiance + 0.000000000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)));
         float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
-        float factor = 0.5f - lighting_change * 4;
+        float factor = 0.6f - lighting_change * 4;
         hysteresis += clamp(factor, -0.02f, 0.02f);
         hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
-    hysteresis = clamp(hysteresis, 0.75f, 0.96f);
+    hysteresis = clamp(hysteresis, 0.75f, 0.975f);
     float blend = hysteresis;
     if (probe_info.validity < 0.5f)
     {

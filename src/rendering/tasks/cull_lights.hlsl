@@ -183,8 +183,8 @@ func entry_cull_lights(uint3 dtid : SV_DispatchThreadID)
 
     uint4 pre_cull_mask = uint4(0,0,0,0);
     {
-        float3 pre_cull_aabb_size = push.at.globals.light_settings.mask_volume_cell_size * 4;
-        float3 aabb_min = light_settings.mask_volume_min_pos + float3(dtid / 4) * pre_cull_aabb_size;
+        float3 pre_cull_aabb_size = push.at.globals.light_settings.mask_volume_cell_size * CULL_LIGHTS_XYZ;
+        float3 aabb_min = light_settings.mask_volume_min_pos + float3(dtid / CULL_LIGHTS_XYZ) * pre_cull_aabb_size;
         float3 aabb_max = aabb_min + pre_cull_aabb_size;
 
         for (uint wave_i = 0; wave_i < MAX_LIGHT_INSTANCES_PER_FRAME; wave_i += WARP_SIZE)

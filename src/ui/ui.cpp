@@ -872,6 +872,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
+            ImGui::Checkbox("enable vsync", r_cast<bool *>(&render_data.settings.enable_vsync));
             std::array<char const * const, 2> aa_modes = {
                 "NONE",
                 "SUPER_SAMPLE",
@@ -881,14 +882,14 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             {
                 {
                     auto modes = std::array{
-                        "NONE", // DEBUG_DRAW_MODE_NONE
-                        "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
-                        "SMOOTH_NORMAL", // DEBUG_DRAW_MODE_SMOOTH_NORMAL
-                        "DIRECT_DIFFUSE", // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE", // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
-                        "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
+                        "NONE",                 // DEBUG_DRAW_MODE_NONE
+                        "ALBEDO",               // DEBUG_DRAW_MODE_ALBEDO
+                        "SMOOTH_NORMAL",        // DEBUG_DRAW_MODE_SMOOTH_NORMAL
+                        "DIRECT_DIFFUSE",       // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE",     // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "ALL_DIFFUSE",          // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "SHADE_OPAQUE_CLOCKS",  // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
+                        "LIGHT_MASK_VOLUME",    // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,

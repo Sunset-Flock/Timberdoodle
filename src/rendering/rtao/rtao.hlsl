@@ -128,6 +128,7 @@ void ray_gen()
                 let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
                 push.attach.ppd_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
             }
+            #if 0
             else // RTGI
             {
                 RayDesc ray = {};
@@ -160,6 +161,7 @@ void ray_gen()
                 float4 value = float4(acc_light * rcp(RAY_COUNT), 1.0f);
                 push.attach.ppd_raw_image.get()[index.xy] = value;
             }
+                #endif
         }
     }
     let clk_end = clockARB();
@@ -276,6 +278,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
     payload.miss = false;
 
+    #if 0
     let primitive_index = PrimitiveIndex();
     let instance_id = InstanceID();
     let geometry_index = GeometryIndex();
@@ -290,9 +293,11 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
         push.attach.globals.scene.mesh_groups,
         push.attach.mesh_instances.instances
     );
+    #endif
 
     if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
     {
+        #if 0
         if (tri_geo.material_index != INVALID_MANIFEST_INDEX)
         {
             const GPUMaterial material = push.attach.globals.scene.materials[tri_geo.material_index];
@@ -300,10 +305,11 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             bool emissive = any(material.emissive_color > 0.0f);
             payload.miss = emissive;
         }
-        
+        #endif
 
         if (!payload.miss)
         {
+            #if 0
             const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
             const uint primitive_index = PrimitiveIndex();
             
@@ -329,10 +335,15 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
             let luma = clamp((color.r + color.g + color.b) / 3.0f, 0.01f, 0.8f);
 
-            payload.power = 1.0f - square(square(square(square(luma))));
+            #endif
+
+            payload.power = 1.0f; //1.0f - square(square(square(square(luma))));
+
+
             payload.power *= sqrt((push.attach.globals.ppd_settings.ao_range - RayTCurrent())/push.attach.globals.ppd_settings.ao_range);
         }
     }
+    #if 0
     else // RTGI
     {
         float3 hit_position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
@@ -382,6 +393,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             ).rgb * (2.0f * 3.141f);
         }
     }
+    #endif
 }
 
 [shader("miss")]
@@ -390,6 +402,7 @@ void miss(inout RayPayload payload)
     let push = rt_ao_push;
     payload.miss = true;
 
+    #if 0
     if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
     {
         if (!payload.skip_sky_shading_on_miss)
@@ -414,6 +427,7 @@ void miss(inout RayPayload payload)
             push.attach.pgi_requests.get_formatted(), 
             PGI_PROBE_REQUEST_MODE_DIRECT);
     }
+    #endif
 }
 
 static const uint kRadius = 1;

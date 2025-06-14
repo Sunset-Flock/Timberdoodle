@@ -233,6 +233,7 @@ struct Settings
     daxa_i32 lod_override;
     daxa_f32 lod_acceptable_pixel_error;
     daxa_i32 enable_async_compute;
+    daxa_i32 enable_vsync;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -260,11 +261,13 @@ struct Settings
           enable_triangle_cull{1},
           enable_atomic_visbuffer{0},
           enable_visbuffer_two_pass_culling{0},
-          enable_separate_compute_meshlet_culling{0},
+          enable_separate_compute_meshlet_culling{ 0 }, // crashes tido every so often
           enable_prefix_sum_work_expansion{0},
           lod_override{ -1 },
           lod_acceptable_pixel_error{ 2.0f },
-          enable_async_compute{ 0 }
+          enable_async_compute{ 1 },
+          enable_vsync{ 1 }
+
     {
     }
 #endif

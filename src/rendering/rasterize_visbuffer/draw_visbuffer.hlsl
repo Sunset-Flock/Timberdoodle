@@ -1068,7 +1068,7 @@ func entry_compute_meshlet_cull(
         if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
         {
             PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion;
-            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[prefix_expansion.expansion_count-1];
+            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[max(1,prefix_expansion.expansion_count)-1];
             meshes_post_cull = prefix_expansion.expansion_count;
         }
         else
@@ -1123,7 +1123,7 @@ func entry_task_meshlet_cull(
         if (push.attach.globals.settings.enable_prefix_sum_work_expansion)
         {
             PrefixSumWorkExpansionBufferHead * prefix_expansion = (PrefixSumWorkExpansionBufferHead *)expansion;
-            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[prefix_expansion.expansion_count-1];
+            meshlets_pre_cull = prefix_expansion.expansions_inclusive_prefix_sum[max(1,prefix_expansion.expansion_count)-1];
             meshes_post_cull = prefix_expansion.expansion_count;
         }
         else

@@ -63,8 +63,8 @@ struct ShadeOpaquePush
     daxa_f32vec2 inv_size;
 };
 
-#define SHADE_OPAQUE_WG_X 32
-#define SHADE_OPAQUE_WG_Y 32
+#define SHADE_OPAQUE_WG_X 8
+#define SHADE_OPAQUE_WG_Y 8
 
 #if defined(__cplusplus)
 

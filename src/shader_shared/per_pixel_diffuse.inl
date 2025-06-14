@@ -28,7 +28,7 @@ struct PerPixelDiffuseSettings
             : mode{ PER_PIXEL_DIFFUSE_MODE_RTAO },
             sample_count{ 1 },
             debug_primary_trace{ 0 },
-            ao_range{ 0.75f },
+            ao_range{ 1.5f },
             short_range_rtgi_range{ 1.5f },
             denoiser_accumulation_max_epsi{ 0.95f }
         {}
