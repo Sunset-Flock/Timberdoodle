@@ -228,7 +228,7 @@ References:
 * http://filmicworlds.com/blog/visibility-buffer-rendering-with-material-graphs/
 * https://research.activision.com/publications/2021/09/geometry-rendering-pipeline-architecture
 
-### Probe Based Global Illumination (PGI)
+### Probe Based Global Illumination (PGI) (Patrick Ahrens)
 
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/shaded.png)
 ![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/probes.png)
