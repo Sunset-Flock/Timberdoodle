@@ -71,10 +71,10 @@ void ray_gen()
 
     if(depth != 0.0f)
     {
-        CameraInfo camera = push.attach.globals.main_camera;
+        CameraInfo camera = push.attach.globals.view_camera;
         const float3 world_position = pixel_index_to_world_space(camera, index, depth);
         const float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
-        const float3 primary_ray = normalize(world_position - push.attach.globals.main_camera.position);
+        const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
         const float3 corrected_face_normal = flip_normal_to_incoming(detail_normal, detail_normal, primary_ray);
         const float3 sample_pos = rt_calc_ray_start(world_position, corrected_face_normal, primary_ray);
         const float3 world_tangent = normalize(cross(corrected_face_normal, float3(0,0,1) + 0.0001));

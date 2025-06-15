@@ -722,7 +722,7 @@ void entry_main_cs(
 
         ambient_occlusion = 1.0f;
         const bool ao_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO) && !AT.ao_image.id.is_empty();
-        if (ao_enabled && (AT.globals.settings.draw_from_observer == 0))
+        if (ao_enabled)
         {
             ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.1f);
         }
@@ -731,7 +731,7 @@ void entry_main_cs(
             (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI || 
             AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI) && 
             !AT.ao_image.id.is_empty();
-        if (rtgi_enabled && (AT.globals.settings.draw_from_observer == 0))
+        if (rtgi_enabled)
         {
             indirect_lighting = AT.ao_image.get().Load(index).rgb;
         }
