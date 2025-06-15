@@ -717,7 +717,7 @@ void entry_main_cs(
         else
         {
             const float4 compressed_indirect_lighting = TextureCube<float4>::get(AT.sky_ibl).SampleLevel(SamplerState::get(AT.globals->samplers.linear_clamp), mapped_normal, 0);
-            indirect_lighting = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a;
+            indirect_lighting = compressed_indirect_lighting.rgb * 3.14 * 2 * compressed_indirect_lighting.a;
         }
 
         ambient_occlusion = 1.0f;

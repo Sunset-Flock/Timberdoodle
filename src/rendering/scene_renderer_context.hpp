@@ -180,6 +180,7 @@ namespace RenderTimes
                 "CULL_LIGHTS",
                 "AUTO_EXPOSURE_GEN_HIST",
                 "AUTO_EXPOSURE_AVERAGE",
+                "BUILD_TLAS"
             },
         },
     };

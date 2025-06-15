@@ -627,6 +627,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         tg.submit({}); // Submit to allow for concurrent queue access to globals.
     }
+
+    ///
+    /// === Misc Tasks Begin ===
+    ///
     
     auto sky = tg.create_transient_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
@@ -634,6 +638,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "sky look up table",
     });
     auto luminance_histogram = tg.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
+
+    auto misc_tasks_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_1 : daxa::QUEUE_MAIN;
+    auto tlas_build_task_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
 
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().view({.layer_count = 6});
     tg.add_task(ComputeSkyTask{
@@ -644,7 +651,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .sky = sky,
         },
         .render_context = render_context.get(),
-    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
+    }, {misc_tasks_queue});
     tg.add_task(SkyIntoCubemapTask{
         .views = SkyIntoCubemapTask::Views{
             .globals = render_context->tgpu_render_data,
@@ -653,7 +660,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .ibl_cube = sky_ibl_view,
         },
         .gpu_context = gpu_context,
-    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
+    }, {misc_tasks_queue});
 
     daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
     tg.add_task(CullLightsTask{
@@ -662,17 +669,23 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .light_mask_volume = light_mask_volume,
         },
         .render_context = render_context.get(),
-    }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
+    }, {misc_tasks_queue});
 
     auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
-    tg.add_task(daxa::InlineTask::Compute("build scene tlas")
+    tg.add_task(daxa::InlineTask::RayTracing("build scene tlas")
         .acceleration_structure_build.writes(scene_main_tlas)
         .executes(
             [=](daxa::TaskInterface ti)
             {
+                render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","BUILD_TLAS">());
                 scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
+                render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","BUILD_TLAS">());
             }),
-            render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN);
+            {tlas_build_task_queue});
+
+    ///
+    /// === Misc Tasks End ===
+    ///
 
     auto const visbuffer_ret = raster_visbuf::task_draw_visbuffer_all({tg, render_context, scene, meshlet_instances, meshlet_instances_last_frame, visible_meshlet_instances, debug_image, depth_history});
     daxa::TaskImageView main_camera_visbuffer = visbuffer_ret.main_camera_visbuffer;
@@ -713,6 +726,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy detail normals to history"});
 
+
     // Some following passes need either the main views camera OR the views cameras perspective.
     // The observer camera is not always appropriate to be used.
     // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
@@ -742,6 +756,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .render_context = render_context.get(),
         });
+    }
+
+    if (render_context->render_data.settings.enable_async_compute)
+    {
+        tg.submit({});
     }
 
     if (render_context->render_data.vsm_settings.enable)
@@ -846,8 +865,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto ppd_image_info = ppd_raw_image_info;
         ppd_image_info.name = "ppd_image";
         ppd_image = tg.create_transient_image(ppd_image_info);
-        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN});
-        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN});
+        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(RayTraceAmbientOcclusionTask{
             .views = RayTraceAmbientOcclusionTask::Views{
                 .globals = render_context->tgpu_render_data,
@@ -876,7 +895,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
-        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
+        });
 
         tg.add_task(RTAODeoinserTask{
             .views = RTAODeoinserTask::Views{
@@ -892,8 +911,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
-        }, render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN);
-        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_MAIN : daxa::QUEUE_MAIN, .name = "copy new ppd to ppd history"});
+        });
+        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
     }
 
     tg.submit({});

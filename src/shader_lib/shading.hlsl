@@ -284,7 +284,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         diffuse_light += indirect_diffuse;
     }
 
-    return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light, material_point.alpha);
+    return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light + material_point.emissive, material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;
