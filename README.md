@@ -85,6 +85,13 @@ A MeshLodGroup is a Mesh and all its Lods, each MeshLodGroup holds multiple Mesh
 
 #### CPU Side Drawing / Lod Selection
 
+An example of an artificial stress test scene for culling/lodding.
+This scene contains 8192 bunnies with each 1082 meshlets and 64,920 triangled for a total of 531,694,800 triangles.
+Tido renders the scene in around 250-800us with culling and lodding enabled. With no culling and lod0, this scene takes over 121ms to render on my RTX4080.
+
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/bunnies2_lod.png)
+![](https://github.com/Sunset-Flock/Timberdoodle/blob/main/media/bunnies2_meshlets.png)
+
 At the beginning of each frame, tido goes over all render entities and their mesh groups in the scene and selects an appropriate lod for each of the MeshLodGroups on the cpu.
 The lod is selected based on a rough pixel error metric. Each each lod's bounding box is projected into a rotated view towards the lod. Rotating the view for the projection ensures that there is never an lod change based on the real cameras orientation, as well as making the selection consistent with raytracing.
 
