@@ -78,8 +78,6 @@ void ray_gen()
         const float3 sample_pos = rt_calc_ray_start(world_position, detail_normal, primary_ray);
         const float3 world_tangent = normalize(cross(detail_normal, float3(0,0,1) + 0.0001));
         const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, detail_normal), detail_normal));
-
-        push.attach.debug_image.get()[index] = detail_normal.xyzz * 0.5f + 0.5f;
             
         const uint RAY_COUNT = push.attach.globals.ppd_settings.sample_count;
         const uint thread_seed = (index.x * push.attach.globals->settings.render_target_size.y + index.y) * push.attach.globals.frame_index;

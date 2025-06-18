@@ -23,7 +23,6 @@ namespace raster_visbuf
         std::unique_ptr<RenderContext> & render_context;
         Scene * scene;
         daxa::TaskBufferView meshlet_instances;
-        daxa::TaskBufferView meshlet_instances_last_frame;
         daxa::TaskBufferView visible_meshlet_instances;
         daxa::TaskImageView debug_image;
         daxa::TaskImageView depth_history;
