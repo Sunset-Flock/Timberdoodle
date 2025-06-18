@@ -75,10 +75,11 @@ void ray_gen()
         const float3 world_position = pixel_index_to_world_space(camera, index, depth);
         const float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
         const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
-        const float3 corrected_face_normal = flip_normal_to_incoming(detail_normal, detail_normal, primary_ray);
-        const float3 sample_pos = rt_calc_ray_start(world_position, corrected_face_normal, primary_ray);
-        const float3 world_tangent = normalize(cross(corrected_face_normal, float3(0,0,1) + 0.0001));
-        const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, corrected_face_normal), corrected_face_normal));
+        const float3 sample_pos = rt_calc_ray_start(world_position, detail_normal, primary_ray);
+        const float3 world_tangent = normalize(cross(detail_normal, float3(0,0,1) + 0.0001));
+        const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, detail_normal), detail_normal));
+
+        push.attach.debug_image.get()[index] = detail_normal.xyzz * 0.5f + 0.5f;
             
         const uint RAY_COUNT = push.attach.globals.ppd_settings.sample_count;
         const uint thread_seed = (index.x * push.attach.globals->settings.render_target_size.y + index.y) * push.attach.globals.frame_index;
@@ -128,40 +129,6 @@ void ray_gen()
                 let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
                 push.attach.ppd_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
             }
-            #if 0
-            else // RTGI
-            {
-                RayDesc ray = {};
-                ray.Origin = sample_pos;
-                if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
-                {
-                    ray.TMax = 1000000000.0f;
-                }
-                else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI)
-                {
-                    ray.TMax = push.attach.globals.ppd_settings.short_range_rtgi_range;
-                }
-                ray.TMin = 0.0f;
-
-                float3 acc_light = 0.0f;
-                int valid_rays = 0;
-                for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
-                {
-                    const float3 hemi_sample = cosine_sample_hemi();
-                    const float3 sample_dir = mul(tbn, hemi_sample);
-                    ray.Direction = sample_dir;
-                    payload.miss = false; // need to set to false as we skip the closest hit shader
-                    payload.color = float3(0,0,0);
-                    payload.normal = detail_normal;
-                    TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
-
-                    acc_light += payload.color;
-                }
-
-                float4 value = float4(acc_light * rcp(RAY_COUNT), 1.0f);
-                push.attach.ppd_raw_image.get()[index.xy] = value;
-            }
-                #endif
         }
     }
     let clk_end = clockARB();
