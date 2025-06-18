@@ -925,11 +925,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "NONE",                        // DEBUG_DRAW_MODE_NONE
                     "OVERDRAW",                    // DEBUG_DRAW_MODE_OVERDRAW
                     "TRIANGLE_CONNECTIVITY",       // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
-                    "TRIANGLE_INSTANCE_ID",        // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
-                    "MESHLET_INSTANCE_ID",         // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
-                    "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
+                    "TRIANGLE_ID",                 // DEBUG_DRAW_MODE_TRIANGLE_ID
+                    "MESHLET_ID",                  // DEBUG_DRAW_MODE_MESHLET_ID
                     "MESH_ID",                     // DEBUG_DRAW_MODE_MESH_ID
                     "MESH_GROUP_ID",               // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                    "ENTITY_ID",                   // DEBUG_DRAW_MODE_ENTITY_ID
                     "MESH_LOD",                    // DEBUG_DRAW_MODE_MESH_LOD
                     "VSM_OVERDRAW",                // DEBUG_DRAW_MODE_VSM_OVERDRAW
                     "VSM_CLIP_LEVEL",              // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
@@ -971,11 +971,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         "NONE", // DEBUG_DRAW_MODE_NONE
                         "OVERDRAW", // DEBUG_DRAW_MODE_OVERDRAW
                         "TRIANGLE_CONNECTIVITY", // DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY
-                        "TRIANGLE_INSTANCE_ID", // DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID
-                        "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
-                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
+                        "TRIANGLE_ID", // DEBUG_DRAW_MODE_TRIANGLE_ID
+                        "MESHLET_ID", // DEBUG_DRAW_MODE_MESHLET_ID
                         "MESH_ID", // DEBUG_DRAW_MODE_MESH_ID
                         "MESH_GROUP_ID", // DEBUG_DRAW_MODE_MESH_GROUP_ID
+                        "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
                         "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
                         "DEPTH", // DEBUG_DRAW_MODE_DEPTH
                         "ALBEDO", // DEBUG_DRAW_MODE_ALBEDO
@@ -990,11 +990,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_NONE,
                         DEBUG_DRAW_MODE_OVERDRAW,
                         DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY,
-                        DEBUG_DRAW_MODE_TRIANGLE_INSTANCE_ID,
-                        DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID,
-                        DEBUG_DRAW_MODE_ENTITY_ID,
+                        DEBUG_DRAW_MODE_TRIANGLE_ID,
+                        DEBUG_DRAW_MODE_MESHLET_ID,
                         DEBUG_DRAW_MODE_MESH_ID,
                         DEBUG_DRAW_MODE_MESH_GROUP_ID,
+                        DEBUG_DRAW_MODE_ENTITY_ID,
                         DEBUG_DRAW_MODE_MESH_LOD,
                         DEBUG_DRAW_MODE_DEPTH,
                         DEBUG_DRAW_MODE_ALBEDO,
@@ -1128,7 +1128,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 {
                     auto modes = std::array{
                         "NONE", // DEBUG_DRAW_MODE_NONE
-                        "MESHLET_INSTANCE_ID", // DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID
+                        "MESHLET_ID", // DEBUG_DRAW_MODE_MESHLET_ID
                         "ENTITY_ID", // DEBUG_DRAW_MODE_ENTITY_ID
                         "MESH_LOD", // DEBUG_DRAW_MODE_MESH_LOD
                         "VSM_OVERDRAW", // DEBUG_DRAW_MODE_VSM_OVERDRAW
@@ -1142,7 +1142,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_MESHLET_INSTANCE_ID,
+                        DEBUG_DRAW_MODE_MESHLET_ID,
                         DEBUG_DRAW_MODE_ENTITY_ID,
                         DEBUG_DRAW_MODE_MESH_LOD,
                         DEBUG_DRAW_MODE_VSM_OVERDRAW,

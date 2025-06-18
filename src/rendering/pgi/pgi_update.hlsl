@@ -392,32 +392,9 @@ func entry_update_probe_texels(
 
 [[vk::push_constant]] PGIUpdateProbesPush update_probes_push;
 
-struct FreeSphere
-{
-    float3 center;
-    float radius;
-};
-
-func update_free_sphere(inout FreeSphere sphere, float3 point)
-{
-    // Check if point is in sphere
-    // Only update sphere for points that are within it.
-    float point_sphere_dist = length(point - sphere.center) - sphere.radius;
-    if (point_sphere_dist >= 0.0f)
-    {
-        return;
-    }
-
-    float3 point_to_center = normalize(sphere.center - point);
-    float3 new_sphere_end = point_to_center * sphere.radius + sphere.center;
-    float3 new_sphere_start = point;
-    sphere.center = (new_sphere_start + new_sphere_end) * 0.5f;
-    sphere.radius = length(new_sphere_start - new_sphere_end) * 0.5f;
-}
-
 #define PGI_DESIRED_RELATIVE_DISTANCE 0.3f 
 #define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
-#define PGI_MAX_RELATIVE_REPOSITIONING 1.0f
+#define PGI_MAX_RELATIVE_REPOSITIONING 0.4f
 #define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.3)
 #define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
 #define PGI_PROBE_VIEW_DISTANCE 1.0

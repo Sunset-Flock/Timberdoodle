@@ -10,7 +10,7 @@
 #include "../../shader_shared/geometry_pipeline.inl"
 #include "../../shader_shared/gpu_work_expansion.inl"
 
-#define CULL_MESHES_WORKGROUP_X 128
+#define CULL_MESHES_WORKGROUP_X 64
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
@@ -139,7 +139,7 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
             },
             .task = [=](daxa::TaskInterface ti)
             {
-                DBG_ASSERT_TRUE_M(!(is_point_spot_light && is_directional_light), "Cannot be both directional and point light");
+                DBG_ASSERT_TRUE_M(!(info.is_point_spot_light && info.is_directional_light), "Cannot be both directional and point light");
                 ti.recorder.set_pipeline(*info.render_context->gpu_context->compute_pipelines.at(expand_meshes_pipeline_compile_info().name));
 
                 auto alloc = ti.allocator->allocate(sizeof(ExpandMeshesToMeshletsAttachments));
