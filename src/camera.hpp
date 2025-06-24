@@ -32,8 +32,6 @@ struct CameraAnimationKeyframe
     glm::fquat end_rotation;
 
     f32vec3 start_position;
-    f32vec3 first_control_point;
-    f32vec3 second_control_point;
     f32vec3 end_position;
     f32 transition_time;
 };

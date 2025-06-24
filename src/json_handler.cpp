@@ -29,8 +29,6 @@ auto load_camera_animation(std::filesystem::path const & path) -> std::vector<Ca
             read_rotation("rot", curr_keyframe.start_rotation);
             read_rotation("rot_e", curr_keyframe.end_rotation);
             read_segment_point("s", curr_keyframe.start_position);
-            read_segment_point("c1", curr_keyframe.first_control_point);
-            read_segment_point("c2", curr_keyframe.second_control_point);
             read_segment_point("e", curr_keyframe.end_position);
             curr_keyframe.transition_time = segment["time"];
         }

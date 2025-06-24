@@ -122,6 +122,134 @@ void CinematicCamera::set_keyframe(i32 keyframe, f32 keyframe_progress)
     current_keyframe_time = keyframe_progress * current_keyframe_finish_time;
 }
 
+glm::fquat quat_exp(f32vec3 v, float eps=1e-8f)
+{
+    float halfangle = sqrtf(v.x*v.x + v.y*v.y + v.z*v.z);
+	
+    if (halfangle < eps)
+    {
+        return glm::normalize(glm::fquat(1.0f, v.x, v.y, v.z));
+    }
+    else
+    {
+        float c = cosf(halfangle);
+        float s = sinf(halfangle) / halfangle;
+        return glm::fquat(c, s * v.x, s * v.y, s * v.z);
+    }
+}
+
+
+f32vec3 quat_log(glm::fquat q, f32 eps=1e-8f)
+{
+    float length = sqrtf(q.x*q.x + q.y*q.y + q.z*q.z);
+	
+    if (length < eps)
+    {
+        return f32vec3(q.x, q.y, q.z);
+    }
+    else
+    {
+        float halfangle = acosf(glm::clamp(q.w, -1.0f, 1.0f));
+        return halfangle * (f32vec3(q.x, q.y, q.z) / length);
+    }
+}
+
+
+f32vec3 quat_to_scaled_angle_axis(glm::fquat q, f32 eps=1e-8f)
+{
+    return 2.0f * quat_log(q, eps);
+}
+
+glm::fquat quat_from_scaled_angle_axis(f32vec3 v, float eps=1e-8f)
+{
+    return quat_exp(v / 2.0f, eps);
+}
+
+
+glm::fquat quat_abs(glm::fquat x)
+{
+    return x.w < 0.0 ? -x : x;
+}
+
+void quat_hermite(
+    glm::fquat& rot,
+    f32vec3& vel, 
+    float x, 
+    glm::fquat r0,
+    glm::fquat r1, 
+    f32vec3 v0,
+    f32vec3 v1)
+{
+    float w1 = 3*x*x - 2*x*x*x;
+    float w2 = x*x*x - 2*x*x + x;
+    float w3 = x*x*x - x*x;
+    
+    float q1 = 6*x - 6*x*x;
+    float q2 = 3*x*x - 4*x + 1;
+    float q3 = 3*x*x - 2*x;
+    
+    f32vec3 r1_sub_r0 = quat_to_scaled_angle_axis(quat_abs((r1 * glm::inverse(r0))));   
+    
+    rot = quat_from_scaled_angle_axis(w1*r1_sub_r0 + w2*v0 + w3*v1) * r0;
+    vel = q1*r1_sub_r0 + q2*v0 + q3*v1;
+}
+
+void quat_catmull_rom(
+    glm::fquat& rot,
+    f32vec3& vel,
+    f32 x,
+    glm::fquat r0,
+    glm::fquat r1, 
+    glm::fquat r2,
+    glm::fquat r3)
+{
+    f32vec3 r1_sub_r0 = quat_to_scaled_angle_axis(quat_abs((r1 * glm::inverse(r0))));
+    f32vec3 r2_sub_r1 = quat_to_scaled_angle_axis(quat_abs((r2 * glm::inverse(r1))));
+    f32vec3 r3_sub_r2 = quat_to_scaled_angle_axis(quat_abs((r3 * glm::inverse(r2))));
+  
+    f32vec3 v1 = (r1_sub_r0 + r2_sub_r1) / 2.0f;
+    f32vec3 v2 = (r2_sub_r1 + r3_sub_r2) / 2.0f;
+    quat_hermite(rot, vel, x, r1, r2, v1, v2);
+}
+
+void hermite(
+    f32vec3& pos,
+    f32vec3& vel, 
+    f32 x, 
+    f32vec3 p0,
+    f32vec3 p1, 
+    f32vec3 v0,
+    f32vec3 v1)
+{
+    f32 w0 = 2*x*x*x - 3*x*x + 1;
+    f32 w1 = 3*x*x - 2*x*x*x;
+    f32 w2 = x*x*x - 2*x*x + x;
+    f32 w3 = x*x*x - x*x;
+    
+    f32 q0 = 6*x*x - 6*x;
+    f32 q1 = 6*x - 6*x*x;
+    f32 q2 = 3*x*x - 4*x + 1;
+    f32 q3 = 3*x*x - 2*x;
+    
+    pos = w0*p0 + w1*p1 + w2*v0 + w3*v1;
+    vel = q0*p0 + q1*p1 + q2*v0 + q3*v1;
+}
+
+void catmull_rom(
+    f32vec3& pos,
+    f32vec3& vel,
+    f32 x,
+    f32vec3 p0,
+    f32vec3 p1, 
+    f32vec3 p2,
+    f32vec3 p3)
+{
+    f32vec3 v1 = ((p1 - p0) + (p2 - p1)) / 2.0f;
+    f32vec3 v2 = ((p2 - p1) + (p3 - p2)) / 2.0f;
+    hermite(pos, vel, x, p1, p2, v1, v2);
+}
+
+
 void CinematicCamera::process_input(Window &window, f32 dt)
 {
     if(override_keyframe) { dt = 0.0f; }
@@ -146,18 +274,29 @@ void CinematicCamera::process_input(Window &window, f32 dt)
     auto const & current_keyframe = path_keyframes.at(current_keyframe_index);
     f32 const t = current_keyframe_time / current_keyframe.transition_time;
 
-    f32 w0 = static_cast<f32>(glm::pow(1.0f - t, 3));
-    f32 w1 = static_cast<f32>(glm::pow(1.0f - t, 2) * 3.0f * t);
-    f32 w2 = static_cast<f32>((1.0f - t) * 3 * t * t);
-    f32 w3 = static_cast<f32>(t * t * t);
+    f32vec3 velocity;
+    auto last_keyframe_idx = (current_keyframe_index + (path_keyframes.size() - 1)) % path_keyframes.size();
+    auto next_keyframe_idx = (current_keyframe_index +  1) % path_keyframes.size();
 
-    position =
-        w0 * current_keyframe.start_position +
-        w1 * current_keyframe.first_control_point +
-        w2 * current_keyframe.second_control_point +
-        w3 * current_keyframe.end_position;
+    catmull_rom(
+        position,
+        velocity,
+        t,
+        path_keyframes.at(last_keyframe_idx).start_position,
+        current_keyframe.start_position,
+        current_keyframe.end_position,
+        path_keyframes.at(next_keyframe_idx).end_position
+    );
 
-    forward = glm::slerp(current_keyframe.start_rotation, current_keyframe.end_rotation, t);
+    quat_catmull_rom(
+        forward,
+        velocity,
+        t,
+        path_keyframes.at(last_keyframe_idx).start_rotation,
+        current_keyframe.start_rotation,
+        current_keyframe.end_rotation,
+        path_keyframes.at(next_keyframe_idx).end_rotation
+    );
 }
 
 auto CinematicCamera::make_camera_info(Settings const & settings) const -> CameraInfo
