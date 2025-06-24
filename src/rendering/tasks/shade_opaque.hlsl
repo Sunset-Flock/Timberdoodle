@@ -54,17 +54,66 @@ float map(float value, float min1, float max1, float min2, float max2)
     return value;
 }
 
+float3 get_vsm_spot_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
+{
+    const uint spot_light_index = max(AT.globals.vsm_settings.force_spot_light_idx, 0);
+    
+    SpotMipInfo info = project_into_spot_light(spot_light_index, pixel_footprint, AT.globals, AT.vsm_spot_lights, AT.vsm_globals);
+
+    let light = AT.vsm_spot_lights[spot_light_index].light;
+
+    const float3 position_to_light = normalize(light.position - pixel_footprint.center);
+    // the scale and offset computations can be done CPU-side
+    float cos_outer = cos(light.outer_cone_angle - 0.02);
+    float spot_scale = 1.0 / max(cos(light.inner_cone_angle) - cos_outer, 1e-4);
+    float spot_offset = -cos_outer * spot_scale;
+    float cd = dot(-position_to_light, light.direction);
+
+    float angle_attenuation = clamp(cd * spot_scale + spot_offset, 0.0, 1.0);
+    angle_attenuation = angle_attenuation * angle_attenuation;
+
+    if(info.mip_level == -1 || angle_attenuation == 0.0f) 
+    {
+        return float3(0.6f);
+    }
+
+    float3 color = hsv2rgb(float3(0.5f, (6.0f - float(info.mip_level)) / 6.0f, 1.0f));
+    const uint spot_page_array_index = spot_light_index + VSM_SPOT_LIGHT_OFFSET;
+    const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, spot_page_array_index)];
+
+    const int2 physical_texel_coords = info.page_uvs * (VSM_POINT_SPOT_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
+    const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
+
+    bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 2))) ||
+                             any(lessThan(in_page_texel_coords, int2(2))) ||
+                             any(lessThan(info.page_uvs, 0.02)) ||
+                             any(greaterThan(info.page_uvs, 0.98));
+
+
+    if(!get_is_visited_marked(vsm_page_entry)) 
+    {
+        color = float3(0.05, 0.05, 0.05);
+    }
+
+    if(texel_near_border)
+    {
+        color = float3(0.01, 0.01, 0.01);
+    }
+
+    return color;
+}
+
 float3 get_vsm_point_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     const uint point_light_index = max(AT.globals.vsm_settings.force_point_light_idx, 0);
     
     PointMipInfo info = project_into_point_light(point_light_index, pixel_footprint, AT.globals, AT.vsm_point_lights, AT.vsm_globals);
-    if(info.mip_level > 6) 
+    if(info.mip_level == -1) 
     {
-        return float3(0.05f, 0.05f, 0.05f);
+        return float3(0.6f);
     }
 
-    float3 color = hsv2rgb(float3(float(info.cube_face) / 6.0f, float(5 - int(info.mip_level)) / 5.0f, 1.0));
+    float3 color = hsv2rgb(float3(6 - float(info.cube_face) / 6.0f, float(6 - int(info.mip_level)) / 6.0f, 1.0));
     const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
     const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
 
@@ -74,15 +123,14 @@ float3 get_vsm_point_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footp
     bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
                              any(lessThan(in_page_texel_coords, int2(1)));
 
-
-    if(!get_is_allocated(vsm_page_entry)) 
+    if(!get_is_visited_marked(vsm_page_entry)) 
     {
-        color = float3(1.0, 0.0, 0.0);
+        color = float3(0.05, 0.05, 0.05);
     }
 
     if(texel_near_border)
     {
-        color = float3(0.001, 0.001, 0.001);
+        color = float3(0.01, 0.01, 0.01);
     }
 
     return color;
@@ -110,8 +158,9 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
     const uint is_dynamic_invalidated = unwrap_vsm_page_from_mask(vsm_page_pix_coords, AT.vsm_wrapped_pages);
     const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT.vsm_clip_projections);
     const uint page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
+    color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
 
-    if(get_is_allocated(page_entry))
+    if(get_is_visited_marked(page_entry) || get_is_dirty(page_entry) || get_is_allocated(page_entry))
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);
         const int2 physical_texel_coords = virtual_uv_to_physical_texel(clip_info.clip_depth_uv, physical_page_coords);
@@ -121,26 +170,15 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
             overdraw_amount = RWTexture2D<uint>::get(AT.vsm_overdraw_debug)[physical_texel_coords].x;
         }
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
-        bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
-                                 any(lessThan(in_page_texel_coords, int2(1)));
+        bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 2))) ||
+                                 any(lessThan(in_page_texel_coords, int2(2)));
         if(texel_near_border)
         {
-            color = float3(0.001, 0.001, 0.001);
+            color = float3(0.01, 0.01, 0.01);
         }
         else if(is_dynamic_invalidated != 0)
         {
             color.rgb = float3(1.0, 0.0, 1.0);
-        }
-        else
-        {
-            if(get_is_visited_marked(page_entry)) 
-            {
-                color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
-            }
-            else 
-            {
-                color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 0.8, 0.2));
-            }
         }
         if (AT.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
@@ -148,7 +186,6 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
             color.rgb = overdraw_color;
         }
     } else {
-        color = float3(1.0, 0.0, 0.0);
         if(get_is_dirty(page_entry)) {color = float3(0.0, 0.0, 1.0);}
     }
     return color;
@@ -227,7 +264,6 @@ float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorld
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
-        //int final_sample = poisson
         float theta = (rand()) * 2 * PI;
         float r = sqrt(rand());
         let filter_rot_offset =  float2(cos(theta), sin(theta)) * r;
@@ -885,16 +921,26 @@ void entry_main_cs(
             {
                 if (AT.globals->vsm_settings.enable != 0)
                 {
+                    const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
                     let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
-                    let debug_albedo = albedo.rgb * lighting * vsm_debug_color;
+                    let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color;
                     output_value.rgb = debug_albedo;
                 }
                 break;
             }
+            case DEBUG_DRAW_MODE_VSM_SPOT_LEVEL:
+            {
+                const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
+                let vsm_debug_color = get_vsm_spot_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
+                let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
+                output_value.rgb = debug_albedo;
+                break;
+            }
             case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
             {
+                const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
                 let vsm_debug_color = get_vsm_point_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
-                let debug_albedo = albedo.rgb * lighting * vsm_debug_color.rgb;
+                let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
                 output_value.rgb = debug_albedo;
                 break;
             }

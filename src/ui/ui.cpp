@@ -933,6 +933,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "MESH_LOD",                    // DEBUG_DRAW_MODE_MESH_LOD
                     "VSM_OVERDRAW",                // DEBUG_DRAW_MODE_VSM_OVERDRAW
                     "VSM_CLIP_LEVEL",              // DEBUG_DRAW_MODE_VSM_CLIP_LEVEL
+                    "VSM_SPOT_LEVEL",              // DEBUG_DRAW_MODE_VSM_SPOT_LEVEL
                     "VSM_POINT_LEVEL",             // DEBUG_DRAW_MODE_VSM_POINT_LEVEL
                     "DEPTH",                       // DEBUG_DRAW_MODE_DEPTH
                     "ALBEDO",                      // DEBUG_DRAW_MODE_ALBEDO
