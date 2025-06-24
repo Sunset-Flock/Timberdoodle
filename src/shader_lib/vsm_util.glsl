@@ -155,7 +155,7 @@ ClipInfo clip_info_from_uvs(ClipFromUVsInfo info)
         const daxa_f32 dist = length(info.pixel_footprint.center - info.camera_position);
         // The shadow camera is not strictly aligned to the player position. Instead it can be up to
         // one page away from the player, thus we must propriately scale the heuristic, to account for this
-        const daxa_i32 page_count = (VSM_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
+        const daxa_i32 page_count = (VSM_DIRECTIONAL_TEXTURE_RESOLUTION / VSM_PAGE_SIZE);
         const daxa_f32 scale_ratio = daxa_f32(page_count - 2) / daxa_f32(page_count);
         const daxa_f32 base_scale = deref(info.globals).vsm_settings.clip_0_frustum_scale * scale_ratio;
         clip_level = daxa_i32(clamp(ceil(log2((dist / base_scale) * deref(info.globals).vsm_settings.clip_selection_bias)), 1, VSM_CLIP_LEVELS - 1));
@@ -175,7 +175,7 @@ daxa_i32vec3 vsm_page_coords_to_wrapped_coords(daxa_i32vec3 page_coords, daxa_Bu
 {
     const daxa_i32vec2 vsm_toroidal_offset = deref_i(clip_projections, page_coords.z).page_offset;
     const daxa_i32vec2 vsm_toroidal_pix_coords = page_coords.xy - vsm_toroidal_offset.xy;
-    const daxa_i32vec2 vsm_wrapped_pix_coords = daxa_i32vec2(_mod(vsm_toroidal_pix_coords.xy, daxa_f32vec2(VSM_PAGE_TABLE_RESOLUTION)));
+    const daxa_i32vec2 vsm_wrapped_pix_coords = daxa_i32vec2(_mod(vsm_toroidal_pix_coords.xy, daxa_f32vec2(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION)));
     return daxa_i32vec3(vsm_wrapped_pix_coords, page_coords.z);
 }
 
@@ -185,13 +185,13 @@ daxa_i32vec3 vsm_clip_info_to_wrapped_coords(ClipInfo info, daxa_BufferPtr(VSMCl
     {
         return daxa_i32vec3(-1, -1, info.clip_level);
     }
-    const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), info.clip_level);
+    const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(info.clip_depth_uv * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION)), info.clip_level);
     return vsm_page_coords_to_wrapped_coords(vsm_page_pix_coords, clip_projections);
 }
 
 daxa_i32vec2 virtual_uv_to_physical_texel(daxa_f32vec2 virtual_uv, daxa_i32vec2 physical_page_coords)
 {
-    const daxa_i32vec2 virtual_texel_coord = daxa_i32vec2(virtual_uv * VSM_TEXTURE_RESOLUTION);
+    const daxa_i32vec2 virtual_texel_coord = daxa_i32vec2(virtual_uv * VSM_DIRECTIONAL_TEXTURE_RESOLUTION);
     const daxa_i32vec2 in_page_texel_coord = daxa_i32vec2(_mod(virtual_texel_coord, daxa_f32(VSM_PAGE_SIZE)));
     const daxa_i32vec2 in_memory_offset = physical_page_coords * VSM_PAGE_SIZE;
     const daxa_i32vec2 memory_texel_coord = in_memory_offset + in_page_texel_coord;
@@ -200,7 +200,7 @@ daxa_i32vec2 virtual_uv_to_physical_texel(daxa_f32vec2 virtual_uv, daxa_i32vec2 
 
 daxa_u32 unwrap_vsm_page_from_mask(daxa_i32vec3 vsm_page_coords, daxa_BufferPtr(FreeWrappedPagesInfo) info)
 {
-    const daxa_u32 linear_index = vsm_page_coords.y * VSM_PAGE_TABLE_RESOLUTION + vsm_page_coords.x;
+    const daxa_u32 linear_index = vsm_page_coords.y * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + vsm_page_coords.x;
     const daxa_u32 index_offset = linear_index / 32;
     const daxa_u32 in_uint_offset = daxa_u32(_mod(daxa_f32(linear_index),daxa_f32(32)));
     const daxa_u32 mask_entry = deref_i(info, vsm_page_coords.z).mask[index_offset];
@@ -329,7 +329,7 @@ PointMipInfo project_into_point_light(
     const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
 
     const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
-    const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+    const float point_texel_dist = point_uv_dist * VSM_POINT_SPOT_TEXTURE_RESOLUTION;
     const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
     const int clamped_mip_level = clamp(
         mip_level,
@@ -338,7 +338,7 @@ PointMipInfo project_into_point_light(
 
     const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
     const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
-    const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
+    const int2 texel_coord = int2(middle_uv * (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
     return PointMipInfo(int(clamped_mip_level), int(face_idx), texel_coord, middle_uv);
 }
 
@@ -381,7 +381,7 @@ SpotMipInfo project_into_spot_light(
     const float max_axis_dist = min(length(bottom_right_ndc - top_left_ndc), length(bottom_left_ndc - top_right_ndc));
 
     const float point_uv_dist = max_axis_dist / 2.0f; // ndc is twice as large as uvs
-    const float point_texel_dist = point_uv_dist * VSM_TEXTURE_RESOLUTION;
+    const float point_texel_dist = point_uv_dist * VSM_POINT_SPOT_TEXTURE_RESOLUTION;
     const int mip_level = max(int(log2(floor(point_texel_dist))), 0);
 
     const int clamped_mip_level = clamp(
@@ -391,7 +391,7 @@ SpotMipInfo project_into_spot_light(
 
     const float2 middle_ndc = bottom_right_ndc * 0.5f + top_left_ndc * 0.5f;
     const float2 middle_uv = clamp((middle_ndc + 1.0f) * 0.5f, 0.0f, 0.99999f);
-    const int2 texel_coord = int2(middle_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
+    const int2 texel_coord = int2(middle_uv * (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << clamped_mip_level)));
     return SpotMipInfo(int(clamped_mip_level), texel_coord, middle_uv);
 }
 #endif

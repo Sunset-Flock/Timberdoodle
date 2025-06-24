@@ -22,7 +22,7 @@ void downsample_64x64<let START_MIP_LEVEL : int>(
 )
 {
     bool4 quad_values = bool4(0);
-    const int start_resolution = (VSM_PAGE_TABLE_RESOLUTION / (1 << START_MIP_LEVEL));
+    const int start_resolution = (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << START_MIP_LEVEL));
     const float2 inv_size = 1.0f / float2(start_resolution);
 
     [[unroll]]

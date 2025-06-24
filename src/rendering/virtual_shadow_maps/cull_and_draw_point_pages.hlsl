@@ -66,7 +66,7 @@ func point_vsm_entry_task(
             cutoff = push.attachments.vsm_spot_lights[spot_light_index].light.cutoff;
         }
 
-        const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << point_spot_indirections.mip_level);
+        const float2 base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << point_spot_indirections.mip_level);
         valid_meshlet = valid_meshlet && !is_meshlet_occluded_point_spot_vsm(
             *camera_info,
             instanced_meshlet,

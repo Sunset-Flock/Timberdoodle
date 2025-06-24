@@ -160,7 +160,7 @@ void directional_vsm_entry_fragment_opaque(
     in DirectionalVSMOpaqueMeshShaderPrimitive prim)
 {
     let push = vsm_push;
-    const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
+    const float2 virtual_uv = vert.position.xy / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
     let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
@@ -190,7 +190,7 @@ void directional_vsm_entry_fragment_masked(
     in DirectionalVSMMaskMeshShaderPrimitive prim)
 {
     let push = vsm_push;
-    const float2 virtual_uv = vert.position.xy / VSM_TEXTURE_RESOLUTION;
+    const float2 virtual_uv = vert.position.xy / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
     let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(

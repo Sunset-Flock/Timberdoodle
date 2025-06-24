@@ -52,7 +52,7 @@ float vsm_point_shadow_test(
 {
     let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
 
-    const int2 physical_texel_coords = int2(info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level))));
+    const int2 physical_texel_coords = int2(info.page_uvs * (VSM_POINT_SPOT_TEXTURE_RESOLUTION / (1 << int(info.mip_level))));
     const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
 
     const uint2 in_memory_offset = memory_page_coords * VSM_PAGE_SIZE;
@@ -117,7 +117,7 @@ float get_vsm_point_shadow(
 
         if(all(greaterThanEqual(clip_uv, 0.0)) && all(lessThan(clip_uv, 1.0)))
         {
-            const int2 texel_coords = int2(clip_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
+            const int2 texel_coords = int2(clip_uv * (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
             const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_idx);
             const uint vsm_page_entry = vsm_point_spot_page_table[info.mip_level].get()[int3(texel_coords, point_page_array_index)];
             info.page_uvs = clip_uv;
@@ -223,7 +223,7 @@ float vsm_spot_shadow_test(
 {
         let memory_page_coords = get_meta_coords_from_vsm_entry(vsm_page_entry);
 
-        const int2 physical_texel_coords = int2(info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level))));
+        const int2 physical_texel_coords = int2(info.page_uvs * (VSM_POINT_SPOT_TEXTURE_RESOLUTION / (1 << int(info.mip_level))));
         const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
 
         const uint2 in_memory_offset = memory_page_coords * VSM_PAGE_SIZE;
@@ -289,7 +289,7 @@ float get_vsm_spot_shadow(
 
         if(all(greaterThanEqual(clip_uv, 0.0)) && all(lessThan(clip_uv, 1.0)))
         {
-            const int2 texel_coords = int2(clip_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
+            const int2 texel_coords = int2(clip_uv * (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
             const uint spot_page_array_index = VSM_SPOT_LIGHT_OFFSET + spot_light_idx;
             const uint vsm_page_entry = vsm_point_spot_page_table[info.mip_level].get()[int3(texel_coords, spot_page_array_index)];
             info.page_uvs = clip_uv;
@@ -347,7 +347,7 @@ float get_vsm_spot_shadow_coarse(
 
     if(all(greaterThanEqual(clip_uv, 0.0)) && all(lessThan(clip_uv, 1.0)))
     {
-        const int2 texel_coords = int2(clip_uv * (VSM_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
+        const int2 texel_coords = int2(clip_uv * (VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << info.mip_level)));
         const uint spot_page_array_index = VSM_SPOT_LIGHT_OFFSET + spot_light_idx;
         const uint vsm_page_entry = vsm_point_spot_page_table[info.mip_level].get()[int3(texel_coords, spot_page_array_index)];
         info.page_uvs = clip_uv;

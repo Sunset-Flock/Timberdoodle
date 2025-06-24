@@ -64,7 +64,6 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
     const MeshletInstance meshlet_inst,
     const daxa_ImageViewId hiz)
 {    
-    uint2 render_target_size = uint2(VSM_TEXTURE_RESOLUTION,VSM_TEXTURE_RESOLUTION);
     const GPUMesh mesh = meshes[meshlet_inst.mesh_index];
     const Meshlet meshlet = mesh.meshlets[meshlet_inst.meshlet_index];
     daxa_BufferPtr(daxa_u32) micro_index_buffer = mesh.micro_indices;
@@ -177,7 +176,7 @@ func generic_vsm_mesh<V: MeshShaderVertexT, P: VSMMeshShaderPrimitiveT>(
             {
                 VSMPointSpotIndirections indirections = unpack_vsm_point_spot_light_indirections(vsm_meta_info);
                 array_index = indirections.array_layer_index;
-                base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
+                base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
             }
             if(! max_behind_near_plane)
             {

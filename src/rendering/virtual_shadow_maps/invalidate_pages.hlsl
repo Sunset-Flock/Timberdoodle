@@ -23,15 +23,15 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         let ndcAABB = calculate_ndc_aabb(cascade_camera, model_matrix, mesh.aabb);
 
         const int linear_y_index = svdtid.y;
-        const int pages_per_dim = VSM_PAGE_TABLE_RESOLUTION / VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION;
+        const int pages_per_dim = VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION / VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION;
         const int tile_x_coord = linear_y_index % pages_per_dim;
         const int tile_y_coord = linear_y_index / pages_per_dim;
 
-        const int2 pix_space_start = int2(floor(((ndcAABB.ndc_min.xy + 1.0f) * 0.5f) * VSM_PAGE_TABLE_RESOLUTION));
-        const int2 pix_space_end = int2(ceil(((ndcAABB.ndc_max.xy + 1.0f) * 0.5f) * VSM_PAGE_TABLE_RESOLUTION));
+        const int2 pix_space_start = int2(floor(((ndcAABB.ndc_min.xy + 1.0f) * 0.5f) * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION));
+        const int2 pix_space_end = int2(ceil(((ndcAABB.ndc_max.xy + 1.0f) * 0.5f) * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION));
 
-        const int2 clamped_pix_space_start = clamp(pix_space_start, 0, VSM_PAGE_TABLE_RESOLUTION);
-        const int2 clamped_pix_space_end = clamp(pix_space_end, 0, VSM_PAGE_TABLE_RESOLUTION);
+        const int2 clamped_pix_space_start = clamp(pix_space_start, 0, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION);
+        const int2 clamped_pix_space_end = clamp(pix_space_end, 0, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION);
 
         const int2 thread_x_bounds = int2(tile_x_coord, tile_x_coord + 1) * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION;
         const int2 thread_y_bounds = int2(tile_y_coord, tile_y_coord + 1) * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION;
@@ -47,7 +47,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
                 const uint vsm_page_entry = push.vsm_page_table.get_formatted()[vsm_wrapped_page_coords].r;
                 if(get_is_allocated(vsm_page_entry))
                 {
-                    const int linear_index = y * VSM_PAGE_TABLE_RESOLUTION + x;
+                    const int linear_index = y * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + x;
                     const int index_offset = linear_index / 32;
                     const int in_uint_offset = linear_index % 32;
                     InterlockedOr(push.free_wrapped_pages_info[svdtid.z].mask[index_offset], 1u << in_uint_offset);

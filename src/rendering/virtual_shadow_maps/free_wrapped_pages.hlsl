@@ -5,19 +5,19 @@
 
 [[vk::push_constant]] FreeWrappedPagesH::AttachmentShaderBlob free_wrapped_pages_push;
 
-[numthreads(VSM_PAGE_TABLE_RESOLUTION, 1, 1)]
+[numthreads(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1, 1)]
 [shader("compute")]
 void main(uint3 svdtid : SV_DispatchThreadID)
 {
     const int2 clear_offset = free_wrapped_pages_push.free_wrapped_pages_info[svdtid.z].clear_offset;
     const int3 vsm_page_coords = svdtid.xyz;
-    if(vsm_page_coords.x > VSM_PAGE_TABLE_RESOLUTION) { return; }
+    if(vsm_page_coords.x > VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION) { return; }
 
     const bool should_clear_wrapped = 
         ((clear_offset.x > 0) && (vsm_page_coords.x < clear_offset.x)) || 
-        ((clear_offset.x < 0) && (vsm_page_coords.x > VSM_PAGE_TABLE_RESOLUTION + (clear_offset.x - 1))) || 
+        ((clear_offset.x < 0) && (vsm_page_coords.x > VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + (clear_offset.x - 1))) || 
         ((clear_offset.y > 0) && (vsm_page_coords.y < clear_offset.y)) || 
-        ((clear_offset.y < 0) && (vsm_page_coords.y > VSM_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1)));
+        ((clear_offset.y < 0) && (vsm_page_coords.y > VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + (clear_offset.y - 1)));
 
     const bool enable_caching = free_wrapped_pages_push.globals.vsm_settings.enable_directional_caching != 0u;
     const bool sun_moved = free_wrapped_pages_push.globals.vsm_settings.sun_moved != 0u;

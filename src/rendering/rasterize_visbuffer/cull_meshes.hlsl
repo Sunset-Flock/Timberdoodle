@@ -82,7 +82,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             mesh_instance_index  // mesh_instance_index
         );
 
-        const float2 base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
+        const float2 base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
         CameraInfo * camera_info;
         float cutoff = 0.0f;
         uint light_idx = 0;

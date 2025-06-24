@@ -81,7 +81,7 @@ struct ShaderDebugDrawContext
                 .images = std::array{
                     device.create_image({
                         .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                             daxa::ImageUsageFlagBits::SHADER_STORAGE |

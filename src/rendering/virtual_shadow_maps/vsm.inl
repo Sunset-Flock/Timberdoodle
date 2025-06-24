@@ -402,7 +402,7 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
         InvalidatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_PAGES_X_DISPATCH);
-        u32 const y_dispatch = (VSM_PAGE_TABLE_RESOLUTION * VSM_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
+        u32 const y_dispatch = (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","INVALIDATE_PAGES">());
         ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","INVALIDATE_PAGES">());
@@ -420,7 +420,7 @@ struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
         FreeWrappedPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
-        ti.recorder.dispatch({1, VSM_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
+        ti.recorder.dispatch({1, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_CLIP_LEVELS});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","FREE_WRAPPED_PAGES">());
     }
 };
@@ -539,8 +539,8 @@ struct GenDirtyBitHizTask : GenDirtyBitHizH::Task
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_DIRECTIONAL">());
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_dirty_bit_hiz_pipeline_compile_info().name));
-        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
-        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
+        auto const dispatch_x = round_up_div(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
+        auto const dispatch_y = round_up_div(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
         GenDirtyBitHizPush push = {
             .mip_count = ti.get(AT.vsm_dirty_bit_hiz).view.slice.level_count,
         };
@@ -560,8 +560,8 @@ struct GenPointDirtyBitHizTask : GenPointDirtyBitHizH::Task
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","GEN_DIRY_BIT_HIZ_POINT_SPOT">());
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info().name));
-        auto const dispatch_x = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
-        auto const dispatch_y = round_up_div(VSM_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
+        auto const dispatch_x = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
+        auto const dispatch_y = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_Y_WINDOW);
 
         auto attachment_alloc = ti.allocator->allocate(sizeof(GenPointDirtyBitHizH::AttachmentShaderBlob)).value();
         *reinterpret_cast<GenPointDirtyBitHizH::AttachmentShaderBlob*>(attachment_alloc.host_address) = ti.attachment_shader_blob;
@@ -591,7 +591,7 @@ struct CullAndDrawPagesTask : CullAndDrawPagesH::Task
 
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_AND_DRAW_PAGES_DIRECTIONAL">());
         auto render_cmd = std::move(ti.recorder).begin_renderpass({
-            .render_area = daxa::Rect2D{.width = VSM_TEXTURE_RESOLUTION, .height = VSM_TEXTURE_RESOLUTION},
+            .render_area = daxa::Rect2D{.width = VSM_DIRECTIONAL_TEXTURE_RESOLUTION, .height = VSM_DIRECTIONAL_TEXTURE_RESOLUTION},
         });
 
         render_cmd.set_depth_bias({
@@ -641,7 +641,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
         });
 
         for(i32 mip = 0; mip < 7; ++mip) {
-            const u32 render_resolution = VSM_TEXTURE_RESOLUTION / (1 << mip);
+            const u32 render_resolution = VSM_POINT_SPOT_TEXTURE_RESOLUTION / (1 << mip);
             auto render_cmd = std::move(ti.recorder).begin_renderpass({
                 .render_area = daxa::Rect2D{.width = render_resolution, .height = render_resolution},
             });
@@ -719,8 +719,8 @@ struct DebugVirtualPageTableTask : DebugVirtualPageTableH::Task
     AttachmentViews views = {};
     RenderContext * render_context = {};
     static constexpr auto dispatch_size = u32vec2{
-        (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_X_DISPATCH - 1) / DEBUG_PAGE_TABLE_X_DISPATCH,
-        (VSM_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_Y_DISPATCH - 1) / DEBUG_PAGE_TABLE_Y_DISPATCH,
+        (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_X_DISPATCH - 1) / DEBUG_PAGE_TABLE_X_DISPATCH,
+        (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_Y_DISPATCH - 1) / DEBUG_PAGE_TABLE_Y_DISPATCH,
     };
 
     void callback(daxa::TaskInterface ti)
@@ -773,7 +773,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
     auto const vsm_page_view_pos_row_view = info.vsm_state->page_view_pos_row.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
     auto const vsm_dirty_bit_hiz_view = info.vsm_state->dirty_pages_hiz.view({
         .base_mip_level = 0,
-        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+        .level_count = s_cast<u32>(std::log2(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
         .layer_count = VSM_CLIP_LEVELS,
     });
@@ -821,7 +821,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     auto const vsm_point_spot_page_table_view = info.vsm_state->point_spot_page_tables.view().view({
         .base_mip_level = 0,
-        .level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+        .level_count = s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1,
         .base_array_layer = 0,
         .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
     });
@@ -1084,7 +1084,7 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
         return clip_projection;
     };
     auto const target_camera_position = glm::vec4(info.camera_info->position, 1.0);
-    auto const uv_page_size = s_cast<f32>(VSM_PAGE_SIZE) / s_cast<f32>(VSM_TEXTURE_RESOLUTION);
+    auto const uv_page_size = s_cast<f32>(VSM_PAGE_SIZE) / s_cast<f32>(VSM_DIRECTIONAL_TEXTURE_RESOLUTION);
     // NDC space is [-1, 1] but uv space is [0, 1], PAGE_SIZE / TEXTURE_RESOLUTION gives us the page size in uv space
     // thus we need to multiply by two to get the page size in ndc coordinates
     auto const ndc_page_size = uv_page_size * 2.0f;
@@ -1117,10 +1117,10 @@ inline auto get_vsm_projections(GetVSMProjectionsInfo const & info) -> std::arra
             .inv_view_proj = glm::inverse(curr_clip_proj * final_clip_view),
             .position = clip_position,
             .up = default_vsm_up,
-            .screen_size = {VSM_PAGE_TABLE_RESOLUTION << 1, VSM_PAGE_TABLE_RESOLUTION << 1},
+            .screen_size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION << 1, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION << 1},
             .inv_screen_size = {
-                1.0f / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION << 1),
-                1.0f / s_cast<f32>(VSM_PAGE_TABLE_RESOLUTION << 1),
+                1.0f / s_cast<f32>(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION << 1),
+                1.0f / s_cast<f32>(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION << 1),
             },
         };
 

@@ -66,7 +66,7 @@ float3 get_vsm_point_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footp
     const uint point_page_array_index = get_vsm_point_page_array_idx(info.cube_face, point_light_index);
     const uint vsm_page_entry = AT.vsm_point_spot_page_table[info.mip_level].get()[int3(info.page_texel_coords.xy, point_page_array_index)];
 
-    const int2 physical_texel_coords = info.page_uvs * (VSM_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
+    const int2 physical_texel_coords = info.page_uvs * (VSM_POINT_SPOT_TEXTURE_RESOLUTION / (1 << int(info.mip_level)));
     const int2 in_page_texel_coords = int2(_mod(physical_texel_coords, float(VSM_PAGE_SIZE)));
 
     bool texel_near_border = any(greaterThan(in_page_texel_coords, int2(VSM_PAGE_SIZE - 1))) ||
@@ -104,7 +104,7 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
     ));
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return color; }
 
-    const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(clip_info.clip_depth_uv * VSM_PAGE_TABLE_RESOLUTION)), clip_info.clip_level);
+    const daxa_i32vec3 vsm_page_pix_coords = daxa_i32vec3(daxa_i32vec2(floor(clip_info.clip_depth_uv * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION)), clip_info.clip_level);
     const uint is_dynamic_invalidated = unwrap_vsm_page_from_mask(vsm_page_pix_coords, AT.vsm_wrapped_pages);
     const int3 vsm_page_texel_coords = vsm_clip_info_to_wrapped_coords(clip_info, AT.vsm_clip_projections);
     const uint page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;

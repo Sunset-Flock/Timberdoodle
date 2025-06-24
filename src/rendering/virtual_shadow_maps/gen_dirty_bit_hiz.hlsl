@@ -93,5 +93,5 @@ void downsample_64x64(
 [shader("compute")]
 void main(uint2 liid : SV_GroupThreadID, uint3 wgid : SV_GroupID)
 {
-    downsample_64x64(liid, wgid.z, wgid.xy, VSM_PAGE_TABLE_RESOLUTION, push.mip_count);
+    downsample_64x64(liid, wgid.z, wgid.xy, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, push.mip_count);
 }

@@ -112,10 +112,10 @@ struct VSMState
                 current_camera.bottom_plane_normal = glm::normalize(
                     glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
-                current_camera.screen_size = { VSM_TEXTURE_RESOLUTION, VSM_TEXTURE_RESOLUTION };
+                current_camera.screen_size = { VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION };
                 current_camera.inv_screen_size = {
-                    1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
-                    1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
+                    1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
+                    1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
                 };
                 current_camera.near_plane = VSM_POINT_LIGHT_NEAR;
             }
@@ -189,10 +189,10 @@ struct VSMState
             current_camera.bottom_plane_normal = glm::normalize(
                 glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
-            current_camera.screen_size = { VSM_TEXTURE_RESOLUTION, VSM_TEXTURE_RESOLUTION };
+            current_camera.screen_size = { VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION };
             current_camera.inv_screen_size = {
-                1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
-                1.0f / static_cast<f32>(VSM_TEXTURE_RESOLUTION),
+                1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
+                1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
             };
             current_camera.near_plane = VSM_SPOT_LIGHT_NEAR;
         }
@@ -268,7 +268,7 @@ struct VSMState
                 .images = std::array{
                     gpu_context->device.create_image({
                         .format = daxa::Format::R32_UINT,
-                        .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
                         .array_layer_count = VSM_CLIP_LEVELS,
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
@@ -286,7 +286,7 @@ struct VSMState
                 .images = std::array{
                     gpu_context->device.create_image({
                         .format = daxa::Format::R32G32B32A32_SFLOAT,
-                        .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
                         .array_layer_count = VSM_CLIP_LEVELS,
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
@@ -299,14 +299,14 @@ struct VSMState
             .name = "vsm page height offsets",
         });
 
-        u32 const mip_levels = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1u;
+        u32 const mip_levels = s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1u;
         // Point lights.
         {
             daxa::ImageId page_image_id{};
 
             page_image_id = gpu_context->device.create_image({.flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
                 .format = daxa::Format::R32_UINT,
-                .size = {VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1},
+                .size = {VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, 1},
                 .mip_level_count = mip_levels,
                 .array_layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS,
                 .usage =
@@ -427,20 +427,20 @@ struct VSMState
             .name = "vsm spot light infos",
         });
 
-        auto const hiz_size = daxa::Extent3D{VSM_PAGE_TABLE_RESOLUTION, VSM_PAGE_TABLE_RESOLUTION, 1};
+        auto const hiz_size = daxa::Extent3D{VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1};
 
         dirty_pages_hiz = tg.create_transient_image({
             .dimensions = 2,
             .format = daxa::Format::R8_UINT,
             .size = hiz_size,
-            .mip_level_count = s_cast<u32>(std::log2(VSM_PAGE_TABLE_RESOLUTION)) + 1,
+            .mip_level_count = s_cast<u32>(std::log2(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION)) + 1,
             .array_layer_count = VSM_CLIP_LEVELS,
             .name = "vsm dirty hiz",
         });
 
         for (i32 mip = 0; mip < 7; ++mip)
         {
-            u32 const base_resolution = VSM_PAGE_TABLE_RESOLUTION / (1 << mip);
+            u32 const base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << mip);
             point_dirty_pages_hiz_mips.at(mip) = tg.create_transient_image({.dimensions = 2,
                 .format = daxa::Format::R8_UINT,
                 .size = daxa::Extent3D{base_resolution, base_resolution, 1},

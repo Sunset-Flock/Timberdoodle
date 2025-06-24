@@ -12,7 +12,7 @@
 void debug_virtual_main(uint3 svdtid : SV_DispatchThreadID)
 {
     let push = debug_virtual_page_push;
-    if(all(lessThan(svdtid.xy, int2(VSM_PAGE_TABLE_RESOLUTION))))
+    if(all(lessThan(svdtid.xy, int2(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION))))
     {
         const bool level_forced = push.globals.vsm_settings.force_clip_level != 0;
         const int clip_level = level_forced ? push.globals.vsm_settings.force_clip_level : 0;
