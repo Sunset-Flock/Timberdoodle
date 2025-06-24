@@ -19,6 +19,109 @@ float3 rt_calc_ray_start(float3 position, float3 geo_normal, float3 view_ray)
     return position + (geo_normal - view_ray * 2) * RAY_MIN_POSITION_OFFSET;
 }
 
+float rayquery_shadow_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max, RenderGlobalData* globals, MeshInstance* mesh_instances)
+{
+    RayQuery<RAY_FLAG_ACCEPT_FIRST_HIT_AND_END_SEARCH> q;
+
+    const float t_min = 0.1f;
+
+    RayDesc my_ray = {
+        origin,
+        t_min,
+        dir,
+        t_max*1.001f,
+    };
+
+    // Set up a trace.  No work is done yet.
+    q.TraceRayInline(
+        tlas,
+        0, // OR'd with flags above
+        0xFFFF,
+        my_ray);
+
+    bool hit = false;
+
+    while(q.Proceed()) {
+        // Examine and act on the result of the traversal.
+        // Was a hit committed?
+        if(q.CommittedStatus() == CANDIDATE_NON_OPAQUE_TRIANGLE)
+        {
+            TriangleGeometry tri_geo = rt_get_triangle_geo(
+                q.CandidateRayBarycentrics(),
+                q.CandidateInstanceID(),
+                q.CandidateGeometryIndex(),
+                q.CandidatePrimitiveIndex(),
+                globals->scene.meshes,
+                globals->scene.entity_to_meshgroup,
+                globals->scene.mesh_groups,
+                mesh_instances
+            );
+
+            const uint primitive_index = q.CandidateRayPrimitiveIndex();
+    
+            const uint mesh_instance_index = q.CandidateInstanceID();
+            MeshInstance* mesh_instance = mesh_instances + mesh_instance_index;
+            GPUMesh *mesh = globals->scene.meshes + mesh_instance->mesh_index;
+            if ((mesh.vertex_uvs == Ptr<float2>(0)) || mesh.material_index == INVALID_MANIFEST_INDEX)
+            {
+                q.CommitNonOpaqueTriangleHit();
+                hit = true;
+            }
+
+            const GPUMaterial *material = globals->scene.materials + mesh.material_index;
+            if (!material.alpha_discard_enabled || (material.opacity_texture_id.is_empty() && material.diffuse_texture_id.is_empty()))
+            {
+                q.CommitNonOpaqueTriangleHit();
+                hit = true;
+            }
+
+            const int primitive_indices[3] = {
+                mesh.primitive_indices[3 * primitive_index],
+                mesh.primitive_indices[3 * primitive_index + 1],
+                mesh.primitive_indices[3 * primitive_index + 2],
+            };
+
+            const float2 uvs[3] = {
+                mesh.vertex_uvs[primitive_indices[0]],
+                mesh.vertex_uvs[primitive_indices[1]],
+                mesh.vertex_uvs[primitive_indices[2]],
+            };
+            const float2 interp_uv = uvs[0] + q.CandidateRayBarycentrics().x * (uvs[1] - uvs[0]) + q.CandidateRayBarycentrics().y* (uvs[2] - uvs[0]);
+
+
+            float opacity = 1.0f;
+            if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                opacity = Texture2D<float>::get(material.opacity_texture_id)
+                    .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 5).r;
+            }
+            else if(material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
+            {
+                opacity = Texture2D<float4>::get(material.diffuse_texture_id)
+                    .SampleLevel(SamplerState::get(globals->samplers.linear_repeat), interp_uv, 5).a;
+            }
+
+            if (opacity > 0.5)
+            {
+                q.CommitNonOpaqueTriangleHit();
+                hit = true;
+            }
+        }
+    }
+
+
+
+    if (q.CommittedStatus() != COMMITTED_TRIANGLE_HIT)
+    {
+        return t_max;
+    }
+    else
+    {
+        // return q.CommittedRayT();
+        return q.CandidateTriangleRayT();
+    }
+}
+
 float rayquery_free_path(RaytracingAccelerationStructure tlas, float3 origin, float3 dir, float t_max)
 {
     RayQuery<RAY_FLAG_FORCE_OPAQUE | RAY_FLAG_CULL_NON_OPAQUE> q;

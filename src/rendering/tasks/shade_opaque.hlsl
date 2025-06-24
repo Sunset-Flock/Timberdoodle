@@ -20,6 +20,8 @@ static int debug_mark_light_influence_counter = 0;
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
+#define RT 0
+
 #define AT deref(push_opaque.attachments).attachments
 
 float compute_exposure(float average_luminance) 
@@ -180,6 +182,27 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     return is_in_shadow ? 0.0 : 1.0;
 }
 
+float get_dir_shadow_rt(float3 position, float3 normal, float3 primary_ray, float2 uv)
+{
+    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
+    float offset_scale = 0.0;
+    float sum = 0.0;
+
+    for(int i = 0; i < PCF_NUM_SAMPLES; ++i)
+    {
+        float3 offset = ((float3(rand(), rand(), rand()) * 2.0f) - 1.0f) * offset_scale;
+        //float3 light_position = position + AT.globals.sky_settings.sun_direction * 100000.0f;
+        //float3 offset_light_position = light_position + offset;
+
+        float t_max = 100000.0f;//length(offset_light_position - position);
+        float3 direction = normalize(AT.globals.sky_settings.sun_direction);
+        // float3 start = rt_calc_ray_start(position, normal, primary_ray);
+        float t = rayquery_shadow_path(AT.tlas.get(), position, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        sum += float(t != t_max);
+    }
+    return 1.0f - (sum / PCF_NUM_SAMPLES);
+}
+
 float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorldFootprint pixel_footprint)
 {
     const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
@@ -237,6 +260,25 @@ float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorld
     return sum / PCF_NUM_SAMPLES;
 }
 
+float get_rt_point_shadow(GPUPointLight light, float3 position, float3 normal, float3 primary_ray, float2 uv)
+{
+    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
+    float offset_scale = 0.000;
+    float sum = 0.0;
+    for(int i = 0; i < PCF_NUM_SAMPLES; ++i)
+    {
+        float3 offset = ((float3(rand(), rand(), rand()) * 2.0f) - 1.0f) * offset_scale;
+        float3 offset_light_position = light.position + offset;
+
+        float t_max = length(offset_light_position - position) - 0.05;
+        float3 direction = normalize(offset_light_position - position);
+        float3 start = position;//rt_calc_ray_start(position, normal, primary_ray);
+        float t = rayquery_shadow_path(AT.tlas.get(), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        sum += bool(t < t_max);
+    }
+    return 1.0f - float(sum / PCF_NUM_SAMPLES);
+}
+
 float3 point_lights_contribution(
     float2 screen_uv,
     float3 shading_normal,
@@ -244,7 +286,8 @@ float3 point_lights_contribution(
     GPUPointLight * lights,
     uint light_count,
     ScreenSpacePixelWorldFootprint pixel_footprint,
-    bool skip_shadows)
+    bool skip_shadows,
+    float3 view_dir)
 {
     float3 total_contribution = float3(0.0);
     let light_settings = AT.globals.light_settings;
@@ -270,6 +313,9 @@ float3 point_lights_contribution(
         float attenuation = lights_attenuate_point(to_light_dist, light.cutoff);
         float shadowing = 1.0f;
         if(attenuation > 0.0f && !skip_shadows) {
+#if RT
+            shadowing = get_rt_point_shadow(light, pixel_footprint.center, world_normal, view_dir, screen_uv);
+#else
             shadowing = get_vsm_point_shadow(
                 AT.globals,
                 AT.vsm_globals,
@@ -281,6 +327,7 @@ float3 point_lights_contribution(
                 light_index,
                 pixel_footprint,
                 point_norm_dot);
+#endif
                 
             if (light_settings.debug_mark_influence && 
                 light_settings.debug_draw_point_influence && 
@@ -297,6 +344,25 @@ float3 point_lights_contribution(
     return total_contribution;
 }
 
+float get_rt_spot_shadow(GPUSpotLight light, float3 position, float3 normal, float3 primary_ray, float2 uv)
+{
+    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
+    float offset_scale = 0.000;
+    float sum = 0.0;
+    for(int i = 0; i < PCF_NUM_SAMPLES; ++i)
+    {
+        float3 offset = ((float3(rand(), rand(), rand()) * 2.0f) - 1.0f) * offset_scale;
+        float3 offset_light_position = light.position + offset;
+
+        float t_max = length(offset_light_position - position) - 0.05;
+        float3 direction = normalize(offset_light_position - position);
+        float3 start = rt_calc_ray_start(position, normal, primary_ray);
+        float t = rayquery_shadow_path(AT.tlas.get(), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        sum += t < t_max;
+    }
+    return 1.0f - float(sum / PCF_NUM_SAMPLES);
+}
+
 float3 spot_lights_contribution(
     float2 screen_uv,
     float3 shading_normal,
@@ -304,7 +370,8 @@ float3 spot_lights_contribution(
     GPUSpotLight * lights,
     uint light_count,
     ScreenSpacePixelWorldFootprint pixel_footprint, 
-    bool skip_shadows)
+    bool skip_shadows,
+    float3 view_dir)
 {
     float3 total_contribution = float3(0.0);
 #if LIGHTS_ENABLE_MASK_ITERATION
@@ -327,6 +394,9 @@ float3 spot_lights_contribution(
         const float attenuation = lights_attenuate_spot(position_to_light, to_light_dist, light);
         float shadowing = 1.0f;
         if(attenuation > 0.0f && !skip_shadows) {
+#if RT
+            shadowing = get_rt_spot_shadow(light, pixel_footprint.center, world_normal, view_dir, screen_uv);
+#else
             shadowing = get_vsm_spot_shadow(
                 AT.globals,
                 AT.vsm_globals,
@@ -337,6 +407,7 @@ float3 spot_lights_contribution(
                 world_normal, 
                 light_index, 
                 pixel_footprint);
+#endif
                 
             if (light_settings.debug_mark_influence && 
                 light_settings.debug_draw_spot_influence && 
@@ -671,8 +742,17 @@ void entry_main_cs(
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(mapped_normal, sun_direction), 0.0, 1.0);
-        float shadow = (AT.globals->vsm_settings.enable != 0 && !skip_shadows) ? get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint) : 1.0f;
+        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.0, 1.0);
+        float shadow = 1.0f;
+        if((AT.globals->vsm_settings.enable != 0 && !skip_shadows))
+        {
+#if RT
+            shadow = get_dir_shadow_rt(tri_point.world_position, tri_point.world_normal, primary_ray, screen_uv);
+#else 
+            shadow = get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint);
+#endif
+        }
+
         if (AT.globals->vsm_settings.shadow_everything == 1)
         {
             shadow = 0.0f;
@@ -680,8 +760,8 @@ void entry_main_cs(
         const float final_shadow = sun_norm_dot * shadow.x;
 
         // Point lights and spot lights
-        float3 point_lights_direct = point_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.point_lights, AT.globals.vsm_settings.point_light_count, ws_pixel_footprint, skip_shadows);
-        float3 spot_lights_direct = spot_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.spot_lights, AT.globals.vsm_settings.spot_light_count, ws_pixel_footprint, skip_shadows);
+        float3 point_lights_direct = point_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.point_lights, AT.globals.vsm_settings.point_light_count, ws_pixel_footprint, skip_shadows, primary_ray);
+        float3 spot_lights_direct = spot_lights_contribution(screen_uv, mapped_normal, tri_point.world_normal, AT.spot_lights, AT.globals.vsm_settings.spot_light_count, ws_pixel_footprint, skip_shadows, primary_ray);
 
         const float3 directional_light_direct = final_shadow * get_sun_direct_lighting(
             AT.globals, AT.transmittance, AT.sky,
