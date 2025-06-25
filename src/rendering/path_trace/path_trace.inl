@@ -117,25 +117,20 @@ struct ReferencePathTraceTask : ReferencePathTraceH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        // render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
-        if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
-        {
-            ReferencePathTracePush push = {};
-            auto alloc = ti.allocator->allocate(sizeof(ReferencePathTraceAttachments));
-            std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ReferencePathTraceH::AttachmentShaderBlob));
-            push.attachments = alloc->device_address;
-            auto const & pt_image = ti.info(AT.pt_image).value();
-            auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(reference_path_trace_rt_pipeline_info().name);
-            ti.recorder.set_pipeline(*rt_pipeline.pipeline);
-            ti.recorder.push_constant(push);
-            ti.recorder.trace_rays({
-                .width = pt_image.size.x,
-                .height = pt_image.size.y,
-                .depth = 1,
-                .shader_binding_table = rt_pipeline.sbt,
-            });
-        }
-        // render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
+        ReferencePathTracePush push = {};
+        auto alloc = ti.allocator->allocate(sizeof(ReferencePathTraceAttachments));
+        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ReferencePathTraceH::AttachmentShaderBlob));
+        push.attachments = alloc->device_address;
+        auto const & pt_image = ti.info(AT.pt_image).value();
+        auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(reference_path_trace_rt_pipeline_info().name);
+        ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+        ti.recorder.push_constant(push);
+        ti.recorder.trace_rays({
+            .width = pt_image.size.x,
+            .height = pt_image.size.y,
+            .depth = 1,
+            .shader_binding_table = rt_pipeline.sbt,
+        });
     }
 };
 

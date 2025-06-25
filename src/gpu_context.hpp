@@ -25,13 +25,13 @@ struct CPUDebugDraws
 
 struct ShaderDebugDrawContext
 {
-    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 2'560'000, .vertices = 2 };
-    CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = { .max_draws = 256'000, .vertices = 128 };
-    CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 256'000, .vertices = 8 };
-    CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 64'000, .vertices = 24 };
-    CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 64'000, .vertices = 24 };
-    CPUDebugDraws<ShaderDebugConeDraw> cone_draws = { .max_draws = 64'000, .vertices = 64 };
-    CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = { .max_draws = 64'000, .vertices = (5*64) };
+    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 1u << 16u, .vertices = 2 };
+    CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = { .max_draws = 1u << 16u, .vertices = 128 };
+    CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 1u << 16u, .vertices = 8 };
+    CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 1u << 16u, .vertices = 24 };
+    CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 1u << 14u, .vertices = 24 };
+    CPUDebugDraws<ShaderDebugConeDraw> cone_draws = { .max_draws = 1u << 14u, .vertices = 64 };
+    CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = { .max_draws = 1u << 14u, .vertices = (5*64) };
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
@@ -239,7 +239,7 @@ struct ReadbackTask : ReadbackH::Task
     ShaderDebugDrawContext * shader_debug_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        u32 const index = (shader_debug_context->frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1));
+        u32 const index = ((shader_debug_context->frame_index-1) % (MAX_GPU_FRAMES_IN_FLIGHT+1));
         std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
         // Set the currently recording frame to write its debug output to the slot we just read from.
         ti.recorder.copy_buffer_to_buffer({
@@ -263,7 +263,6 @@ struct GPUContext
     daxa::Device device = {};
     daxa::Swapchain swapchain = {};
     daxa::PipelineManager pipeline_manager = {};
-    daxa::TlasId dummy_tlas_id = {};
 
     ShaderDebugDrawContext shader_debug_context = {};
 

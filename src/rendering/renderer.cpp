@@ -31,8 +31,31 @@
 #include <variant>
 #include <iostream>
 
+
+    
+
+struct FixedFunctionContainer
+{
+    std::array<u8, 128> mem = {};
+    void (*callback)(u8* mem, daxa::TaskInterface ti) = {};
+
+    FixedFunctionContainer() = default;
+    template<typename CallbackT>
+    FixedFunctionContainer(CallbackT const & func)
+    {
+        std::memcpy(mem.data(), &func, sizeof(func));
+        callback = [](u8* mem, daxa::TaskInterface ti)
+        {
+            reinterpret_cast<CallbackT*>(mem)->operator()(ti);
+        };
+    }
+};
+
 inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_buf_name, auto buf_name)
 {
+    FixedFunctionContainer fcont = {};
+    fcont = {[gpu_context](daxa::TaskInterface ti){  }};
+
     return daxa::TaskBuffer{{
         .initial_buffers = {
             .buffers = std::array{
@@ -50,7 +73,6 @@ Renderer::Renderer(
     Window * window, GPUContext * gpu_context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer, UIEngine * ui_engine)
     : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
-    zero_buffer = create_task_buffer(gpu_context, sizeof(u32), "zero_buffer", "zero_buffer");
     meshlet_instances = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     exposure_state = create_task_buffer(gpu_context, sizeof(AutoExposureState), "exposure state", "exposure_state");
@@ -62,7 +84,6 @@ Renderer::Renderer(
     visible_meshlet_instances = create_task_buffer(gpu_context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
 
     buffers = {
-        zero_buffer,
         meshlet_instances,
         visible_meshlet_instances,
         visible_mesh_instances,
@@ -1333,12 +1354,13 @@ auto Renderer::prepare_frame(
     
     if (render_context->render_data.light_settings.debug_draw_point_influence)
     {
-        u32 range[2] = {0, render_context->render_data.light_settings.point_light_count-1};
+        u32 range[2] = {0, render_context->render_data.light_settings.point_light_count };
         if (render_context->render_data.light_settings.selected_debug_point_light != -1)
         {
-            range[0] = range[1] = render_context->render_data.light_settings.selected_debug_point_light;
+            range[0] = render_context->render_data.light_settings.selected_debug_point_light;
+            range[1] = range[0] + 1;
         }
-        for (u32 i = range[0]; i <= range[1]; ++i)
+        for (u32 i = range[0]; i < range[1]; ++i)
         {
             PointLight const& light = scene->_point_lights.at(i);
 
@@ -1357,12 +1379,13 @@ auto Renderer::prepare_frame(
 
     if (render_context->render_data.light_settings.debug_draw_spot_influence)
     {
-        u32 range[2] = {0, render_context->render_data.light_settings.spot_light_count-1};
+        u32 range[2] = {0, render_context->render_data.light_settings.spot_light_count};
         if (render_context->render_data.light_settings.selected_debug_spot_light != -1)
         {
-            range[0] = range[1] = render_context->render_data.light_settings.selected_debug_spot_light;
+            range[0] = render_context->render_data.light_settings.selected_debug_spot_light;
+            range[1] = range[0] + 1;
         }
-        for (u32 i = range[0]; i <= range[1]; ++i)
+        for (u32 i = range[0]; i < range[1]; ++i)
         {
             SpotLight const& light = scene->_spot_lights.at(i);
             
@@ -1391,6 +1414,8 @@ auto Renderer::prepare_frame(
             });
         }
     }
+
+
 
     gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);
     

@@ -77,11 +77,6 @@ GPUContext::GPUContext(Window const & window)
           .default_enable_debug_info = true,
           .name = "Sandbox PipelineCompiler",
       }}},
-      dummy_tlas_id{
-          device.create_tlas({
-              .size = 1u,
-              .name = "dummy tlas",
-          })},
       lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})},
       nearest_clamp_sampler{this->device.create_sampler({
           .magnification_filter = daxa::Filter::NEAREST,

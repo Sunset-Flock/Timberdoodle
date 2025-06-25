@@ -78,9 +78,6 @@ struct Renderer
         u64 const total_elapsed_us) -> bool;
     void readback_statistics(daxa::TaskGraph & tg);
 
-    daxa::TaskBuffer zero_buffer = {};
-
-    daxa::TaskBuffer shader_debug_buffer = {};
     daxa::TaskBuffer meshlet_instances = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
     daxa::TaskBuffer visible_mesh_instances = {};

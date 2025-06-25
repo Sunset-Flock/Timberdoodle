@@ -139,21 +139,18 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
     void callback(daxa::TaskInterface ti)
     {
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
-        if (ti.id(AT.tlas) != gpu_context->dummy_tlas_id)
-        {
-            RayTraceAmbientOcclusionPush push = {};
-            push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-            auto const & ppd_raw_image = ti.info(AT.ppd_raw_image).value();
-            auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
-            ti.recorder.set_pipeline(*rt_pipeline.pipeline);
-            ti.recorder.push_constant(push);
-            ti.recorder.trace_rays({
-                .width = ppd_raw_image.size.x,
-                .height = ppd_raw_image.size.y,
-                .depth = 1,
-                .shader_binding_table = rt_pipeline.sbt,
-            });
-        }
+        RayTraceAmbientOcclusionPush push = {};
+        push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+        auto const & ppd_raw_image = ti.info(AT.ppd_raw_image).value();
+        auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
+        ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+        ti.recorder.push_constant(push);
+        ti.recorder.trace_rays({
+            .width = ppd_raw_image.size.x,
+            .height = ppd_raw_image.size.y,
+            .depth = 1,
+            .shader_binding_table = rt_pipeline.sbt,
+        });
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
     }
 };
