@@ -76,8 +76,6 @@ DAXA_DECL_BUFFER_PTR(ShaderDebugSphereDraw);
 
 struct ShaderDebugInput
 {
-    daxa_i32vec2 texel_detector_pos;
-    daxa_i32 texel_detector_window_half_size;
     daxa_i32vec4 debug_ivec4;
     daxa_f32vec4 debug_fvec4;
 };
@@ -86,7 +84,6 @@ struct ShaderDebugOutput
 {
     daxa_i32vec4 debug_ivec4;
     daxa_f32vec4 debug_fvec4;
-    daxa_f32vec4 texel_detector_center_value;
     daxa_u32 exceeded_line_draw_capacity;
     daxa_u32 exceeded_circle_draw_capacity;
     daxa_u32 exceeded_rectangle_draw_capacity;

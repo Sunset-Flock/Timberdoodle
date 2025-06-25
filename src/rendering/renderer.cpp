@@ -548,8 +548,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.point_spot_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
-    auto debug_lens_image = gpu_context->shader_debug_context.tdebug_lens_image;
-    tg.use_persistent_image(debug_lens_image);
     tg.use_persistent_image(swapchain_image);
 
     // TODO: Move into an if and create persistent state only if necessary.
@@ -557,8 +555,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
     tg.use_persistent_image(pgi_state.cell_requests);
-
-    tg.clear_image({debug_lens_image, std::array{0.0f, 0.0f, 0.0f, 1.0f}});
 
     daxa::TaskImageView clocks_image = daxa::NullTaskImage;
 
@@ -848,7 +844,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(RayTraceAmbientOcclusionTask{
             .views = RayTraceAmbientOcclusionTask::Views{
                 .globals = render_context->tgpu_render_data,
-                .debug_lens_image = daxa::NullTaskImage,
                 .debug_image = debug_image,
                 .clocks_image = daxa::NullTaskImage,
                 .ppd_raw_image = ppd_raw_image,
@@ -920,7 +915,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(ReferencePathTraceTask{
             .views = ReferencePathTraceTask::Views{
                 .globals = render_context->tgpu_render_data,
-                .debug_lens_image = debug_lens_image,
                 .debug_image = debug_image,
                 .pt_image = color_image,
                 .history_image = path_trace_history,
@@ -943,7 +937,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.add_task(ShadeOpaqueTask{
             .views = ShadeOpaqueTask::Views{
                 .globals = render_context->tgpu_render_data,
-                .debug_lens_image = debug_lens_image,
                 .color_image = color_image,
                 .selected_mark_image = selected_mark_image,
                 .ao_image = ppd_image,
@@ -1082,7 +1075,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
             .color_attachment.reads_writes(swapchain_image)
-            .fragment_shader.samples(debug_lens_image)
             .executes(
                 [=, this](daxa::TaskInterface ti)
                 {

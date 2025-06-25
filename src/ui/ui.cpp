@@ -276,29 +276,6 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.z,
                     render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.w);
             }
-            ImGui::SeparatorText("Debug Shader Lens");
-            {
-                ImGui::Text("Press ALT + LEFT_CLICK to set the detector to the cursor position");
-                ImGui::Text("Press ALT + Keyboard arrow keys to move detector");
-                ImGui::Checkbox("draw_magnified_area_rect", &render_context.gpu_context->shader_debug_context.draw_magnified_area_rect);
-                ImGui::InputInt("detector window size", &render_context.gpu_context->shader_debug_context.detector_window_size, 2);
-                ImGui::Text(
-                    "detector texel position: (%i,%i)",
-                    render_context.gpu_context->shader_debug_context.detector_window_position.x,
-                    render_context.gpu_context->shader_debug_context.detector_window_position.y);
-                ImGui::Text(
-                    "detector center value: (%f,%f,%f,%f)",
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.x,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.y,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.z,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.texel_detector_center_value.w);
-                auto debug_lens_image_view_id = imgui_renderer.create_texture_id({
-                    .image_view_id = render_context.gpu_context->shader_debug_context.debug_lens_image.default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
-                });
-                auto const width = ImGui::GetContentRegionMax().x;
-                ImGui::Image(debug_lens_image_view_id, ImVec2(width, width));
-            }
         }
         ImGui::End();
     }
