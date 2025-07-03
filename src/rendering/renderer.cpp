@@ -582,8 +582,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.add_task(ReadbackTask{
         .views = ReadbackTask::Views{
-            .globals = render_context->tgpu_render_data.view()
-        },
+            .globals = render_context->tgpu_render_data.view()},
         .shader_debug_context = &gpu_context->shader_debug_context,
     });
     tg.add_task(daxa::InlineTask::Transfer("update global buffers")
@@ -616,48 +615,46 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     auto tlas_build_task_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
 
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().layers(0, 6);
-    tg.add_task(ComputeSkyTask{
-                    .views = ComputeSkyTask::Views{
-                        .globals = render_context->tgpu_render_data.view(),
-                        .transmittance = transmittance.view(),
-                        .multiscattering = multiscattering.view(),
-                        .sky = sky,
-                    },
-                    .render_context = render_context.get(),
-                },
-        {misc_tasks_queue});
-    tg.add_task(SkyIntoCubemapTask{
-                    .views = SkyIntoCubemapTask::Views{
-                        .globals = render_context->tgpu_render_data.view(),
-                        .transmittance = transmittance.view(),
-                        .sky = sky,
-                        .ibl_cube = sky_ibl_view,
-                    },
-                    .gpu_context = gpu_context,
-                },
-        {misc_tasks_queue});
+    tg.add_task(daxa::HeadTask<ComputeSkyH::Info>()
+        .head_views({
+            .globals = render_context->tgpu_render_data.view(),
+            .transmittance = transmittance.view(),
+            .multiscattering = multiscattering.view(),
+            .sky = sky,
+        })
+        .uses_queue(misc_tasks_queue)
+        .executes(compute_sky_task, render_context.get()));
+
+    tg.add_task(daxa::HeadTask<SkyIntoCubemapH::Info>()
+                .head_views({
+                    .globals = render_context->tgpu_render_data.view(),
+                    .transmittance = transmittance.view(),
+                    .sky = sky,
+                    .ibl_cube = sky_ibl_view,
+                })
+                .uses_queue(misc_tasks_queue)
+                .executes(sky_into_cubemap_task, gpu_context));
 
     daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
-    tg.add_task(CullLightsTask{
-                    .views = CullLightsTask::Views{
-                        .globals = render_context->tgpu_render_data.view(),
-                        .light_mask_volume = light_mask_volume,
-                    },
-                    .render_context = render_context.get(),
-                },
-        {misc_tasks_queue});
+    tg.add_task(daxa::HeadTask<CullLightsH::Info>()
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .light_mask_volume = light_mask_volume,
+            })
+            .uses_queue(misc_tasks_queue)
+            .executes(cull_lights_task, render_context.get()));
 
     auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
-    tg.add_task(daxa::InlineTask::RayTracing("build scene tlas")
-                    .acceleration_structure_build.writes(scene_main_tlas)
-                    .executes(
-                        [=](daxa::TaskInterface ti)
-                        {
-                            render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
-                            scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
-                            render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
-                        }),
-        {tlas_build_task_queue});
+    tg.add_task(daxa::Task::RayTracing("build scene tlas")
+            .acceleration_structure_build.writes(scene_main_tlas)
+            .uses_queue(tlas_build_task_queue)
+            .executes(
+                [=](daxa::TaskInterface ti)
+                {
+                    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
+                    scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
+                    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
+                }));
 
     ///
     /// === Misc Tasks End ===

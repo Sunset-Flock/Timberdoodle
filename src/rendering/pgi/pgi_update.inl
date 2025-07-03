@@ -67,7 +67,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct PGIUpdateProbesPush
 {
-    PGIUpdateProbesH::Info::AttachmentShaderBlob attach;
+    PGIUpdateProbesH::AttachmentShaderBlob attach;
 };
 
 #define PGI_PRE_UPDATE_XYZ 4

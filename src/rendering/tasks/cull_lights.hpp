@@ -68,26 +68,22 @@ inline auto lights_significant_settings_change(LightSettings const & prev, Light
         std::memcmp(&prev.mask_volume_cell_count, &curr.mask_volume_cell_count, sizeof(daxa_f32vec3)) != 0;
 }
 
-struct CullLightsTask : CullLightsH::Task
+void cull_lights_task(daxa::TaskInterface ti, RenderContext* render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_lights_compile_info().name));
+    auto const & AT = CullLightsH::AT;
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_lights_compile_info().name));
 
-        CullLightsPush push = {};
-        push.at = ti.attachment_shader_blob;
-        push.point_lights = render_context->render_data.scene.point_lights;
-        push.spot_lights = render_context->render_data.scene.spot_lights;
-        ti.recorder.push_constant(push);
+    CullLightsPush push = {};
+    push.at = ti.attachment_shader_blob;
+    push.point_lights = render_context->render_data.scene.point_lights;
+    push.spot_lights = render_context->render_data.scene.spot_lights;
+    ti.recorder.push_constant(push);
 
-        auto const mask_volume_size = ti.info(AT.light_mask_volume).value().size;
-        auto const x = round_up_div(mask_volume_size.x, CULL_LIGHTS_XYZ);
-        auto const y = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
-        auto const z = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
-        ti.recorder.dispatch({x,y,z});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
-    }
-};
+    auto const mask_volume_size = ti.info(AT.light_mask_volume).value().size;
+    auto const x = round_up_div(mask_volume_size.x, CULL_LIGHTS_XYZ);
+    auto const y = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
+    auto const z = round_up_div(mask_volume_size.y, CULL_LIGHTS_XYZ);
+    ti.recorder.dispatch({x,y,z});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
+}

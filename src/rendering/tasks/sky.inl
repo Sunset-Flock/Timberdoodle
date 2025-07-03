@@ -101,41 +101,30 @@ struct ComputeMultiscatteringTask : ComputeMultiscatteringH::Task
     }
 };
 
-struct ComputeSkyTask : ComputeSkyH::Task
+void compute_sky_task(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
+    auto const & AT = ComputeSkyH::AT;
+    auto const sky_size = ti.info(AT.sky).value().size;
+    auto const dispatch_size = u32vec2{
+        (sky_size.x + SKY_X - 1) / SKY_X,
+        (sky_size.y + SKY_Y - 1) / SKY_Y,
+    };
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_sky_pipeline_compile_info().name));
+    ComputeSkyH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+}
 
-    void callback(daxa::TaskInterface ti)
-    {
-        auto const sky_size = ti.info(AT.sky).value().size;
-        auto const dispatch_size = u32vec2{
-            (sky_size.x + SKY_X - 1) / SKY_X,
-            (sky_size.y + SKY_Y - 1) / SKY_Y,
-        };
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_sky_pipeline_compile_info().name));
-        ComputeSkyH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-    }
-};
-
-struct SkyIntoCubemapTask : SkyIntoCubemapH::Task
+void sky_into_cubemap_task(daxa::TaskInterface ti, GPUContext * gpu_context)
 {
-    AttachmentViews views = {};
-    GPUContext * gpu_context = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(sky_into_cubemap_pipeline_compile_info().name));
-        SkyIntoCubemapH::AttachmentShaderBlob push{};
-        push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({
-            (IBL_CUBE_RES + IBL_CUBE_X - 1) / IBL_CUBE_X,
-            (IBL_CUBE_RES + IBL_CUBE_Y - 1) / IBL_CUBE_Y,
-            6
-        });
-    }
-};
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(sky_into_cubemap_pipeline_compile_info().name));
+    SkyIntoCubemapH::AttachmentShaderBlob push{};
+    push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({
+        (IBL_CUBE_RES + IBL_CUBE_X - 1) / IBL_CUBE_X,
+        (IBL_CUBE_RES + IBL_CUBE_Y - 1) / IBL_CUBE_Y,
+        6
+    });
+}
 #endif //_cplusplus
