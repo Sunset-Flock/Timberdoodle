@@ -808,25 +808,25 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(InvalidatePagesTask{
         .views = InvalidatePagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .mesh_instances = info.mesh_instances,
             .meshes = info.meshes,
             .entity_combined_transforms = info.entity_combined_transforms,
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .free_wrapped_pages_info = info.vsm_state->free_wrapped_pages_info,
             .vsm_page_table = vsm_page_table_view,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(FreeWrappedPagesTask{
         .views = FreeWrappedPagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .free_wrapped_pages_info = info.vsm_state->free_wrapped_pages_info,
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_page_table = vsm_page_table_view,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
         },
         .render_context = info.render_context,
     });
@@ -843,19 +843,19 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(ForceAlwaysResidentPagesTask{
         .views = ForceAlwaysResidentPagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
             .vsm_point_spot_page_table = vsm_last_mip_point_spot_page_table_view,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(MarkRequiredPagesTask{
         .views = MarkRequiredPagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
-            .vsm_globals = info.vsm_state->globals,
+            .vsm_globals = info.vsm_state->globals.view(),
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
             .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
@@ -863,7 +863,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .g_buffer_geo_normal = info.g_buffer_geo_normal,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
             .vsm_page_table = vsm_page_table_view,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
             .light_mask_volume = info.light_mask_volume,
         },
@@ -878,16 +878,16 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_allocate_indirect = info.vsm_state->allocate_indirect,
             .vsm_clear_indirect = info.vsm_state->clear_indirect,
             .vsm_clear_dirty_bit_indirect = info.vsm_state->clear_dirty_bit_indirect,
-            .vsm_globals = info.vsm_state->globals,
+            .vsm_globals = info.vsm_state->globals.view(),
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
         },
         .render_context = info.render_context,
     });
 
     info.tg->add_task(AllocatePagesTask{
         .views = AllocatePagesTask::Views{
-            .vsm_globals = info.vsm_state->globals,
+            .vsm_globals = info.vsm_state->globals.view(),
             .vsm_find_free_pages_header = info.vsm_state->find_free_pages_header,
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
             .vsm_free_pages_buffer = info.vsm_state->free_page_buffer,
@@ -896,7 +896,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_page_table = vsm_page_table_view,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
-            .vsm_meta_memory_table = info.vsm_state->meta_memory_table,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
         },
         .render_context = info.render_context,
@@ -911,7 +911,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
             .vsm_clear_indirect = info.vsm_state->clear_indirect,
             .vsm_page_table = vsm_page_table_view,
-            .vsm_memory_block = info.vsm_state->memory_block,
+            .vsm_memory_block = info.vsm_state->memory_block.view(),
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
         },
         .render_context = info.render_context,
@@ -919,7 +919,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(GenDirtyBitHizTask{
         .views = GenDirtyBitHizTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_page_table = vsm_page_table_view,
             .vsm_dirty_bit_hiz = vsm_dirty_bit_hiz_view,
@@ -938,7 +938,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(GenPointDirtyBitHizTask{
         .views = GenPointDirtyBitHizTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
             .vsm_dirty_bit_hiz_mip0 = hpb_mip_views.at(0),
             .vsm_dirty_bit_hiz_mip1 = hpb_mip_views.at(1),
@@ -967,7 +967,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(CullAndDrawPagesTask{
         .views = CullAndDrawPagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .po2expansion = directional_cascade_meshlet_expansions[0],
             .masked_po2expansion = directional_cascade_meshlet_expansions[1],
             .meshlet_instances = info.meshlet_instances,
@@ -978,7 +978,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_clip_projections = info.vsm_state->clip_projections,
             .vsm_dirty_bit_hiz = vsm_dirty_bit_hiz_view,
             .vsm_page_table = vsm_page_table_view,
-            .vsm_memory_block = info.vsm_state->memory_block,
+            .vsm_memory_block = info.vsm_state->memory_block.view(),
             .vsm_overdraw_debug = info.vsm_state->overdraw_debug_image,
         },
         .render_context = info.render_context,
@@ -1006,7 +1006,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
 
     info.tg->add_task(CullAndDrawPointPagesTask{
         .views = CullAndDrawPointPagesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .po2expansion_mip0 = point_meshlet_mip_expansion[0][0],
             .masked_po2expansion_mip0 = point_meshlet_mip_expansion[0][1],
             .po2expansion_mip1 = point_meshlet_mip_expansion[1][0],
@@ -1029,7 +1029,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
             .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
             .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
-            .vsm_memory_block = info.vsm_state->memory_block,
+            .vsm_memory_block = info.vsm_state->memory_block.view(),
             .vsm_dirty_bit_hiz_mip0 = hpb_mip_views.at(0),
             .vsm_dirty_bit_hiz_mip1 = hpb_mip_views.at(1),
             .vsm_dirty_bit_hiz_mip2 = hpb_mip_views.at(2),

@@ -168,7 +168,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumCommandWriteTask{
         .views = PrefixSumCommandWriteTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .value_count = info.value_count_buf,
             .upsweep_command0 = upsweep0_command_buffer,
             .upsweep_command1 = upsweep1_command_buffer,
@@ -186,7 +186,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = PrefixSumUpsweepTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .command = upsweep0_command_buffer,
             .src = info.src_buf,
             .dst = info.dst_buf,
@@ -211,7 +211,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumUpsweepTask{
         .views = PrefixSumUpsweepTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .command = upsweep1_command_buffer,
             .src = block_sums_src,
             .dst = block_sums_dst,
@@ -228,7 +228,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
 
     info.task_list.add_task(PrefixSumDownsweepTask{
         .views = PrefixSumDownsweepTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .command = downsweep_command_buffer,
             .block_sums = block_sums_dst,
             .values = info.dst_buf,

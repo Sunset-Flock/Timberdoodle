@@ -207,7 +207,7 @@ namespace RenderTimes
             constexpr GroupNames group = GROUPS[gidx];
             for (u32 t = 0; t < group.timing_names.size(); ++t)
             {
-                if (group.timing_names[t].name.size() == 0)
+                if (group.timing_names[t].size() == 0)
                 {
                     return t;
                 }
@@ -372,7 +372,7 @@ namespace RenderTimes
         {
             return GROUPS[gidx].name;
         }
-        return std::numeric_limits<u32>::max();
+        return std::string_view{"INVALID IDX"};
     }
 
     static constexpr auto in_group_timing_name(u32 group_index, u32 in_group_index) -> std::string_view
@@ -384,7 +384,7 @@ namespace RenderTimes
                 return GROUPS[group_index].timing_names[in_group_index];
             }
         }
-        return std::string_view{};
+        return std::string_view{"INVALID IDX"};
     }
 
     template <daxa::StringLiteral GROUP>

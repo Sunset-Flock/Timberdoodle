@@ -155,10 +155,10 @@ namespace raster_visbuf
             info.tg.clear_buffer({.buffer = visible_meshlets_bitfield, .clear_value = 0});
             info.tg.add_task(AnalyzeVisBufferTask2{
                 .views = AnalyzeVisBufferTask2::Views{
-                    .globals = info.render_context->tgpu_render_data,
+                    .globals = info.render_context->tgpu_render_data.view(),
                     .visbuffer = ret.main_camera_visbuffer,
                     .meshlet_instances = info.meshlet_instances,
-                    .mesh_instances = info.scene->mesh_instances_buffer,
+                    .mesh_instances = info.scene->mesh_instances_buffer.view(),
                     .meshlet_visibility_bitfield = visible_meshlets_bitfield,
                     .visible_meshlets = info.visible_meshlet_instances,
                     .mesh_visibility_bitfield = visible_meshes_bitfield,

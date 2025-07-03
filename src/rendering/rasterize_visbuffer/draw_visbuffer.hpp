@@ -326,7 +326,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
 
         DrawVisbuffer_WriteCommandTask2 write_task = {
             .views = DrawVisbuffer_WriteCommandTask2::Views{
-                .globals = info.render_context->tgpu_render_data,
+                .globals = info.render_context->tgpu_render_data.view(),
                 .meshlet_instances = info.meshlet_instances,
                 .draw_commands = draw_commands_array,
             },
@@ -338,7 +338,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
 
         DrawVisbufferTask draw_task = {
             .views = DrawVisbufferTask::Views{
-                .globals = info.render_context->tgpu_render_data,
+                .globals = info.render_context->tgpu_render_data.view(),
                 .draw_commands = draw_commands_array,
                 .hiz = info.hiz,
                 .meshlet_instances = info.meshlet_instances,
@@ -402,7 +402,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbuffer_WriteCommandTask2 write_task = {
         .views = DrawVisbuffer_WriteCommandTask2::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .meshlet_instances = info.meshlet_instances,
             .draw_commands = draw_commands_array,
         },
@@ -419,7 +419,7 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 
     DrawVisbufferTask draw_task = {
         .views = DrawVisbufferTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .draw_commands = draw_commands_array,
             .hiz = info.hiz,
             .meshlet_instances = info.meshlet_instances,

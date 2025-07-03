@@ -2074,7 +2074,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
     daxa::TaskImageView probe_info_copy = pgi_create_probe_info_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.add_task(PGIPreUpdateProbesTask{
         .views = PGIPreUpdateProbesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .probe_info = info.pgi_state.probe_info_view,
             .probe_info_copy = probe_info_copy,
             .requests = info.pgi_state.cell_requests_view,
@@ -2086,7 +2086,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
     daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.add_task(PGITraceProbeRaysTask{
         .views = PGITraceProbeRaysTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .probe_indirections = pgi_indirections,
             .light_mask_volume = info.light_mask_volume,
             .probe_radiance = info.pgi_state.probe_irradiance_view,
@@ -2110,7 +2110,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
     //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
     info.tg.add_task(PGIUpdateProbesTask{
         .views = PGIUpdateProbesTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .probe_indirections = pgi_indirections,
             .probe_info = info.pgi_state.probe_info_view,
             .probe_info_copy = probe_info_copy,
@@ -2122,7 +2122,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
     });
     info.tg.add_task(PGIUpdateProbeTexelsTask{
         .views = PGIUpdateProbeTexelsTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .probe_indirections = pgi_indirections,
             .probe_radiance = info.pgi_state.probe_irradiance_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
@@ -2148,7 +2148,7 @@ auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & inf
     auto pgi_screen_irrdiance = pgi_create_screen_irradiance(info.tg, info.render_context->render_data);
     info.tg.add_task(PGIEvalScreenIrradianceTask{
         .views = PGIEvalScreenIrradianceTask::Views{
-            .globals = info.render_context->tgpu_render_data,
+            .globals = info.render_context->tgpu_render_data.view(),
             .debug_image = info.debug_image,
             .clocks_image = info.clocks_image,
             .main_cam_depth = info.view_camera_depth,
