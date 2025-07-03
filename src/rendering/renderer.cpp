@@ -469,7 +469,7 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     tg.add_task(daxa::InlineTask::Transfer("update sky settings globals")
             .writes(render_context->tgpu_render_data)
             .executes(
-                [&](daxa::TaskInterface ti)
+                [=](daxa::TaskInterface ti)
                 {
                     allocate_fill_copy(
                         ti,

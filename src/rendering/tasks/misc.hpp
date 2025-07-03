@@ -63,13 +63,13 @@ auto make_simple_compile_info() -> daxa::ComputePipelineCompileInfo
         .compile_options = {
             .entry_point = std::string(entry_point_sv),
             .language = lang,
-            .defines = {{std::string(HeadTaskT::TASK_NAME) + "_SHADER", "1"}},
+            .defines = {{std::string(HeadTaskT::Info::NAME) + "_SHADER", "1"}},
         },
     };
     auto const value = daxa::ComputePipelineCompileInfo{
         .shader_info = shader_comp_info,
         .push_constant_size = s_cast<u32>(sizeof(PushT)),
-        .name = std::string(HeadTaskT::TASK_NAME),
+        .name = std::string(HeadTaskT::Info::NAME),
     };
     return value;
 }
@@ -80,7 +80,7 @@ struct SimpleIndirectComputeTask : HeadTaskT
     HeadTaskT::AttachmentViews views = {};
     GPUContext * gpu_context = {};
     PushT push = {};
-    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
+    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT::Info, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::name()}));
@@ -105,7 +105,7 @@ struct SimpleComputeTask : HeadTaskT
     static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::TASK_NAME}));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::Info::NAME}));
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch(dispatch_callback());
@@ -124,7 +124,7 @@ struct SimpleComputeTaskPushless : HeadTaskT
     static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::TASK_NAME}));
+        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::Info::NAME}));
         PushT push = {};
         push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
