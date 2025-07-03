@@ -108,14 +108,15 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .mip_level_count = mip_count,
         .name = std::string("hiz ") + std::string(RenderTimes::timing_name(info.render_time_index)),
     });
-    info.tg.add_task(daxa::InlineTaskWithHead<GenHizH2::Task>{
-        .views = daxa::InlineTaskWithHead<GenHizH2::Task>::Views{
+    daxa::Task hiz_task = daxa::Task("GenHiz")
+        .uses_head<GenHizH2::Info>()
+        .head_views({
             .globals = info.globals,
             .debug_image = info.debug_image,
             .src = info.src,
             .hiz = *info.hiz,
-        },
-        .task = [=, render_context = info.render_context](daxa::TaskInterface ti)
+        })
+        .executes([=, render_context = info.render_context](daxa::TaskInterface ti)
         {
             auto const& AT = GenHizH2::AT;
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_hiz_pipeline_compile_info2().name));
@@ -134,8 +135,8 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
             render_context->render_times.start_gpu_timer(ti.recorder, info.render_time_index);
             ti.recorder.dispatch({ dispatch_x, dispatch_y, 1 });
             render_context->render_times.end_gpu_timer(ti.recorder, info.render_time_index);
-        },
-    });
+        });
+    info.tg.add_task(hiz_task);
 }
 
 #endif

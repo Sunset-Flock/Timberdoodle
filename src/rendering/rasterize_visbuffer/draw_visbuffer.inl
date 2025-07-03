@@ -43,7 +43,7 @@ DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(MeshletInstancesBufferHead), meshl
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, overdraw_image)   // Optional
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)     // Optional
-DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)   // Optional
+DAXA_TH_IMAGE(DEPTH_STENCIL_ATTACHMENT::READ_WRITE, REGULAR_2D, depth_image)   // Optional
 DAXA_DECL_TASK_HEAD_END
 
 struct DrawVisbufferDrawData

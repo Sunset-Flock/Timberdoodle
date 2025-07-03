@@ -1951,10 +1951,10 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    probe_irradiance_view = this->probe_radiance.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
-    probe_visibility_view = this->probe_visibility.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
-    probe_info_view = this->probe_info.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
-    cell_requests_view = this->cell_requests.view().view({.layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count)});
+    probe_irradiance_view = this->probe_radiance.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
+    probe_visibility_view = this->probe_visibility.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
+    probe_info_view = this->probe_info.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
+    cell_requests_view = this->cell_requests.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
 
     daxa::TaskGraph tg{{
         .device = device,

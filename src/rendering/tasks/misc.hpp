@@ -8,8 +8,8 @@
 template <typename T>
 inline void task_fill_buffer(daxa::TaskGraph & tg, daxa::TaskBufferView buffer, T clear_value, u32 offset = 0)
 {
-    tg.add_task(daxa::InlineTask{"fill buffer"}
-            .tf.writes(buffer)
+    tg.add_task(daxa::InlineTask::Transfer("fill buffer")
+            .writes(buffer)
             .executes(
                 [=](daxa::TaskInterface ti)
                 {

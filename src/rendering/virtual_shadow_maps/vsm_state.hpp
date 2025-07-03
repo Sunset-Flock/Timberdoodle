@@ -112,7 +112,7 @@ struct VSMState
                 current_camera.bottom_plane_normal = glm::normalize(
                     glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
-                current_camera.screen_size = { VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION };
+                current_camera.screen_size = {VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION};
                 current_camera.inv_screen_size = {
                     1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
                     1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
@@ -189,7 +189,7 @@ struct VSMState
             current_camera.bottom_plane_normal = glm::normalize(
                 glm::cross(ws_ndc_corners[0][1][1] - ws_ndc_corners[0][1][0], ws_ndc_corners[1][1][0] - ws_ndc_corners[0][1][0]));
 
-            current_camera.screen_size = { VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION };
+            current_camera.screen_size = {VSM_POINT_SPOT_TEXTURE_RESOLUTION, VSM_POINT_SPOT_TEXTURE_RESOLUTION};
             current_camera.inv_screen_size = {
                 1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
                 1.0f / static_cast<f32>(VSM_POINT_SPOT_TEXTURE_RESOLUTION),
@@ -327,15 +327,12 @@ struct VSMState
         upload_task_graph.use_persistent_image(meta_memory_table);
         upload_task_graph.use_persistent_image(point_spot_page_tables);
 
-        auto const page_table_array_view = page_table.view().view({.base_array_layer = 0, .layer_count = VSM_CLIP_LEVELS});
-        auto const point_spot_table_array_view = point_spot_page_tables.view().view({.base_mip_level = 0,
-            .level_count = mip_levels,
-            .base_array_layer = 0,
-            .layer_count = (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS});
+        auto const page_table_array_view = page_table.view().layers(0, VSM_CLIP_LEVELS);
+        auto const point_spot_table_array_view = point_spot_page_tables.view().mips(0, mip_levels).layers(0, 6 * MAX_POINT_LIGHTS + MAX_SPOT_LIGHTS);
 
-        upload_task_graph.add_task(daxa::InlineTask{"Upload VSM Constants"}
-                .tf.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_spot_table_array_view)
-                .tf.writes(meta_memory_table)
+        upload_task_graph.add_task(daxa::InlineTask("Upload VSM Constants")
+                .transfer.writes(daxa::ImageViewType::REGULAR_2D_ARRAY, page_table_array_view, point_spot_table_array_view)
+                .transfer.writes(meta_memory_table)
                 .executes(
                     [&](daxa::TaskInterface ti)
                     {

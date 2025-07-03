@@ -56,8 +56,8 @@ namespace raster_visbuf
         // === Render Visbuffer ===
 
         // Clear out counters for current meshlet instance lists.
-        info.tg.add_task(daxa::InlineTask{"clear meshlet instance buffer"}
-                .tf.writes(info.meshlet_instances)
+        info.tg.add_task(daxa::Task("clear meshlet instance buffer")
+                .transfer.writes(info.meshlet_instances)
                 .executes(
                     [=](daxa::TaskInterface ti)
                     {
