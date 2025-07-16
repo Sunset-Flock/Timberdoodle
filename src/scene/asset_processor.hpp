@@ -94,10 +94,7 @@ struct AssetProcessor
      */
     struct LoadedTextureInfo
     {
-        daxa::BufferId staging_buffer = {};
-        daxa::ImageId dst_image = {};
-        u32 mips_to_copy = {};
-        std::array<u32, 16> mip_copy_offsets = {};
+        daxa::ImageId image = {};
         u32 texture_manifest_index = {};
         bool secondary_texture = {};
         bool compressed_bc5_rg = {};
@@ -115,12 +112,8 @@ struct AssetProcessor
 
     struct MeshLodGroupUploadInfo
     {
-        // TODO: replace with buffer offset into staging memory.
-        std::array<daxa::BufferId, MAX_MESHES_PER_LOD_GROUP> staging_buffers = {};
-
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
         u32 lod_count = {};
-
         u32 mesh_lod_manifest_index = {};
     };
     struct LoadMeshLodGroupInfo
@@ -163,13 +156,12 @@ struct AssetProcessor
      * * optimally called once a frame
      * * should not be called in parallel with load_texture and load_mesh
      */
-    struct RecordCommandsRet
+    struct LoadedResources
     {
-        daxa::ExecutableCommandList upload_commands = {};
         std::vector<MeshLodGroupUploadInfo> uploaded_meshes = {};
         std::vector<LoadedTextureInfo> uploaded_textures = {};
     };
-    auto record_gpu_load_processing_commands() -> RecordCommandsRet;
+    auto collect_loaded_resources() -> LoadedResources;
 
     void clear();
 

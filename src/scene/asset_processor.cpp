@@ -126,7 +126,7 @@ static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const
 #pragma region IMAGE_RAW_DATA_PARSING_HELPERS
 struct ParsedImageData
 {
-    daxa::BufferId src_buffer = {};
+    std::vector<std::byte> src_data = {};
     daxa::ImageId dst_image = {};
     u32 mips_to_copy = {};
     std::array<u32, 16> mip_copy_offsets = {};
@@ -401,13 +401,8 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     FreeImage_FlipVertical(modified_bitmap);
     ParsedImageData ret = {};
     u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
-    ret.src_buffer = device.create_buffer({
-        .size = total_image_byte_size,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-        .name = raw_data.image_path.filename().string() + " staging",
-    });
-    std::byte * staging_dst_ptr = device.buffer_host_address_as<std::byte>(ret.src_buffer).value();
-    memcpy(staging_dst_ptr, r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
+    ret.src_data.resize(total_image_byte_size);
+    memcpy(ret.src_data.data(), r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
 
     ret.mips_to_copy = 1;
     ret.dst_image = device.create_image({
@@ -421,6 +416,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
         /// TODO: Potentially take more flags from the user here
         .usage =
             daxa::ImageUsageFlagBits::TRANSFER_DST |
+            daxa::ImageUsageFlagBits::HOST_TRANSFER |
             daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = raw_data.image_path.filename().string(),
     });
@@ -473,12 +469,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     bool const isArray = texture->isArray;
 
     ParsedImageData ret = {};
-    daxa::BufferId staging = device.create_buffer({
-        .size = texture->dataSize,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // Host local memory.
-        .name = raw_data.image_path.string() + " staging",
-    });
-    std::byte * staging_ptr = device.buffer_host_address(staging).value();
+    ret.src_data.resize(texture->dataSize);
     ktx_uint8_t * image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
     daxa::Format const format = std::bit_cast<daxa::Format>(texture->vkFormat);
     daxa::ImageId image_id = device.create_image({
@@ -489,12 +480,13 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
         .mip_level_count = numLevels,
         .array_layer_count = numLayers,
         .sample_count = 1,
-        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                 daxa::ImageUsageFlagBits::HOST_TRANSFER |
+                 daxa::ImageUsageFlagBits::TRANSFER_DST,
         .allocate_info = {},
         .name = raw_data.image_path.filename().string(),
     });
     ret.dst_image = image_id;
-    ret.src_buffer = staging;
     ret.compressed_bc5_rg = transcode_format == KTX_TTF_BC5_RG;
     ret.mips_to_copy = texture->numLevels;
     for (u32 mip = 0; mip < texture->numLevels; ++mip)
@@ -508,7 +500,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
             return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
         }
         usize size = ktxTexture_GetImageSize(ktxTexture(texture), mip);
-        std::memcpy(staging_ptr + offset, image_ktx_data + offset, size);
+        std::memcpy(ret.src_data.data() + offset, image_ktx_data + offset, size);
         ret.mip_copy_offsets[mip] = offset;
     }
 
@@ -534,6 +526,36 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
+void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
+{
+    daxa::ImageViewInfo image_view_info = device.info(parsed_data.dst_image.default_view()).value();
+    /// TODO: If we are generating mips this will need to change
+    device.transition_image_layout({
+        .image = parsed_data.dst_image,
+        .new_image_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+        .image_slice = image_view_info.slice,
+    });
+    daxa::ImageInfo image_info = device.image_info(parsed_data.dst_image).value();
+    for (u32 mip = 0; mip < parsed_data.mips_to_copy; ++mip)
+    {
+        u32 width = std::max(1u, image_info.size.x >> mip);
+        u32 height = std::max(1u, image_info.size.y >> mip);
+        u32 depth = std::max(1u, image_info.size.z >> mip);
+        device.copy_memory_to_image({
+            .memory_ptr = parsed_data.src_data.data() + parsed_data.mip_copy_offsets[mip],
+            .image = parsed_data.dst_image,
+            .image_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+            .image_slice = {
+                .mip_level = mip,
+            },
+            .image_offset = {0, 0, 0},
+            .image_extent = {width, height, depth},
+        });
+    }
+    parsed_data.src_data.resize(0);
+    parsed_data.src_data.shrink_to_fit();
+}
+
 auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb) -> NonmanifestLoadRet
 {
     RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
@@ -549,32 +571,8 @@ auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & file
     }
     ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
 
-    auto recorder = _device.create_command_recorder({});
-    recorder.destroy_buffer_deferred(parsed_data.src_buffer);
-    recorder.pipeline_barrier_image_transition({
-        .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-        .image_id = parsed_data.dst_image,
-    });
+    upload_texture(_device, parsed_data);
 
-    recorder.copy_buffer_to_image({
-        .buffer = parsed_data.src_buffer,
-        .image = parsed_data.dst_image,
-        .image_extent = _device.image_info(parsed_data.dst_image).value().size,
-    });
-
-    recorder.pipeline_barrier_image_transition({
-        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .dst_access = daxa::AccessConsts::ALL_GRAPHICS_READ,
-        .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-        /// TODO: Take the usage from the user for now images only used as attachments
-        .dst_layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
-        .image_id = parsed_data.dst_image,
-    });
-
-    daxa::ExecutableCommandList command_list = recorder.complete_current_commands();
-    _device.submit_commands({.command_lists = {&command_list, 1}});
-    _device.wait_idle();
     return parsed_data.dst_image;
 }
 
@@ -631,24 +629,24 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     }
     ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
     ParsedImageData const * opaque_data = std::get_if<ParsedImageData>(&opaque_data_ret);
+
+    upload_texture(_device, parsed_data);
+    if (opaque_data)
+    {
+        upload_texture(_device, *opaque_data);
+    }
     /// NOTE: Append the processed texture to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
         _upload_texture_queue.push_back(LoadedTextureInfo{
-            .staging_buffer = parsed_data.src_buffer,
-            .dst_image = parsed_data.dst_image,
-            .mips_to_copy = parsed_data.mips_to_copy,
-            .mip_copy_offsets = parsed_data.mip_copy_offsets,
+            .image = parsed_data.dst_image,
             .texture_manifest_index = info.texture_manifest_index,
             .compressed_bc5_rg = parsed_data.compressed_bc5_rg,
         });
         if (opaque_data)
         {
             _upload_texture_queue.push_back(LoadedTextureInfo{
-                .staging_buffer = opaque_data->src_buffer,
-                .dst_image = opaque_data->dst_image,
-                .mips_to_copy = opaque_data->mips_to_copy,
-                .mip_copy_offsets = opaque_data->mip_copy_offsets,
+                .image = opaque_data->dst_image,
                 .texture_manifest_index = info.texture_manifest_index,
                 .secondary_texture = true,
                 .compressed_bc5_rg = false,
@@ -708,13 +706,13 @@ auto load_accessor_data_from_file(
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
     }
-    auto buffer_adapter = [&](fastgltf::Asset const & asset, u32 asset_index) -> fastgltf::span<const std::byte>
+    auto buffer_adapter = [&](fastgltf::Asset const & asset, u32 asset_index) -> fastgltf::span<std::byte const>
     {
         /// NOTE:   We only have a ptr to the loaded data to the accessors section of the buffer.
         ///         Fastgltf expects a ptr to the begin of the buffer VIEW, so we just subtract the offsets.
         ///         Fastgltf adds these on in the accessor tool, so in the end it gets the right ptr.
-        auto const fastgltf_reverse_byte_offset = - accesor.byteOffset;
-        return fastgltf::span<const std::byte>(reinterpret_cast<std::byte const*>(raw.data()) - accesor.byteOffset, accesor.count * elem_byte_size);
+        auto const fastgltf_reverse_byte_offset = -accesor.byteOffset;
+        return fastgltf::span<std::byte const>(reinterpret_cast<std::byte const *>(raw.data()) - accesor.byteOffset, accesor.count * elem_byte_size);
     };
 
     std::vector<ElemT> ret(accesor.count);
@@ -743,76 +741,76 @@ auto load_accessor_data_from_file(
 }
 
 // Credit: https://github.com/zeux/meshoptimizer/blob/20787cc054fa0e46584c2791139c1878aa899d78/src/clusterizer.cpp#L715
-auto compute_bounding_sphere(glm::vec3 const* points, size_t count) -> BoundingSphere
+auto compute_bounding_sphere(glm::vec3 const * points, size_t count) -> BoundingSphere
 {
-	assert(count > 0);
+    assert(count > 0);
 
-	// find extremum points along all 3 axes; for each axis we get a pair of points with min/max coordinates
-	size_t pmin[3] = {0, 0, 0};
-	size_t pmax[3] = {0, 0, 0};
+    // find extremum points along all 3 axes; for each axis we get a pair of points with min/max coordinates
+    size_t pmin[3] = {0, 0, 0};
+    size_t pmax[3] = {0, 0, 0};
 
-	for (size_t i = 0; i < count; ++i)
-	{
-		const float* p = &points[i].x;
+    for (size_t i = 0; i < count; ++i)
+    {
+        float const * p = &points[i].x;
 
-		for (int axis = 0; axis < 3; ++axis)
-		{
-			pmin[axis] = (p[axis] < points[pmin[axis]][axis]) ? i : pmin[axis];
-			pmax[axis] = (p[axis] > points[pmax[axis]][axis]) ? i : pmax[axis];
-		}
-	}
+        for (int axis = 0; axis < 3; ++axis)
+        {
+            pmin[axis] = (p[axis] < points[pmin[axis]][axis]) ? i : pmin[axis];
+            pmax[axis] = (p[axis] > points[pmax[axis]][axis]) ? i : pmax[axis];
+        }
+    }
 
-	// find the pair of points with largest distance
-	float paxisd2 = 0;
-	int paxis = 0;
+    // find the pair of points with largest distance
+    float paxisd2 = 0;
+    int paxis = 0;
 
-	for (int axis = 0; axis < 3; ++axis)
-	{
-		const float* p1 = &points[pmin[axis]].x;
-		const float* p2 = &points[pmax[axis]].x;
+    for (int axis = 0; axis < 3; ++axis)
+    {
+        float const * p1 = &points[pmin[axis]].x;
+        float const * p2 = &points[pmax[axis]].x;
 
-		float d2 = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]) + (p2[2] - p1[2]) * (p2[2] - p1[2]);
+        float d2 = (p2[0] - p1[0]) * (p2[0] - p1[0]) + (p2[1] - p1[1]) * (p2[1] - p1[1]) + (p2[2] - p1[2]) * (p2[2] - p1[2]);
 
-		if (d2 > paxisd2)
-		{
-			paxisd2 = d2;
-			paxis = axis;
-		}
-	}
+        if (d2 > paxisd2)
+        {
+            paxisd2 = d2;
+            paxis = axis;
+        }
+    }
 
-	// use the longest segment as the initial sphere diameter
-	const float* p1 = &points[pmin[paxis]].x;
-	const float* p2 = &points[pmax[paxis]].x;
+    // use the longest segment as the initial sphere diameter
+    float const * p1 = &points[pmin[paxis]].x;
+    float const * p2 = &points[pmax[paxis]].x;
 
-	float center[3] = {(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2};
-	float radius = sqrtf(paxisd2) / 2;
+    float center[3] = {(p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2, (p1[2] + p2[2]) / 2};
+    float radius = sqrtf(paxisd2) / 2;
 
-	// iteratively adjust the sphere up until all points fit
-	for (size_t i = 0; i < count; ++i)
-	{
-		const float* p = &points[i].x;
-		float d2 = (p[0] - center[0]) * (p[0] - center[0]) + (p[1] - center[1]) * (p[1] - center[1]) + (p[2] - center[2]) * (p[2] - center[2]);
+    // iteratively adjust the sphere up until all points fit
+    for (size_t i = 0; i < count; ++i)
+    {
+        float const * p = &points[i].x;
+        float d2 = (p[0] - center[0]) * (p[0] - center[0]) + (p[1] - center[1]) * (p[1] - center[1]) + (p[2] - center[2]) * (p[2] - center[2]);
 
-		if (d2 > radius * radius)
-		{
-			float d = sqrtf(d2);
-			assert(d > 0);
+        if (d2 > radius * radius)
+        {
+            float d = sqrtf(d2);
+            assert(d > 0);
 
-			float k = 0.5f + (radius / d) / 2;
+            float k = 0.5f + (radius / d) / 2;
 
-			center[0] = center[0] * k + p[0] * (1 - k);
-			center[1] = center[1] * k + p[1] * (1 - k);
-			center[2] = center[2] * k + p[2] * (1 - k);
-			radius = (radius + d) / 2;
-		}
-	}
+            center[0] = center[0] * k + p[0] * (1 - k);
+            center[1] = center[1] * k + p[1] * (1 - k);
+            center[2] = center[2] * k + p[2] * (1 - k);
+            radius = (radius + d) / 2;
+        }
+    }
 
     BoundingSphere ret = {};
     ret.center.x = center[0];
     ret.center.y = center[1];
     ret.center.z = center[2];
     ret.radius = radius;
-	return ret;
+    return ret;
 }
 
 auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadResultCode
@@ -830,9 +828,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     fastgltf::Accessor & index_buffer_gltf_accessor = gltf_asset.accessors.at(gltf_prim.indicesAccessor.value());
     bool const index_buffer_accessor_valid =
         (index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedInt ||
-         index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
-         index_buffer_gltf_accessor.type == fastgltf::AccessorType::Scalar &&
-         index_buffer_gltf_accessor.bufferViewIndex.has_value();
+            index_buffer_gltf_accessor.componentType == fastgltf::ComponentType::UnsignedShort) &&
+        index_buffer_gltf_accessor.type == fastgltf::AccessorType::Scalar &&
+        index_buffer_gltf_accessor.bufferViewIndex.has_value();
     if (!index_buffer_accessor_valid)
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAULTY_INDEX_BUFFER_GLTF_ACCESSOR;
@@ -875,7 +873,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     auto texcoord0_attrib_iter = gltf_prim.findAttribute(VERT_ATTRIB_TEXCOORD0_NAME);
     bool has_uv = texcoord0_attrib_iter != gltf_prim.attributes.end();
     fastgltf::Accessor & gltf_vertex_texcoord0_accessor = gltf_asset.accessors.at(texcoord0_attrib_iter->accessorIndex);
-    
+
     bool const gltf_vertex_texcoord0_accessor_valid =
         gltf_vertex_texcoord0_accessor.componentType == fastgltf::ComponentType::Float &&
         gltf_vertex_texcoord0_accessor.type == fastgltf::AccessorType::Vec2;
@@ -926,7 +924,8 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 
 #pragma region REGENERATE INDEX BUFFER
 
-    if (false) {
+    if (false)
+    {
         // TODO: RESPECT UVS AND NORMALS!
         std::vector<u32> remapping_table = {};
         std::vector<glm::vec3> remapped_positions = {};
@@ -936,19 +935,20 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         remapping_table.resize(vertex_count);
         remapped_index_buffer.resize(lod0_index_buffer.size());
 
-        auto msign2 = []( glm::vec2 v )
+        auto msign2 = [](glm::vec2 v)
         {
-            return glm::vec2( (v.x>=0.0) ? 1.0 : -1.0, 
-                         (v.y>=0.0) ? 1.0 : -1.0 );
+            return glm::vec2((v.x >= 0.0) ? 1.0 : -1.0,
+                (v.y >= 0.0) ? 1.0 : -1.0);
         };
-        auto packSnorm2x8 = [](glm::vec2 v) 
-        { 
+        auto packSnorm2x8 = [](glm::vec2 v)
+        {
             glm::uvec2 d = glm::uvec2(round(glm::vec2(255.5f) + v * glm::vec2(255.5f)));
-            return d.x|(d.y<<8u);
+            return d.x | (d.y << 8u);
         };
-        auto quantize_normal = [=](glm::vec3 nor) {
-            nor /= ( abs( nor.x ) + abs( nor.y ) + abs( nor.z ) );
-            auto i = (nor.z >= 0.0) ? glm::vec2(nor.x, nor.y) : (1.0f-abs(glm::vec2(nor.y, nor.x)))*msign2(glm::vec2(nor.x, nor.y));
+        auto quantize_normal = [=](glm::vec3 nor)
+        {
+            nor /= (abs(nor.x) + abs(nor.y) + abs(nor.z));
+            auto i = (nor.z >= 0.0) ? glm::vec2(nor.x, nor.y) : (1.0f - abs(glm::vec2(nor.y, nor.x))) * msign2(glm::vec2(nor.x, nor.y));
             nor.x = i.x;
             nor.y = i.y;
             return packSnorm2x8(glm::vec2(nor.x, nor.y));
@@ -966,7 +966,8 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             packed_vertices[i].position = vert_positions[i];
             // packed_vertices[i].quantized_normal = quantize_normal(vert_normals[i]);
         }
-        if (has_uv) {
+        if (has_uv)
+        {
             for (u32 i = 0; i < vertex_count; ++i)
             {
                 // packed_vertices[i].uv = vert_texcoord0[i];
@@ -976,14 +977,16 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         vertex_count = meshopt_generateVertexRemap(remapping_table.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), packed_vertices.data(), packed_vertices.size(), sizeof(Vertex));
         remapped_positions.resize(vertex_count);
         remapped_normals.resize(vertex_count);
-        if (has_uv) { 
+        if (has_uv)
+        {
             remapped_uvs.resize(vertex_count);
         }
-        
+
         meshopt_remapIndexBuffer(remapped_index_buffer.data(), lod0_index_buffer.data(), lod0_index_buffer.size(), remapping_table.data());
         meshopt_remapVertexBuffer(remapped_positions.data(), &vert_positions[0].x, vert_positions.size(), sizeof(glm::vec3), remapping_table.data());
         meshopt_remapVertexBuffer(remapped_normals.data(), &vert_normals[0].x, vert_normals.size(), sizeof(glm::vec3), remapping_table.data());
-        if (has_uv) { 
+        if (has_uv)
+        {
             meshopt_remapVertexBuffer(remapped_uvs.data(), &vert_texcoord0[0].x, vert_texcoord0.size(), sizeof(glm::vec2), remapping_table.data());
         }
 
@@ -1024,11 +1027,11 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     f32 modelspace_average_vertex_distance = 0.0f;
     glm::vec3 vertices_max = vert_positions[lod0_index_buffer[0]];
     glm::vec3 vertices_min = vert_positions[lod0_index_buffer[0]];
-    for (u32 tri = 0; tri < lod0_index_buffer.size()/3; ++tri)
+    for (u32 tri = 0; tri < lod0_index_buffer.size() / 3; ++tri)
     {
-        glm::vec3 c0 = vert_positions[lod0_index_buffer[tri*3 + 0]];
-        glm::vec3 c1 = vert_positions[lod0_index_buffer[tri*3 + 1]];
-        glm::vec3 c2 = vert_positions[lod0_index_buffer[tri*3 + 2]];
+        glm::vec3 c0 = vert_positions[lod0_index_buffer[tri * 3 + 0]];
+        glm::vec3 c1 = vert_positions[lod0_index_buffer[tri * 3 + 1]];
+        glm::vec3 c2 = vert_positions[lod0_index_buffer[tri * 3 + 2]];
         vertices_max = glm::max(glm::max(vertices_max, c0), glm::max(c1, c2));
         vertices_min = glm::min(glm::min(vertices_min, c0), glm::min(c1, c2));
         f32 const e0_dst = glm::length(c0 - c1);
@@ -1091,11 +1094,11 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // In this case, the average vertex distance increases at a rate of sqrt(2) per lod.
             // This gives us this vertex distance estimation function: lod_vertex_distance * sqrt(2)^lod
             // This is intuitive when thinking of merging two equirectangular triangles into one,
-            //         x --                              x --  
-            //      x  x  x  len: sqrt(2)    ==>      x     x  len: sqrt(2)    
-            //   x     x    x --             ==>   x          x --  
+            //         x --                              x --
+            //      x  x  x  len: sqrt(2)    ==>      x     x  len: sqrt(2)
+            //   x     x    x --             ==>   x          x --
             // xxxxxxxxxxxxxxxxx                 xxxxxxxxxxxxxxxxx
-            // |    len: 1     |                 |    len: 1     | 
+            // |    len: 1     |                 |    len: 1     |
             // In this case the two longest edges before simplification are len sqrt(2)
             // The longest edge of the simplified triangle is len 2.
             f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * std::pow(sqrt(2.0f), lod);
@@ -1115,14 +1118,14 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // Give uvs a small weight to that extreme uv distortions are prevented in simplification.
             f32 const TEXCOORD_WEIGHT = 1.0f;
 
-            f32 attribute_weights[] = { lod_normal_weight, lod_normal_weight, lod_normal_weight, TEXCOORD_WEIGHT, TEXCOORD_WEIGHT };
+            f32 attribute_weights[] = {lod_normal_weight, lod_normal_weight, lod_normal_weight, TEXCOORD_WEIGHT, TEXCOORD_WEIGHT};
             i32 result_index_count = meshopt_simplifyWithAttributes(
-                index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(), 
-                &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3), 
+                index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(),
+                &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3),
                 attributes_normals_uvs.data(), sizeof(f32) * 5, attribute_weights, 5, nullptr,
                 lod_index_count, target_error, options, &result_error);
             result_error *= (1.0f / (1.0f + MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR)); // renormalize error based on normal importance boost
-            lod_error = lods[lod-1].lod_error + result_error;
+            lod_error = lods[lod - 1].lod_error + result_error;
             if (result_index_count > (lod_index_count + lod_index_count / 2) || result_index_count < 12 || result_error > max_acceptable_error)
             {
                 break;
@@ -1157,9 +1160,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         meshopt_optimizeVertexCache(optimized_indices.data(), index_buffer->data(), index_buffer->size(), unique_vertices);
         index_buffer = &optimized_indices;
 
-        std::vector<glm::vec3>& optimized_vert_positions = remapped_vert_positions;
-        std::vector<glm::vec3>& optimized_vert_normals = remapped_vert_normals;
-        std::vector<glm::vec2>& optimized_vert_texcoord0 = remapped_vert_texcoord0;
+        std::vector<glm::vec3> & optimized_vert_positions = remapped_vert_positions;
+        std::vector<glm::vec3> & optimized_vert_normals = remapped_vert_normals;
+        std::vector<glm::vec2> & optimized_vert_texcoord0 = remapped_vert_texcoord0;
         u32 vertex_count = unique_vertices;
 #pragma endregion
 
@@ -1241,7 +1244,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             sizeof(u32) * index_buffer->size() +
             sizeof(daxa_f32vec3) * optimized_vert_positions.size() +
             sizeof(daxa_f32vec3) * optimized_vert_normals.size();
-        
+
         if (has_uv)
         {
             total_mesh_buffer_size += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
@@ -1257,37 +1260,32 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         {
             mesh.mesh_buffer = _device.create_buffer({
                 .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
                 .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
             });
             mesh_bda = _device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
-
-            staging_buffer = _device.create_buffer({
-                .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
-                .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index) + " staging",
-            });
         }
-        auto staging_ptr = _device.buffer_host_address(staging_buffer).value();
+        auto mesh_gpu_mem_ptr = _device.buffer_host_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
         u32 accumulated_offset = 0;
         // ---
         mesh.meshlets = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             meshlets.data(),
             meshlets.size() * sizeof(Meshlet));
         accumulated_offset += sizeof(Meshlet) * meshlet_count;
         // ---
         mesh.meshlet_bounds = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             meshlet_bounds.data(),
             meshlet_bounds.size() * sizeof(BoundingSphere));
         accumulated_offset += sizeof(BoundingSphere) * meshlet_count;
         // ---
         mesh.meshlet_aabbs = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             meshlet_aabbs.data(),
             meshlet_aabbs.size() * sizeof(AABB));
         accumulated_offset += sizeof(AABB) * meshlet_count;
@@ -1295,28 +1293,28 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Thats crazy");
         mesh.micro_indices = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             meshlet_micro_indices.data(),
             meshlet_micro_indices.size() * sizeof(u8));
         accumulated_offset += sizeof(u8) * meshlet_micro_indices.size();
         // ---
         mesh.indirect_vertices = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             meshlet_indirect_vertices.data(),
             meshlet_indirect_vertices.size() * sizeof(u32));
         accumulated_offset += sizeof(u32) * meshlet_indirect_vertices.size();
         // ---
         mesh.primitive_indices = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             index_buffer->data(),
             index_buffer->size() * sizeof(daxa_u32));
         accumulated_offset += sizeof(daxa_u32) * index_buffer->size();
         // ---
         mesh.vertex_positions = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             optimized_vert_positions.data(),
             optimized_vert_positions.size() * sizeof(daxa_f32vec3));
         accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_positions.size();
@@ -1325,7 +1323,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         {
             mesh.vertex_uvs = mesh_bda + accumulated_offset;
             std::memcpy(
-                staging_ptr + accumulated_offset,
+                mesh_gpu_mem_ptr + accumulated_offset,
                 optimized_vert_texcoord0.data(),
                 optimized_vert_texcoord0.size() * sizeof(daxa_f32vec2));
             accumulated_offset += sizeof(daxa_f32vec2) * optimized_vert_texcoord0.size();
@@ -1333,7 +1331,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         // ---
         mesh.vertex_normals = mesh_bda + accumulated_offset;
         std::memcpy(
-            staging_ptr + accumulated_offset,
+            mesh_gpu_mem_ptr + accumulated_offset,
             optimized_vert_normals.data(),
             optimized_vert_normals.size() * sizeof(daxa_f32vec3));
         accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_normals.size();
@@ -1352,92 +1350,27 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
     {
         std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
         _upload_mesh_queue.push_back(MeshLodGroupUploadInfo{
-            .staging_buffers = staging_buffers,
             .lods = lods,
             .lod_count = lod_count,
-            .mesh_lod_manifest_index = info.mesh_lod_manifest_index});
+            .mesh_lod_manifest_index = info.mesh_lod_manifest_index,
+        });
     }
     return AssetProcessor::AssetLoadResultCode::SUCCESS;
 }
 
-auto AssetProcessor::record_gpu_load_processing_commands() -> RecordCommandsRet
+auto AssetProcessor::collect_loaded_resources() -> LoadedResources
 {
-    RecordCommandsRet ret = {};
+    LoadedResources ret = {};
     {
         std::lock_guard<std::mutex> lock{*_mesh_upload_mutex};
         ret.uploaded_meshes = std::move(_upload_mesh_queue);
         _upload_mesh_queue = {};
     }
-    auto recorder = _device.create_command_recorder({});
-#pragma region RECORD_MESH_UPLOAD_COMMANDS
-    for (MeshLodGroupUploadInfo & mesh_upload : ret.uploaded_meshes)
-    {
-        for (u32 lod = 0; lod < mesh_upload.lod_count; ++lod)
-        {
-            recorder.copy_buffer_to_buffer({
-                .src_buffer = mesh_upload.staging_buffers[lod],
-                .dst_buffer = std::bit_cast<daxa::BufferId>(mesh_upload.lods[lod].mesh_buffer),
-                .size = _device.buffer_info(std::bit_cast<daxa::BufferId>(mesh_upload.lods[lod].mesh_buffer)).value().size,
-            });
-            recorder.destroy_buffer_deferred(mesh_upload.staging_buffers[lod]);
-        }
-    }
-    recorder.pipeline_barrier({
-        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .dst_access = daxa::AccessConsts::READ_WRITE,
-    });
-#pragma endregion
-
-#pragma region RECORD_TEXTURE_UPLOAD_COMMANDS
     {
         std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
         ret.uploaded_textures = std::move(_upload_texture_queue);
         _upload_texture_queue = {};
     }
-    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
-    {
-        daxa::ImageViewInfo image_view_info = _device.image_view_info(texture_upload.dst_image.default_view()).value();
-        /// TODO: If we are generating mips this will need to change
-        recorder.pipeline_barrier_image_transition({
-            .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .image_slice = image_view_info.slice,
-            .image_id = texture_upload.dst_image,
-        });
-    }
-    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
-    {
-        daxa::ImageInfo image_info = _device.image_info(texture_upload.dst_image).value();
-        for (u32 mip = 0; mip < texture_upload.mips_to_copy; ++mip)
-        {
-            u32 width = std::max(1u, image_info.size.x >> mip);
-            u32 height = std::max(1u, image_info.size.y >> mip);
-            u32 depth = std::max(1u, image_info.size.z >> mip);
-            recorder.copy_buffer_to_image({
-                .buffer = texture_upload.staging_buffer,
-                .buffer_offset = texture_upload.mip_copy_offsets[mip],
-                .image = texture_upload.dst_image,
-                .image_slice = {
-                    .mip_level = mip,
-                },
-                .image_offset = {0, 0, 0},
-                .image_extent = {width, height, depth},
-            });
-        }
-        recorder.destroy_buffer_deferred(texture_upload.staging_buffer);
-    }
-    for (LoadedTextureInfo const & texture_upload : ret.uploaded_textures)
-    {
-        recorder.pipeline_barrier_image_transition({
-            .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .dst_access = daxa::AccessConsts::TOP_OF_PIPE_READ_WRITE,
-            .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-            .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
-            .image_id = texture_upload.dst_image,
-        });
-    }
-#pragma endregion
-    ret.upload_commands = recorder.complete_current_commands();
     return ret;
 }
 

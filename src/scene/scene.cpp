@@ -1067,11 +1067,11 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
         {
             if (texture_upload.secondary_texture)
             {
-                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.dst_image;
+                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).secondary_runtime_texture = texture_upload.image;
             }
             else
             {
-                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.dst_image;
+                scene._material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.image;
             }
             TextureManifestEntry const & texture_manifest_entry = scene._material_texture_manifest.at(texture_upload.texture_manifest_index);
             for (auto const material_using_texture_info : texture_manifest_entry.material_manifest_indices)
