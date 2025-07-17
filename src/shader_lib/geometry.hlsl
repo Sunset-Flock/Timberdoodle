@@ -33,6 +33,7 @@ struct TriangleGeometryPoint
 #define MATERIAL_FLAG_ALPHA_DISCARD (1u << 0u)
 #define MATERIAL_FLAG_DOUBLE_SIDED (1u << 1u)
 #define MATERIAL_FLAG_BLEND (1u << 2u)
+#define MATERIAL_FLAG_METAL (1u << 3u)
 
 struct MaterialPointData
 {

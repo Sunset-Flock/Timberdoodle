@@ -9,8 +9,6 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
-#include "../../shader_lib/shading.hlsl"
-
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenGbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
@@ -34,8 +32,9 @@ struct GenGbufferPush
 #define GEN_GBUFFER_Y 8
 
 #if DAXA_LANGUAGE == DAXA_LANGUAGE_SLANG
-#include "../../shader_lib/visbuffer.hlsl"
 #include "../../shader_lib/misc.hlsl"
+#include "../../shader_lib/visbuffer.hlsl"
+#include "../../shader_lib/shading.hlsl"
 
 [[vk::push_constant]] GenGbufferPush push;
 

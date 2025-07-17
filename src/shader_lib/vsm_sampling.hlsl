@@ -91,7 +91,7 @@ float get_vsm_point_shadow(
     }
     info.mip_level = clamp(info.mip_level, 0, 6);
 
-    const float filter_radius = 0.05;
+    const float filter_radius = 0.2;
     float sum = 0.0;
 
     rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * globals.frame_index);
@@ -262,7 +262,7 @@ float get_vsm_spot_shadow(
     }
     info.mip_level = clamp(info.mip_level, 0, 6);
 
-    const float filter_radius = 0.05;
+    const float filter_radius = 0.2;
     float sum = 0.0;
 
     rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * globals.frame_index);

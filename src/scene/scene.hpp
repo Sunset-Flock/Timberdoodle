@@ -72,6 +72,7 @@ struct MaterialManifestEntry
     bool double_sided = {};
     bool blend_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
+    bool is_metal = {}; 
     // Did we just load alpha texture this frame
     bool alpha_dirty = {};
     f32vec3 base_color = {};
