@@ -49,7 +49,7 @@ func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals
         }
         else
         {
-            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), tri_point.uv, 7.0f);
+            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), tri_point.uv, 8.0f);
         }
         ret.albedo *= diffuse_fetch.rgb;
         ret.alpha = diffuse_fetch.a;

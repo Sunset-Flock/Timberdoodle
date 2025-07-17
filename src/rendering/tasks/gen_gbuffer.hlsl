@@ -9,6 +9,8 @@
 #include "../../shader_shared/visbuffer.inl"
 #include "../../shader_shared/scene.inl"
 
+#include "../../shader_lib/shading.hlsl"
+
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenGbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
@@ -47,7 +49,6 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
         triangle_id = push.attachments.vis_image.get()[dtid];
     }
 
-    uint packed_face_normal = 0u;
     if (triangle_id != INVALID_TRIANGLE_ID)
     {
         CameraInfo camera = push.attachments.globals->view_camera;
@@ -73,58 +74,24 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
 
-        packed_face_normal = compress_normal_octahedral_32(tri_point.face_normal);
+        MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
+            push.attachments.globals,
+            tri_geo,
+            tri_point
+        );
+        if (push.attachments.globals.settings.debug_material_quality == SHADING_QUALITY_LOW)
+        {
+            material_point = evaluate_material<SHADING_QUALITY_LOW>(
+                push.attachments.globals,
+                tri_geo,
+                tri_point
+            );
+        }
+
+        uint packed_face_normal = compress_normal_octahedral_32(material_point.face_normal);
         push.attachments.face_normal_image.get()[dtid] = packed_face_normal;
-
-        float3 mapped_normal = tri_point.world_normal;
-        GPUMaterial material = GPU_MATERIAL_FALLBACK;
-        if(tri_geo.material_index != INVALID_MANIFEST_INDEX)
-        {
-            material = push.attachments.material_manifest[tri_geo.material_index];
-        }
-
-        float3 albedo = float3(material.base_color);
-        if(material.diffuse_texture_id.value != 0)
-        {
-            albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
-                // SamplerState::get(AT.globals->samplers.nearest_repeat_ani),
-                SamplerState::get(push.attachments.globals->samplers.linear_repeat_ani),
-                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-            ).rgb;
-        }
         
-        mapped_normal = flip_normal_to_incoming(tri_point.face_normal, mapped_normal, primary_ray);
-        tri_point.world_normal = flip_normal_to_incoming(tri_point.face_normal, tri_point.world_normal, primary_ray);
-
-        if(material.normal_texture_id.value != 0)
-        {
-            float3 normal_map_value = float3(0);
-            if(material.normal_compressed_bc5_rg)
-            {
-                const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(push.attachments.globals->samplers.normals),
-                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                ).rg;
-                const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
-                const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
-                normal_map_value = float3(rescaled_normal_rg, normal_b);
-            }
-            else
-            {
-                const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                    SamplerState::get(push.attachments.globals->samplers.normals),
-                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                ).rgb;
-                normal_map_value = raw * 2.0f - 1.0f;
-            }
-            if (dot(normal_map_value, -1) < 0.9999)
-            {
-                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
-                mapped_normal = mul(tbn, normal_map_value);
-            }
-        }
-
-        uint packed_mapped_normal = compress_normal_octahedral_32(mapped_normal);
+        uint packed_mapped_normal = compress_normal_octahedral_32(material_point.normal);
         push.attachments.detail_normal_image.get()[dtid] = packed_mapped_normal;
     }
 }

@@ -929,11 +929,17 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "RTAO_TRACE_CLOCKS",           // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
                     "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
                     "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                    "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
+                    "PGI_LOW_QUALITY_SAMPLING",    // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
                     "UV",                          // DEBUG_DRAW_MODE_UV
                     "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
                 };
                 ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), modes.size());
+                auto debug_material_quality = std::array{
+                    "NONE",           // SHADING_QUALITY_NONE
+                    "LOW",            // SHADING_QUALITY_LOW
+                    "HIGH",           // SHADING_QUALITY_HIGH
+                };
+                ImGui::Combo("debug material quality", &render_data.settings.debug_material_quality, debug_material_quality.data(), debug_material_quality.size());
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
                 ImGui::InputInt("override_lod", &render_data.settings.lod_override);
                 ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
@@ -1044,7 +1050,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
                         "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
                         "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                        "PGI_CASCADE_SMOOTH_ABS_DIFF", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF
+                        "PGI_LOW_QUALITY_SAMPLING",    // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,
@@ -1054,7 +1060,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
                         DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
                         DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
-                        DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF,
+                        DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
                     };
                     ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), modes.size());
                     if (pgi_debug_visualization != 0)

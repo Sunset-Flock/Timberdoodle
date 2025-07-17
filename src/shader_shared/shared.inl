@@ -205,7 +205,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS 27
 #define DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH 28
 #define DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE 29
-#define DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF 30
+#define DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING 30
 #define DEBUG_DRAW_MODE_UV 31
 #define DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME 32
 
@@ -224,6 +224,7 @@ struct Settings
     daxa_i32 anti_aliasing_mode;
     daxa_i32 debug_draw_mode;
     daxa_f32 debug_visualization_scale;
+    daxa_i32 debug_material_quality;
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
@@ -255,6 +256,7 @@ struct Settings
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
           debug_visualization_scale{0.1},
+          debug_material_quality{-1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
           enable_triangle_cull{1},

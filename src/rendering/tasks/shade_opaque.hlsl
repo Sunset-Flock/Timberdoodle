@@ -731,6 +731,14 @@ void entry_main_cs(
             tri_geo,
             tri_point
         );
+        if (AT.globals.settings.debug_material_quality == SHADING_QUALITY_LOW)
+        {
+            material_point = evaluate_material<SHADING_QUALITY_LOW>(
+                AT.globals,
+                tri_geo,
+                tri_point
+            );
+        }
         let mapped_normal = material_point.normal;
         let albedo = material_point.albedo;
         
@@ -1024,7 +1032,6 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
             case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
-            case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF:
             {
                 uint pgi_absolute_cascade = 0;
                 bool pgi_is_center_8 = false;
@@ -1069,22 +1076,28 @@ void entry_main_cs(
                         output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
                         break;
                     }
-                    case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH_ABS_DIFF:
-                    {
-                        if (smooth_cascade < float(pgi_absolute_cascade))
-                        {
-                            output_value.rgb = lerp(shaded_color * float3(1,0,0), float3(1,0,0), 0.4f) * pgi_color_mul;
-                        }
-                        else
-                        {
-                            float3 cascade_color = TurboColormap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
-                            output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
-                        }
-                        break;
-                    }
                 }
                 break;
-            }         
+            }      
+            case DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING:
+            {
+                float3 pgi_nearest_irradiance = pgi_sample_irradiance_nearest(
+                    AT.globals,
+                    &AT.globals.pgi_settings,
+                    tri_point.world_position,
+                    tri_point.world_normal,
+                    material_point.normal,
+                    camera.position,
+                    primary_ray,
+                    AT.pgi_irradiance.get(),
+                    AT.pgi_visibility.get(),
+                    AT.pgi_info.get(),
+                    AT.pgi_requests.get(),
+                    PGI_PROBE_REQUEST_MODE_NONE
+                );
+                output_value.rgb = pgi_nearest_irradiance;
+                break;
+            }   
             case DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME:
             {
                 let mask_volume = AT.light_mask_volume.get();

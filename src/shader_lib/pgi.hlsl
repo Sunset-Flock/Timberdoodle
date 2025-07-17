@@ -562,10 +562,11 @@ func pgi_sample_irradiance_nearest(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    int probe_request_mode
+    int probe_request_mode,
+    int cascade_bias = 1
 ) -> float3 {
 
-    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, position - globals.main_camera.position))) + 1;
+    int cascade = int(floor(pgi_select_cascade_smooth_spherical(settings, position - globals.main_camera.position))) + cascade_bias;
     if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
