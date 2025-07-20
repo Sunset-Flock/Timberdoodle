@@ -47,11 +47,9 @@ struct ExpandMeshesToMeshletsPush
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
-static constexpr inline char const CULL_MESHES_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl";
-
 inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
 
-    struct TaskExpandMeshesToMeshletsInfo
+struct TaskExpandMeshesToMeshletsInfo
 {
     RenderContext * render_context = {};
     daxa::TaskGraph & tg;
@@ -83,7 +81,7 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
 
     bool shadow_pass = info.is_directional_light;
     u32 worst_mesh_instances_in_expansion = shadow_pass ? VSM_CLIP_LEVELS * MAX_MESH_INSTANCES : MAX_MESH_INSTANCES;
-    auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2PackedWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
+    auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2BucketWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
     auto opaque_expansion = info.tg.create_transient_buffer({
         .size = expansion_size,
         .name = info.buffer_name_prefix + "opaque_meshlet_expansion_buffer" + std::to_string(rand()),
@@ -109,10 +107,10 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
                     else
                     {
                         allocate_fill_copy(
-                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
+                            ti, Po2BucketWorkExpansionBufferHead::create(ti.device_address(opaque_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(opaque_expansion));
                         allocate_fill_copy(
-                            ti, Po2PackedWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
+                            ti, Po2BucketWorkExpansionBufferHead::create(ti.device_address(masked_expansion).value(), worst_mesh_instances_in_expansion, info.dispatch_clear),
                             ti.get(masked_expansion));
                     }
                 }));

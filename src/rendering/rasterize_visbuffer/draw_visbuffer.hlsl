@@ -476,8 +476,8 @@ bool get_vsm_directional_meshlet_instance_from_work_item(
     }
     else
     {
-        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = po2packed_expansion_get_workitem(po2packed_expansion, thread_index, workitem);
+        Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2bucket_expansion_get_workitem(po2bucket_expansion, thread_index, workitem);
     }
     if (valid_meshlet)
     {
@@ -518,8 +518,8 @@ bool get_vsm_point_spot_meshlet_instance_from_work_item(
     }
     else
     {
-        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = po2packed_expansion_get_workitem(po2packed_expansion, thread_index, workitem);
+        Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2bucket_expansion_get_workitem(po2bucket_expansion, thread_index, workitem);
     }
     if (valid_meshlet)
     {
@@ -559,8 +559,8 @@ bool get_meshlet_instance_from_workitem(
     }
     else
     {
-        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion_buffer_ptr;
-        valid_meshlet = po2packed_expansion_get_workitem(po2packed_expansion, thread_index, workitem);
+        Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)expansion_buffer_ptr;
+        valid_meshlet = po2bucket_expansion_get_workitem(po2bucket_expansion, thread_index, workitem);
     }
     if (valid_meshlet)
     {
@@ -712,12 +712,12 @@ func entry_compute_meshlet_cull(
         }
         else
         {
-            Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion;
+            Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)expansion;
             for (uint i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
             {
-                meshlets_pre_cull += po2packed_expansion.bucket_thread_counts[i];
+                meshlets_pre_cull += po2bucket_expansion.bucket_thread_counts[i];
             }
-            meshes_post_cull = po2packed_expansion.expansion_count;
+            meshes_post_cull = po2bucket_expansion.expansion_count;
         }
         if (push.draw_data.pass_index == 0)
         {
@@ -767,12 +767,12 @@ func entry_task_meshlet_cull(
         }
         else
         {
-            Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)expansion;
+            Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)expansion;
             for (uint i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
             {
-                meshlets_pre_cull += po2packed_expansion.bucket_thread_counts[i];
+                meshlets_pre_cull += po2bucket_expansion.bucket_thread_counts[i];
             }
-            meshes_post_cull = po2packed_expansion.expansion_count;
+            meshes_post_cull = po2bucket_expansion.expansion_count;
         }
         if (push.draw_data.pass_index == 0)
         {

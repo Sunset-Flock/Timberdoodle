@@ -13,14 +13,39 @@ struct DstItemInfo
     uint in_expansion_index;
 };
 
+func po2bucket_expansion_arg_array_index(uint bucket) -> uint
+{
+    return bucket >> 1;
+}
+
+func po2bucket_expansion_arg_index(Po2BucketWorkExpansionBufferHead * self, uint bucket, uint arg) -> uint
+{
+    let arg_array_idx = po2bucket_expansion_arg_array_index(bucket);
+    let arg_array_size = self->arg_array_sizes[arg_array_idx];
+    let is_backwards = (bucket & 0x1) != 0;
+
+    let forward_arg = arg;
+    let backwards_arg = arg_array_size - 1 - arg;
+
+    return select(is_backwards, backwards_arg, forward_arg);
+}
+
+func po2bucket_get_arg(Po2BucketWorkExpansionBufferHead * self, uint bucket, uint arg) -> uint*
+{
+    let arg_array_idx = po2bucket_expansion_arg_array_index(bucket);
+    let arg_idx = po2bucket_expansion_arg_index(self, bucket, arg);
+    return &self->arg_array[arg_array_idx][arg_idx];
+}
+
 /// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
 /// WARNING: Cant be member function due to a slang compiler bug!
-func po2packed_expansion_get_workitem(Po2PackedWorkExpansionBufferHead * self, uint thread_index, out DstItemInfo ret) -> bool
+func po2bucket_expansion_get_workitem(Po2BucketWorkExpansionBufferHead * self, uint thread_index, out DstItemInfo ret) -> bool
 {
-    // This code ensures that each wave only has a single bucket to work on. It is never the case that some threads within the warp work on different buckets.
+    // It is always the case that ALL threads within the SAME warp work on the SAME bucket.
     // This is very important, as it allows warps to cooperatively search for the bucket they should work on.
-    // Each thread checks, if the wave should work on one of the 32 buckets.
-    // The thread that finds the waves first thread index in one of the buckets ranges gets elected and broadcasts the bucket the wave will work on.
+    // We have to search for the bucket to work on, because all threads live within a single dispatch, we have to partition all threads in the dispatch into the buckets.
+    // We map each thread of the 32 threads to one of the 32 buckets and check if the warp belongs in that bucket.
+    // The prefix sum over 'threads per bucket' is not computed before, so we perform it here with a warp accelerated prefix sum.
     let lanes_bucket_index = WaveGetLaneIndex();
     let lanes_bucket_threads = self->bucket_thread_counts[lanes_bucket_index];
     let lanes_bucket_threads_rounded_to_wave_multiple = round_up_to_multiple_po2(lanes_bucket_threads, WARP_SIZE);      // All threads within a warp must work on the same bucket.
@@ -45,7 +70,7 @@ func po2packed_expansion_get_workitem(Po2PackedWorkExpansionBufferHead * self, u
     let bucket_arg_count = round_up_div_btsft(bucket_threads, bucket_index);
     let bucket_relative_thread_index = thread_index - bucket_first_thread_index;
 
-    // Devergent over warp.
+    // Divergent over warp.
     if (bucket_relative_thread_index >= bucket_threads)
     {
         // Overhang elimination
@@ -53,13 +78,78 @@ func po2packed_expansion_get_workitem(Po2PackedWorkExpansionBufferHead * self, u
         return false;
     }
 
-    // We MUST check the current arg AND the next arc.
-    // This is because the args only mark the first thread within each arg.
-    // So we might have threads here that belong to the next arg, as those are only marked in the next arg.
+    // Each expansion within a bucket has between 2^i and 2^(i+1)-1 work items.
+    // Ascending thread indices are assigned tightly to all work items of the expansions.
+    // Example:
+    //   Bucket Index (i):            2
+    //   Bucket Expansion Sizes:      2^i = 2^2 = 4 <-> 2^(i+1)-1 = 2^(2+1)-1 = 7
+    //
+    //   Expansion Index:             0 1 2 3
+    //   Expansion Work Item Counts:  7 4 6 4
+    //   NOTE: all work item counts are between 4 (2^2) and 7 (2^(2+1)-1)!
+    // 
+    //   Thread Index:                0  1  2  3  4  5  6    7  8  9 10   11 12 13 14 15 16   17 18 19 20
+    //   Threads Expansions:          0  0  0  0  0  0  0    1  1  1  1    2  2  2  2  2  2    3  3  3  3 
+    //   Threads Expansion Work item: 0  1  2  3  4  5  6    0  1  2  3    0  1  2  3  4  5    0  1  2  3
+    //
+    // How does each work item thread know what to work on (how do they know their work item index and their expansion index?)?
+    //   * a uint pair per work item would be the simplest solution
+    //   * write a pair of uints (work item idx + expansion idx) per work item
+    //   * work item threads could use their thread index to index the array of (work item idx, expansion idx) uint pairs
+    //   * writing and storing a uint pair per work item is too expensive in runtime and memory.
+    //
+    // Simple improvement over the uint pair solution:
+    //   * we store the first work item thread idx INSIDE the expansion
+    //   * allows us to remove the work item index from the uint pair
+    //   * work item threads can calculate their work item index via: work_item_idx = thread_idx - expansion.first_thread_idx
+    //   * already saves us half the required memory, now we only store an array of expansion indices
+    //
+    // The limited work item count of each expansion within each bucket (2^i = 2^2 = 4 <-> 2^(i+1)-1 = 2^(2+1)-1 = 7), gives us several guarantees.
+    // If we view a range of threads in the bucket of size 2^i = 4 anywhere within the bucket:
+    //   * there can be AT MOST two different expansions the threads within the range work on
+    //     * this is because the minimum work item count of each expansion is 2^i = 4;
+    //       to have more than 2 expansions in a range of 4 threads, we would need expansions with less than 3 work items
+    //   * when there is more than one expansion in the range, the second expansion MUST also extend into the next range of 2^i = 4 threads
+    //     * this is because the minimum work item count of each expansion is 2^i = 4;
+    //       the second expansion would have to be 3 or less work items in order to not reach into the next range of 2^i = 4 threads
+    //   * when there is two expansions within a range there MUST BE a range next to the current range of at least 1 thread
+    //     * this is because of the previous guarantee
+    //
+    // Using the first guarantee we know that we only have to store two expansion indices per range!
+    // This is already a big improvement compared to storing and writing a expansion index for every thread.
+    // For larger bucket sizes, like i = 12 this means we save 4094 of 4096 writes and memory, thats a saving of over 99%.
+    // 
+    // The other two guarantees give us another big advantage: we only need to store ONE of the two possible expansion indices within each range!
+    // For example, if we only store the first expansion index for each range:
+    //   * for each range we can load that expansion using the (thread_idx % (2^i = 4)) as index
+    //     * load that expansions first thread index
+    //     * check if the thread belongs to that expansion (thread_idx < expansion_first_thread_idx + expansion_work_item_count)
+    //   * in the case that we have two expansions in the range, some threads will fail this check as they belong to the second expansion of the range.
+    //     * it is GUARANTEED that the next range's first expansion also has threads in our range (see above point 3 in the guarantees)!
+    //     * as each range stores their first expansion, we can load the first expansion of the next range, all remaining threads must fall into this expansion!
+    // 
+    // Here is an example of the argument array storing each ranges second expansion index:
+    //
+    //   Expansion Index:             0  1  2  3
+    //   Expansion First Thread:      0  7 11 17
+    //   Expansion Work Item Counts:  7  4  6  4
+    //
+    //   Thread Index:                0  1  2  3    4  5  6  7    8  9 10 11   12 13 14 15   16 17 18 19   20
+    //   Threads Expansions:          0  0  0  0    0  0  0  1    1  1  1  2    2  2  2  2    2  3  3  3    3 
+    //   Threads Expansion Work item: 0  1  2  3    4  5  6  0    1  2  3  0    1  2  3  4    5  0  1  2    3
+    //
+    //   Range Arguments:             0             0             1             2             2             3
+    //
+    // Every work item thread now has to load the argument at (thread-index % 4) AND the argument before that (if present).
+    // From both arguments we load the expansion indices
+    // From both expansion indices we load the expansions
+    // From both expansions we load the first thread indices and work item counts
+    // Finally we test into which expansion the thread falls into
+    // And the work item index the thread has to work on for its expansion
     let first_arg_idx = round_down_div_btsft(bucket_relative_thread_index, bucket_index);
     let secnd_arg_idx = min(first_arg_idx + 1, bucket_arg_count - 1);
-    let first_expansion_idx = self->buckets[bucket_index][first_arg_idx];
-    let secnd_expansion_idx = self->buckets[bucket_index][secnd_arg_idx];
+    let first_expansion_idx = *po2bucket_get_arg(self, bucket_index, first_arg_idx);
+    let secnd_expansion_idx = *po2bucket_get_arg(self, bucket_index, secnd_arg_idx);
     let first_expansion = self->expansions[first_expansion_idx];
     let first_expansion_src_item_index = first_expansion.src_item_index;
     let first_expansion_factor = first_expansion.expansion_count;
@@ -73,7 +163,7 @@ func po2packed_expansion_get_workitem(Po2PackedWorkExpansionBufferHead * self, u
 }
 
 /// WARNING: Cant be member function due to a slang compiler bug!
-func po2packed_expansion_add_workitems(Po2PackedWorkExpansionBufferHead * self, uint expansion_factor, uint src_item_index, uint dst_workgroup_size_log2)
+func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, uint expansion_factor, uint src_item_index, uint dst_workgroup_size_log2)
 {
     let orig_dst_item_count = expansion_factor;
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
@@ -108,12 +198,12 @@ func po2packed_expansion_add_workitems(Po2PackedWorkExpansionBufferHead * self, 
 
     // Select the bucket with the most fitting expansion ratio.
     // Expansions with N >= 2^bucket && N < 2^(bucket+1) go into the same bucket.
-    // The expansions dont need to be exactly 2^bucket sized.
+    // The expansions don't need to be exactly 2^bucket sized.
     // This means that the threads for one arg can overlap into the following arg.
     // This is ok, as we store the first thread in bucket in the expansion.
     // Dst threads read the previous expansion arg and determine which of the two expansions they belong to.
     // This allows us to have all threads for a given expansion to be in the same arg always.
-    // This imporves cache locality for meshlet culling AND drawing as well as reduce atomic ops in expansion append in mesh culling.
+    // This improves cache locality for meshlet culling AND drawing as well as reduce atomic ops in expansion append in mesh culling.
     // It is also easier to debug.
     uint bucket = firstbithigh(expansion_factor);
 
@@ -128,16 +218,16 @@ func po2packed_expansion_add_workitems(Po2PackedWorkExpansionBufferHead * self, 
         return;
     }
 
-    self->expansions[expansion_index] = WorkExpansion(src_item_index, expansion_factor, first_thread_in_bucket);
+    self->expansions[expansion_index] = Po2BucketWorkExpansion(src_item_index, expansion_factor, first_thread_in_bucket);
 
     // We mark each arg in which the first thread is part of the current expansion.
     const uint first_arg = round_up_div_btsft(first_thread_in_bucket, bucket);
     const uint last_arg = round_down_div_btsft(last_thread_in_bucket, bucket);
 
-    self->buckets[bucket][first_arg] = expansion_index;
+    *po2bucket_get_arg(self, bucket, first_arg) = expansion_index;
     if (first_arg != last_arg)
     {
-        self->buckets[bucket][last_arg] = expansion_index;
+        *po2bucket_get_arg(self, bucket, last_arg) = expansion_index;
     }
 }
 

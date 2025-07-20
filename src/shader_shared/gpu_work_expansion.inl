@@ -9,42 +9,45 @@
 #endif
 
 #define PO2_WORK_EXPANSION_BUCKET_COUNT 32
+#define PO2_WORK_EXPANSION_ARG_ARRAY_COUNT (PO2_WORK_EXPANSION_BUCKET_COUNT/2)
 
 // Default 270 million. 
 // Lower max factor will result in less memory usage
 #define WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS (1u << 28u)
 
+// pairs of two buckets grow into a single double ended stack
 #if defined(__cplusplus)
 inline
 #endif
-daxa::u32 capacity_of_bucket(daxa::u32 expansions_max, daxa::u32 bucket_index)
+daxa::u32 size_of_po2_arg_array(daxa::u32 expansions_max, daxa::u32 arg_array)
 {
     #if defined(__cplusplus)
-        return std::min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> bucket_index);
+        return std::min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> (arg_array*2));
     #else
-        return min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> bucket_index);
+        return min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> (arg_array*2));
     #endif
 }
 
-struct WorkExpansion
+struct Po2BucketWorkExpansion
 {
     daxa::u32 src_item_index;
     daxa::u32 expansion_count;
     daxa::u32 in_bucket_first_thread;
 };
 
-struct Po2PackedWorkExpansionBufferHead
+struct Po2BucketWorkExpansionBufferHead
 {
     DispatchIndirectStruct dispatch;
 
     daxa::u32 expansions_max;
     daxa::u32 expansion_count;
     daxa::u32 expansions_thread_count;
-    WorkExpansion* expansions; 
+    Po2BucketWorkExpansion* expansions; 
 
     daxa::u32 bucket_arg_counts[PO2_WORK_EXPANSION_BUCKET_COUNT];
     daxa::u32 bucket_thread_counts[PO2_WORK_EXPANSION_BUCKET_COUNT];
-    daxa_u32* buckets[PO2_WORK_EXPANSION_BUCKET_COUNT];          // uints point to expansions, each arg can have to expansions.
+    daxa::u32* arg_array[PO2_WORK_EXPANSION_ARG_ARRAY_COUNT];          // uints point to expansions, each arg can have to expansions.
+    daxa::u32 arg_array_sizes[PO2_WORK_EXPANSION_ARG_ARRAY_COUNT];
 
     daxa::u32 buffer_size;
 
@@ -53,21 +56,23 @@ struct Po2PackedWorkExpansionBufferHead
             daxa::DeviceAddress device_address, 
             daxa::u32 expansions_max,
             DispatchIndirectStruct dispatch_clear,
-            Po2PackedWorkExpansionBufferHead* out)
+            Po2BucketWorkExpansionBufferHead* out)
         {
             out->dispatch = dispatch_clear;
-            daxa::u32 size = sizeof(Po2PackedWorkExpansionBufferHead);
+            daxa::u32 size = sizeof(Po2BucketWorkExpansionBufferHead);
             out->expansions_max = expansions_max;
             out->expansion_count = 0;
             out->expansions_thread_count = 0;
-            out->expansions = reinterpret_cast<WorkExpansion*>(reinterpret_cast<daxa::u8*>(device_address) + size);
-            size += sizeof(WorkExpansion) * expansions_max;
-            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
+            out->expansions = reinterpret_cast<Po2BucketWorkExpansion*>(reinterpret_cast<daxa::u8*>(device_address) + size);
+            size += sizeof(Po2BucketWorkExpansion) * expansions_max;
+            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_ARG_ARRAY_COUNT; ++i)
             {
                 out->bucket_arg_counts[i] = 0;
                 out->bucket_thread_counts[i] = 0;
-                out->buckets[i] = reinterpret_cast<daxa_u32*>(reinterpret_cast<daxa::u8*>(device_address) + size);
-                size += capacity_of_bucket(expansions_max, i) * sizeof(daxa_u32) * 2;
+                out->arg_array[i] = reinterpret_cast<daxa_u32*>(reinterpret_cast<daxa::u8*>(device_address) + size);
+                daxa::u32 const size_of_arg_array = size_of_po2_arg_array(expansions_max, i) * sizeof(daxa_u32) * 2;
+                out->arg_array_sizes[i] = size_of_arg_array;
+                size += size_of_arg_array;
             }
             out->buffer_size = size;
         }
@@ -75,9 +80,9 @@ struct Po2PackedWorkExpansionBufferHead
         static auto create(
             daxa::DeviceAddress device_address, 
             daxa::u32 max_src_items,
-            DispatchIndirectStruct dispatch_clear) -> Po2PackedWorkExpansionBufferHead
+            DispatchIndirectStruct dispatch_clear) -> Po2BucketWorkExpansionBufferHead
         {
-            Po2PackedWorkExpansionBufferHead ret = {};
+            Po2BucketWorkExpansionBufferHead ret = {};
             create_in_place(device_address, max_src_items, dispatch_clear, &ret);
             return ret;
         }
@@ -85,11 +90,11 @@ struct Po2PackedWorkExpansionBufferHead
         static auto calc_buffer_size(daxa::u32 expansions_max) -> daxa::u32
         {
             daxa::u32 ret = {};
-            ret = sizeof(Po2PackedWorkExpansionBufferHead);
-            ret += sizeof(WorkExpansion) * expansions_max;
-            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_BUCKET_COUNT; ++i)
+            ret = sizeof(Po2BucketWorkExpansionBufferHead);
+            ret += sizeof(Po2BucketWorkExpansion) * expansions_max;
+            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_ARG_ARRAY_COUNT; ++i)
             {
-                auto const cap = capacity_of_bucket(expansions_max, i) * sizeof(daxa_u32) * 2;
+                auto const cap = size_of_po2_arg_array(expansions_max, i) * sizeof(daxa_u32) * 2;
                 ret += cap;
             }
             return ret;

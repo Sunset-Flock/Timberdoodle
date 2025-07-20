@@ -150,11 +150,11 @@ void main(uint3 thread_id : SV_DispatchThreadID)
     }
     else
     {
-        Po2PackedWorkExpansionBufferHead * po2packed_expansion = (Po2PackedWorkExpansionBufferHead *)(draw_list_type == 
+        Po2BucketWorkExpansionBufferHead * po2bucket_expansion = (Po2BucketWorkExpansionBufferHead *)(draw_list_type == 
             PREPASS_DRAW_LIST_OPAQUE ? 
             (uint64_t)AT.opaque_expansion : 
             (uint64_t)AT.masked_expansion);
         let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
-        po2packed_expansion_add_workitems(po2packed_expansion, mesh.meshlet_count, source_mesh_instance_index, dst_workgroup_size_log2);
+        po2bucket_expansion_add_workitems(po2bucket_expansion, mesh.meshlet_count, source_mesh_instance_index, dst_workgroup_size_log2);
     }
 }
