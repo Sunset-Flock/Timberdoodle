@@ -280,6 +280,7 @@ void Renderer::compile_pipelines()
         {vsm_clear_dirty_bit_pipeline_compile_info()},
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
+        {vsm_get_debug_statistics_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
         {debug_task_draw_display_image_pipeline_info()},

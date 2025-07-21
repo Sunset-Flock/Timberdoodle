@@ -28,6 +28,8 @@
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
+#define GET_DEBUG_STATISTICS_X_DISPATCH 8
+#define GET_DEBUG_STATISTICS_Y_DISPATCH 8
 
 #if (DAXA_LANGUAGE != DAXA_LANGUAGE_GLSL)
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(InvalidatePagesH)
@@ -254,6 +256,13 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_t
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GetDebugStatisticsH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_pages_header)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
+DAXA_DECL_TASK_HEAD_END
 #endif
 
 #if defined(__cplusplus)
@@ -262,7 +271,19 @@ DAXA_DECL_TASK_HEAD_END
 #include <glm/gtx/vector_angle.hpp>
 #include "../scene_renderer_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_force_always_resident_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/force_always_resident_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_pages.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main") inline MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_force_always_resident_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/force_always_resident_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_find_free_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/find_free_pages.glsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_allocate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/allocate_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_clear_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_dirty_bit_hiz.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_get_debug_statistics_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/get_debug_statistics.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "main")
 
     static constexpr inline char const CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_directional_pages.hlsl";
 inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_base_pipeline_compile_info()
@@ -768,6 +789,24 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
     }
 };
 
+struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    static constexpr auto dispatch_size = u32vec2{
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
+    };
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
+        GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
 struct TaskDrawVSMsInfo
 {
     Scene * scene = {};
@@ -880,6 +919,16 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_clear_dirty_bit_indirect = info.vsm_state->clear_dirty_bit_indirect,
             .vsm_globals = info.vsm_state->globals.view(),
             .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
+        },
+        .render_context = info.render_context,
+    });
+
+    info.tg->add_task(GetDebugStatisticsTask{
+        .views = GetDebugStatisticsTask::Views{
+            .globals = info.render_context->tgpu_render_data.view(),
+            .vsm_allocation_requests = info.vsm_state->allocation_requests,
+            .vsm_find_free_pages_header = info.vsm_state->find_free_pages_header,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
         },
         .render_context = info.render_context,
