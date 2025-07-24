@@ -1165,6 +1165,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Enable VSM", &enable);
                 ImGui::Checkbox("Shadow everything", &shadow_everything);
                 ImGui::Checkbox("Force clip level", &force_clip_level);
+                ImGui::SliderInt("Force mesh Lod", &render_context.render_data.vsm_settings.force_mesh_lod, -1, 15);
+                ImGui::SliderFloat("Max acceptable mesh lod pixel error", &render_context.render_data.vsm_settings.mesh_lod_max_acceptable_pixel_error, 0.0f, 255.0f);
                 ImGui::SliderInt("Vis point light idx", &render_context.render_data.vsm_settings.force_point_light_idx, -1, render_context.render_data.vsm_settings.point_light_count - 1);
                 ImGui::SliderInt("Vis spot light idx", &render_context.render_data.vsm_settings.force_spot_light_idx, -1, render_context.render_data.vsm_settings.spot_light_count - 1);
                 ImGui::Checkbox("Enable directional caching", &enable_directional_caching);

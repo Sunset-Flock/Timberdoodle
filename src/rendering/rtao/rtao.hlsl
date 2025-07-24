@@ -73,8 +73,11 @@ void ray_gen()
     {
         CameraInfo camera = push.attach.globals.view_camera;
         const float3 world_position = pixel_index_to_world_space(camera, index, depth);
-        const float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
+        float3 detail_normal = uncompress_normal_octahedral_32(push.attach.view_cam_detail_normals.get()[index].r);
         const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
+        
+        //detail_normal = flip_normal_to_incoming(detail_normal,detail_normal,primary_ray);
+
         const float3 sample_pos = rt_calc_ray_start(world_position, detail_normal, primary_ray);
         const float3 world_tangent = normalize(cross(detail_normal, float3(0,0,1) + 0.0001));
         const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, detail_normal), detail_normal));

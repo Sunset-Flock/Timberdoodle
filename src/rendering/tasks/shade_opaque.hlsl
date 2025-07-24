@@ -531,7 +531,7 @@ void entry_main_cs(
 {
     let push = push_opaque;
 
-    if (svdtid.x == 0 && svdtid.y == 0)
+    if (svdtid.x == 0 && svdtid.y == 0 && false)
     {
         push.attachments.attachments.globals.readback.first_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[0];
         push.attachments.attachments.globals.readback.second_pass_meshlet_count_post_cull = push.attachments.attachments.instantiated_meshlets.pass_counts[1];

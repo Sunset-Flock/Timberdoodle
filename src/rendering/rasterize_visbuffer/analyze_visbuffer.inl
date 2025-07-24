@@ -12,7 +12,7 @@
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(AnalyzeVisbuffer2H)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT,   daxa_BufferPtr(RenderGlobalData),           globals)
-DAXA_TH_IMAGE_ID(READ,                      REGULAR_2D,                                 visbuffer)                   // MUST BE STORAGE READ BECAUSE OF 64BIT VISBUFFER. WE NEED GENERIC ATTACHMENT ACCESS
+DAXA_TH_IMAGE_ID(READ,                      REGULAR_2D,                                 visbuffer)
 DAXA_TH_BUFFER_PTR(READ,                    daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ,                    daxa_BufferPtr(MeshInstancesBufferHead),    mesh_instances)
 DAXA_TH_BUFFER_PTR(READ_WRITE,              daxa_RWBufferPtr(daxa_u32),                 meshlet_visibility_bitfield)

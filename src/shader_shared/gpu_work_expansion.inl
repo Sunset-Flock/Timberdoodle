@@ -30,9 +30,9 @@ daxa::u32 size_of_po2_arg_array(daxa::u32 expansions_max, daxa::u32 arg_array)
 
 struct Po2BucketWorkExpansion
 {
-    daxa::u32 src_item_index;
-    daxa::u32 expansion_count;
-    daxa::u32 in_bucket_first_thread;
+    daxa_u32vec2 payload;
+    daxa::u32 work_item_count;
+    daxa::u32 first_thread_in_bucket;
 };
 
 struct Po2BucketWorkExpansionBufferHead
@@ -110,7 +110,7 @@ struct PrefixSumWorkExpansionBufferHead
     daxa::u32 expansion_count;
     daxa::u32 expansions_max;
     daxa::u32* expansions_inclusive_prefix_sum;
-    daxa::u32* expansions_src_work_item;
+    daxa_u32vec2* expansions_payloads;
     daxa::u32* expansions_expansion_factor;
 
     #if defined(__cplusplus)
@@ -130,10 +130,10 @@ struct PrefixSumWorkExpansionBufferHead
             ret.merged_expansion_count_thread_count = 0;
             ret.expansions_inclusive_prefix_sum = 
                 reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa::u32) * 0);
-            ret.expansions_src_work_item = 
-                reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa::u32) * 1);
+            ret.expansions_payloads = 
+                reinterpret_cast<daxa_u32vec2*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa::u32) * 1);
             ret.expansions_expansion_factor = 
-                reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa::u32) * 2);
+                reinterpret_cast<daxa_u32*>(device_address + static_cast<daxa::DeviceAddress>(sizeof(PrefixSumWorkExpansionBufferHead)) + max_expansions * sizeof(daxa_u32vec2) * 2);
             return ret;
         }
     #endif

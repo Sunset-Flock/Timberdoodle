@@ -4,9 +4,9 @@
 #include <daxa/utils/task_graph.inl>
 
 #include "../../shader_shared/shared.inl"
-#include "cull_meshes.inl"
 #include "analyze_visbuffer.inl"
 #include "gen_hiz.inl"
+#include "cull_meshes.hpp"
 #include "draw_visbuffer.hpp"
 
 #include "../scene_renderer_context.hpp"

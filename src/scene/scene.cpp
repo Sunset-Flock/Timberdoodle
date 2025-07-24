@@ -591,12 +591,13 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
         };
     };
 
-    for (u32 mesh_lod_group_manifest_index = 0; mesh_lod_group_manifest_index < scene._new_mesh_lod_group_manifest_entries; mesh_lod_group_manifest_index++)
+    auto const & curr_asset = scene._gltf_asset_manifest.back();
+    for (u32 new_lod_group = 0; new_lod_group < scene._new_mesh_lod_group_manifest_entries; new_lod_group++)
     {
-        auto const & curr_asset = scene._gltf_asset_manifest.back();
-        auto const & mesh_manifest_lod_group_entry = scene._mesh_lod_group_manifest.at(curr_asset.mesh_manifest_offset + mesh_lod_group_manifest_index);
+        auto const mesh_lod_group_manifest_index = curr_asset.mesh_manifest_offset + new_lod_group;
+        auto const & mesh_manifest_lod_group_entry = scene._mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
+        
         // Launch loading of this mesh
-        // TODO: ADD DUMMY MATERIAL INDEX!
         auto task = std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
             .load_info = {
                 .asset_path = curr_asset.path,
@@ -1003,7 +1004,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
                 u32 mesh_index = upload.mesh_lod_manifest_index * MAX_MESHES_PER_LOD_GROUP + i;
                 scene._mesh_as_build_queue.push_back(mesh_index);
             }
-            // Check if all meshes in a meshgroup are loaded
+            // Check if all meshes in a meshgroup are loaded.
             auto & mesh_lod_group = scene._mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index);
             // Incrementing loaded mesh count in mesh group
             {
@@ -1026,6 +1027,10 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
                 {
                     scene._newly_completed_mesh_groups.push_back(mesh_lod_group.mesh_group_manifest_index);
                 }
+            }
+            if (upload.lods[0].material_index != mesh_lod_group.material_index)
+            {
+                printf("AAAA\n");
             }
             std::memcpy(mesh_staging_ptr + upload_index * MAX_MESHES_PER_LOD_GROUP, &upload.lods, sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP);
             recorder.copy_buffer_to_buffer({

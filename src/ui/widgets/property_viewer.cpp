@@ -321,8 +321,10 @@ namespace tido
     
                                 auto mesh_group_manifest_index = scene._render_entities.slot_by_index(scene_interface.picked_entity)->mesh_group_manifest_index.value();
                                 auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
-                                MeshLodGroupManifestEntry const & mesh_lod_group_manifest = scene._mesh_lod_group_manifest[mesh_group.mesh_lod_group_manifest_indices_array_offset];
-                                MaterialManifestEntry const & material_manifest = scene._material_manifest.at(mesh_lod_group_manifest.material_index.value_or(0));
+                                auto const mesh_lod_group_manifest_index = mesh_group.mesh_lod_group_manifest_indices_array_offset + scene_interface.picked_mesh_in_meshgroup;
+                                MeshLodGroupManifestEntry const & mesh_lod_group_manifest = scene._mesh_lod_group_manifest[mesh_lod_group_manifest_index];
+                                auto const material_idx = mesh_lod_group_manifest.material_index.value_or(0);
+                                MaterialManifestEntry const & material_manifest = scene._material_manifest.at(material_idx);
                                 ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
 
                                 auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh/MAX_MESHES_PER_LOD_GROUP];
@@ -334,6 +336,12 @@ namespace tido
                                 ImGui::Text(fmt::format("Meshlet: idx:          {}", scene_interface.picked_meshlet_in_mesh).c_str());
                                 ImGui::Text(fmt::format("Triangle: idx:         {}", scene_interface.picked_triangle_in_meshlet).c_str());
                                 ImGui::Text(fmt::format("Material:              {}", material_manifest.name).c_str());
+                                ImGui::Text(fmt::format("Material idx:          {}", material_idx).c_str());
+                                ImGui::Text(fmt::format("  * alpha_discard_enabled    {}", material_manifest.alpha_discard_enabled).c_str());                    
+                                ImGui::Text(fmt::format("  * double_sided             {}", material_manifest.double_sided).c_str());              
+                                ImGui::Text(fmt::format("  * blend_enabled            {}", material_manifest.blend_enabled).c_str());              
+                                ImGui::Text(fmt::format("  * normal_compressed_bc5_rg {}", material_manifest.normal_compressed_bc5_rg).c_str());                        
+                                ImGui::Text(fmt::format("  * is_metal                 {}", material_manifest.is_metal).c_str());          
                             }
                             
                             ImGui::PopStyleColor();

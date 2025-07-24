@@ -9,8 +9,8 @@
 
 struct DstItemInfo
 {
-    uint src_item_index;
-    uint in_expansion_index;
+    uint2 payload;
+    uint work_item_index;
 };
 
 func po2bucket_expansion_arg_array_index(uint bucket) -> uint
@@ -151,21 +151,21 @@ func po2bucket_expansion_get_workitem(Po2BucketWorkExpansionBufferHead * self, u
     let first_expansion_idx = *po2bucket_get_arg(self, bucket_index, first_arg_idx);
     let secnd_expansion_idx = *po2bucket_get_arg(self, bucket_index, secnd_arg_idx);
     let first_expansion = self->expansions[first_expansion_idx];
-    let first_expansion_src_item_index = first_expansion.src_item_index;
-    let first_expansion_factor = first_expansion.expansion_count;
-    let first_expansion_first_thread_in_bucket = first_expansion.in_bucket_first_thread;
-    let secnd_expansion_src_item_index = self->expansions[secnd_expansion_idx].src_item_index;
+    let first_expansion_payload = first_expansion.payload;
+    let first_expansion_factor = first_expansion.work_item_count;
+    let first_expansion_first_thread_in_bucket = first_expansion.first_thread_in_bucket;
+    let secnd_expansion_payload = self->expansions[secnd_expansion_idx].payload;
     
     let in_first_expansion = bucket_relative_thread_index < (first_expansion_first_thread_in_bucket + first_expansion_factor);
-    ret.src_item_index = select(in_first_expansion, first_expansion_src_item_index, secnd_expansion_src_item_index);
-    ret.in_expansion_index = bucket_relative_thread_index - select(in_first_expansion, first_expansion_first_thread_in_bucket, first_expansion_first_thread_in_bucket + first_expansion_factor);
+    ret.payload = select(in_first_expansion, first_expansion_payload, secnd_expansion_payload);
+    ret.work_item_index = bucket_relative_thread_index - select(in_first_expansion, first_expansion_first_thread_in_bucket, first_expansion_first_thread_in_bucket + first_expansion_factor);
     return true;
 }
 
 /// WARNING: Cant be member function due to a slang compiler bug!
-func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, uint expansion_factor, uint src_item_index, uint dst_workgroup_size_log2)
+func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, uint work_item_count, uint2 payload, uint dst_workgroup_size_log2)
 {
-    let orig_dst_item_count = expansion_factor;
+    let orig_dst_item_count = work_item_count;
     let dst_workgroup_size = 1u << dst_workgroup_size_log2;
 
     uint expansion_index = 0;
@@ -181,8 +181,8 @@ func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, 
 
     // Update total dst threads needed.
     uint prev_dst_item_count = 0;
-    InterlockedAdd(self->expansions_thread_count, expansion_factor, prev_dst_item_count);
-    const uint cur_dst_item_count = prev_dst_item_count + expansion_factor;
+    InterlockedAdd(self->expansions_thread_count, work_item_count, prev_dst_item_count);
+    const uint cur_dst_item_count = prev_dst_item_count + work_item_count;
 
     // Update indirect dispatch:
     {
@@ -205,11 +205,11 @@ func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, 
     // This allows us to have all threads for a given expansion to be in the same arg always.
     // This improves cache locality for meshlet culling AND drawing as well as reduce atomic ops in expansion append in mesh culling.
     // It is also easier to debug.
-    uint bucket = firstbithigh(expansion_factor);
+    uint bucket = firstbithigh(work_item_count);
 
     uint first_thread_in_bucket = 0;
-    InterlockedAdd(self->bucket_thread_counts[bucket], expansion_factor, first_thread_in_bucket);
-    uint last_thread_in_bucket = first_thread_in_bucket + expansion_factor - 1;
+    InterlockedAdd(self->bucket_thread_counts[bucket], work_item_count, first_thread_in_bucket);
+    uint last_thread_in_bucket = first_thread_in_bucket + work_item_count - 1;
 
     if (last_thread_in_bucket >= WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS)
     {
@@ -218,7 +218,7 @@ func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, 
         return;
     }
 
-    self->expansions[expansion_index] = Po2BucketWorkExpansion(src_item_index, expansion_factor, first_thread_in_bucket);
+    self->expansions[expansion_index] = Po2BucketWorkExpansion(payload, work_item_count, first_thread_in_bucket);
 
     // We mark each arg in which the first thread is part of the current expansion.
     const uint first_arg = round_up_div_btsft(first_thread_in_bucket, bucket);
@@ -349,7 +349,7 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
         return false;
     }
 
-    const uint src_item_index = self->expansions_src_work_item[expansion_index];
+    const uint2 payload = self->expansions_payloads[expansion_index];
     const uint expansion_factor = self->expansions_expansion_factor[expansion_index];
     const uint in_expansion_index = thread_index - (expansion_inc_prefix_value - expansion_factor);
 
@@ -362,23 +362,23 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
         return false;
     }
 
-    ret.src_item_index = src_item_index;
-    ret.in_expansion_index = in_expansion_index;
+    ret.payload = payload;
+    ret.work_item_index = in_expansion_index;
     return true;
 }
 
 /// WARNING: Cant be member function due to a slang compiler bug!
-func prefix_sum_expansion_add_workitems(PrefixSumWorkExpansionBufferHead* self, uint expansion_factor, uint src_item_index, uint dst_workgroup_size_log2)
+func prefix_sum_expansion_add_workitems(PrefixSumWorkExpansionBufferHead* self, uint work_items, uint2 payload, uint dst_workgroup_size_log2)
 {
     // Single merged atomic 64 bit atomic performing two 32 bit atomic adds for prefix sum and expansion append.
-    daxa::u64 prev_merged_count = AtomicAddU64(self->merged_expansion_count_thread_count, daxa::u64(1) << 32 | daxa::u64(expansion_factor));
+    daxa::u64 prev_merged_count = AtomicAddU64(self->merged_expansion_count_thread_count, daxa::u64(1) << 32 | daxa::u64(work_items));
     daxa::u32 expansion_index = uint(prev_merged_count >> 32);
-    daxa::u32 inclusive_dst_item_count_prefix_sum = uint(prev_merged_count) + expansion_factor;
+    daxa::u32 inclusive_dst_item_count_prefix_sum = uint(prev_merged_count) + work_items;
     if (expansion_index < self->expansions_max)
     {
         self->expansions_inclusive_prefix_sum[expansion_index] = inclusive_dst_item_count_prefix_sum;
-        self->expansions_src_work_item[expansion_index] = src_item_index;
-        self->expansions_expansion_factor[expansion_index] = expansion_factor;
+        self->expansions_payloads[expansion_index] = payload;
+        self->expansions_expansion_factor[expansion_index] = work_items;
         // Its ok if we launch a few too many threads.
         // The get_dst_workitem function is robust against that.
         daxa::u32 needed_workgroups = round_up_div_btsft(inclusive_dst_item_count_prefix_sum, dst_workgroup_size_log2);

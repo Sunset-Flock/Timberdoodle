@@ -5,6 +5,7 @@
 #include "shader_lib/cull_util.hlsl"
 #include "shader_lib/gpu_work_expansion.hlsl"
 #include "shader_lib/vsm_util.glsl"
+#include "shader_lib/mesh_lod.hlsl"
 
 [[vk::push_constant]] ExpandMeshesToMeshletsPush push;
 
@@ -22,10 +23,9 @@ void main(uint3 thread_id : SV_DispatchThreadID)
         return;
     }
     MeshInstance mesh_instance = deref_i(deref(AT.mesh_instances).instances, mesh_instance_index);
-    const uint mesh_index = mesh_instance.mesh_index;
+    let draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
 
-    uint draw_list_type = ((mesh_instance.flags & MESH_INSTANCE_FLAG_OPAQUE) != 0) ? PREPASS_DRAW_LIST_OPAQUE : PREPASS_DRAW_LIST_MASKED;
-    //if (draw_list_type == PREPASS_DRAW_LIST_MASKED) return;
+    uint mesh_index = mesh_instance.mesh_index;
 
     GPUMesh mesh = deref_i(push.meshes, mesh_index);
     if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
@@ -82,7 +82,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             mesh_instance_index  // mesh_instance_index
         );
 
-        const float2 base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << indirections.mip_level);
+        const float2 base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION >> indirections.mip_level;
         CameraInfo * camera_info;
         float cutoff = 0.0f;
         uint light_idx = 0;
@@ -108,6 +108,23 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             indirections.array_layer_index = light_idx;
         }
 
+        // Overwrite mesh lod and mesh index:
+        {
+            let mesh_lod_group_index = mesh_index / MAX_MESHES_PER_LOD_GROUP;
+            let vsm_selected_lod = select_lod(
+                AT.globals,
+                push.mesh_lod_groups,
+                push.meshes,
+                mesh_lod_group_index,
+                mat_4x3_to_4x4(push.entity_combined_transforms[mesh_instance.entity_index]),
+                base_resolution.x,
+                camera_info.position,
+                AT.globals.vsm_settings.mesh_lod_max_acceptable_pixel_error,
+                AT.globals.vsm_settings.force_mesh_lod);
+
+            mesh_index = vsm_selected_lod + mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP;
+        }
+
         if(is_mesh_occluded_point_spot_vsm(
             *camera_info,
             mesh_instance,
@@ -124,6 +141,9 @@ void main(uint3 thread_id : SV_DispatchThreadID)
         }
         source_mesh_instance_index = pack_vsm_point_spot_light_indirections(indirections);
     }
+
+    // reload mesh data as we may have changed the mesh_index
+    mesh = push.meshes[mesh_index];
 
     let vsm = !AT.hip.is_empty() || (push.mip_level != -1);
     let separate_compute_meshlet_cull = (AT.globals.settings.enable_separate_compute_meshlet_culling) && !vsm;
@@ -146,7 +166,7 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             (uint64_t)AT.opaque_expansion : 
             (uint64_t)AT.masked_expansion);
         let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
-        prefix_sum_expansion_add_workitems(prefixsum_expansion, mesh.meshlet_count, source_mesh_instance_index, dst_workgroup_size_log2);
+        prefix_sum_expansion_add_workitems(prefixsum_expansion, mesh.meshlet_count, uint2(source_mesh_instance_index,mesh_index), dst_workgroup_size_log2);
     }
     else
     {
@@ -155,6 +175,6 @@ void main(uint3 thread_id : SV_DispatchThreadID)
             (uint64_t)AT.opaque_expansion : 
             (uint64_t)AT.masked_expansion);
         let dst_workgroup_size_log2 = separate_compute_meshlet_cull ? uint(log2(MESHLET_CULL_WORKGROUP_X)) : uint(log2(MESH_SHADER_WORKGROUP_X));
-        po2bucket_expansion_add_workitems(po2bucket_expansion, mesh.meshlet_count, source_mesh_instance_index, dst_workgroup_size_log2);
+        po2bucket_expansion_add_workitems(po2bucket_expansion, mesh.meshlet_count, uint2(source_mesh_instance_index,mesh_index), dst_workgroup_size_log2);
     }
 }

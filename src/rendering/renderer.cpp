@@ -7,7 +7,7 @@
 
 #include "rasterize_visbuffer/rasterize_visbuffer.hpp"
 
-#include "virtual_shadow_maps/vsm.inl"
+#include "virtual_shadow_maps/vsm.hpp"
 
 #include "rtao/rtao.inl"
 #include "path_trace/path_trace.inl"

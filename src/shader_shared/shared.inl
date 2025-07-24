@@ -133,6 +133,8 @@ DAXA_DECL_BUFFER_PTR_ALIGN(SkySettings, 8)
 struct VSMSettings
 {
     daxa_i32 enable;
+    daxa_f32 mesh_lod_max_acceptable_pixel_error;
+    daxa_i32 force_mesh_lod;
     daxa_i32 shadow_everything;
     daxa_u32 force_clip_level;
     daxa_u32 enable_directional_caching;
@@ -153,6 +155,8 @@ struct VSMSettings
 #if defined(__cplusplus)
     VSMSettings()
         : enable{ 1 },
+          mesh_lod_max_acceptable_pixel_error{ 8.0f },
+          force_mesh_lod{ -1 },
           shadow_everything{ 0 },
           force_clip_level{ 0 },
           enable_directional_caching{ 1 },

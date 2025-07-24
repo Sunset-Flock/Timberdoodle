@@ -1013,7 +1013,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         lod0_index_buffer = std::move(optimized_indices);
     }
 
-    std::array<daxa::BufferId, MAX_MESHES_PER_LOD_GROUP> staging_buffers = {};
     std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
     u32 lod_count = 0;
 
@@ -1256,7 +1255,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         mesh.bounding_sphere = compute_bounding_sphere(optimized_vert_positions.data(), optimized_vert_positions.size());
 
         daxa::DeviceAddress mesh_bda = {};
-        daxa::BufferId staging_buffer = {};
         {
             mesh.mesh_buffer = _device.create_buffer({
                 .size = s_cast<daxa::usize>(total_mesh_buffer_size),
@@ -1342,7 +1340,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         mesh.primitive_count = index_buffer->size() / 3;
 
         lods[lod] = mesh;
-        staging_buffers[lod] = staging_buffer;
         lod_count += 1;
     }
 
