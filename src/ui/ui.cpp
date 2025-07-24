@@ -1202,18 +1202,32 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 render_context.render_data.vsm_settings.enable_directional_caching = enable_directional_caching;
                 render_context.render_data.vsm_settings.enable_point_caching = enable_point_caching;
 
-                ImGui::Image(
-                    imgui_renderer.create_texture_id({
-                        .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
-                        .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
-                    }),
-                    ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
-                ImGui::Image(
-                    imgui_renderer.create_texture_id({
-                        .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
-                        .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
-                    }),
-                    ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
+                u32 free_pages = render_context.general_readback.free_pages;
+                u32 drawn_pages = render_context.general_readback.drawn_pages;
+                u32 cached_pages = render_context.general_readback.cached_pages;
+                u32 visible_pages = (VSM_META_MEMORY_TABLE_RESOLUTION * VSM_META_MEMORY_TABLE_RESOLUTION) - (cached_pages + free_pages);
+                ImGui::Text("Drawn pages %i", drawn_pages);
+
+                ImGui::Text("Free pages %i", free_pages);
+                ImGui::Text("Cached not visible pages %i", cached_pages);
+                ImGui::Text("Cached visible pages %i", visible_pages);
+                ImGui::Text("Total %i", cached_pages + free_pages + visible_pages);
+
+                u32 cached_point = render_context.general_readback.point_spot_cached_pages;
+                u32 cached_point_visible = render_context.general_readback.point_spot_cached_visible_pages;
+                u32 drawn_point = render_context.general_readback.drawn_point_spot_pages;
+                u32 cached_directional = render_context.general_readback.directional_cached_pages;
+                u32 cached_directional_visible = render_context.general_readback.directional_cached_visible_pages;
+                u32 drawn_directional = render_context.general_readback.drawn_directional_pages;
+                ImGui::Text("Cached point spot visible pages %i", cached_point_visible);
+                ImGui::Text("Cached point spot pages %i", cached_point);
+                ImGui::Text("Drawn point spot pages %i", drawn_point);
+                ImGui::Text("Cached directional visible pages %i", cached_directional);
+                ImGui::Text("Cached directional pages %i", cached_directional_visible);
+                ImGui::Text("Drawn directional pages %i", drawn_directional);
+                ImGui::Text("Drawn Total %i", drawn_directional + drawn_point);
+                ImGui::Text("Cached Total %i", cached_point + cached_point_visible + cached_directional + cached_directional_visible);
+                ImGui::Text("Total %i", cached_pages + free_pages + visible_pages);
             }
         }
     }
@@ -1227,6 +1241,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     }
     ImGui::End();
 }
+
 
 void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
 {
