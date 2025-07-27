@@ -474,12 +474,6 @@ bool is_mesh_occluded_point_spot_vsm(
     daxa_BufferPtr(RenderGlobalData) globals,
 )
 {
-    // return false;
-    if (mesh.mesh_buffer.value == 0)
-    {
-        return true;
-    }
-
     daxa_f32mat4x4 model_matrix = mat_4x3_to_4x4(deref_i(entity_combined_transforms, mesh_instance.entity_index));
 
     BoundingSphere model_bounding_sphere = mesh.bounding_sphere;
@@ -551,10 +545,6 @@ bool is_meshlet_occluded_vsm(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_inst.mesh_index);
-    if (mesh_data.mesh_buffer.value == 0)
-    {
-        return true;
-    }
     if (meshlet_inst.meshlet_index >= mesh_data.meshlet_count)
     {
         return true;
@@ -587,10 +577,6 @@ bool is_meshlet_occluded_point_spot_vsm(
 )
 {
     GPUMesh mesh_data = deref_i(meshes, meshlet_instance.mesh_index);
-    if (mesh_data.mesh_buffer.value == 0)
-    {
-        return true;
-    }
     if (meshlet_instance.meshlet_index >= mesh_data.meshlet_count)
     {
         return true;

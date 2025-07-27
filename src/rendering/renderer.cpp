@@ -12,6 +12,7 @@
 #include "rtao/rtao.inl"
 #include "path_trace/path_trace.inl"
 #include "path_trace/kajiya/brdf_fg.inl"
+#include "rtgi/rtgi.hpp"
 
 #include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
@@ -96,6 +97,9 @@ Renderer::Renderer(
     path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
     normal_history = daxa::TaskImage{{.name = "normal_history"}};
     ppd_history = daxa::TaskImage{{.name = "ppd_history"}};
+    rtgi_diffuse_history = daxa::TaskImage{{.name = "rtgi_diffuse_history"}};
+    rtgi_depth_history = daxa::TaskImage{{.name = "rtgi_depth_history"}};
+    rtgi_samplecnt_history = daxa::TaskImage{{.name = "rtgi_samplecnt_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -181,6 +185,19 @@ Renderer::~Renderer()
             this->gpu_context->device.destroy_buffer(rt_pipe.sbt_buffer_id);
         }
     }
+    
+    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+    }
+    if (!rtgi_depth_history.get_state().images.empty() && !rtgi_depth_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_depth_history.get_state().images[0]);
+    }
+    if (!rtgi_samplecnt_history.get_state().images.empty() && !rtgi_samplecnt_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
+    }
     pgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
     this->gpu_context->device.wait_idle();
@@ -247,6 +264,9 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {rtgi_reproject_diffuse_compile_info()},
+        {rtgi_reconstruct_history_diffuse_compile_info()},
+        {rtgi_adaptive_blur_diffuse_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
@@ -306,14 +326,15 @@ void Renderer::compile_pipelines()
         this->gpu_context->compute_pipelines[info.name] = compilation_result.value();
     }
 
-    std::vector<daxa::RayTracingPipelineCompileInfo> ray_tracing = {
+    std::vector<daxa::RayTracingPipelineCompileInfo2> ray_tracing = {
         {ray_trace_ao_rt_pipeline_info()},
         {pgi_trace_probe_lighting_pipeline_compile_info()},
         {reference_path_trace_rt_pipeline_info()},
+        {rtgi_trace_diffuse_compile_info()},
     };
     for (auto const & info : ray_tracing)
     {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline(info);
+        auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline2(info);
         if (compilation_result.value()->is_valid())
         {
             std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
@@ -404,6 +425,21 @@ void Renderer::recreate_framebuffer()
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
     }
+    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+    }
+    rtgi_diffuse_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_diffuse_history_image_info(render_context.get()))}});
+    if (!rtgi_depth_history.get_state().images.empty() && !rtgi_depth_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_depth_history.get_state().images[0]);
+    }
+    rtgi_depth_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_depth_history_image_info(render_context.get()))}});
+    if (!rtgi_samplecnt_history.get_state().images.empty() && !rtgi_samplecnt_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
+    }
+    rtgi_samplecnt_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_samplecnt_history_image_info(render_context.get()))}});
 }
 
 void Renderer::clear_select_buffers()
@@ -683,13 +719,29 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     daxa::TaskImageView view_camera_face_normal_image = main_camera_face_normal_image;
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
+    
+    daxa::TaskImageView main_camera_half_res_face_normal_image = tg.create_transient_image({
+        .format = GBUFFER_NORMAL_FORMAT,
+        .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+        .name = "main_camera_half_res_face_normal_image",
+    });
+    daxa::TaskImageView main_camera_half_res_depth_image = tg.create_transient_image({
+        .format = daxa::Format::R32_SFLOAT,
+        .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+        .name = "main_camera_half_res_depth_image",
+    });
+    daxa::TaskImageView view_camera_half_res_face_normal_image = main_camera_half_res_face_normal_image;
+    daxa::TaskImageView view_camera_half_res_depth_image = main_camera_half_res_depth_image;
+
     tg.add_task(GenGbufferTask{
         .views = GenGbufferTask::Views{
             .globals = render_context->tgpu_render_data.view(),
             .debug_image = debug_image,
             .vis_image = main_camera_visbuffer,
-            .face_normal_image = view_camera_face_normal_image,
+            .face_normal_image = main_camera_face_normal_image,
             .detail_normal_image = main_camera_detail_normal_image,
+            .half_res_face_normal_image = main_camera_half_res_face_normal_image,
+            .half_res_depth_image = main_camera_half_res_depth_image,
             .material_manifest = scene->_gpu_material_manifest.view(),
             .meshes = scene->_gpu_mesh_manifest.view(),
             .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -715,6 +767,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_detail_normal_image",
         });
+        view_camera_half_res_face_normal_image = tg.create_transient_image({
+            .format = GBUFFER_NORMAL_FORMAT,
+            .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+            .name = "view_camera_half_res_face_normal_image",
+        });
+        view_camera_half_res_depth_image = tg.create_transient_image({
+            .format = daxa::Format::R32_SFLOAT,
+            .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+            .name = "view_camera_half_res_depth_image",
+        });
         tg.add_task(GenGbufferTask{
             .views = GenGbufferTask::Views{
                 .globals = render_context->tgpu_render_data.view(),
@@ -722,6 +784,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .vis_image = view_camera_visbuffer,
                 .face_normal_image = view_camera_face_normal_image,
                 .detail_normal_image = view_camera_detail_normal_image,
+                .half_res_face_normal_image = view_camera_half_res_face_normal_image,
+                .half_res_depth_image = view_camera_half_res_depth_image,
                 .material_manifest = scene->_gpu_material_manifest.view(),
                 .meshes = scene->_gpu_mesh_manifest.view(),
                 .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -884,6 +948,98 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
         tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
+    }
+
+    // RTGI
+    if (render_context->render_data.rtgi_settings.enabled)
+    {
+        tg.use_persistent_image(rtgi_diffuse_history);
+        tg.use_persistent_image(rtgi_depth_history);
+        tg.use_persistent_image(rtgi_samplecnt_history);
+
+        auto rtgi_trace_diffuse_raw_image = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_diffuse_raw_image");
+        tg.clear_image({ .view = rtgi_trace_diffuse_raw_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi trace diffuse raw image"});
+        tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_raw = rtgi_trace_diffuse_raw_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                .meshlet_instances = meshlet_instances.view(),
+                .mesh_instances = scene->mesh_instances_buffer.view(),
+                .tlas = scene_main_tlas,
+            })
+            .executes(rtgi_trace_diffuse_callback, render_context.get()));
+        
+
+        auto rtgi_reconstructed_history_diffuse_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse_image");
+        tg.add_task(daxa::HeadTask<RtgiDiffuseReconstructHistoryH::Info>()
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_raw = rtgi_trace_diffuse_raw_image,
+                .rtgi_reconstructed_diffuse_history = rtgi_reconstructed_history_diffuse_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+            })
+            .executes(rtgi_reconstruct_history_diffuse_callback, render_context.get()));
+
+
+        auto rtgi_trace_diffuse_accumulated_image = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_diffuse_accumulated_image");
+        tg.clear_image({ .view = rtgi_trace_diffuse_accumulated_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi trace diffuse accumulated image"});
+        auto rtgi_samplecnt_image = rtgi_create_samplecnt_image(tg, render_context.get(), "rtgi_samplecnt_image");
+        tg.add_task(daxa::HeadTask<RtgiReprojectDiffuseH::Info>()
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_raw = rtgi_trace_diffuse_raw_image,
+                .rtgi_diffuse_history = rtgi_diffuse_history.view(),
+                .rtgi_depth_history = rtgi_depth_history.view(),
+                .rtgi_samplecnt_history = rtgi_samplecnt_history.view(),
+                .rtgi_samplecnt = rtgi_samplecnt_image,
+                .rtgi_diffuse_accumulated = rtgi_trace_diffuse_accumulated_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                .rtgi_reconstructed_history_diffuse = rtgi_reconstructed_history_diffuse_image,
+            })
+            .executes(rtgi_denoise_diffuse_reproject_callback, render_context.get()));
+
+        auto rtgi_blurred_diffuse_image = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_blurred_diffuse_image");
+        tg.clear_image({ .view = rtgi_blurred_diffuse_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse image"});
+        tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur1")
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_accumulated = rtgi_trace_diffuse_accumulated_image,
+                .rtgi_samplecnt = rtgi_samplecnt_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image,
+            })
+            .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get()));
+
+        auto rtgi_blurred_diffuse_image2 = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_blurred_diffuse_image2");
+        tg.clear_image({ .view = rtgi_blurred_diffuse_image2, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse image2"});
+        tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_accumulated = rtgi_blurred_diffuse_image,
+                .rtgi_samplecnt = rtgi_samplecnt_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image2,
+            })
+            .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get()));
+
+        tg.copy_image_to_image({.src = view_camera_half_res_depth_image, .dst = rtgi_depth_history.view(), .name = "save rtgi depth history"});
+        tg.copy_image_to_image({.src = rtgi_samplecnt_image, .dst = rtgi_samplecnt_history.view(), .name = "save rtgi samplecnt history"});
+        tg.copy_image_to_image({.src = rtgi_blurred_diffuse_image2, .dst = rtgi_diffuse_history.view(), .name = "save rtgi diffuse history"});
     }
 
     tg.submit({});
@@ -1194,6 +1350,7 @@ auto Renderer::prepare_frame(
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const ppd_settings_changed = render_context->render_data.ppd_settings.mode != render_context->prev_ppd_diffuse_settings.mode;
+    bool const rtgi_settings_changed = render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
@@ -1204,7 +1361,7 @@ auto Renderer::prepare_frame(
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ppd_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ppd_settings_changed || rtgi_settings_changed)
     {
         gpu_context->swapchain.set_present_mode(render_context->render_data.settings.enable_vsync ? daxa::PresentMode::FIFO : daxa::PresentMode::IMMEDIATE);
         main_task_graph = create_main_task_graph();
@@ -1257,6 +1414,7 @@ auto Renderer::prepare_frame(
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
     render_context->prev_light_settings = render_context->render_data.light_settings;
     render_context->prev_ppd_diffuse_settings = render_context->render_data.ppd_settings;
+    render_context->prev_rtgi_settings = render_context->render_data.rtgi_settings;
 
     // Write GPUScene pointers
     {

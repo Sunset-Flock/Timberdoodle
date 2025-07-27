@@ -96,6 +96,9 @@ struct Renderer
     daxa::TaskImage path_trace_history = {};
     daxa::TaskImage normal_history = {};
     daxa::TaskImage ppd_history = {};
+    daxa::TaskImage rtgi_diffuse_history = {};
+    daxa::TaskImage rtgi_depth_history = {};
+    daxa::TaskImage rtgi_samplecnt_history = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};

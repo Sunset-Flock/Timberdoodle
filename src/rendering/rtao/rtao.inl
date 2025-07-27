@@ -74,58 +74,25 @@ struct RTAODenoiserPush
 
 #include "../scene_renderer_context.hpp"
 
-inline auto ray_trace_ao_rt_pipeline_info() -> daxa::RayTracingPipelineCompileInfo
+inline auto ray_trace_ao_rt_pipeline_info() -> daxa::RayTracingPipelineCompileInfo2
 {
     return {
-        .ray_gen_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"},
-                .compile_options = {.entry_point = "ray_gen", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .any_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"},
-                .compile_options = {.entry_point = "any_hit", .language = daxa::ShaderLanguage::SLANG},
-            }
-        },
-        .closest_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"},
-                .compile_options = {.entry_point = "closest_hit", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .miss_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"},
-                .compile_options = {.entry_point = "miss", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
+        .ray_gen_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"}, .entry_point = "ray_gen", .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"}, .entry_point = "any_hit", .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"}, .entry_point = "closest_hit", .language = daxa::ShaderLanguage::SLANG}},
+        .miss_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtao/rtao.hlsl"}, .entry_point = "miss", .language = daxa::ShaderLanguage::SLANG}},
         .shader_groups_infos = {
             // Gen Group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::GENERAL,
-                .general_shader_index = 0,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL, .general_shader_index = 0},
             // Miss group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::GENERAL,
-                .general_shader_index = 3,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL, .general_shader_index = 3},
             // Hit group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,
-                .closest_hit_shader_index = 2,
-            },
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,
-                .closest_hit_shader_index = 2,
-                .any_hit_shader_index = 1,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2, .any_hit_shader_index = 1},
         },
         .max_ray_recursion_depth = 1,
         .push_constant_size = sizeof(RayTraceAmbientOcclusionPush),
-        .name = std::string{RayTraceAmbientOcclusionH::NAME},
+        .name = std::string{RayTraceAmbientOcclusionH::Info::NAME},
     };
 }
 
@@ -137,7 +104,7 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
         RayTraceAmbientOcclusionPush push = {};
         push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
         auto const & ppd_raw_image = ti.info(AT.ppd_raw_image).value();
@@ -150,33 +117,33 @@ struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
             .depth = 1,
             .shader_binding_table = rt_pipeline.sbt,
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","TRACE">());
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
     }
 };
 
 inline MAKE_COMPUTE_COMPILE_INFO(rtao_denoiser_pipeline_info, "./src/rendering/rtao/rtao.hlsl", "entry_rtao_denoiser")
 
-struct RTAODeoinserTask : RTAODenoiserH::Task
+    struct RTAODeoinserTask : RTAODenoiserH::Task
 {
     AttachmentViews views = {};
     GPUContext * gpu_context = {};
     RenderContext * render_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","DENOISE">());
+        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
         auto info = ti.info(AT.ppd_raw).value();
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
         ti.recorder.push_constant(RTAODenoiserPush{
             .attach = ti.attachment_shader_blob,
-            .size = {info.size.x,info.size.y},
+            .size = {info.size.x, info.size.y},
             .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
         });
-        
+
         ti.recorder.dispatch({
             round_up_div(info.size.x, RTAO_DENOISER_X),
             round_up_div(info.size.y, RTAO_DENOISER_Y),
         });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO","DENOISE">());
+        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
     }
 };
 

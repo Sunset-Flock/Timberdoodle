@@ -7,6 +7,8 @@
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/geometry_pipeline.inl"
 
+// TODO: Optimize.
+// Keep in sync with select_lod in mesh_lod.hpp
 func select_lod(RenderGlobalData* render_data, GPUMeshLodGroup* mesh_lod_groups, GPUMesh* meshes, uint mesh_lod_group_index, float4x4 combined_transform, daxa::f32 resolution, daxa_f32vec3 camera_pos, daxa::f32 acceptable_pixel_error, daxa::i32 lod_override) -> daxa::u32
 {
     /// ===== Select LOD ======

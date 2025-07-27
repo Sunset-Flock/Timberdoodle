@@ -1458,54 +1458,21 @@ MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/ren
 MAKE_COMPUTE_COMPILE_INFO(pgi_eval_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "enty_eval_screen_irradiance")
 MAKE_COMPUTE_COMPILE_INFO(pgi_upscale_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "entry_upscale_screen_irradiance")
 
-auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo
+auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo2
 {
     return {
-        .ray_gen_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},
-                .compile_options = {.entry_point = "entry_ray_gen", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .any_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},
-                .compile_options = {.entry_point = "entry_any_hit", .language = daxa::ShaderLanguage::SLANG},
-            }
-        },
-        .closest_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},
-                .compile_options = {.entry_point = "entry_closest_hit", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .miss_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},
-                .compile_options = {.entry_point = "entry_miss", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
+        .ray_gen_infos = {{.source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"}, .entry_point = "entry_ray_gen", .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"}, .entry_point = "entry_any_hit", .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"}, .entry_point = "entry_closest_hit", .language = daxa::ShaderLanguage::SLANG}},
+        .miss_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/pgi/pgi_trace_probe_lighting.hlsl"},  .entry_point = "entry_miss", .language = daxa::ShaderLanguage::SLANG}},
         .shader_groups_infos = {
             // Gen Group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::GENERAL,
-                .general_shader_index = 0,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,.general_shader_index = 0},
             // Miss group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::GENERAL,
-                .general_shader_index = 3,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,.general_shader_index = 3},
             // Hit group
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,
-                .closest_hit_shader_index = 2,
-            },
-            daxa::RayTracingShaderGroupInfo{
-                .type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,
-                .closest_hit_shader_index = 2,
-                .any_hit_shader_index = 1,
-            },
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,.closest_hit_shader_index = 2},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP,.closest_hit_shader_index = 2,.any_hit_shader_index = 1},
         },
         .max_ray_recursion_depth = 1,
         .push_constant_size = sizeof(PGITraceProbeLightingPush),

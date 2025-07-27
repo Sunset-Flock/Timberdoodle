@@ -57,18 +57,6 @@ float rand_normal_dist() {
     return rho * cos(theta);
 }
 
-float3 rand_dir() {
-    return normalize(float3(
-        rand_normal_dist(),
-        rand_normal_dist(),
-        rand_normal_dist()));
-}
-
-float3 rand_hemi_dir(float3 nrm) {
-    float3 result = rand_dir();
-    return result * sign(dot(nrm, result));
-}
-
 struct RayPayload
 {
     bool hit;

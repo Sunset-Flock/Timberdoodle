@@ -20,32 +20,6 @@
 
 [[vk::push_constant]] RayTraceAmbientOcclusionPush rt_ao_push;
 
-float3 rand_dir() {
-    return normalize(float3(
-        rand() * 2.0f - 1.0f,
-        rand() * 2.0f - 1.0f,
-        rand() * 2.0f - 1.0f));
-}
-
-float3 rand_hemi_dir(float3 nrm) {
-    float3 result = rand_dir();
-    return result * sign(dot(nrm, result));
-}
-
-float2 concentric_sample_disc()
-{
-    float r = sqrt(rand());
-    float theta = rand() * 2 * PI;
-    return float2(cos(theta), sin(theta)) * r;
-}
-
-float3 cosine_sample_hemi()
-{
-    float2 d = concentric_sample_disc();
-    float z = sqrt(max(0.0f, 1.0f - d.x * d.x - d.y * d.y));
-    return float3(d.x, d.y, z);
-}
-
 struct RayPayload
 {
     bool miss;
@@ -118,7 +92,7 @@ void ray_gen()
                 float ao_factor = 0.0f;
                 for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
                 {
-                    const float3 hemi_sample = cosine_sample_hemi();
+                    const float3 hemi_sample = rand_cosine_sample_hemi();
                     const float3 sample_dir = mul(tbn, hemi_sample);
                     ray.Direction = sample_dir;
                     payload.miss = false; // need to set to false as we skip the closest hit shader

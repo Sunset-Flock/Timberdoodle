@@ -2,6 +2,8 @@
 
 #include "daxa/daxa.inl"
 
+#include "shader_shared/shared.inl"
+
 func firstbitlow_uint4(uint4 v) -> uint
 {
     uint vec_mask = 
@@ -66,6 +68,32 @@ float rand() {
     uint result = ((_rand_state >> ((_rand_state >> 28u) + 4u)) ^ _rand_state) * 277803737u;
     result = (result >> 22u) ^ result;
     return result / 4294967295.0;
+}
+
+float3 rand_dir() {
+    return normalize(float3(
+        rand() * 2.0f - 1.0f,
+        rand() * 2.0f - 1.0f,
+        rand() * 2.0f - 1.0f));
+}
+
+float3 rand_hemi_dir(float3 nrm) {
+    float3 result = rand_dir();
+    return result * sign(dot(nrm, result));
+}
+
+float2 rand_concentric_sample_disc()
+{
+    float r = sqrt(rand());
+    float theta = rand() * 2 * PI;
+    return float2(cos(theta), sin(theta)) * r;
+}
+
+float3 rand_cosine_sample_hemi()
+{
+    float2 d = rand_concentric_sample_disc();
+    float z = sqrt(max(0.0f, 1.0f - d.x * d.x - d.y * d.y));
+    return float3(d.x, d.y, z);
 }
 
 [ForceInline]
@@ -241,6 +269,36 @@ float3 square(float3 x)
 float4 square(float4 x)
 {
     return x * x;
+}
+
+struct Bilinear
+{
+    float2 origin;
+    float2 weights;
+};
+
+Bilinear get_bilinear_filter( float2 uv, float2 texSize )
+{
+    Bilinear ret;
+    ret.origin = floor( uv * texSize - 0.5f );
+    ret.weights = frac( uv * texSize - 0.5f );
+    return ret;
+}
+
+float4 get_bilinear_custom_weights( Bilinear f, float4 custumWeights )
+{
+    float4 weights;
+    weights.x = ( 1.0f - f.weights.x ) * ( 1.0f - f.weights.y );
+    weights.y = f.weights.x * ( 1.0f - f.weights.y );
+    weights.z = ( 1.0f - f.weights.x ) * f.weights.y;
+    weights.w = f.weights.x * f.weights.y;
+    return weights * custumWeights;
+}
+
+float4 apply_bilinear_custom_weights( float4 s00, float4 s10, float4 s01, float4 s11, float4 w, bool normalize = true )
+{
+    float4 wsum = s00 * w.x + s10 * w.y + s01 * w.z + s11 * w.w;
+    return wsum * ( normalize ? rcp( dot( w, 1.0f ) ) : 1.0f );
 }
 
 /// ===== =====

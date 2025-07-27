@@ -15,6 +15,8 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, de
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, vis_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, face_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, detail_normal_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, half_res_face_normal_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, half_res_depth_image)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), combined_transforms)
@@ -38,9 +40,12 @@ struct GenGbufferPush
 
 [[vk::push_constant]] GenGbufferPush push;
 
+groupshared uint gs_face_normals[GEN_GBUFFER_X][GEN_GBUFFER_Y];
+groupshared float gs_depths[GEN_GBUFFER_X][GEN_GBUFFER_Y];
+
 [[shader("compute")]]
 [numthreads(GEN_GBUFFER_X, GEN_GBUFFER_Y, 1)]
-func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
+func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID)
 {
     uint triangle_id = INVALID_TRIANGLE_ID;
     if (all(lessThan(dtid, push.size)))
@@ -99,6 +104,48 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID)
         
         uint packed_mapped_normal = compress_normal_octahedral_32(detail_normal);
         push.attachments.detail_normal_image.get()[dtid] = packed_mapped_normal;
+
+        gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
+        gs_depths[gtid.x][gtid.y] = depth;
+    }
+    else
+    {
+        gs_face_normals[gtid.x][gtid.y] = 0u;
+        gs_depths[gtid.x][gtid.y] = 0.0f;
+    }
+
+    GroupMemoryBarrierWithGroupSync();
+
+    if (all((dtid.xy & uint2(1,1)) == uint2(0,0)))
+    {
+        uint2 half_out_idx = dtid.xy / 2;
+
+        float4 depths = {
+            gs_depths[gtid.x + 0][gtid.y + 0],
+            gs_depths[gtid.x + 1][gtid.y + 0],
+            gs_depths[gtid.x + 0][gtid.y + 1],
+            gs_depths[gtid.x + 1][gtid.y + 1]
+        };
+        uint4 normals = {
+            gs_face_normals[gtid.x + 0][gtid.y + 0],
+            gs_face_normals[gtid.x + 1][gtid.y + 0],
+            gs_face_normals[gtid.x + 0][gtid.y + 1],
+            gs_face_normals[gtid.x + 1][gtid.y + 1]
+        };
+
+        float closest_depth = 0.0f;
+        uint closest_face_normal = 0u;
+        for (uint i = 0; i < 4; ++i)
+        {
+            if (depths[i] > closest_depth)
+            {
+                closest_depth = depths[i];
+                closest_face_normal = normals[i];
+            }
+        }
+
+        push.attachments.half_res_depth_image.get()[half_out_idx] = closest_depth;
+        push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;
     }
 }
 

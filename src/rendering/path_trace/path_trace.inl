@@ -45,36 +45,15 @@ struct ReferencePathTracePush
 
 #include "../scene_renderer_context.hpp"
 
-inline auto reference_path_trace_rt_pipeline_info() -> daxa::RayTracingPipelineCompileInfo
+inline auto reference_path_trace_rt_pipeline_info() -> daxa::RayTracingPipelineCompileInfo2
 {
     return {
-        .ray_gen_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
-                .compile_options = {.entry_point = "ray_gen", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .any_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
-                .compile_options = {.entry_point = "any_hit", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
-        .closest_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
-                .compile_options = {.entry_point = "closest_hit", .language = daxa::ShaderLanguage::SLANG},
-            },
-        },
+        .ray_gen_infos = {{.source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"}, .entry_point = "ray_gen", .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"}, .entry_point = "any_hit", .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"}, .entry_point = "closest_hit", .language = daxa::ShaderLanguage::SLANG}},
         .miss_hit_infos = {
-            {
-                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
-                .compile_options = {.entry_point = "miss", .language = daxa::ShaderLanguage::SLANG},
-            },
-            {
-                .source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"},
-                .compile_options = {.entry_point = "shadow_miss", .language = daxa::ShaderLanguage::SLANG},
-            },
+            {.source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"}, .entry_point = "miss", .language = daxa::ShaderLanguage::SLANG},
+            {.source = daxa::ShaderFile{"./src/rendering/path_trace/path_trace.hlsl"}, .entry_point = "shadow_miss", .language = daxa::ShaderLanguage::SLANG},
         },
         .shader_groups_infos = {
             // Gen Group
@@ -104,7 +83,7 @@ inline auto reference_path_trace_rt_pipeline_info() -> daxa::RayTracingPipelineC
         },
         .max_ray_recursion_depth = 1,
         .push_constant_size = sizeof(ReferencePathTracePush),
-        .name = std::string{ReferencePathTraceH::NAME},
+        .name = std::string{ReferencePathTraceH::Info::NAME},
     };
 }
 

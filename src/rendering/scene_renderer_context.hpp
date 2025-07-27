@@ -175,6 +175,15 @@ namespace RenderTimes
             },
         },
         GroupNames{
+            "RTGI",
+            {
+                "TRACE_DIFFUSE",
+                "REPROJECT_DIFFUSE",
+                "RECONSTRUCT_HISTORY_DIFFUSE",
+                "BLUR_DIFFUSE",
+            },
+        },
+        GroupNames{
             "MISC",
             {
                 "CULL_LIGHTS",
@@ -474,7 +483,7 @@ namespace RenderTimes
             }
         }
 
-        void write_timestamp(auto & recorder, u32 frame_timestamp)
+        void write_timestamp(daxa::CommandRecorder & recorder, u32 frame_timestamp)
         {
             if (enable_render_times)
             {
@@ -486,7 +495,7 @@ namespace RenderTimes
                 });
             }
         }
-        void start_gpu_timer(auto & recorder, u32 render_time_index)
+        void start_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index)
         {
             if (render_time_index == INVALID_RENDER_TIME_INDEX)
             {
@@ -495,13 +504,35 @@ namespace RenderTimes
             write_timestamp(recorder, render_time_index * 2);
             timer_set[render_time_index] = true;
         }
-        void end_gpu_timer(auto & recorder, u32 render_time_index)
+        void end_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index)
         {
             if (render_time_index == INVALID_RENDER_TIME_INDEX)
             {
                 return;
             }
             write_timestamp(recorder, render_time_index * 2 + 1);
+        }
+        struct ScopedGPUTimer
+        {
+            daxa::CommandRecorder * recorder = {};
+            State * state = {};
+            u32 render_time_index = {};
+
+            ScopedGPUTimer(ScopedGPUTimer const &) = delete;
+            ScopedGPUTimer(ScopedGPUTimer &&) = delete;
+            ScopedGPUTimer(daxa::CommandRecorder * recorder, u32 render_time_index, State * state)
+                : recorder{recorder}, render_time_index{render_time_index}, state{state}
+            {
+                state->start_gpu_timer(*recorder, render_time_index);
+            }
+            ~ScopedGPUTimer()
+            {
+                state->end_gpu_timer(*recorder, render_time_index);
+            }
+        };
+        auto scoped_gpu_timer(daxa::CommandRecorder & recorder, u32 render_time_index) -> ScopedGPUTimer
+        {
+            return ScopedGPUTimer{&recorder, render_time_index, this};
         }
         auto get(u32 render_time_index) -> u64
         {
@@ -511,7 +542,7 @@ namespace RenderTimes
         {
             return smooth_current_times[render_time_index];
         }
-        void reset_timestamps_for_current_frame(auto & recorder)
+        void reset_timestamps_for_current_frame(daxa::CommandRecorder & recorder)
         {
             for (u32 i = 0; i < FLAT_TIMINGS_COUNT; ++i)
             {
@@ -637,6 +668,7 @@ struct RenderContext
     PGISettings prev_pgi_settings = {};
     LightSettings prev_light_settings = {};
     PerPixelDiffuseSettings prev_ppd_diffuse_settings = {};
+    RtgiSettings prev_rtgi_settings = {};
 
     // Settings
     RenderGlobalData render_data = {};

@@ -1,0 +1,158 @@
+#pragma once
+
+#include "rtgi_denoise_diffuse.inl"
+
+#include "shader_lib/transform.hlsl"
+#include "shader_lib/misc.hlsl"
+
+[[vk::push_constant]] RtgiReprojectDiffusePush rtgi_denoise_diffuse_reproject_push;
+
+[shader("compute")]
+[numthreads(RTGI_DENOISE_DIFFUSE_X,RTGI_DENOISE_DIFFUSE_Y,1)]
+func entry_reproject(uint2 dtid : SV_DispatchThreadID)
+{
+    let push = rtgi_denoise_diffuse_reproject_push;
+    if (any(dtid.xy >= push.size))
+    {
+        return;
+    }
+
+    // Load and precalculate constants
+    const CameraInfo camera = push.attach.globals->view_camera;
+    const CameraInfo camera_prev_frame = push.attach.globals->view_camera_prev_frame;
+    const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
+    const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
+    const uint2 halfres_pixel_index = dtid;
+    const float2 sv_xy = float2(halfres_pixel_index) + 0.5f;
+
+    // Load half res depth and normal
+    const float pixel_depth = push.attach.view_cam_half_res_depth.get()[halfres_pixel_index];
+    const float pixel_vs_depth = linearise_depth(pixel_depth, camera.near_plane);
+    const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[halfres_pixel_index]);
+
+    if (pixel_depth == 0.0f)
+    {
+        push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = 0;
+        push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(0,0,0,0);
+        return;
+    }
+
+    // Calculate pixel positions in cur and prev frame
+    const float3 sv_pos = float3(sv_xy, pixel_depth);
+    const float2 uv = sv_xy * inv_half_res_render_target_size;
+    const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
+    const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
+    const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
+    const float3 world_position_prev_frame = world_position; // No support for dynamic object motion vectors yet.
+    const float4 view_position_prev_frame_pre_div = mul(camera_prev_frame.view, float4(world_position_prev_frame, 1.0f));
+    const float3 view_position_prev_frame = -view_position_prev_frame_pre_div.xyz / view_position_prev_frame_pre_div.w;
+    const float4 ndc_prev_frame_pre_div = mul(camera_prev_frame.view_proj, float4(world_position_prev_frame, 1.0f));
+    const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
+    const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
+    const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * half_res_render_target_size;
+    const float3 sv_pos_prev_frame = float3( sv_xy_prev_frame, ndc_prev_frame.z );
+
+    // Load previous frame half res depth
+    const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), half_res_render_target_size );
+    const float2 reproject_gather_uv = ( float2( bilinear_filter_at_prev_pos.origin ) + 1.0 ) * inv_half_res_render_target_size;
+    const float2 reproject_base_pixel = floor(bilinear_filter_at_prev_pos.origin + 0.5f);
+    const float4 depth_reprojected4 = push.attach.rtgi_depth_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 samplecnt_reprojected4 = push.attach.rtgi_samplecnt_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 view_z_reprojected4 = {
+        linearise_depth(depth_reprojected4.x, camera.near_plane),
+        linearise_depth(depth_reprojected4.y, camera.near_plane),
+        linearise_depth(depth_reprojected4.z, camera.near_plane),
+        linearise_depth(depth_reprojected4.w, camera.near_plane)
+    };
+
+    // Calculate plane distance based occlusion
+    float4 occlusion = float4(1.0f, 1.0f, 1.0f, 1.0f);
+    {
+        // We project the normal into view space.
+        // The 4 reprojected positions are cheap to transform into viewspace, so we only transform one instead of 4 vectors.
+        const float3 view_space_normal = mul(camera_prev_frame.inv_view, float4(pixel_face_normal, 0.0f)).xyz;
+
+        // TODO: use correct xy positions here:
+        const float3 positions4[4] = {
+            float3(view_position_prev_frame.xy, view_z_reprojected4.x),
+            float3(view_position_prev_frame.xy, view_z_reprojected4.y),
+            float3(view_position_prev_frame.xy, view_z_reprojected4.z),
+            float3(view_position_prev_frame.xy, view_z_reprojected4.w),
+        };
+        const float4 plane_distances = {
+            abs(dot(positions4[0] - view_position_prev_frame, view_space_normal)),
+            abs(dot(positions4[1] - view_position_prev_frame, view_space_normal)),
+            abs(dot(positions4[2] - view_position_prev_frame, view_space_normal)),
+            abs(dot(positions4[3] - view_position_prev_frame, view_space_normal))
+        };
+
+        // The further away the pixel is, the larger difference we allow.
+        // The scale is proportional to the size the pixel takes up in world space.
+        const float pixel_size_on_near_plane = inv_half_res_render_target_size.y;
+        const float near_plane_ws_size = camera.near_plane * 2;
+        const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(pixel_depth + 0.0000001f);
+        const float threshold = pixel_ws_size * 4.0f; // a larger factor helps with numerical precision as well as small things in the distance.
+
+        const float in_screen = all(uv_prev_frame > 0.0f && uv_prev_frame < 1.0f) ? 1.0f : 0.0f;
+
+        occlusion = step( plane_distances, threshold * in_screen );
+    }
+
+    // Read in diffuse history
+    const float4 weights = get_bilinear_custom_weights( bilinear_filter_at_prev_pos, occlusion );
+    const float4 history_r = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_g = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_b = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 s00 = float4(history_r.x, history_g.x, history_b.x, 0.0f);
+    const float4 s10 = float4(history_r.y, history_g.y, history_b.y, 0.0f);
+    const float4 s01 = float4(history_r.z, history_g.z, history_b.z, 0.0f);
+    const float4 s11 = float4(history_r.w, history_g.w, history_b.w, 0.0f);
+    float3 history = apply_bilinear_custom_weights( s00, s10, s01, s11, weights ).rgb;
+
+    if (any(isnan(history)))
+    {
+        history = float3(0,0,0);
+    }
+
+    // Calc sample count
+    const float4 samplecnt4 = min( samplecnt_reprojected4 + 1, push.attach.globals.rtgi_settings.history_frames.xxxx );
+    const float samplecnt = apply_bilinear_custom_weights( samplecnt4.x, samplecnt4.y, samplecnt4.z, samplecnt4.w, weights, false ).x;
+    const float history_blend = samplecnt / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
+    push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
+
+    push.attach.debug_image.get()[halfres_pixel_index] = float4(samplecnt.xxx < 31, 1.0f);
+
+    // Read raw traced diffuse
+    float3 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgb;
+
+    // For freshly disoccluded areas we use a heavily mip mapped "reconstructed" history image.
+    if (samplecnt < 4) {
+        const float mip = max(0.0f, 3.0f - (samplecnt));
+        const float2 mip_size = float2(uint2(half_res_render_target_size) >> uint(mip+1));
+        const float2 inv_mip_size = rcp(mip_size);
+        const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( uv ), mip_size );
+        const float2 reproject_gather_uv_reconstruct = ( float2( bilinear_filter_reconstruct.origin ) + 1.0 ) * inv_mip_size;
+        
+        const float4 diffuse_depth_reconstruct00 = push.attach.rtgi_reconstructed_history_diffuse.get().SampleLevel(push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv_reconstruct + float2(-0.5f, -0.5f) * inv_mip_size, mip);
+        const float4 diffuse_depth_reconstruct10 = push.attach.rtgi_reconstructed_history_diffuse.get().SampleLevel(push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv_reconstruct + float2(+0.5f, -0.5f) * inv_mip_size, mip);
+        const float4 diffuse_depth_reconstruct01 = push.attach.rtgi_reconstructed_history_diffuse.get().SampleLevel(push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv_reconstruct + float2(-0.5f, +0.5f) * inv_mip_size, mip);
+        const float4 diffuse_depth_reconstruct11 = push.attach.rtgi_reconstructed_history_diffuse.get().SampleLevel(push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv_reconstruct + float2(+0.5f, +0.5f) * inv_mip_size, mip);
+
+        const float4 depth_distances = {
+            abs(diffuse_depth_reconstruct00.w - pixel_depth),
+            abs(diffuse_depth_reconstruct10.w - pixel_depth),
+            abs(diffuse_depth_reconstruct01.w - pixel_depth),
+            abs(diffuse_depth_reconstruct11.w - pixel_depth)
+        };
+        const float max_depth_distance = max(max(depth_distances.x,depth_distances.y),max(depth_distances.z,depth_distances.w));
+        const float4 depth_weights = rcp(max_depth_distance) * 4.0f;
+
+        const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, depth_weights );
+        const float3 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse_depth_reconstruct00, diffuse_depth_reconstruct10, diffuse_depth_reconstruct01, diffuse_depth_reconstruct11, weights_reconstruct ).rgb;
+        raw = reconstructed_diffuse;
+    }
+
+    // Write accumulated diffuse
+    const float3 accumulated = lerp(raw, history, history_blend);
+    push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(accumulated, 1.0f);
+}

@@ -48,7 +48,7 @@ auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipeli
 
 auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo;
 
-auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo;
+auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo2;
 
 struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
 {

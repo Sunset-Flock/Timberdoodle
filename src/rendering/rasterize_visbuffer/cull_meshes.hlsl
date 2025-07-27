@@ -28,10 +28,10 @@ void main(uint3 thread_id : SV_DispatchThreadID)
     uint mesh_index = mesh_instance.mesh_index;
 
     GPUMesh mesh = deref_i(push.meshes, mesh_index);
-    if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
-    {
-        return;
-    }
+    // if (mesh.meshlet_count == 0 || mesh.mesh_buffer.value == 0)
+    // {
+    //     return;
+    // }
 
     // Currently only used by main visbuffer path:
     if (push.cull_meshes && AT.hiz.value != 0 && AT.globals.settings.enable_mesh_cull)
@@ -111,17 +111,17 @@ void main(uint3 thread_id : SV_DispatchThreadID)
         // Overwrite mesh lod and mesh index:
         {
             let mesh_lod_group_index = mesh_index / MAX_MESHES_PER_LOD_GROUP;
-            let vsm_selected_lod = select_lod(
-                AT.globals,
-                push.mesh_lod_groups,
-                push.meshes,
-                mesh_lod_group_index,
-                mat_4x3_to_4x4(push.entity_combined_transforms[mesh_instance.entity_index]),
-                base_resolution.x,
-                camera_info.position,
-                AT.globals.vsm_settings.mesh_lod_max_acceptable_pixel_error,
-                AT.globals.vsm_settings.force_mesh_lod);
-
+            let vsm_selected_lod = 0; // faster at the moment
+            // select_lod(
+            //     AT.globals,
+            //     push.mesh_lod_groups,
+            //     push.meshes,
+            //     mesh_lod_group_index,
+            //     mat_4x3_to_4x4(push.entity_combined_transforms[mesh_instance.entity_index]),
+            //     base_resolution.x,
+            //     camera_info.position,
+            //     AT.globals.vsm_settings.mesh_lod_max_acceptable_pixel_error,
+            //     AT.globals.vsm_settings.force_mesh_lod);
             mesh_index = vsm_selected_lod + mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP;
         }
 

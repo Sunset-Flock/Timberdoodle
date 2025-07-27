@@ -40,6 +40,8 @@
 //
 // ===== Timberdoodle Mesh Lod System =====
 
+// TODO: Optimize.
+// Keep in sync with select_lod in mesh_lod.hlsl
 auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry const& mesh_lod_group, usize mesh_lod_group_index, RenderEntity const* r_ent) -> u32
 {
     /// ===== Select LOD ======
