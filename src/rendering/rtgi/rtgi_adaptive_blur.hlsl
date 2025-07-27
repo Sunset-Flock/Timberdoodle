@@ -9,16 +9,24 @@
 
 func get_geometry_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
 {
-    const float plane_distance = abs(dot(other_vs_position[0] - vs_position, vs_normal));
+    const float plane_distance = abs(dot(other_vs_position - vs_position, vs_normal));
     // The further away the pixel is, the larger difference we allow.
     // The scale is proportional to the size the pixel takes up in world space.
     const float pixel_size_on_near_plane = inv_render_target_size.y;
     const float near_plane_ws_size = near_plane * 2;
     const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
-    const float threshold = pixel_ws_size * 4.0f; // a larger factor helps with numerical precision as well as small things in the distance.
+    const float threshold_scale = 3.0f; // a larger factor leads to more bleeding across edges but also less noise on small details
+    const float threshold = pixel_ws_size * threshold_scale; 
 
     const float validity = step( plane_distance, threshold );
     return validity;
+}
+
+func get_normal_diffuse_weight(float3 normal, float3 other_normal) -> float
+{
+    const float validity = max(0.0f, dot(normal, other_normal));
+    const float tight_validity = pow(validity, 8.0f);
+    return tight_validity;
 }
 
 [shader("compute")]
@@ -65,10 +73,10 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
     // Sample disc around normal
     const uint SAMPLE_COUNT = 8;
-    const float BLUR_PIXEL_RADIUS = 32; // 16 pixels wide
+    const float BLUR_PIXEL_RADIUS = 32; // 32 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius_scale = 1.0f / (1.0f + pixel_samplecnt);
-    const float blur_radius = BLUR_PIXEL_RADIUS * blur_radius_scale;
+    const float blur_radius_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
+    const float blur_radius = max(1.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
     float weight_accum = 0.0f;
     float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
     for (uint s = 0; s < SAMPLE_COUNT; ++s)
@@ -91,20 +99,30 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float3 sample_value_ws = sample_value_ws_pre_div.xyz / sample_value_ws_pre_div.w;
 
         // Calculate validity weights
-        const float geometric_weight = 1.0f;//get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
+        const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
+        const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
+        const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
         const float sample_count_weight = sample_value_samplecnt / float(push.attach.globals.rtgi_settings.history_frames);
-        const float weight = geometric_weight * sample_count_weight;
+        const float weight = depth_valid_weight * geometric_weight * normal_weight * sample_count_weight;
+
+        if (all(dtid.xy == half_res_render_target_size/2))
+        {
+            push.attach.debug_image.get()[sample_index] = float4(1,0,0,1);
+        }
 
         // Accumulate blurred diffuse
         weight_accum += weight;
         blurred_diffuse_accum += weight * sample_value_diffuse;
     }
 
-    // Calculate final blurred value:
+    // Calculate blurred diffuse and fallback blending
+    // Some pixels find nearly no suitable spacial samples,
+    // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
     const float3 blurry_diffuse = blurred_diffuse_accum * rcp(weight_accum + 0.00000001f);
+    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/4)); 
     const float3 original_diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index].rgb;
-    const float3 blurred_diffuse = lerp(original_diffuse, blurry_diffuse, 0.75f);
+    const float3 fallback_diffuse = original_diffuse;
+    const float3 blurred_diffuse = lerp(blurry_diffuse, fallback_diffuse, low_weight_fallback_blend);
 
-    // No blurring done so far, just a passthrough.
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = float4(blurred_diffuse, 1.0f);
 }

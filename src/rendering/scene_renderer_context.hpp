@@ -179,8 +179,11 @@ namespace RenderTimes
             {
                 "TRACE_DIFFUSE",
                 "REPROJECT_DIFFUSE",
-                "RECONSTRUCT_HISTORY_DIFFUSE",
-                "BLUR_DIFFUSE",
+                "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE",
+                "RECONSTRUCT_HISTORY_APPLY_DIFFUSE",
+                "BLUR_DIFFUSE_0",
+                "BLUR_DIFFUSE_1",
+                "UPSCALE_DIFFUSE",
             },
         },
         GroupNames{

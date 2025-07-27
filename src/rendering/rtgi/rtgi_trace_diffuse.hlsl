@@ -111,8 +111,8 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 {
     let push = rtgi_trace_diffuse_push;
 
-    const float3 position = WorldRayDirection() + WorldRayDirection() * RayTCurrent();
-    const float3 sun_position = push.attach.globals.sky_settings.sun_direction * TMAX * 2 + position;
+    const float3 position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
+    const float3 sun_position = push.attach.globals.sky_settings.sun_direction * 10000000.0f * 2 + position;
     const float3 surface_normal = float3(0,0,0);
 
     let miss = trace_shadow_ray(
@@ -138,5 +138,5 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 void miss(inout RayPayload payload)
 {
     payload.color = sky_color;
-    payload.t = RayTCurrent();
+    payload.t = TMAX;
 }

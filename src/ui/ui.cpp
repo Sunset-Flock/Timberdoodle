@@ -404,7 +404,7 @@ auto format_vec4_rows(Vec4Union vec_union, tido::ScalarKind scalar_kind) -> std:
 
 void UIEngine::tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key)
 {
-    render_context.tg_debug.readback_index = (render_context.tg_debug.readback_index + 1) % 3;
+    render_context.tg_debug.readback_index = (render_context.tg_debug.readback_index + 1) % 4;
     auto & state = render_context.tg_debug.inspector_states[active_inspector_key];
     if (ImGui::Begin(fmt::format("Inspector for {}", active_inspector_key.c_str()).c_str(), nullptr, {}))
     {

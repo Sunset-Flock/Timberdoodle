@@ -851,14 +851,13 @@ void entry_main_cs(
             ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.1f);
         }
 
-        const bool rtgi_enabled = 
-            (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI || 
-            AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI) && 
-            !AT.ao_image.id.is_empty();
+        const bool rtgi_enabled = AT.globals.rtgi_settings.enabled;
         if (rtgi_enabled)
         {
-            indirect_lighting = AT.ao_image.get().Load(index).rgb;
+            indirect_lighting = AT.rtgi_per_pixel_diffuse.get()[int3(index,0)].rgb;
+            ambient_occlusion = 1.0f;
         }
+
 
         const float3 lighting = (directional_light_direct + point_lights_direct + spot_lights_direct) + (indirect_lighting.rgb * ambient_occlusion);
         let shaded_color = albedo.rgb * M_FRAC_1_PI * lighting + material.emissive_color;

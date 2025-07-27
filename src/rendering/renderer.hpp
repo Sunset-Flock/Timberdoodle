@@ -98,6 +98,7 @@ struct Renderer
     daxa::TaskImage ppd_history = {};
     daxa::TaskImage rtgi_diffuse_history = {};
     daxa::TaskImage rtgi_depth_history = {};
+    daxa::TaskImage rtgi_face_normal_history = {};
     daxa::TaskImage rtgi_samplecnt_history = {};
 
     std::vector<daxa::TaskImage> images = {};
