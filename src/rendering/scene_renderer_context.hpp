@@ -178,6 +178,7 @@ namespace RenderTimes
             "RTGI",
             {
                 "TRACE_DIFFUSE",
+                "PRE_BLUR_DIFFUSE",
                 "REPROJECT_DIFFUSE",
                 "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE",
                 "RECONSTRUCT_HISTORY_APPLY_DIFFUSE",

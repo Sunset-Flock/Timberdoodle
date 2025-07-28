@@ -5,26 +5,13 @@
 #include <daxa/daxa.inl>
 
 #include "rtgi_trace_diffuse.inl"
+#include "rtgi_trace_diffuse_shared.hlsl"
 
-#include "shader_lib/misc.hlsl"
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/raytracing.hlsl"
-#include "shader_lib/depth_util.glsl"
 #include "shader_lib/transform.hlsl"
-#include "shader_lib/shading.hlsl"
 
 #define PI 3.1415926535897932384626433832795
-
-[[vk::push_constant]] RtgiTraceDiffusePush rtgi_trace_diffuse_push;
-
-struct RayPayload
-{
-    float3 color;    
-    float t;
-};
-
-static const float3 sky_color = float3(0.5f, 0.7f, 1.0f);
-static const float TMAX = 100000000000.0f; // Arbitrary large value
 
 [shader("raygeneration")]
 void ray_gen()
@@ -88,55 +75,4 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
     {
         IgnoreHit();
     }
-}
-
-func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
-{
-    float3 start = rt_calc_ray_start(position, flat_normal, incoming_ray);
-
-    RayDesc ray = {};
-    ray.Direction = normalize(light_position - position);
-    ray.Origin = start;
-    ray.TMax = length(light_position - position) * 1.01f;
-    ray.TMin = 0.0f;
-
-    RayPayload payload = {};
-    TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
-
-    return payload.t == TMAX;
-}
-
-[shader("closesthit")]
-void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
-{
-    let push = rtgi_trace_diffuse_push;
-
-    const float3 position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const float3 sun_position = push.attach.globals.sky_settings.sun_direction * 10000000.0f * 2 + position;
-    const float3 surface_normal = float3(0,0,0);
-
-    let miss = trace_shadow_ray(
-        push.attach.tlas.get(),
-        position,
-        sun_position,
-        surface_normal,
-        WorldRayDirection());
-
-    if (miss)
-    {
-        payload.color = sky_color;
-        payload.t = TMAX;
-    }
-    else
-    {
-        payload.color = float3(0.0f, 0.0f, 0.0f);
-        payload.t = RayTCurrent();
-    }
-}
-
-[shader("miss")]
-void miss(inout RayPayload payload)
-{
-    payload.color = sky_color;
-    payload.t = TMAX;
 }
