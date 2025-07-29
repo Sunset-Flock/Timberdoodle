@@ -96,7 +96,7 @@ Renderer::Renderer(
     depth_history = daxa::TaskImage{{.name = "depth_history"}};
     path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
     normal_history = daxa::TaskImage{{.name = "normal_history"}};
-    ppd_history = daxa::TaskImage{{.name = "ppd_history"}};
+    rtao_history = daxa::TaskImage{{.name = "rtao_history"}};
     rtgi_diffuse_history = daxa::TaskImage{{.name = "rtgi_diffuse_history"}};
     rtgi_depth_history = daxa::TaskImage{{.name = "rtgi_depth_history"}};
     rtgi_samplecnt_history = daxa::TaskImage{{.name = "rtgi_samplecnt_history"}};
@@ -112,7 +112,7 @@ Renderer::Renderer(
         depth_history,
         path_trace_history,
         normal_history,
-        ppd_history,
+        rtao_history,
     };
 
     frame_buffer_images = {
@@ -146,9 +146,9 @@ Renderer::Renderer(
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .sharing_mode = daxa::SharingMode::CONCURRENT,
-                .name = "ppd_history",
+                .name = "rtao_history",
             },
-            ppd_history,
+            rtao_history,
         },
     };
 
@@ -476,8 +476,8 @@ void Renderer::clear_select_buffers()
                     auto mesh_instances_address = ti.device_address(meshlet_instances.view()).value();
                     MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
                     allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances)); }));
-    tg.use_persistent_image(ppd_history);
-    tg.clear_image({ppd_history.view(), {}, daxa::QUEUE_MAIN, "clear ppd history"});
+    tg.use_persistent_image(rtao_history);
+    tg.clear_image({rtao_history.view(), {}, daxa::QUEUE_MAIN, "clear ppd history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
     // tg.use_persistent_buffer(exposure_state);
@@ -896,50 +896,36 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
     }
 
-    daxa::TaskImageView ppd_image = daxa::NullTaskImage;
-    if (render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO ||
-        render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI ||
-        render_context->render_data.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
+    daxa::TaskImageView ao_image = daxa::NullTaskImage;
+    if (render_context->render_data.ao_settings.mode == AMBIENT_OCCLUSION_MODE_RTAO)
     {
-        auto ppd_raw_image_info = daxa::TaskTransientImageInfo{
+        auto ao_raw_image_info = daxa::TaskTransientImageInfo{
             .format = daxa::Format::R16G16B16A16_SFLOAT,
             .size = {
                 render_context->render_data.settings.render_target_size.x,
                 render_context->render_data.settings.render_target_size.y,
                 1,
             },
-            .name = "ppd_raw_image",
+            .name = "ao_raw_image",
         };
-        auto ppd_raw_image = tg.create_transient_image(ppd_raw_image_info);
-        auto ppd_image_info = ppd_raw_image_info;
-        ppd_image_info.name = "ppd_image";
-        ppd_image = tg.create_transient_image(ppd_image_info);
-        tg.clear_image({ppd_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.clear_image({ppd_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        auto ao_raw_image = tg.create_transient_image(ao_raw_image_info);
+        auto ao_image_info = ao_raw_image_info;
+        ao_image_info.name = "ao_image";
+        ao_image = tg.create_transient_image(ao_image_info);
+        tg.clear_image({ao_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(RayTraceAmbientOcclusionTask{
             .views = RayTraceAmbientOcclusionTask::Views{
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = daxa::NullTaskImage,
-                .ppd_raw_image = ppd_raw_image,
+                .rtao_raw_image = ao_raw_image,
                 .view_cam_depth = view_camera_depth,
                 .view_cam_detail_normals = view_camera_detail_normal_image,
                 .view_cam_visbuffer = view_camera_visbuffer,
-                .sky = daxa::NullTaskImage,
-                .sky_transmittance = daxa::NullTaskImage,
                 .meshlet_instances = meshlet_instances.view(),
                 .mesh_instances = scene->mesh_instances_buffer.view(),
                 .tlas = scene_main_tlas,
-                .light_mask_volume = daxa::NullTaskImage,
-                .pgi_irradiance = daxa::NullTaskImage,
-                .pgi_visibility = daxa::NullTaskImage,
-                .pgi_info = daxa::NullTaskImage,
-                .pgi_requests = daxa::NullTaskImage,
-                .vsm_globals = daxa::NullTaskBuffer,
-                .vsm_point_lights = daxa::NullTaskBuffer,
-                .vsm_spot_lights = daxa::NullTaskBuffer,
-                .vsm_memory_block = daxa::NullTaskImage,
-                .vsm_point_spot_page_table = daxa::NullTaskImage,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
@@ -951,16 +937,16 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .debug_image = daxa::NullTaskImage,
                 .depth_history = depth_history.view(),
                 .normal_history = normal_history.view(),
-                .ppd_history = ppd_history.view(),
+                .rtao_history = rtao_history.view(),
                 .depth = view_camera_depth,
                 .normals = view_camera_detail_normal_image,
-                .ppd_raw = ppd_raw_image,
-                .ppd_image = ppd_image,
+                .rtao_raw = ao_raw_image,
+                .rtao_image = ao_image,
             },
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
         });
-        tg.copy_image_to_image({.src = ppd_image, .dst = ppd_history, .name = "copy new ppd to ppd history"});
+        tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name = "save rtao history"});
     }
 
     // RTGI
@@ -1161,7 +1147,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .color_image = color_image,
                 .selected_mark_image = selected_mark_image,
-                .ao_image = ppd_image,
+                .ao_image = ao_image,
                 .vis_image = view_camera_visbuffer,
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
                 .depth = view_camera_depth,
@@ -1418,7 +1404,7 @@ auto Renderer::prepare_frame(
     }
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
-    bool const ppd_settings_changed = render_context->render_data.ppd_settings.mode != render_context->prev_ppd_diffuse_settings.mode;
+    bool const ao_settings_changed = render_context->render_data.ao_settings.mode != render_context->prev_ao_settings.mode;
     bool const rtgi_settings_changed = render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
@@ -1430,7 +1416,7 @@ auto Renderer::prepare_frame(
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ppd_settings_changed || rtgi_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ao_settings_changed || rtgi_settings_changed)
     {
         gpu_context->swapchain.set_present_mode(render_context->render_data.settings.enable_vsync ? daxa::PresentMode::FIFO : daxa::PresentMode::IMMEDIATE);
         main_task_graph = create_main_task_graph();
@@ -1482,7 +1468,7 @@ auto Renderer::prepare_frame(
     render_context->prev_sky_settings = render_context->render_data.sky_settings;
     render_context->prev_vsm_settings = render_context->render_data.vsm_settings;
     render_context->prev_light_settings = render_context->render_data.light_settings;
-    render_context->prev_ppd_diffuse_settings = render_context->render_data.ppd_settings;
+    render_context->prev_ao_settings = render_context->render_data.ao_settings;
     render_context->prev_rtgi_settings = render_context->render_data.rtgi_settings;
 
     // Write GPUScene pointers

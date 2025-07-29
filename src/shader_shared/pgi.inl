@@ -56,7 +56,7 @@ struct PGISettings
     // Allows lights past the cosine cutoff to still contribute to a probes lighting.
     // Helps a lot with edge lighting where the probe resolution is not good enough to calculate bounce light.
     daxa_f32 cos_wrap_around TIDO_DEFAULT_VALUE(0.0f);
-    daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
+    daxa_f32vec3 probe_range TIDO_DEFAULT_VALUE(64 TIDO_COMMA 64 TIDO_COMMA 64);
     daxa_i32vec3 probe_count TIDO_DEFAULT_VALUE(32 TIDO_COMMA 32 TIDO_COMMA 32);
     daxa_i32vec3 debug_probe_index TIDO_DEFAULT_VALUE(0 TIDO_COMMA 0 TIDO_COMMA 0);
     // Calculated by Renderer

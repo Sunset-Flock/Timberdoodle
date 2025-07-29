@@ -10,7 +10,7 @@
 #include "pgi.inl"
 #include "scene.inl"
 #include "lights.inl"
-#include "per_pixel_diffuse.inl"
+#include "ao.inl"
 #include "rtgi.inl"
 
 struct GPUScene
@@ -62,7 +62,7 @@ struct RenderGlobalData
     VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;
     PGISettings pgi_settings;
-    PerPixelDiffuseSettings ppd_settings;
+    AoSettings ao_settings;
     RtgiSettings rtgi_settings;
     GlobalSamplers samplers;
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;

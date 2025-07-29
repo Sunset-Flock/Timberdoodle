@@ -6,15 +6,11 @@
 
 #include "rtao.inl"
 
-#include "shader_lib/visbuffer.hlsl"
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/depth_util.glsl"
 #include "shader_lib/transform.hlsl"
-#include "shader_lib/pgi.hlsl"
-#include "shader_lib/shading.hlsl"
-#include "shader_lib/vsm_sampling.hlsl"
 
 #define PI 3.1415926535897932384626433832795
 
@@ -56,54 +52,34 @@ void ray_gen()
         const float3 world_tangent = normalize(cross(detail_normal, float3(0,0,1) + 0.0001));
         const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, detail_normal), detail_normal));
             
-        const uint RAY_COUNT = push.attach.globals.ppd_settings.sample_count;
+        const uint RAY_COUNT = push.attach.globals.ao_settings.sample_count;
         const uint thread_seed = (index.x * push.attach.globals->settings.render_target_size.y + index.y) * push.attach.globals.frame_index;
         rand_seed(RAY_COUNT * thread_seed);
-
 
         RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];
         RayPayload payload = {};
 
-        if (push.attach.globals.ppd_settings.debug_primary_trace != 0)
+        if (push.attach.globals.ao_settings.mode == AMBIENT_OCCLUSION_MODE_RTAO)
         {
             RayDesc ray = {};
-            ray.Origin = camera.position;
-            ray.TMax = 1000000000.0f;
+            ray.Origin = sample_pos;
+            ray.TMax = push.attach.globals.ao_settings.ao_range;
             ray.TMin = 0.0f;
-            ray.Direction = primary_ray;
 
-            payload.miss = false; // need to set to false as we skip the closest hit shader
-            payload.color = float3(0,0,0);
-            payload.normal = detail_normal;
-            TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
-
-            float4 value = float4(payload.color, 1.0f);
-            push.attach.ppd_raw_image.get()[index.xy] = value;
-        }
-        else 
-        {
-            if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
+            float ao_factor = 0.0f;
+            for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
             {
-                RayDesc ray = {};
-                ray.Origin = sample_pos;
-                ray.TMax = push.attach.globals.ppd_settings.ao_range;
-                ray.TMin = 0.0f;
-
-                float ao_factor = 0.0f;
-                for (uint ray_i = 0; ray_i < RAY_COUNT; ++ray_i)
-                {
-                    const float3 hemi_sample = rand_cosine_sample_hemi();
-                    const float3 sample_dir = mul(tbn, hemi_sample);
-                    ray.Direction = sample_dir;
-                    payload.miss = false; // need to set to false as we skip the closest hit shader
-                    payload.power = 1.0f;
-                    TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
-                    ao_factor += payload.miss ? 0 : payload.power;
-                }
-
-                let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
-                push.attach.ppd_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
+                const float3 hemi_sample = rand_cosine_sample_hemi();
+                const float3 sample_dir = mul(tbn, hemi_sample);
+                ray.Direction = sample_dir;
+                payload.miss = false; // need to set to false as we skip the closest hit shader
+                payload.power = 1.0f;
+                TraceRay(tlas, 0, ~0, 0, 0, 0, ray, payload);
+                ao_factor += payload.miss ? 0 : payload.power;
             }
+
+            let ao_value = 1.0f - ao_factor * rcp(RAY_COUNT);
+            push.attach.rtao_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
         }
     }
     let clk_end = clockARB();
@@ -147,195 +123,18 @@ func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, flo
     return payload.miss;
 }
 
-struct PGILightVisibilityTester : LightVisibilityTesterI
-{
-    RaytracingAccelerationStructure tlas;
-    RenderGlobalData* globals;
-    float sun_light(MaterialPointData material_point, float3 incoming_ray)
-    {
-        let sky = globals->sky_settings;
-        let light_visible = trace_shadow_ray(tlas, material_point.position, material_point.position + sky.sun_direction * 1000000, material_point.face_normal, incoming_ray);
-        return light_visible ? 1.0f : 0.0f;
-    }
-    float point_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
-    {
-        let push = rt_ao_push;
-
-        GPUPointLight point_light = globals.scene.point_lights[light_index];
-        float3 to_light = point_light.position - material_point.position;
-        float3 to_light_dir = normalize(to_light);
-
-        let RAYTRACED_POINT_SHADOWS = false;
-        if (RAYTRACED_POINT_SHADOWS)
-        {        
-            let light_visible = trace_shadow_ray(tlas, material_point.position, point_light.position, material_point.face_normal, incoming_ray);
-            return light_visible ? 1.0f : 0.0f;
-        }
-        else
-        {
-            const float point_norm_dot = dot(material_point.position, to_light_dir);
-            return get_vsm_point_shadow_coarse(
-                push.attach.globals,
-                push.attach.vsm_globals,
-                push.attach.vsm_memory_block.get(),
-                &(push.attach.vsm_point_spot_page_table[0]),
-                push.attach.vsm_point_lights,
-                material_point.normal, 
-                material_point.position,
-                light_index,
-                point_norm_dot);
-        }
-    }
-    float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index)
-    {
-        let push = rt_ao_push;
-
-        GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
-
-        let RAYTRACED_POINT_SHADOWS = false;
-        if (RAYTRACED_POINT_SHADOWS)
-        {        
-            let light_visible = trace_shadow_ray(tlas, material_point.position, spot_light.position, material_point.face_normal, incoming_ray);
-            return light_visible ? 1.0f : 0.0f;
-        }
-        else
-        {
-            return get_vsm_spot_shadow_coarse(
-                push.attach.globals,
-                push.attach.vsm_globals,
-                push.attach.vsm_memory_block.get(),
-                &(push.attach.vsm_point_spot_page_table[0]),
-                push.attach.vsm_spot_lights,
-                material_point.normal, 
-                material_point.position,
-                light_index);
-        }
-    }
-}
-
 [shader("closesthit")]
 void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
     let push = rt_ao_push;
 
     payload.miss = false;
-
-    #if 0
-    let primitive_index = PrimitiveIndex();
-    let instance_id = InstanceID();
-    let geometry_index = GeometryIndex();
-    
-    TriangleGeometry tri_geo = rt_get_triangle_geo(
-        attr.barycentrics,
-        instance_id,
-        geometry_index,
-        primitive_index,
-        push.attach.globals.scene.meshes,
-        push.attach.globals.scene.entity_to_meshgroup,
-        push.attach.globals.scene.mesh_groups,
-        push.attach.mesh_instances.instances
-    );
-    #endif
-
-    if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
     {
-        #if 0
-        if (tri_geo.material_index != INVALID_MANIFEST_INDEX)
-        {
-            const GPUMaterial material = push.attach.globals.scene.materials[tri_geo.material_index];
-
-            bool emissive = any(material.emissive_color > 0.0f);
-            payload.miss = emissive;
-        }
-        #endif
-
         if (!payload.miss)
         {
-            #if 0
-            const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-            const uint primitive_index = PrimitiveIndex();
-            
-            const uint mesh_instance_index = InstanceID();
-            MeshInstance* mesh_instance = push.attach.mesh_instances.instances + mesh_instance_index;
-            GPUMesh *mesh = push.attach.globals.scene.meshes + mesh_instance->mesh_index;
-
-            
-            float3 color = GPU_MATERIAL_FALLBACK.base_color;
-            if (mesh.material_index == INVALID_MANIFEST_INDEX)
-            {
-                const GPUMaterial *material = push.attach.globals.scene.materials + mesh.material_index;
-                
-                float3 color = material.base_color;
-
-                if (!material.diffuse_texture_id.is_empty())
-                {
-                    let albedo_tex = Texture2D<float3>::get(material.diffuse_texture_id);
-                    let albedo = albedo_tex.SampleLevel(SamplerState::get(push.attach.globals->samplers.linear_repeat), float2(0,0), 16).rgb;
-                    color = color * albedo;
-                }
-            }
-
-            let luma = clamp((color.r + color.g + color.b) / 3.0f, 0.01f, 0.8f);
-
-            #endif
-
-            payload.power = 1.0f; //1.0f - square(square(square(square(luma))));
-
-
-            payload.power *= sqrt((push.attach.globals.ppd_settings.ao_range - RayTCurrent())/push.attach.globals.ppd_settings.ao_range);
+            payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
         }
     }
-    #if 0
-    else // RTGI
-    {
-        float3 hit_position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-        PGISettings* pgi_settings = &push.attach.globals.pgi_settings;
-
-        uint request_mode = PGI_PROBE_REQUEST_MODE_INDIRECT;
-        {
-            MeshInstance* mi = push.attach.mesh_instances.instances;
-            TriangleGeometry tri_geo = rt_get_triangle_geo(
-                attr.barycentrics,
-                InstanceID(),
-                GeometryIndex(),
-                PrimitiveIndex(),
-                push.attach.globals.scene.meshes,
-                push.attach.globals.scene.entity_to_meshgroup,
-                push.attach.globals.scene.mesh_groups,
-                mi
-            );
-            TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
-                tri_geo,
-                push.attach.globals.scene.meshes,
-                push.attach.globals.scene.entity_to_meshgroup,
-                push.attach.globals.scene.mesh_groups,
-                push.attach.globals.scene.entity_combined_transforms
-            );
-            MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
-                push.attach.globals,
-                tri_geo,
-                tri_point
-            );
-            bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
-            payload.color = shade_material<SHADING_QUALITY_HIGH>(
-                push.attach.globals, 
-                push.attach.sky_transmittance,
-                push.attach.sky,
-                material_point, 
-                WorldRayOrigin(),
-                WorldRayDirection(), 
-                light_vis_tester, 
-                push.attach.light_mask_volume.get(),
-                push.attach.pgi_irradiance.get(), 
-                push.attach.pgi_visibility.get(), 
-                push.attach.pgi_info.get(),
-                push.attach.pgi_requests.get_formatted(),
-                request_mode
-            ).rgb * (2.0f * 3.141f);
-        }
-    }
-    #endif
 }
 
 [shader("miss")]
@@ -343,33 +142,6 @@ void miss(inout RayPayload payload)
 {
     let push = rt_ao_push;
     payload.miss = true;
-
-    #if 0
-    if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
-    {
-        if (!payload.skip_sky_shading_on_miss)
-        {
-            payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
-        }
-    }
-    else if (push.attach.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI)
-    {
-        let push = rt_ao_push;
-        payload.color = pgi_sample_irradiance(
-            push.attach.globals, 
-            &push.attach.globals.pgi_settings, 
-            WorldRayOrigin(), // Little counter intuitive here but we want the origin as the shading point and the cam position as origin
-            payload.normal, 
-            payload.normal, 
-            push.attach.globals.main_camera.position,
-            normalize(WorldRayOrigin() - push.attach.globals.main_camera.position), 
-            push.attach.pgi_irradiance.get(), 
-            push.attach.pgi_visibility.get(), 
-            push.attach.pgi_info.get(), 
-            push.attach.pgi_requests.get_formatted(), 
-            PGI_PROBE_REQUEST_MODE_DIRECT);
-    }
-    #endif
 }
 
 static const uint kRadius = 1;
@@ -421,8 +193,8 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
     float3 ray = normalize(ws_pos - camera.position);
 
     // Blur new samples.
-    float3 raw_ppd = float3(0,0,0);
-    float raw_ppd_weight_acc = 0.0f;
+    float3 raw_rtao = float3(0,0,0);
+    float raw_rtao_weight_acc = 0.0f;
     {
         for (int col = 0; col < kWidth; col++)
         {
@@ -438,7 +210,7 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
                 float kernelWeight = kernel[row][col];
 
-                float4 raw = push.attach.ppd_raw.get()[pos];
+                float4 raw = push.attach.rtao_raw.get()[pos];
                 float3 irrad = raw.rgb;
                 float3 normal = uncompress_normal_octahedral_32(push.attach.normals.get()[pos]);
                 float depth = push.attach.depth.get()[pos];
@@ -449,13 +221,13 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
                 float depthWeight = DepthWeight(depth_linear, local_depth_linear, local_normal, ray, camera.proj, 0.1f /*TODO*/);
                 
                 float weight = depthWeight * normalWeight * kernelWeight;
-                raw_ppd += pow(irrad, 0.2f) * weight;
-                raw_ppd_weight_acc += weight;
+                raw_rtao += pow(irrad, 0.2f) * weight;
+                raw_rtao_weight_acc += weight;
             }
         }
     }
-    raw_ppd = pow(raw_ppd * rcp(raw_ppd_weight_acc), 5.0f);
-    raw_ppd = clamp(raw_ppd, float3(0,0,0), (100000000000.0f).xxx);
+    raw_rtao = pow(raw_rtao * rcp(raw_rtao_weight_acc), 5.0f);
+    raw_rtao = clamp(raw_rtao, float3(0,0,0), (100000000000.0f).xxx);
 
     float non_linear_depth = push.attach.depth.get()[index];
     float4 prev_frame_ndc = {};
@@ -479,10 +251,10 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
         float2 interpolants = clamp((pixel_prev_index - (base_texel + 0.5f)), float2(0,0), float2(1,1));
         float2 gather_uv = (base_texel + 0.5f) / float2(camera.screen_size);
         
-        float4 history_ao_r = push.attach.ppd_history.get().GatherRed(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
-        float4 history_ao_g = push.attach.ppd_history.get().GatherGreen(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
-        float4 history_ao_b = push.attach.ppd_history.get().GatherBlue(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
-        float4 history_validity = push.attach.ppd_history.get().GatherAlpha(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
+        float4 history_ao_r = push.attach.rtao_history.get().GatherRed(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
+        float4 history_ao_g = push.attach.rtao_history.get().GatherGreen(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
+        float4 history_ao_b = push.attach.rtao_history.get().GatherBlue(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
+        float4 history_validity = push.attach.rtao_history.get().GatherAlpha(push.attach.globals.samplers.nearest_clamp.get(), gather_uv).wzxy;
         float4 history_depth = push.attach.depth_history.get().GatherRed(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
         uint4 history_normal = push.attach.normal_history.get().GatherRed(push.attach.globals.samplers.linear_clamp.get(), gather_uv).wzxy;
         let hist_normal_tex = push.attach.depth_history.get();
@@ -535,12 +307,12 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
 
     validity = min(validity, VALIDITY_FRAMES);
 
-    acceptance = min(validity * rcp(VALIDITY_FRAMES), push.attach.globals.ppd_settings.denoiser_accumulation_max_epsi);
+    acceptance = min(validity * rcp(VALIDITY_FRAMES), push.attach.globals.ao_settings.denoiser_accumulation_max_epsi);
     float exp_average = lerp(1.0f, 0.1f, acceptance);
 
-    let new_ao = lerp(raw_ppd, accepted_history_ao, acceptance);
+    let new_ao = lerp(raw_rtao, accepted_history_ao, acceptance);
     float new_depth = push.attach.depth.get()[index];
 
     let new_validity = 1.0f + validity;
-    push.attach.ppd_image.get()[index] = float4(new_ao, new_validity);
+    push.attach.rtao_image.get()[index] = float4(new_ao, new_validity);
 }

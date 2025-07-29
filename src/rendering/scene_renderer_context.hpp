@@ -9,7 +9,7 @@
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/readback.inl"
-#include "../shader_shared/per_pixel_diffuse.inl"
+#include "../shader_shared/ao.inl"
 
 #include "../gpu_context.hpp"
 
@@ -671,7 +671,7 @@ struct RenderContext
     VSMSettings prev_vsm_settings = {};
     PGISettings prev_pgi_settings = {};
     LightSettings prev_light_settings = {};
-    PerPixelDiffuseSettings prev_ppd_diffuse_settings = {};
+    AoSettings prev_ao_settings = {};
     RtgiSettings prev_rtgi_settings = {};
 
     // Settings

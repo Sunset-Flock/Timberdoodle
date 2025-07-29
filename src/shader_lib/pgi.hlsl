@@ -304,12 +304,22 @@ func pgi_sample_irradiance(
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    int probe_request_mode) -> float3
+    int probe_request_mode,
+    bool stochastic_cascade_selection = false) -> float3
 {
     float cascade = pgi_select_cascade_smooth_spherical(settings, position - globals.main_camera.position);
     if (cascade > settings.cascade_count)
     {
         return float3(0,0,0);
+    }
+
+    if (stochastic_cascade_selection && false)
+    {
+        const float cascade_high = ceil(cascade);
+        const float cascade_low = floor(cascade);
+        const float cascade_frac = frac(cascade);
+        const float r = rand();
+        cascade = r < cascade_frac ? cascade_high : cascade_low;
     }
 
     let lower_cascade = int(floor(cascade));
@@ -331,10 +341,8 @@ func pgi_sample_irradiance(
     float3 color = lower_cascade_result.rgb;
     float weight = lower_cascade_result.w;
 
-    // color = TurboColormap(float(lower_cascade) * rcp(12));
-
     let higher_cascade = int(ceil(cascade));
-    let two_cascades = lower_cascade != higher_cascade;
+    let two_cascades = lower_cascade != higher_cascade && !stochastic_cascade_selection;
     if (two_cascades)
     {
         float4 higher_cascade_result = pgi_sample_irradiance_cascade(

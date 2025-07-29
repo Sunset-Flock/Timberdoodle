@@ -845,7 +845,7 @@ void entry_main_cs(
         }
 
         ambient_occlusion = 1.0f;
-        const bool ao_enabled = (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO) && !AT.ao_image.id.is_empty();
+        const bool ao_enabled = (AT.globals.ao_settings.mode != AMBIENT_OCCLUSION_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled)
         {
             ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.1f);
@@ -854,7 +854,7 @@ void entry_main_cs(
         const bool rtgi_enabled = AT.globals.rtgi_settings.enabled;
         if (rtgi_enabled)
         {
-            indirect_lighting = AT.rtgi_per_pixel_diffuse.get()[int3(index,0)].rgb;
+            indirect_lighting = AT.rtgi_per_pixel_diffuse.get()[int3(index,0)].rgb * rcp(M_FRAC_1_PI);
             ambient_occlusion = 1.0f;
         }
 
@@ -1000,18 +1000,6 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
             {
                 output_value.rgb = indirect_lighting;
-                break;
-            }
-            case DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE:
-            {
-                if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_RTAO)
-                {
-                    output_value.rgb = ambient_occlusion;
-                }
-                else if (AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI || AT.globals.ppd_settings.mode == PER_PIXEL_DIFFUSE_MODE_FULL_RTGI)
-                {
-                    output_value.rgb = indirect_lighting;
-                }
                 break;
             }
             case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO:

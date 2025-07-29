@@ -101,15 +101,17 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))),
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
         };
+        const float4 normal_weight = sqrt(normal_similarity); // sqrt as we do want to allow some blurring across very similar normals.
 
-        occlusion = step( plane_distances, threshold ) * in_screen;
+        occlusion = step( plane_distances, threshold ) * in_screen * normal_weight;
 
-        // push.attach.debug_image.get()[halfres_pixel_index] = float4(abs(view_position_prev_frame.z - linearise_depth(pixel_depth, camera.near_plane)).xxx, 0);
     }
-    bool disocclusion = (occlusion.x + occlusion.y + occlusion.z + occlusion.w) < 1.0f;
+
+    // Evaluate occlusion, determine disocclusion and sample weights
+    const bool disocclusion = dot(1.0f, occlusion) < 1.1f;
+    const float4 sample_weights = get_bilinear_custom_weights( bilinear_filter_at_prev_pos, occlusion );
 
     // Read in diffuse history
-    const float4 weights = get_bilinear_custom_weights( bilinear_filter_at_prev_pos, occlusion );
     const float4 history_r = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
     const float4 history_g = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
     const float4 history_b = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
@@ -117,16 +119,16 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     const float4 s10 = float4(history_r.y, history_g.y, history_b.y, 0.0f);
     const float4 s01 = float4(history_r.z, history_g.z, history_b.z, 0.0f);
     const float4 s11 = float4(history_r.w, history_g.w, history_b.w, 0.0f);
-    float3 history = apply_bilinear_custom_weights( s00, s10, s01, s11, weights ).rgb;
+    float3 history = apply_bilinear_custom_weights( s00, s10, s01, s11, sample_weights ).rgb;
 
     if (any(isnan(history)))
     {
         history = float3(0,0,0);
     }
 
-    // Calc sample count
-    const float4 samplecnt4 = min( samplecnt_reprojected4 + 1, push.attach.globals.rtgi_settings.history_frames.xxxx );
-    float samplecnt = apply_bilinear_custom_weights( samplecnt4.x, samplecnt4.y, samplecnt4.z, samplecnt4.w, weights, false ).x;
+    // Calc new sample count
+    float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights ).x;
+    samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     const float history_blend = samplecnt / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;

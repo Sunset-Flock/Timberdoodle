@@ -32,6 +32,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
         debug_pixel = true;
     }
 
+    rand_seed(asuint(dtid.x + dtid.y * 13136.1235f) * push.attach.globals.frame_index);
 
     float depth = push.attach.main_cam_depth.get()[dtid];
     float3 face_normal = uncompress_normal_octahedral_32(push.attach.main_cam_face_normals.get()[dtid]);

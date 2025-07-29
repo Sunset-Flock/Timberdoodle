@@ -89,7 +89,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float BLUR_PIXEL_RADIUS = 32; // 32 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
     const float blur_radius_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
-    const float blur_radius = max(1.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
+    const float blur_radius = max(2.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
     float weight_accum = 0.0f;
     float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
     for (uint s = 0; s < SAMPLE_COUNT; ++s)
@@ -183,7 +183,7 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
     // Sample disc around normal
     const uint SAMPLE_COUNT = 8;
-    const float BLUR_PIXEL_RADIUS = 32; // 32 pixels wide
+    const float BLUR_PIXEL_RADIUS = 8; // 8 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
     const float blur_radius = max(1.5f, BLUR_PIXEL_RADIUS);
     float weight_accum = 0.0f;

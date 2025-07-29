@@ -95,7 +95,7 @@ struct Renderer
     daxa::TaskImage depth_history = {};
     daxa::TaskImage path_trace_history = {};
     daxa::TaskImage normal_history = {};
-    daxa::TaskImage ppd_history = {};
+    daxa::TaskImage rtao_history = {};
     daxa::TaskImage rtgi_diffuse_history = {};
     daxa::TaskImage rtgi_depth_history = {};
     daxa::TaskImage rtgi_face_normal_history = {};

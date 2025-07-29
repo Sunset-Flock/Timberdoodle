@@ -921,7 +921,6 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "SMOOTH_TANGENT",              // DEBUG_DRAW_MODE_SMOOTH_TANGENT
                     "DIRECT_DIFFUSE",              // DEBUG_DRAW_MODE_DIRECT_DIFFUSE
                     "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                    "PER_PIXEL_DIFFUSE",           // DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE
                     "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                     "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
                     "SHADE_OPAQUE_CLOCKS",         // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
@@ -1001,12 +1000,11 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
             }
-            if (ImGui::CollapsingHeader("Per Pixel Diffuse (SSAO/RTAO/RTGI)"))
+            if (ImGui::CollapsingHeader("Ambient Occlusion (SSAO/RTAO) Settings"))
             {
                 {
                     auto modes = std::array{
                         "NONE",                        // DEBUG_DRAW_MODE_NONE
-                        "PER_PIXEL_DIFFUSE",           // DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE
                         "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
                         "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
                         "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
@@ -1014,30 +1012,25 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_PER_PIXEL_DIFFUSE,
                         DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
                         DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
                         DEBUG_DRAW_MODE_ALL_DIFFUSE,
                         DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS,
                     };
-                    ImGui::Combo("ppd debug visualization", &ppd_debug_visualization, modes.data(), modes.size());
-                    if (ppd_debug_visualization != 0)
+                    ImGui::Combo("rtao debug visualization", &rtao_debug_visualization, modes.data(), modes.size());
+                    if (rtao_debug_visualization != 0)
                     {
-                        debug_visualization_index_override = mode_mappings[ppd_debug_visualization];
+                        debug_visualization_index_override = mode_mappings[rtao_debug_visualization];
                     }
                 }
                 auto const modes = std::array{
-                    "NONE",                                         // PER_PIXEL_DIFFUSE_MODE_NONE
-                    "RAY_TRACED_AMBIENT_OCCLUSION",                 // PER_PIXEL_DIFFUSE_MODE_RTAO
-                    "SHORT_RANGE_RAY_TRACED_GLOBAL_ILLUMINATION",   // PER_PIXEL_DIFFUSE_MODE_SHORT_RANGE_RTGI
-                    "FULL_RAY_TRACED_GLOBAL_ILLUMINATION",          // PER_PIXEL_DIFFUSE_MODE_FULL_RTGI
+                    "NONE",                                         // AMBIENT_OCCLUSION_MODE_NONE
+                    "RAY_TRACED_AMBIENT_OCCLUSION",                 // AMBIENT_OCCLUSION_MODE_RTAO
                 };
-                ImGui::Combo("Mode", &render_context.render_data.ppd_settings.mode, modes.data(), modes.size());
-                ImGui::InputInt("Sample count", &render_context.render_data.ppd_settings.sample_count);
-                ImGui::SliderFloat("RTAO Range            ", &render_context.render_data.ppd_settings.ao_range, 0.01f, 10.0f);
-                ImGui::SliderFloat("Short Range RTGI Range", &render_context.render_data.ppd_settings.short_range_rtgi_range, 0.01f, 10.0f);
-                ImGui::SliderFloat("Denoiser Epsilon      ", &render_context.render_data.ppd_settings.denoiser_accumulation_max_epsi, 0.75f, 0.999f);
-                ImGui::Checkbox("Debug Primary Trace", reinterpret_cast<bool *>(&render_context.render_data.ppd_settings.debug_primary_trace));
+                ImGui::Combo(      "Mode              ", &render_context.render_data.ao_settings.mode, modes.data(), modes.size());
+                ImGui::InputInt(   "Sample count      ", &render_context.render_data.ao_settings.sample_count);
+                ImGui::SliderFloat("Worldspace Range  ", &render_context.render_data.ao_settings.ao_range, 0.01f, 10.0f);
+                ImGui::SliderFloat("Denoiser Epsilon  ", &render_context.render_data.ao_settings.denoiser_accumulation_max_epsi, 0.75f, 0.999f);
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {

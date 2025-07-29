@@ -99,7 +99,7 @@ struct UIEngine
         i32 debug_visualization_index_override = {};
         bool lights_mark_volume = false;
         i32 pgi_debug_visualization = {};
-        i32 ppd_debug_visualization = {};
+        i32 rtao_debug_visualization = {};
         i32 lights_debug_visualization = {};
         i32 visbuffer_debug_visualization = {};
         i32 vsm_debug_visualization = {};
