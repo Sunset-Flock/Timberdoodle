@@ -54,9 +54,14 @@ interface LightVisibilityTesterI
     float spot_light(MaterialPointData material_point, float3 incoming_ray, uint light_index);
 };
 
-float3 flip_normal_to_incoming(float3 face_normal, float3 normal, float3 incoming_ray)
+float3 flip_face_normal_to_incoming(float3 face_normal, float3 incoming_ray)
 {
-    return sign(dot(face_normal, -incoming_ray)) * normal;
+    return sign(dot(face_normal, -incoming_ray)) * face_normal;
+}
+
+float3 flip_normal_on_face_normal(float3 normal, float3 face_normal)
+{
+    return sign(dot(face_normal, normal)) * normal;
 }
 
 void geom_compute_uv_tangent(float3 tri_vert_positions[3], float2 tri_vert_uvs[3], out float3 ret_tangent, out float3 ret_bitangent)

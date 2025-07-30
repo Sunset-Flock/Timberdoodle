@@ -670,9 +670,8 @@ void entry_main_cs(
         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
         uint meshlet_index = visbuf_tri.meshlet_index;
-        const float3 original_face_normal = tri_point.face_normal;
-        tri_point.face_normal = flip_normal_to_incoming(original_face_normal, tri_point.face_normal, primary_ray);
-        tri_point.world_normal = flip_normal_to_incoming(original_face_normal, tri_point.world_normal, primary_ray);
+        tri_point.face_normal = flip_face_normal_to_incoming(tri_point.face_normal, primary_ray);
+        tri_point.world_normal = flip_normal_on_face_normal(tri_point.world_normal, tri_point.face_normal);
 
         {
             bool mark = false;
@@ -740,6 +739,8 @@ void entry_main_cs(
                 tri_point
             );
         }
+        material_point.normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
+        material_point.geometry_normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
         let mapped_normal = material_point.normal;
         let albedo = material_point.albedo;
         

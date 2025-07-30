@@ -157,12 +157,10 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     uint pgi_request_mode,
     float ambient_occlusion = 1.0f
 ) -> float4
-{
-    // TODO: material_point.normal is busted only in ray tracing for some reason
-    // Flipping normal if backface (in case of double sided triangles)
-    const float3 original_face_normal = material_point.face_normal;
-    material_point.normal = flip_normal_to_incoming(original_face_normal, material_point.normal, incoming_ray);
-    material_point.geometry_normal = flip_normal_to_incoming(original_face_normal, material_point.geometry_normal, incoming_ray);
+{    
+    material_point.face_normal = flip_face_normal_to_incoming(material_point.face_normal, incoming_ray);
+    material_point.geometry_normal = flip_normal_on_face_normal(material_point.geometry_normal, material_point.face_normal);
+    material_point.normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
 
     float3 diffuse_light = float3(0,0,0);
 

@@ -78,7 +78,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         const float pixel_size_on_near_plane = inv_half_res_render_target_size.y;
         const float near_plane_ws_size = camera.near_plane * 2;
         const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(pixel_depth + 0.0000001f);
-        const float threshold = pixel_ws_size * 4.0f; // a larger factor helps with numerical precision as well as small things in the distance.
+        const float threshold = pixel_ws_size * 2.0f; // a larger factor helps with numerical precision as well as small things in the distance.
 
         const float3 positions4[4] = {
             float3(view_position_prev_frame.xy, view_z_reprojected4.x),
