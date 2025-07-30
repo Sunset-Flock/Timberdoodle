@@ -92,17 +92,19 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
             );
         }
 
-        material_point.face_normal = flip_normal_to_incoming(
-            material_point.face_normal,
+        const float3 original_face_normal = material_point.face_normal;
+
+        const float3 flipped_face_normal = flip_normal_to_incoming(
+            original_face_normal,
             material_point.face_normal,
             primary_ray
         );
-        uint packed_face_normal = compress_normal_octahedral_32(material_point.face_normal);
+        uint packed_face_normal = compress_normal_octahedral_32(flipped_face_normal);
         push.attachments.face_normal_image.get()[dtid] = packed_face_normal;
 
         float3 detail_normal = material_point.normal;
         detail_normal = flip_normal_to_incoming(
-            material_point.face_normal,
+            original_face_normal,
             detail_normal,
             primary_ray
         );

@@ -6,7 +6,7 @@
 #include "shader_lib/misc.hlsl"
 
 #define POWER_PRE_BLUR 0
-#define POWER_SAMPLE_STRENGTH 5.0f
+#define POWER_SAMPLE_STRENGTH 1.5f
 
 #if POWER_PRE_BLUR
 #define POWER_SAMPLE(X) pow(X, (1.0f/POWER_SAMPLE_STRENGTH))

@@ -42,9 +42,6 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
     float3 ws_position = pixel_index_to_world_space(*camera, dtid, depth);
     float3 primary_ray = normalize(ws_position - camera.position);
 
-    detail_normal = flip_normal_to_incoming(face_normal,detail_normal,primary_ray);
-    face_normal = flip_normal_to_incoming(face_normal,face_normal,primary_ray);
-
     float3 pgi_irradiance = pgi_sample_irradiance(
         push.attach.globals,
         &push.attach.globals.pgi_settings,
@@ -56,12 +53,10 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
         push.attach.probe_visibility.get(),
         push.attach.probe_info.get(),
         push.attach.probe_requests.get_formatted(),
-        PGI_PROBE_REQUEST_MODE_DIRECT,
-        true, true
+        PGI_PROBE_REQUEST_MODE_DIRECT
     );
 
     push.attach.irradiance_depth.get()[dtid] = float4(pgi_irradiance, depth);
-    //push.attach.normals.get()[dtid] = compress_normal_octahedral_32(normal);
 
     let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS)
