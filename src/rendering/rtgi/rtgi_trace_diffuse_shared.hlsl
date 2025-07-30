@@ -19,6 +19,7 @@ static const float TMAX = 100000000000.0f; // Arbitrary large value
 
 struct RayPayload
 {
+    uint2 dtid;
     float3 color;    
     float t;
     bool skip_sky_shader;

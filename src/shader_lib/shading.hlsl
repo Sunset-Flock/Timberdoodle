@@ -154,7 +154,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
-    uint pgi_request_mode
+    uint pgi_request_mode,
+    float ambient_occlusion = 1.0f
 ) -> float4
 {
     // TODO: material_point.normal is busted only in ray tracing for some reason
@@ -283,7 +284,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 stochastic_conservative_sampling,
                 stochastic_conservative_sampling);
         }
-        diffuse_light += indirect_diffuse;
+        diffuse_light += indirect_diffuse * ambient_occlusion;
     }
 
     return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light + material_point.emissive, material_point.alpha);

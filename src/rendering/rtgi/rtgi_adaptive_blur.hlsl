@@ -6,7 +6,7 @@
 #include "shader_lib/misc.hlsl"
 
 #define POWER_PRE_BLUR 0
-#define POWER_SAMPLE_STRENGTH 8.0f
+#define POWER_SAMPLE_STRENGTH 5.0f
 
 #if POWER_PRE_BLUR
 #define POWER_SAMPLE(X) pow(X, (1.0f/POWER_SAMPLE_STRENGTH))
@@ -129,11 +129,6 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float sample_count_weight = sample_value_samplecnt / float(push.attach.globals.rtgi_settings.history_frames);
         const float weight = depth_valid_weight * geometric_weight * normal_weight * sample_count_weight;
 
-        if (all(dtid.xy == half_res_render_target_size/2))
-        {
-            push.attach.debug_image.get()[sample_index] = float4(1,0,0,1);
-        }
-
         // Accumulate blurred diffuse
         weight_accum += weight;
         blurred_diffuse_accum += weight * sample_value_diffuse;
@@ -222,11 +217,6 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
         const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
         const float weight = depth_valid_weight * geometric_weight * normal_weight;
-
-        if (all(dtid.xy == half_res_render_target_size/2))
-        {
-            push.attach.debug_image.get()[sample_index] = float4(1,0,0,1);
-        }
 
         // Accumulate blurred diffuse
         weight_accum += weight;

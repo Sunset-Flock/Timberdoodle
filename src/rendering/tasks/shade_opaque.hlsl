@@ -1105,6 +1105,11 @@ void entry_main_cs(
                 output_value.rgb *= checker ? 0.6f : 1.0f;
                 break;
             }  
+            case DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE:
+            {
+                output_value.rgb = AT.rtgi_debug_primary_trace.get()[index].rgb;
+                break;
+            }
             case DEBUG_DRAW_MODE_NONE:
             default:
             output_value.rgb = shaded_color;
@@ -1153,6 +1158,7 @@ void entry_main_cs(
         }
         case DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS:
         case DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS:
+        case DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS:
         {
             clocks = push.attachments.attachments.clocks_image.get()[index];
             break;

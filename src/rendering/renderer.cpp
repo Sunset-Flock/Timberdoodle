@@ -962,6 +962,37 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     // RTGI
     daxa::TaskImageView rtgi_per_pixel_diffuse = daxa::NullTaskImage;
+    daxa::TaskImageView rtgi_debug_primary_trace = daxa::NullTaskImage;
+    if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE)
+    {
+        rtgi_debug_primary_trace = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_debug_primary_trace");
+        tg.clear_image({ .view = rtgi_debug_primary_trace, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi_debug_primary_trace"});
+        tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
+            .head_views(RtgiTraceDiffuseH::Info::Views{
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_raw = rtgi_debug_primary_trace,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                .meshlet_instances = meshlet_instances.view(),
+                .mesh_instances = scene->mesh_instances_buffer.view(),
+                .sky = sky,
+                .sky_transmittance = transmittance.view(),
+                .light_mask_volume = light_mask_volume,
+                .pgi_irradiance = pgi_irradiance,
+                .pgi_visibility = pgi_visibility,
+                .pgi_info = pgi_info,
+                .pgi_requests = pgi_requests,
+                .tlas = scene_main_tlas,
+                .vsm_globals = vsm_state.globals.view(),
+                .vsm_point_lights = vsm_state.vsm_point_lights,
+                .vsm_spot_lights = vsm_state.vsm_spot_lights,
+                .vsm_memory_block = vsm_state.memory_block.view(),
+                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
+            })
+            .executes(rtgi_trace_diffuse_callback, render_context.get(), RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = true}));
+    }
     if (render_context->render_data.rtgi_settings.enabled)
     {
         tg.use_persistent_image(rtgi_diffuse_history);
@@ -972,7 +1003,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto rtgi_trace_diffuse_raw_image = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_diffuse_raw_image");
         tg.clear_image({ .view = rtgi_trace_diffuse_raw_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi trace diffuse raw image"});
         tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
-            .head_views({
+            .head_views(RtgiTraceDiffuseH::Info::Views{
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
@@ -982,20 +1013,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .meshlet_instances = meshlet_instances.view(),
                 .mesh_instances = scene->mesh_instances_buffer.view(),
                 .sky = sky,
-                .sky_transmittance = transmittance,
+                .sky_transmittance = transmittance.view(),
                 .light_mask_volume = light_mask_volume,
                 .pgi_irradiance = pgi_irradiance,
                 .pgi_visibility = pgi_visibility,
                 .pgi_info = pgi_info,
                 .pgi_requests = pgi_requests,
                 .tlas = scene_main_tlas,
-                .vsm_globals = vsm_state.globals,
+                .vsm_globals = vsm_state.globals.view(),
                 .vsm_point_lights = vsm_state.vsm_point_lights,
                 .vsm_spot_lights = vsm_state.vsm_spot_lights,
-                .vsm_memory_block = vsm_state.memory_block,
+                .vsm_memory_block = vsm_state.memory_block.view(),
                 .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
             })
-            .executes(rtgi_trace_diffuse_callback, render_context.get()));
+            .executes(rtgi_trace_diffuse_callback, render_context.get(), RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
 
         auto rtgi_pre_blurred_diffuse_image = rtgi_create_trace_diffuse_image(tg, render_context.get(), "rtgi_pre_blurred_diffuse_image");
         tg.clear_image({ .view = rtgi_pre_blurred_diffuse_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi_pre_blurred_diffuse_image image"});
@@ -1192,6 +1223,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .pgi_info = pgi_info,
                 .pgi_requests = pgi_requests,
                 .rtgi_per_pixel_diffuse = rtgi_per_pixel_diffuse,
+                .rtgi_debug_primary_trace = rtgi_debug_primary_trace,
                 .tlas = scene_main_tlas,
             },
             .render_context = render_context.get(),

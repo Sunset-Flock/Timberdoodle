@@ -132,6 +132,10 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     );
     bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
     RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
+
+    const float indirect_ao_range = 0.5f;
+    const float ambient_occlusion = 1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range;
+
     payload.color.rgb = shade_material<SHADING_QUALITY_HIGH_STOCHASTIC>(
         push.attach.globals, 
         push.attach.sky_transmittance,
@@ -145,7 +149,8 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
         push.attach.pgi_visibility.get(), 
         push.attach.pgi_info.get(),
         push.attach.pgi_requests.get_formatted(),
-        PGI_PROBE_REQUEST_MODE_INDIRECT
+        PGI_PROBE_REQUEST_MODE_INDIRECT,
+        ambient_occlusion
     ).rgb;
 
     payload.t = RayTCurrent();

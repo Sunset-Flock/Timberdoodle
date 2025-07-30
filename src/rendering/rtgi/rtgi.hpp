@@ -43,11 +43,17 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rt
 /// === Callbacks ===
 ///
 
-inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
+struct RtgiTraceDiffuseCallbackInfo
+{
+    bool debug_primary_trace = false;
+};
+inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, RtgiTraceDiffuseCallbackInfo const & info)
 {
     auto const & AT = RtgiTraceDiffuseH::Info::AT;
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"RTGI", "TRACE_DIFFUSE">());
-    RtgiTraceDiffusePush push = {};
+    RtgiTraceDiffusePush push = {
+        .debug_primary_trace = static_cast<daxa::b32>(info.debug_primary_trace),
+    };
     push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     auto const & diffuse_raw = ti.info(AT.rtgi_diffuse_raw).value();
     auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);

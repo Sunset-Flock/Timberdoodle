@@ -39,4 +39,5 @@ DAXA_DECL_TASK_HEAD_END
 struct RtgiTraceDiffusePush
 {
     daxa_BufferPtr(RtgiTraceDiffuseH::AttachmentShaderBlob) attach;
+    daxa::b32 debug_primary_trace;
 };

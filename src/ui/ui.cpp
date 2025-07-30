@@ -931,6 +931,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "PGI_LOW_QUALITY_SAMPLING",    // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
                     "UV",                          // DEBUG_DRAW_MODE_UV
                     "LIGHT_MASK_VOLUME",           // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
+                    "RTGI_TRACE_DIFFUSE_CLOCKS",   // DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS
+                    "RTGI_DEBUG_PRIMARY_TRACE",    // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
                 };
                 ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), modes.size());
                 auto debug_material_quality = std::array{
