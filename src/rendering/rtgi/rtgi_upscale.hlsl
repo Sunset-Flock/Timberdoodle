@@ -106,6 +106,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float3 tent_weights_y = rtgi_subpixel_index.y == 0 ? TENT_WEIGHTS_LEFT_3 : TENT_WEIGHTS_LEFT_3.zyx;
     float3 acc_diffuse = (float3)0;
     float acc_weight = 0.0f;
+    float3 fallback_acc_diffuse = (float3)0;
+    float fallback_acc_weight = 0.0f;
     for (int col = 0; col < TENT_WIDTH; col++)
     {
         for (int row = 0; row < TENT_WIDTH; row++)
@@ -138,10 +140,24 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 
             acc_diffuse += weight * sample_diffuse_depth.rgb;
             acc_weight += weight;
+
+            // Fallback calculation:
+            const float ws_dst_weight = exp(-abs(length(world_position - sample_ws)));
+            const float fallback_weight = tent_weight * ws_dst_weight;
+            fallback_acc_diffuse += fallback_weight * sample_diffuse_depth.rgb;
+            fallback_acc_weight += fallback_weight;
         }
     }
 
     // Write upscaled diffuse:
-    const float3 upscaled_diffuse = acc_diffuse * rcp(acc_weight + 0.0000001f);
+    float3 upscaled_diffuse = (float3)0;
+    if (acc_weight > 0.1f)
+    {
+        upscaled_diffuse = acc_diffuse * rcp(acc_weight + 0.0000001f);
+    }
+    else
+    {
+        upscaled_diffuse = fallback_acc_diffuse * rcp(fallback_acc_weight);
+    }
     push.attach.rtgi_diffuse_full_res.get()[full_res_pixel_index] = float4(upscaled_diffuse, 1.0f);
 }

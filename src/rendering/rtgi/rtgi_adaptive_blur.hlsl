@@ -5,6 +5,17 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
+#define POWER_PRE_BLUR 0
+#define POWER_SAMPLE_STRENGTH 8.0f
+
+#if POWER_PRE_BLUR
+#define POWER_SAMPLE(X) pow(X, (1.0f/POWER_SAMPLE_STRENGTH))
+#define DE_POWER_SAMPLE(X) pow(X, POWER_SAMPLE_STRENGTH)
+#else
+#define POWER_SAMPLE(X) X
+#define DE_POWER_SAMPLE(X) X
+#endif
+
 [[vk::push_constant]] RtgiAdaptiveBlurPush rtgi_adaptive_blur_push;
 [[vk::push_constant]] RtgiPreBlurPush rtgi_pre_blur_push;
 
@@ -89,7 +100,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float BLUR_PIXEL_RADIUS = 32; // 32 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
     const float blur_radius_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
-    const float blur_radius = max(2.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
+    const float blur_radius = max(3.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
     float weight_accum = 0.0f;
     float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
     for (uint s = 0; s < SAMPLE_COUNT; ++s)
@@ -219,13 +230,13 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
         // Accumulate blurred diffuse
         weight_accum += weight;
-        blurred_diffuse_accum += weight * sample_value_diffuse;
+        blurred_diffuse_accum += weight * POWER_SAMPLE(sample_value_diffuse);
     }
 
     // Calculate blurred diffuse and fallback blending
     // Some pixels find nearly no suitable spacial samples,
     // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float3 blurry_diffuse = blurred_diffuse_accum * rcp(weight_accum + 0.00000001f);
+    const float3 blurry_diffuse = DE_POWER_SAMPLE(blurred_diffuse_accum * rcp(weight_accum + 0.00000001f));
     const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/4)); 
     const float3 original_diffuse = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgb;
     const float3 fallback_diffuse = original_diffuse;

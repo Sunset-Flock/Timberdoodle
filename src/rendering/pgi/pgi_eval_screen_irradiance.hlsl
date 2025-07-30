@@ -52,12 +52,12 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
         face_normal,
         detail_normal,
         camera.position,
-        primary_ray,
         push.attach.probe_radiance.get(),
         push.attach.probe_visibility.get(),
         push.attach.probe_info.get(),
         push.attach.probe_requests.get_formatted(),
-        PGI_PROBE_REQUEST_MODE_DIRECT
+        PGI_PROBE_REQUEST_MODE_DIRECT,
+        true, true
     );
 
     push.attach.irradiance_depth.get()[dtid] = float4(pgi_irradiance, depth);

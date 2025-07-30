@@ -19,7 +19,8 @@
 static const uint SHADING_QUALITY_NONE = 0;
 static const uint SHADING_QUALITY_LOW = 1;
 static const uint SHADING_QUALITY_HIGH = 2;
-static const uint SHADING_QUALITY_ONLY_DIRECT = 3;
+static const uint SHADING_QUALITY_HIGH_STOCHASTIC = 3;
+static const uint SHADING_QUALITY_ONLY_DIRECT = 4;
 typedef uint ShadingQuality;
 
 func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals, TriangleGeometry tri_geo, TriangleGeometryPoint tri_point) -> MaterialPointData
@@ -49,7 +50,7 @@ func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals
         }
         else
         {
-            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), float2(0,0), 16.0f);
+            diffuse_fetch = Texture2D<float4>::get(material.diffuse_texture_id).SampleLevel(globals.samplers.linear_repeat_ani.get(), tri_point.uv, 8.0f);
         }
         ret.albedo *= diffuse_fetch.rgb;
         ret.alpha = diffuse_fetch.a;
@@ -258,7 +259,6 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 
                 origin,
-                incoming_ray, 
                 probe_irradiance, 
                 probe_visibility, 
                 probe_infos, 
@@ -267,6 +267,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         }
         if (SHADING_QUALITY >= SHADING_QUALITY_HIGH)
         {
+            const bool stochastic_conservative_sampling = SHADING_QUALITY == SHADING_QUALITY_HIGH_STOCHASTIC;
             indirect_diffuse = pgi_sample_irradiance(
                 globals, 
                 &globals.pgi_settings, 
@@ -274,12 +275,13 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 material_point.geometry_normal, 
                 material_point.geometry_normal, 
                 origin,
-                incoming_ray, 
                 probe_irradiance, 
                 probe_visibility, 
                 probe_infos, 
                 probe_requests, 
-                pgi_request_mode);
+                pgi_request_mode,
+                stochastic_conservative_sampling,
+                stochastic_conservative_sampling);
         }
         diffuse_light += indirect_diffuse;
     }

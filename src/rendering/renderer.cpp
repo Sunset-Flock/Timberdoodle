@@ -477,9 +477,20 @@ void Renderer::clear_select_buffers()
                     MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
                     allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances)); }));
     tg.use_persistent_image(rtao_history);
-    tg.clear_image({rtao_history.view(), {}, daxa::QUEUE_MAIN, "clear ppd history"});
+    tg.clear_image({rtao_history.view(), {}, daxa::QUEUE_MAIN, "clear rtao history"});
     tg.use_persistent_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
+    
+    {
+        tg.use_persistent_image(rtgi_depth_history);
+        tg.use_persistent_image(rtgi_face_normal_history);
+        tg.use_persistent_image(rtgi_diffuse_history);
+        tg.use_persistent_image(rtgi_samplecnt_history);
+        tg.clear_image({rtgi_depth_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_depth_history"});
+        tg.clear_image({rtgi_face_normal_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_face_normal_history"});
+        tg.clear_image({rtgi_diffuse_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_diffuse_history"});
+        tg.clear_image({rtgi_samplecnt_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_samplecnt_history"});
+    }
     // tg.use_persistent_buffer(exposure_state);
     // tg.clear_buffer({.buffer = exposure_state, .size = sizeof(ExposureState), .clear_value = 0});
     tg.use_persistent_image(path_trace_history);

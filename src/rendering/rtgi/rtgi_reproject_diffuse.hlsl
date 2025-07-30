@@ -108,7 +108,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     }
 
     // Evaluate occlusion, determine disocclusion and sample weights
-    const bool disocclusion = dot(1.0f, occlusion) < 1.1f;
+    const bool disocclusion = dot(1.0f, occlusion) < 1.01f;
     const float4 sample_weights = get_bilinear_custom_weights( bilinear_filter_at_prev_pos, occlusion );
 
     // Read in diffuse history
