@@ -16,6 +16,7 @@
 
 #include "widgets/scene_graph.hpp"
 #include "widgets/property_viewer.hpp"
+#include "widgets/camera_path_editor.hpp"
 using namespace tido::types;
 using namespace tido::ui;
 
@@ -81,6 +82,7 @@ struct UIEngine
         bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
+        bool widget_camera_path_editor = true;
         bool widget_scene_interface = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
@@ -91,6 +93,7 @@ struct UIEngine
         daxa::ImGuiRenderer imgui_renderer = {};
         SceneGraph scene_graph = {};
         PropertyViewer property_viewer = {};
+        CameraPathEditor path_editor = {};
         RenderTimesHistory render_times_history = {};
         Window *window = {};
         SceneInterfaceState scene_interface = {};

@@ -275,6 +275,19 @@ void CinematicCamera::process_input(Window &window, f32 dt)
     f32 const t = current_keyframe_time / current_keyframe.transition_time;
 
     f32vec3 velocity;
+    // std::array<u32, 4> keyframe_indices = {
+    //     (current_keyframe_index + (path_keyframes.size()) - 1u) % path_keyframes.size(),
+    //     (current_keyframe_index + (path_keyframes.size())) % path_keyframes.size(),
+    //     (current_keyframe_index + 1) % path_keyframes.size(),
+    //     (current_keyframe_index + 2) % path_keyframes.size(),
+    // };
+
+    std::array<u32, 4> keyframe_indices = {
+        current_keyframe_index > 1 ? current_keyframe_index - 1 : 0,
+        current_keyframe_index,
+        std::min(s_cast<size_t>(current_keyframe_index + 1), path_keyframes.size() - 1),
+        std::min(s_cast<size_t>(current_keyframe_index + 2), path_keyframes.size() - 1),
+    };
     auto last_keyframe_idx = (current_keyframe_index + (path_keyframes.size() - 1)) % path_keyframes.size();
     auto next_keyframe_idx = (current_keyframe_index +  1) % path_keyframes.size();
 
@@ -282,20 +295,20 @@ void CinematicCamera::process_input(Window &window, f32 dt)
         position,
         velocity,
         t,
-        path_keyframes.at(last_keyframe_idx).start_position,
-        current_keyframe.start_position,
-        current_keyframe.end_position,
-        path_keyframes.at(next_keyframe_idx).end_position
+        path_keyframes.at(keyframe_indices[0]).position,
+        path_keyframes.at(keyframe_indices[1]).position,
+        path_keyframes.at(keyframe_indices[2]).position,
+        path_keyframes.at(keyframe_indices[3]).position
     );
 
     quat_catmull_rom(
         forward,
         velocity,
         t,
-        path_keyframes.at(last_keyframe_idx).start_rotation,
-        current_keyframe.start_rotation,
-        current_keyframe.end_rotation,
-        path_keyframes.at(next_keyframe_idx).end_rotation
+        path_keyframes.at(keyframe_indices[0]).rotation,
+        path_keyframes.at(keyframe_indices[1]).rotation,
+        path_keyframes.at(keyframe_indices[2]).rotation,
+        path_keyframes.at(keyframe_indices[3]).rotation
     );
 }
 

@@ -9,6 +9,24 @@ using namespace tido::types;
 #include "window.hpp"
 #include "shader_shared/shared.inl"
 
+void hermite(
+    f32vec3& pos,
+    f32vec3& vel, 
+    f32 x, 
+    f32vec3 p0,
+    f32vec3 p1, 
+    f32vec3 v0,
+    f32vec3 v1);
+
+void catmull_rom(
+    f32vec3& pos,
+    f32vec3& vel,
+    f32 x,
+    f32vec3 p0,
+    f32vec3 p1, 
+    f32vec3 p2,
+    f32vec3 p3);
+
 struct CameraController
 {
     void process_input(Window &window, f32 dt);
@@ -28,11 +46,8 @@ struct CameraController
 
 struct CameraAnimationKeyframe
 {
-    glm::fquat start_rotation;
-    glm::fquat end_rotation;
-
-    f32vec3 start_position;
-    f32vec3 end_position;
+    glm::fquat rotation;
+    f32vec3 position;
     f32 transition_time;
 };
 

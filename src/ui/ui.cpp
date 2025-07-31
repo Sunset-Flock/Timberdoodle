@@ -95,6 +95,7 @@ void setup_colors()
 UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext * gpu_context)
     : scene_graph(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
       property_viewer(&imgui_renderer, &icons, gpu_context->lin_clamp_sampler),
+      path_editor(&imgui_renderer),
       gpu_context{gpu_context},
       window{&window}
 {
@@ -179,6 +180,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
             ImGui::MenuItem("Widget Settings", NULL, &widget_settings);
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_interface);
+            ImGui::MenuItem("Camera Path Editor", NULL, &widget_camera_path_editor);
             ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::MenuItem("TaskGraphDebugUi", NULL, &tg_debug_ui);
@@ -211,6 +213,10 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     if (renderer_settings)
     {
         ui_renderer_settings(scene, render_context, app_state);
+    }
+    if (widget_camera_path_editor)
+    {
+        path_editor.render(render_context, app_state.cinematic_camera, app_state.camera_controller);
     }
     if (widget_property_viewer)
     {

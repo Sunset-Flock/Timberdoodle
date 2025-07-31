@@ -26,14 +26,41 @@ auto load_camera_animation(std::filesystem::path const & path) -> std::vector<Ca
                 };
             };
             auto & curr_keyframe = keyframes.emplace_back();
-            read_rotation("rot", curr_keyframe.start_rotation);
-            read_rotation("rot_e", curr_keyframe.end_rotation);
-            read_segment_point("s", curr_keyframe.start_position);
-            read_segment_point("e", curr_keyframe.end_position);
+            read_rotation("rot", curr_keyframe.rotation);
+            read_segment_point("s", curr_keyframe.position);
             curr_keyframe.transition_time = segment["time"];
         }
     }
     return keyframes;
+}
+
+void export_camera_animation(std::filesystem::path const & path, std::vector<CameraAnimationKeyframe> const & keyframes)
+{
+    auto json = nlohmann::json {};
+
+    auto path_ = nlohmann::json{};
+
+    for (auto const & segment : keyframes) 
+    {
+        auto path_keyframe = nlohmann::json{};
+        path_keyframe["s"]["x"] = segment.position.x;
+        path_keyframe["s"]["y"] = segment.position.y;
+        path_keyframe["s"]["z"] = segment.position.z;
+
+        path_keyframe["rot"]["x"] = segment.rotation.w;
+        path_keyframe["rot"]["y"] = segment.rotation.x;
+        path_keyframe["rot"]["z"] = segment.rotation.y;
+        path_keyframe["rot"]["w"] = segment.rotation.z;
+
+        path_keyframe["time"] = segment.transition_time;
+
+        path_.push_back(path_keyframe);
+    }
+
+    json["_version"] = 1;
+    json["paths"].push_back(path_);
+    auto f = std::ofstream(path);
+    f << std::setw(4) << json;
 }
 
 auto load_sky_settings(std::filesystem::path const & path_to_settings) -> SkySettings
