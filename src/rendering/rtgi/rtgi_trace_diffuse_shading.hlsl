@@ -136,7 +136,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     const float indirect_ao_range = 0.5f;
     const float ambient_occlusion = 1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range;
 
-    payload.color.rgb = shade_material<SHADING_QUALITY_HIGH_STOCHASTIC>(
+    payload.color.rgb = shade_material<SHADING_QUALITY_HIGH>(
         push.attach.globals, 
         push.attach.sky_transmittance,
         push.attach.sky,

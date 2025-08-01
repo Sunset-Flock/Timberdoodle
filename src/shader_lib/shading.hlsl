@@ -201,8 +201,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
             {
                 uint point_light_idx = lights_iterate_mask(light_settings, point_light_mask);
     #else
-        for(int point_light_idx = 0; point_light_idx < light_settings.point_light_count; ++point_light_idx)
-        {
+            for(int point_light_idx = 0; point_light_idx < light_settings.point_light_count; ++point_light_idx)
+            {
     #endif
                 GPUPointLight light = globals.scene.point_lights[point_light_idx];
                 const float3 position_to_light = normalize(light.position - material_point.position);

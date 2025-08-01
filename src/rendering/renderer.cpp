@@ -929,7 +929,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .views = RayTraceAmbientOcclusionTask::Views{
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
-                .clocks_image = daxa::NullTaskImage,
+                .clocks_image = clocks_image,
                 .rtao_raw_image = ao_raw_image,
                 .view_cam_depth = view_camera_depth,
                 .view_cam_detail_normals = view_camera_detail_normal_image,

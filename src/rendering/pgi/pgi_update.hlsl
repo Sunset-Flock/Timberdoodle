@@ -154,8 +154,13 @@ func entry_update_probe_irradiance(
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
-            cosine_convoluted_trace_result += sample * cos_weight;
-            acc_weight += cos_weight;
+            
+            const bool backface_hit = sample.a < 0.0f;
+            if (!backface_hit)
+            {
+                cosine_convoluted_trace_result += sample * cos_weight;
+                acc_weight += cos_weight;
+            }
         }
     }
     
@@ -176,10 +181,16 @@ func entry_update_probe_irradiance(
     float hysteresis = prev_frame_texel.a;
     {
         // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
-        float3 lighting_change3 = abs(pow(prev_frame_radiance + 0.000000000001f, (1.0f / PGI_PERCEPTUAL_EXPONENT)) - pow(new_radiance + 0.000000000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)));
-        float lighting_change = max3(lighting_change3.x, lighting_change3.y, lighting_change3.z);
-        float factor = 0.6f - lighting_change * 4;
-        hysteresis += clamp(factor, -0.02f, 0.02f);
+        const float3 power_scaled_irradiance_prev = prev_frame_radiance;
+        const float3 power_scaled_irradiance_new = new_radiance;
+        const float3 power_scaled_min = min(power_scaled_irradiance_prev, power_scaled_irradiance_new);
+        const float3 power_scaled_max = max(power_scaled_irradiance_prev, power_scaled_irradiance_new);
+
+        const float3 relative_difference = (power_scaled_max - power_scaled_min) / power_scaled_min;
+        const float max_relative_difference = max3(relative_difference.x, relative_difference.y, relative_difference.z);
+
+        float factor = 2.0f - max_relative_difference;
+        hysteresis += clamp(factor, -0.01f, 0.05f);
         hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
     }
     hysteresis = clamp(hysteresis, 0.75f, 0.975f);
@@ -854,7 +865,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
                 ShaderDebugLineDraw line = {};
                 line.start = probe_position;
                 line.end = other_pos;
-                line.color = float3(0.2,0.0,0.1);
+                line.color = TurboColormap(float(cascade) * rcp(8));
                 debug_draw_line(push.attach.globals.debug, line);
             }
         }

@@ -1008,6 +1008,11 @@ void entry_main_cs(
                 output_value.rgb = indirect_lighting * ambient_occlusion;
                 break;
             }
+            case DEBUG_DRAW_MODE_AO:
+            {
+                output_value.rgb = ambient_occlusion.xxx;
+                break;
+            }
             case DEBUG_DRAW_MODE_ALL_DIFFUSE:
             {
                 output_value.rgb = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + indirect_lighting * ambient_occlusion + material.emissive_color;
@@ -1109,7 +1114,7 @@ void entry_main_cs(
             }  
             case DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE:
             {
-                output_value.rgb = AT.rtgi_debug_primary_trace.get()[index].rgb;
+                output_value.rgb = AT.rtgi_debug_primary_trace.get()[index/2].rgb;
                 break;
             }
             case DEBUG_DRAW_MODE_NONE:
