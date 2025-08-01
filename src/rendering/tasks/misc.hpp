@@ -80,7 +80,7 @@ struct SimpleIndirectComputeTask : HeadTaskT
     HeadTaskT::AttachmentViews views = {};
     GPUContext * gpu_context = {};
     PushT push = {};
-    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT::Info, PushT, shader_path, entry_point>();
+    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<typename HeadTaskT::Info, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::name()}));

@@ -139,10 +139,10 @@ namespace tido
                     // };
 
                     std::array<u32, 4> keyframe_indices = {
-                        keyframe_index > 1 ? keyframe_index - 1 : 0,
-                        keyframe_index,
-                        std::min(s_cast<size_t>(keyframe_index + 1), camera.path_keyframes.size() - 1),
-                        std::min(s_cast<size_t>(keyframe_index + 2), camera.path_keyframes.size() - 1),
+                        keyframe_index > 1 ? s_cast<u32>(keyframe_index - 1) : 0,
+                        s_cast<u32>(keyframe_index),
+                        std::min(s_cast<u32>(keyframe_index + 1), s_cast<u32>(camera.path_keyframes.size() - 1)),
+                        std::min(s_cast<u32>(keyframe_index + 2), s_cast<u32>(camera.path_keyframes.size() - 1)),
                     };
 
                     f32vec3 last_position = camera.path_keyframes.at(keyframe_index).position;
