@@ -308,6 +308,7 @@ void Renderer::compile_pipelines()
         {vsm_clear_dirty_bit_pipeline_compile_info()},
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
+        {vsm_recreate_shadow_map_pipeline_compile_info()},
         {vsm_get_debug_statistics_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
@@ -606,6 +607,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.point_spot_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
+    tg.use_persistent_image(gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table);
     tg.use_persistent_image(swapchain_image);
 
     // TODO: Move into an if and create persistent state only if necessary.
@@ -1241,6 +1243,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
 
+        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.add_task(RecreateShadowMapTask{
+            .views = RecreateShadowMapTask::Views{
+                .globals = render_context->tgpu_render_data.view(),
+                .vsm_clip_projections = vsm_state.clip_projections,
+                .vsm_page_table = vsm_page_table_view,
+                .vsm_memory_block = vsm_state.memory_block.view(),
+                .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
+                .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
+            },
+            .render_context = render_context.get(),
+        });
+
         tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(DebugMetaMemoryTableTask{
             .views = DebugMetaMemoryTableTask::Views{
@@ -1547,8 +1562,8 @@ auto Renderer::prepare_frame(
         vsm_state.free_wrapped_pages_info_cpu.at(clip).clear_offset = std::bit_cast<daxa_i32vec2>(clear_offset);
 
         vsm_state.last_frame_offsets.at(clip) = std::bit_cast<i32vec2>(vsm_state.clip_projections_cpu.at(clip).page_offset);
-        vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
-        vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
+        vsm_state.clip_projections_cpu.at(clip).page_offset.x = vsm_state.clip_projections_cpu.at(clip).page_offset.x % VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION;
+        vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
     vsm_state.update_vsm_lights(scene->_point_lights, scene->_spot_lights);
@@ -1588,7 +1603,7 @@ auto Renderer::prepare_frame(
     }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
 
-    render_context->render_times.readback_render_times(render_context->render_data.frame_index);
+    render_context->render_times.readback_render_times(render_context->render_data.frame_index - 1);
 
     // Draw Frustum Camera.
     gpu_context->shader_debug_context.aabb_draws.draw(ShaderDebugAABBDraw{

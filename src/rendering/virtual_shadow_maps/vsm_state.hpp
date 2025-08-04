@@ -11,6 +11,7 @@
 
 struct VSMState
 {
+    static constexpr f32 VSM_POINT_LIGHT_NEAR = 0.05f;
     // Persistent state
     daxa::TaskBuffer globals = {};
 

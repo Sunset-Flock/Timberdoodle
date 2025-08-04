@@ -27,6 +27,8 @@
 #define DEBUG_PAGE_TABLE_Y_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_X_DISPATCH 16
 #define DEBUG_META_MEMORY_TABLE_Y_DISPATCH 16
+#define RECREATE_SHADOW_MAP_X_DISPATCH 16
+#define RECREATE_SHADOW_MAP_Y_DISPATCH 16
 #define GET_DEBUG_STATISTICS_X_DISPATCH 8
 #define GET_DEBUG_STATISTICS_Y_DISPATCH 8
 
@@ -254,6 +256,15 @@ DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_tab
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_debug_meta_memory_table)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
+DAXA_DECL_TASK_HEAD_END
+
+DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RecreateShadowMapH)
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, vsm_page_table)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, vsm_memory_block)
+DAXA_TH_IMAGE_ID(READ, REGULAR_2D, vsm_overdraw_debug)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, vsm_recreated_shadow_map)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GetDebugStatisticsH)

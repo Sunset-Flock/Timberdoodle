@@ -159,6 +159,8 @@ namespace RenderTimes
                 "CLEAR_PAGES",
                 "GEN_DIRY_BIT_HIZ_DIRECTIONAL",
                 "GEN_DIRY_BIT_HIZ_POINT_SPOT",
+                "CULL_MESHES_DIRECTIONAL",
+                "CULL_MESHES_POINT_SPOT",
                 "CULL_AND_DRAW_PAGES_DIRECTIONAL",
                 "CULL_AND_DRAW_PAGES_POINT_SPOT",
                 "CLEAR_DIRY_BITS",
@@ -444,7 +446,7 @@ namespace RenderTimes
 
         void init(daxa::Device & device, u32 frames_in_flight)
         {
-            query_version_count = frames_in_flight;
+            query_version_count = frames_in_flight + 1;
             timeline_query_pool = device.create_timeline_query_pool({
                 .query_count = 2 * FLAT_TIMINGS_COUNT * query_version_count,
                 .name = "render times query pool",

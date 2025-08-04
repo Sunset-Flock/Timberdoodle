@@ -6,6 +6,7 @@
 
 [[vk::push_constant]] DebugVirtualPageTableH::AttachmentShaderBlob debug_virtual_page_push;
 [[vk::push_constant]] DebugMetaMemoryTableH::AttachmentShaderBlob debug_meta_page_push;
+[[vk::push_constant]] RecreateShadowMapH::AttachmentShaderBlob recreated_shadow_map_page_push;
 
 [numthreads(DEBUG_PAGE_TABLE_X_DISPATCH, DEBUG_PAGE_TABLE_Y_DISPATCH, 1)]
 [shader("compute")]
@@ -126,5 +127,48 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
             }
         }
         push.vsm_debug_meta_memory_table.get()[svdtid.xy] = color;
+    }
+}
+
+[numthreads(RECREATE_SHADOW_MAP_X_DISPATCH, RECREATE_SHADOW_MAP_Y_DISPATCH, 1)]
+[shader("compute")]
+void recreate_shadow_map(uint3 svdtid : SV_DispatchThreadID)
+{
+    let push = recreated_shadow_map_page_push;
+    let manually_forced_level = push.globals.vsm_settings.forced_clip_level >= 0u;
+    let cascade = manually_forced_level ? push.globals.vsm_settings.forced_clip_level : 0;
+
+    if(all(lessThan(svdtid.xy, VSM_DIRECTIONAL_TEXTURE_RESOLUTION)))
+    {
+        const int2 texel_coords = svdtid.xy;
+        const int2 page_coords = texel_coords / VSM_PAGE_SIZE;
+        const int2 in_page_coords = texel_coords - (page_coords * VSM_PAGE_SIZE);
+
+        const int3 wrapped_coords = vsm_page_coords_to_wrapped_coords(int3(page_coords, cascade), push.vsm_clip_projections);
+        const uint page_entry = push.vsm_page_table.get().Load(int4(wrapped_coords, 0)).r;
+
+        float4 value = float4(0.0f, 0.0f, 0.0f, 1.0f);
+        if(get_is_allocated(page_entry))
+        {
+            const uint2 meta_coords = get_meta_coords_from_vsm_entry(page_entry);
+            const uint2 physical_coords = (meta_coords * VSM_PAGE_SIZE) + in_page_coords;
+            const float vsm_sample = push.vsm_memory_block.get().Load(int3(physical_coords, 0)).r;
+
+            if (push.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
+            {
+                uint overdraw_amount = 0;
+                overdraw_amount = RWTexture2D<uint>::get(push.vsm_overdraw_debug)[physical_coords].x;
+                if(overdraw_amount > 0)
+                {
+                    const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
+                    value.rgb = overdraw_color;
+                }
+            }
+            else
+            {
+                value.rgb = pow(vsm_sample - 0.500, 0.3) * 3.0f;
+            }
+        }
+        push.vsm_recreated_shadow_map.get()[texel_coords] = value;
     }
 }

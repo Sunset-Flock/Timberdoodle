@@ -20,6 +20,7 @@ MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/re
 MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_recreate_shadow_map_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "recreate_shadow_map")
 MAKE_COMPUTE_COMPILE_INFO(vsm_get_debug_statistics_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/get_debug_statistics.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "main")
 
@@ -155,24 +156,6 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
         ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
         render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
-    }
-};
-
-struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
-{
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    static constexpr auto dispatch_size = u32vec2{
-        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
-        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
-    };
-
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
-        GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
     }
 };
 
@@ -546,6 +529,44 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
     }
 };
 
+struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    static constexpr auto dispatch_size = u32vec2{
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
+    };
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
+        GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
+struct RecreateShadowMapTask : RecreateShadowMapH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+
+        const u32vec2 dispatch_size = u32vec2{
+            round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_X_DISPATCH),
+            round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_Y_DISPATCH),
+        };
+
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_recreate_shadow_map_pipeline_compile_info().name));
+        RecreateShadowMapH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
 struct TaskDrawVSMsInfo
 {
     Scene * scene = {};
@@ -743,6 +764,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
         .tg = *info.tg,
         .cull_meshes = true,
+        .render_time_index = RenderTimes::index<"VSM","CULL_MESHES_DIRECTIONAL">(),
         .vsm_hip = info.vsm_state->dirty_pages_hiz,
         .is_directional_light = true,
         .vsm_clip_projections = info.vsm_state->clip_projections,

@@ -26,7 +26,6 @@ namespace tido
             std::vector<daxa::ImageId> const * icons = {};
 
             static constexpr std::array selector_icons = {ICONS::SUN, ICONS::CAMERA, ICONS::MESH};
-            void draw_sky_settings(SkySettings * sky_settings);
         };
     } // namespace ui
 } // namespace tido

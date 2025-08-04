@@ -40,6 +40,7 @@ struct ShaderDebugDrawContext
     i32 old_detector_rt_size = 0;
     
     daxa::TaskImage vsm_debug_meta_memory_table = {};
+    daxa::TaskImage vsm_recreated_shadowmap_memory_table = {};
     daxa::TaskImage vsm_debug_page_table = {};
     daxa::BufferId readback_queue = {};
 
@@ -92,6 +93,22 @@ struct ShaderDebugDrawContext
                 },
             },
             .name = "vsm debug meta memory table",
+        });
+
+        vsm_recreated_shadowmap_memory_table = daxa::TaskImage({
+            .initial_images = {
+                .images = std::array{
+                    device.create_image({
+                        .format = daxa::Format::R8G8B8A8_SRGB,
+                        .size = {VSM_DIRECTIONAL_TEXTURE_RESOLUTION, VSM_DIRECTIONAL_TEXTURE_RESOLUTION, 1},
+                        .usage = 
+                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_DST,
+                        .name = "vsm recreated shadowmap physical image",
+                    }),
+                },
+            },
         });
 
         readback_queue = device.create_buffer({
