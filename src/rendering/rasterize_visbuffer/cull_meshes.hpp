@@ -115,6 +115,7 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
                     total_mesh_draws = std::min(total_mesh_draws, MAX_MESH_INSTANCES);
 
                     daxa::DispatchInfo dispatch_info = {round_up_div(total_mesh_draws, CULL_MESHES_WORKGROUP_X), 1, 1};
+
                     if (info_copy.is_point_spot_light)
                     {
                         dispatch_info.y =
@@ -125,9 +126,23 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
                     {
                         dispatch_info.y = VSM_CLIP_LEVELS;
                     }
-
-                    info_copy.render_context->render_times.start_gpu_timer(ti.recorder, info_copy.render_time_index);
+                    if(info_copy.is_point_spot_light && info_copy.mip_level == 0)
+                    {
+                        info_copy.render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_MESHES_POINT_SPOT">());
+                    }
+                    else
+                    {
+                        info_copy.render_context->render_times.start_gpu_timer(ti.recorder, info_copy.render_time_index);
+                    }
                     ti.recorder.dispatch(dispatch_info);
-                    info_copy.render_context->render_times.end_gpu_timer(ti.recorder, info_copy.render_time_index);
+                    if(info_copy.is_point_spot_light && info_copy.mip_level == 6)
+                    {
+                        info_copy.render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VSM","CULL_MESHES_POINT_SPOT">());
+                    }
+                    else
+                    {
+                        info_copy.render_context->render_times.end_gpu_timer(ti.recorder, info_copy.render_time_index);
+                    }
+
                 }));
 }

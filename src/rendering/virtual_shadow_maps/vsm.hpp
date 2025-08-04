@@ -764,6 +764,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
         .render_context = info.render_context,
         .tg = *info.tg,
         .cull_meshes = true,
+        .render_time_index = RenderTimes::index<"VSM","CULL_MESHES_DIRECTIONAL">(),
         .vsm_hip = info.vsm_state->dirty_pages_hiz,
         .is_directional_light = true,
         .vsm_clip_projections = info.vsm_state->clip_projections,

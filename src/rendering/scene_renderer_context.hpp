@@ -159,6 +159,8 @@ namespace RenderTimes
                 "CLEAR_PAGES",
                 "GEN_DIRY_BIT_HIZ_DIRECTIONAL",
                 "GEN_DIRY_BIT_HIZ_POINT_SPOT",
+                "CULL_MESHES_DIRECTIONAL",
+                "CULL_MESHES_POINT_SPOT",
                 "CULL_AND_DRAW_PAGES_DIRECTIONAL",
                 "CULL_AND_DRAW_PAGES_POINT_SPOT",
                 "CLEAR_DIRY_BITS",
