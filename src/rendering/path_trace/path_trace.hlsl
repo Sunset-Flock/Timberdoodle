@@ -222,6 +222,8 @@ void ray_gen()
                         uint meshlet_triangle_index = visbuf_tri.meshlet_triangle_index;
                         uint meshlet_instance_index = visbuf_tri.meshlet_instance_index;
                         uint meshlet_index = visbuf_tri.meshlet_index;
+                        tri_point.face_normal = flip_face_normal_to_incoming(tri_point.face_normal, outgoing_ray.Direction);
+                        tri_point.world_normal = flip_normal_on_face_normal(tri_point.world_normal, tri_point.face_normal);
 
                         float3 normal = tri_point.world_normal;
                         GPUMaterial material = GPU_MATERIAL_FALLBACK;
@@ -230,49 +232,28 @@ void ray_gen()
                             material = AT.globals.scene.materials[tri_geo.material_index];
                         }
 
-                        float3 albedo = float3(material.base_color);
-                        if(material.diffuse_texture_id.value != 0)
+                        MaterialPointData material_point = evaluate_material<SHADING_QUALITY_HIGH>(
+                            AT.globals,
+                            tri_geo,
+                            tri_point
+                        );
+                        if (AT.globals.settings.debug_material_quality == SHADING_QUALITY_LOW)
                         {
-                            albedo = Texture2D<float4>::get(material.diffuse_texture_id).SampleGrad(
-                                SamplerState::get(AT.globals->samplers.linear_repeat_ani),
-                                tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                            ).rgb;
+                            material_point = evaluate_material<SHADING_QUALITY_LOW>(
+                                AT.globals,
+                                tri_geo,
+                                tri_point
+                            );
                         }
-
-                        if(material.normal_texture_id.value != 0)
-                        {
-                            float3 normal_map_value = float3(0);
-                            if(material.normal_compressed_bc5_rg)
-                            {
-                                const float2 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                                    SamplerState::get(AT.globals->samplers.normals),
-                                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                                ).rg;
-                                const float2 rescaled_normal_rg = raw * 2.0f - 1.0f;
-                                const float normal_b = sqrt(clamp(1.0f - dot(rescaled_normal_rg, rescaled_normal_rg), 0.0, 1.0));
-                                normal_map_value = float3(rescaled_normal_rg, normal_b);
-                            }
-                            else
-                            {
-                                const float3 raw = Texture2D<float4>::get(material.normal_texture_id).SampleGrad(
-                                    SamplerState::get(AT.globals->samplers.normals),
-                                    tri_point.uv, tri_point.uv_ddx, tri_point.uv_ddy
-                                ).rgb;
-                                normal_map_value = raw * 2.0f - 1.0f;
-                            }
-                            if (dot(normal_map_value, -1) < 0.9999)
-                            {
-                                const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
-                                normal = mul(tbn, normal_map_value);
-                            }
-                        }
+                        material_point.normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
+                        material_point.geometry_normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
 
                         GbufferData gbuffer = GbufferData::create_zero();
-                        gbuffer.albedo = albedo;
-                        gbuffer.normal = normal;
+                        gbuffer.albedo = material_point.albedo;
+                        gbuffer.normal = material_point.normal;
                         gbuffer.roughness = DEFAULT_ROUGHNESS;
                         gbuffer.metalness = DEFAULT_METALNESS;
-                        gbuffer.emissive = albedo * material.emissive_color;
+                        gbuffer.emissive = material_point.emissive;
 
                         primary_hit.gbuffer_packed = gbuffer.pack();
                         primary_hit.is_hit = true;
@@ -311,7 +292,7 @@ void ray_gen()
                             new_ray(
                                 rt_calc_ray_start(primary_hit.position, gbuffer.normal, outgoing_ray.Direction),
                                 to_light_norm,
-                                0,
+                                1e-4,
                                 FLT_MAX
                         ));
 
@@ -473,7 +454,7 @@ void ray_gen()
                                             new_ray(
                                                 shadow_ray_origin,
                                                 to_light_norm_ws,
-                                                0.0,
+                                                1e-3,
                                                 sqrt(dist_to_light2) - unshadowed_distance
                                         ));
 
@@ -618,7 +599,7 @@ void closest_hit(inout GbufferRayPayload payload, in BuiltInTriangleIntersection
     gbuffer.normal = tri_point.world_normal;
     gbuffer.roughness = DEFAULT_ROUGHNESS;
     gbuffer.metalness = DEFAULT_METALNESS;
-    gbuffer.emissive = material_point.albedo * material_point.emissive;
+    gbuffer.emissive = material_point.emissive;
 
     payload.gbuffer_packed = gbuffer.pack();
     payload.t = RayTCurrent();

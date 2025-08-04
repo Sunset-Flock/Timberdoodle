@@ -5,7 +5,9 @@
 auto load_camera_animation(std::filesystem::path const & path) -> std::vector<CameraAnimationKeyframe>
 {
     std::vector<CameraAnimationKeyframe> keyframes = {};
-    auto json = nlohmann::json::parse(std::ifstream(path));
+    auto file = std::ifstream(path);
+    if (!file.is_open()) return keyframes;
+    auto json = nlohmann::json::parse(file);
     for(auto const & path : json["paths"])
     {
         for(auto const & segment : path)

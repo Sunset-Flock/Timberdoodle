@@ -285,8 +285,8 @@ void CinematicCamera::process_input(Window &window, f32 dt)
     std::array<u32, 4> keyframe_indices = {
         current_keyframe_index > 1 ? current_keyframe_index - 1 : 0,
         current_keyframe_index,
-        std::min(s_cast<size_t>(current_keyframe_index + 1), path_keyframes.size() - 1),
-        std::min(s_cast<size_t>(current_keyframe_index + 2), path_keyframes.size() - 1),
+        std::min(s_cast<u32>(current_keyframe_index + 1), s_cast<u32>(path_keyframes.size() - 1)),
+        std::min(s_cast<u32>(current_keyframe_index + 2), s_cast<u32>(path_keyframes.size() - 1)),
     };
     auto last_keyframe_idx = (current_keyframe_index + (path_keyframes.size() - 1)) % path_keyframes.size();
     auto next_keyframe_idx = (current_keyframe_index +  1) % path_keyframes.size();
