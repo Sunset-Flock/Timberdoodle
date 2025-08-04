@@ -79,6 +79,12 @@ struct RenderTimesHistory
 struct UIEngine
 {
     public:
+        struct VSMWindows
+        {
+            bool view_meta_memory = false;
+            bool view_reconstructed_shadow_map = false;
+            bool view_page_table = false;
+        } vsm_windows;
         bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
@@ -147,6 +153,7 @@ struct UIEngine
         std::vector<daxa::ImageId> icons = {};
         void ui_scene_graph(Scene const & scene);
         void ui_renderer_settings(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
+        void ui_vsm_textures(RenderContext & render_context, ApplicationState & app_state);
 
         void ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
         void ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);

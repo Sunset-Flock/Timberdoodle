@@ -308,6 +308,7 @@ void Renderer::compile_pipelines()
         {vsm_clear_dirty_bit_pipeline_compile_info()},
         {vsm_debug_virtual_page_table_pipeline_compile_info()},
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
+        {vsm_recreate_shadow_map_pipeline_compile_info()},
         {vsm_get_debug_statistics_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
         {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
@@ -606,6 +607,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(vsm_state.point_spot_page_tables);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
+    tg.use_persistent_image(gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table);
     tg.use_persistent_image(swapchain_image);
 
     // TODO: Move into an if and create persistent state only if necessary.
@@ -1237,6 +1239,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .vsm_globals = vsm_state.globals.view(),
                 .vsm_page_table = vsm_page_table_view,
                 .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table.view(),
+            },
+            .render_context = render_context.get(),
+        });
+
+        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        tg.add_task(RecreateShadowMapTask{
+            .views = RecreateShadowMapTask::Views{
+                .globals = render_context->tgpu_render_data.view(),
+                .vsm_clip_projections = vsm_state.clip_projections,
+                .vsm_page_table = vsm_page_table_view,
+                .vsm_memory_block = vsm_state.memory_block.view(),
+                .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
+                .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
             },
             .render_context = render_context.get(),
         });

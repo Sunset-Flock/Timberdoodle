@@ -214,6 +214,10 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     {
         ui_renderer_settings(scene, render_context, app_state);
     }
+    if (vsm_windows.view_meta_memory || vsm_windows.view_page_table || vsm_windows.view_reconstructed_shadow_map)
+    {
+        ui_vsm_textures(render_context, app_state);
+    }
     if (widget_camera_path_editor)
     {
         path_editor.render(render_context, app_state.cinematic_camera, app_state.camera_controller);
@@ -1213,6 +1217,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 render_context.render_data.vsm_settings.enable_directional_caching = enable_directional_caching;
                 render_context.render_data.vsm_settings.enable_point_caching = enable_point_caching;
 
+                ImGui::Checkbox("Show memory texture", &vsm_windows.view_meta_memory);
+                ImGui::Checkbox("Show page texture", &vsm_windows.view_page_table);
+                ImGui::Checkbox("Show reconstructed texture", &vsm_windows.view_reconstructed_shadow_map);
+
                 u32 free_pages = render_context.general_readback.free_pages;
                 u32 drawn_pages = render_context.general_readback.drawn_pages;
                 u32 cached_pages = render_context.general_readback.cached_pages;
@@ -1253,6 +1261,44 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     ImGui::End();
 }
 
+void UIEngine::ui_vsm_textures(RenderContext & render_context, ApplicationState & app_state)
+{
+    if(vsm_windows.view_page_table)
+    {
+        ImGui::Begin("VSM Page Texture", nullptr, 0);
+        {
+            ImGui::Image(
+                imgui_renderer.create_texture_id({
+                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                }),
+                ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
+        }
+        ImGui::End();
+    }
+    if(vsm_windows.view_meta_memory) 
+    {
+        ImGui::Begin("VSM Memory Texture", nullptr, 0);
+        ImGui::Image(
+            imgui_renderer.create_texture_id({
+                .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+            }),
+            ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
+        ImGui::End();
+    }
+    if(vsm_windows.view_reconstructed_shadow_map)
+    {
+        ImGui::Begin("VSM Reconstructed Directional Texture", nullptr, 0);
+        ImGui::Image(
+            imgui_renderer.create_texture_id({
+                .image_view_id = render_context.gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.get_state().images[0].default_view(),
+                .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+            }),
+            ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
+        ImGui::End();
+    }
+}
 
 void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
 {

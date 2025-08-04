@@ -20,6 +20,7 @@ MAKE_COMPUTE_COMPILE_INFO(vsm_gen_dirty_bit_hiz_pipeline_compile_info, "./src/re
 MAKE_COMPUTE_COMPILE_INFO(vsm_clear_dirty_bit_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/clear_dirty_bit.glsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_virtual_main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_recreate_shadow_map_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "recreate_shadow_map")
 MAKE_COMPUTE_COMPILE_INFO(vsm_get_debug_statistics_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/get_debug_statistics.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "main")
 
@@ -541,6 +542,26 @@ struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
         GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
+struct RecreateShadowMapTask : RecreateShadowMapH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+
+    void callback(daxa::TaskInterface ti)
+    {
+
+        const u32vec2 dispatch_size = u32vec2{
+            round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_X_DISPATCH),
+            round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_Y_DISPATCH),
+        };
+
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_recreate_shadow_map_pipeline_compile_info().name));
+        RecreateShadowMapH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
     }
