@@ -45,14 +45,13 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
 func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID)
 {
     let push = rtgi_reconstruct_history_gen_mips_diffuse_push;
-    if (any(dtid.xy >= push.size))
-    {
-        return;
-    }
+
+    // No early out needed, as the texture mip chain is guaranteed to be 
 
     const uint2 half_res_index = dtid.xy;
-    const float3 diffuse = push.attach.rtgi_diffuse_accumulated.get()[half_res_index].rgb;
-    const float depth = push.attach.view_cam_half_res_depth.get()[half_res_index];
+    const uint2 clamped_index = min(half_res_index, push.size-1);
+    const float3 diffuse = push.attach.rtgi_diffuse_accumulated.get()[clamped_index].rgb;
+    const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
     gs_diffuse_depth[gtid.x][gtid.y] = float4(diffuse, depth);
 
     // Mip 0:
@@ -107,13 +106,18 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     }
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
-
     if (pixel_samplecnt < 5) 
     {
+        // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
+        // Due to this, the uv is shifted by some amount as there are padding texels on the border of the reconstructed history mip chain.
+        // We round to multiple of 16, not 8, as the uv are calculated for the half size. The mip chain is quater size, so going from quater to half means increasing the alignment from 8 to 16.
+        const float2 half_size_ru16 = float2(round_up_to_multiple(half_res_render_target_size.x, 16), round_up_to_multiple(half_res_render_target_size.y, 16));
+        const float2 corrected_uv = sv_xy * rcp(half_size_ru16);
+
         const float mip = clamp(3.0f - (pixel_samplecnt), 0.0f, 3.0f);
-        const float2 mip_size = float2(uint2(half_res_render_target_size) >> uint(mip+1));
+        const float2 mip_size = float2(uint2(half_size_ru16) >> uint(mip+1));
         const float2 inv_mip_size = rcp(mip_size);
-        const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( uv ), mip_size );
+        const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( corrected_uv ), mip_size );
         
         const float4 diffuse_depth_reconstruct00 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
         const float4 diffuse_depth_reconstruct10 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,0), mip));
@@ -121,7 +125,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float4 diffuse_depth_reconstruct11 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
 
         const float4 depths = float4(diffuse_depth_reconstruct00.w, diffuse_depth_reconstruct10.w, diffuse_depth_reconstruct01.w, diffuse_depth_reconstruct11.w);
-        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths);
+        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 1.0f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         const float3 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse_depth_reconstruct00, diffuse_depth_reconstruct10, diffuse_depth_reconstruct01, diffuse_depth_reconstruct11, weights_reconstruct ).rgb;
