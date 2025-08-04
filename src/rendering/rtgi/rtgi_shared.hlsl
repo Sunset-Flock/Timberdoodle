@@ -16,11 +16,10 @@ func get_geometry_weight_threshold(float2 inv_render_target_size, float near_pla
 }
 
 func get_geometry_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
-    float threshold_scale = 3.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
+    float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float
 {
-    // We assume 0 positional difference in view space xy. Good enough approximation.
-    const float plane_distance = abs(dot(other_vs_position.z - vs_position.z, vs_normal.z));
+    const float plane_distance = abs(dot(other_vs_position - vs_position, vs_normal));
     const float threshold = get_geometry_weight_threshold(inv_render_target_size, near_plane, depth) * threshold_scale;
     const float validity = step( plane_distance, threshold );
     return validity;
@@ -33,7 +32,7 @@ func get_geometry_weight4(
     float3 vs_position, 
     float3 vs_normal, 
     float4 other_quad_depths, 
-    float threshold_scale = 3.0f // a larger factor leads to more bleeding across edges but also less noise on small details
+    float threshold_scale = 2.0f // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float4
 {
     // We assume 0 positional difference in view space xy. Good enough approximation.

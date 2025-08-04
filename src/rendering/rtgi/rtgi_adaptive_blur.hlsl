@@ -63,10 +63,10 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     rand_seed(thread_seed);
 
     // Sample disc around normal
-    const uint SAMPLE_COUNT = 8;
-    const float BLUR_PIXEL_RADIUS = 32; // 32 pixels wide
+    const uint SAMPLE_COUNT = 4;
+    const float BLUR_PIXEL_RADIUS = 128; // 32 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
+    const float blur_radius_scale = 1.0f / (1.0f + pixel_samplecnt);//(push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
     const float blur_radius = max(3.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
     float weight_accum = 0.0f;
     float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
@@ -154,11 +154,18 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
     rand_seed(thread_seed);
 
+    // Load current pixel ray hit distance to scale blur radius.
+    // Helps retain contact detail while not increasing noise significantly
+    const float pixel_raw_ray_hit_distance = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].a;
+    const float hit_distance_max_scaling_ws = 0.25f;
+    const float hit_distance_scaling = min(pixel_raw_ray_hit_distance, hit_distance_max_scaling_ws) * rcp(hit_distance_max_scaling_ws);
+
     // Sample disc around normal
     const uint SAMPLE_COUNT = 8;
     const float BLUR_PIXEL_RADIUS = 8; // 8 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius = max(1.5f, BLUR_PIXEL_RADIUS);
+    const float scaled_pixel_radius = hit_distance_scaling * BLUR_PIXEL_RADIUS;
+    const float blur_radius = max(1.5f, scaled_pixel_radius);
     float weight_accum = 0.0f;
     float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
     for (uint s = 0; s < SAMPLE_COUNT; ++s)

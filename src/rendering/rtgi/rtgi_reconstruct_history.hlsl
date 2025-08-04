@@ -125,7 +125,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float4 diffuse_depth_reconstruct11 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
 
         const float4 depths = float4(diffuse_depth_reconstruct00.w, diffuse_depth_reconstruct10.w, diffuse_depth_reconstruct01.w, diffuse_depth_reconstruct11.w);
-        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 1.0f);
+        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.5f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         const float3 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse_depth_reconstruct00, diffuse_depth_reconstruct10, diffuse_depth_reconstruct01, diffuse_depth_reconstruct11, weights_reconstruct ).rgb;

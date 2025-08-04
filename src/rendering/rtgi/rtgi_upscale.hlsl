@@ -4,30 +4,9 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
+#include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiUpscaleDiffusePush rtgi_upscale_diffuse_push;
-
-func get_geometry_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
-{
-    const float plane_distance = abs(dot(other_vs_position - vs_position, vs_normal));
-    // The further away the pixel is, the larger difference we allow.
-    // The scale is proportional to the size the pixel takes up in world space.
-    const float pixel_size_on_near_plane = inv_render_target_size.y;
-    const float near_plane_ws_size = near_plane * 2;
-    const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
-    const float threshold_scale = 3.0f; // a larger factor leads to more bleeding across edges but also less noise on small details
-    const float threshold = pixel_ws_size * threshold_scale; 
-
-    const float validity = step( plane_distance, threshold );
-    return validity;
-}
-
-func get_normal_diffuse_weight(float3 normal, float3 other_normal) -> float
-{
-    const float validity = max(0.0f, dot(normal, other_normal));
-    const float tight_validity = pow(validity, 8.0f);
-    return tight_validity;
-}
 
 groupshared float4 gs_half_diffuse_depth_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
 groupshared float4 gs_half_normals_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
@@ -56,10 +35,11 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_face_normals.get()[full_res_pixel_index]);
     const float3 pixel_detail_normal = uncompress_normal_octahedral_32(push.attach.view_camera_detail_normal_image.get()[full_res_pixel_index]);
 
-    // Calc pixel world position
+    // Calc pixel view attributes
     const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
-    const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
-    const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
+    const float4 position_vs_pre_div = mul(camera.inv_proj, float4(ndc, 1.0f));
+    const float3 position_vs = -position_vs_pre_div.xyz / position_vs_pre_div.w;
+    const float3 pixel_face_normal_vs = mul(camera.view, float4(pixel_face_normal,0.0f)).xyz;
 
     // Preload Surrounding half res rtgi values
     {
@@ -108,6 +88,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     float acc_weight = 0.0f;
     float3 fallback_acc_diffuse = (float3)0;
     float fallback_acc_weight = 0.0f;
+    float acc_geo_weight = 0.0f;
     for (int col = 0; col < TENT_WIDTH; col++)
     {
         for (int row = 0; row < TENT_WIDTH; row++)
@@ -129,21 +110,22 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             const int2 sample_half_res_idx = (full_res_pixel_index/2) + int2(col,row);
             const float2 sample_uv = float2(sample_half_res_idx) * inv_half_res_render_target_size;
             const float3 sample_ndc = float3(sample_uv * 2.0f - 1.0f, sample_diffuse_depth.w);
-            const float4 sample_ws_pre_div = mul(camera.inv_view_proj, float4(sample_ndc,1.0f));
-            const float3 sample_ws = sample_ws_pre_div.xyz / sample_ws_pre_div.w;
+            const float4 sample_vs_pre_div = mul(camera.inv_proj, float4(sample_ndc,1.0f));
+            const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
 
             // Calculate weights
             const float tent_weight = tent_weights_x[row] * tent_weights_y[col];
-            const float geometry_weight = get_geometry_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, world_position, pixel_face_normal, sample_ws);
-            const float normal_weight = square(max(0.0f, dot(sample_face_normal, pixel_face_normal)));
+            const float geometry_weight = get_geometry_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, position_vs, pixel_face_normal_vs, sample_vs, 1.5f);
+            const float normal_weight = square(square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal)))));
             const float weight = tent_weight * geometry_weight * normal_weight;
 
             acc_diffuse += weight * sample_diffuse_depth.rgb;
             acc_weight += weight;
+            acc_geo_weight += geometry_weight;
 
             // Fallback calculation:
-            const float ws_dst_weight = exp(-abs(length(world_position - sample_ws)));
-            const float fallback_weight = tent_weight * ws_dst_weight;
+            const float vs_dst_weight = exp(-abs(length(position_vs - sample_vs)));
+            const float fallback_weight = tent_weight * vs_dst_weight * normal_weight;
             fallback_acc_diffuse += fallback_weight * sample_diffuse_depth.rgb;
             fallback_acc_weight += fallback_weight;
         }
