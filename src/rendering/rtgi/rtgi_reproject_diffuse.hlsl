@@ -4,6 +4,7 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
+#include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiReprojectDiffusePush rtgi_denoise_diffuse_reproject_push;
 
@@ -59,42 +60,12 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     const float4 depth_reprojected4 = push.attach.rtgi_depth_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
     const float4 samplecnt_reprojected4 = push.attach.rtgi_samplecnt_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
     const uint4 face_normals_packed_reprojected4 = push.attach.rtgi_face_normal_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
-    const float4 view_z_reprojected4 = {
-        linearise_depth(depth_reprojected4.x, camera.near_plane),
-        linearise_depth(depth_reprojected4.y, camera.near_plane),
-        linearise_depth(depth_reprojected4.z, camera.near_plane),
-        linearise_depth(depth_reprojected4.w, camera.near_plane)
-    };
+    const float3 view_space_normal = mul(camera_prev_frame.view, float4(pixel_face_normal, 0.0f)).xyz;
 
     // Calculate plane distance based occlusion and normal similarity
     float4 occlusion = float4(1.0f, 1.0f, 1.0f, 1.0f);
     {
-        // We project the normal into view space.
-        // The 4 reprojected positions are cheap to transform into viewspace, so we only transform one instead of 4 vectors.
-        const float3 view_space_normal = mul(camera_prev_frame.view, float4(pixel_face_normal, 0.0f)).xyz;
-
-        // The further away the pixel is, the larger difference we allow.
-        // The scale is proportional to the size the pixel takes up in world space.
-        const float pixel_size_on_near_plane = inv_half_res_render_target_size.y;
-        const float near_plane_ws_size = camera.near_plane * 2;
-        const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(pixel_depth + 0.0000001f);
-        const float threshold = pixel_ws_size * 2.0f; // a larger factor helps with numerical precision as well as small things in the distance.
-
-        const float3 positions4[4] = {
-            float3(view_position_prev_frame.xy, view_z_reprojected4.x),
-            float3(view_position_prev_frame.xy, view_z_reprojected4.y),
-            float3(view_position_prev_frame.xy, view_z_reprojected4.z),
-            float3(view_position_prev_frame.xy, view_z_reprojected4.w),
-        };
-        const float4 plane_distances = {
-            abs(dot(positions4[0] - view_position_prev_frame, view_space_normal)),
-            abs(dot(positions4[1] - view_position_prev_frame, view_space_normal)),
-            abs(dot(positions4[2] - view_position_prev_frame, view_space_normal)),
-            abs(dot(positions4[3] - view_position_prev_frame, view_space_normal))
-        };
-
         const float in_screen = all(uv_prev_frame > 0.0f && uv_prev_frame < 1.0f) ? 1.0f : 0.0f;
-
         const float4 normal_similarity = {
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.x))),
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.y))),
@@ -102,9 +73,9 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
         };
         const float4 normal_weight = sqrt(normal_similarity); // sqrt as we do want to allow some blurring across very similar normals.
+        const float4 geometry_weights = get_geometry_weight4(inv_half_res_render_target_size, camera.near_plane, pixel_depth, view_position_prev_frame, view_space_normal, depth_reprojected4);
 
-        occlusion = step( plane_distances, threshold ) * in_screen * normal_weight;
-
+        occlusion = geometry_weights * in_screen * normal_weight;
     }
 
     // Evaluate occlusion, determine disocclusion and sample weights

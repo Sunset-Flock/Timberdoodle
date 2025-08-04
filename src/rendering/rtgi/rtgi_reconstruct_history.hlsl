@@ -4,6 +4,7 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
+#include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiReconstructHistoryGenMipsDiffusePush rtgi_reconstruct_history_gen_mips_diffuse_push;
 [[vk::push_constant]] RtgiReconstructHistoryApplyDiffusePush rtgi_reconstruct_history_apply_diffuse_push;
@@ -49,10 +50,9 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
         return;
     }
 
-    uint2 half_res_index = dtid.xy;
-
-    float3 diffuse = push.attach.rtgi_diffuse_accumulated.get()[half_res_index].rgb;
-    float depth = push.attach.view_cam_half_res_depth.get()[half_res_index];
+    const uint2 half_res_index = dtid.xy;
+    const float3 diffuse = push.attach.rtgi_diffuse_accumulated.get()[half_res_index].rgb;
+    const float depth = push.attach.view_cam_half_res_depth.get()[half_res_index];
     gs_diffuse_depth[gtid.x][gtid.y] = float4(diffuse, depth);
 
     // Mip 0:
@@ -82,16 +82,24 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         return;
     }
 
-    // Precalculate constants
+    // Calculate constants
+    const CameraInfo camera = push.attach.globals->view_camera;
     const uint2 halfres_pixel_index = dtid.xy;
     const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
     const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
     const float2 sv_xy = float2(halfres_pixel_index) + 0.5f;
     const float2 uv = sv_xy * inv_half_res_render_target_size;
     
-    // Load pixel depth and samplecnt
+    // Load pixel depth and samplecnt and normal
     const float pixel_depth = push.attach.view_cam_half_res_depth.get()[halfres_pixel_index];
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[halfres_pixel_index];
+    const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_normals.get()[halfres_pixel_index]);
+
+    // Calculate pixel attributes
+    const float3 vs_pixel_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
+    const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
+    const float4 vs_position_pre_div = mul(camera.inv_proj, float4(ndc, 1.0f));
+    const float3 vs_position = -vs_position_pre_div.xyz / vs_position_pre_div.w;
 
     if (pixel_depth == 0.0f)
     {
@@ -99,10 +107,12 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     }
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
+
     if (pixel_samplecnt < 5) 
     {
-        const float mip = clamp(3.0f - (pixel_samplecnt-1.0f), 0.0f, 3.0f);
+        const float mip = clamp(3.0f - (pixel_samplecnt), 0.0f, 3.0f);
         const float2 mip_size = float2(uint2(half_res_render_target_size) >> uint(mip+1));
+        const float2 inv_mip_size = rcp(mip_size);
         const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( uv ), mip_size );
         
         const float4 diffuse_depth_reconstruct00 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
@@ -110,18 +120,15 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float4 diffuse_depth_reconstruct01 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,1), mip));
         const float4 diffuse_depth_reconstruct11 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
 
-        const float4 depth_distances = {
-            abs(diffuse_depth_reconstruct00.w - pixel_depth),
-            abs(diffuse_depth_reconstruct10.w - pixel_depth),
-            abs(diffuse_depth_reconstruct01.w - pixel_depth),
-            abs(diffuse_depth_reconstruct11.w - pixel_depth)
-        };
-        const float max_depth_distance = max(max(depth_distances.x,depth_distances.y),max(depth_distances.z,depth_distances.w));
-        const float4 depth_weights = rcp(max_depth_distance + 0.00001f) * 4;
+        const float4 depths = float4(diffuse_depth_reconstruct00.w, diffuse_depth_reconstruct10.w, diffuse_depth_reconstruct01.w, diffuse_depth_reconstruct11.w);
+        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths);
 
-        const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, depth_weights );
+        const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         const float3 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse_depth_reconstruct00, diffuse_depth_reconstruct10, diffuse_depth_reconstruct01, diffuse_depth_reconstruct11, weights_reconstruct ).rgb;
         
-        push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = float4(reconstructed_diffuse, 1.0f);
+        if (dot(geometric_weight4, 1) > 0.0f)
+        {
+            push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = float4(reconstructed_diffuse, 1.0f);
+        }
     }
 }

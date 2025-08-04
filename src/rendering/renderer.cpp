@@ -1081,6 +1081,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .clocks_image = clocks_image,
                 .rtgi_reconstructed_diffuse_history = rtgi_reconstructed_history_diffuse_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                .view_cam_half_res_normals = view_camera_half_res_face_normal_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
                 .rtgi_diffuse_accumulated = rtgi_trace_diffuse_accumulated_image,
             })
