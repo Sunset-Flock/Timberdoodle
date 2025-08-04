@@ -242,26 +242,27 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                 app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
                 ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_first_pass));
                 ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_second_pass));
-                auto const view_quat = glm::quat_cast(app_state.observer_camera_controller.make_camera_info(render_context.render_data.settings).view);
-                ImGui::Text("%s", fmt::format("observer view quat {} {} {} {}", view_quat.w, view_quat.x, view_quat.y, view_quat.z).c_str());
             }
             ImGui::SeparatorText("Cinematic Camera");
             {
-                ImGui::BeginDisabled(!app_state.use_preset_camera);
-                ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
-                ImGui::EndDisabled();
-                cinematic_camera.override_keyframe &= app_state.use_preset_camera;
-                ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
-                i32 current_keyframe = cinematic_camera.current_keyframe_index;
-                f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-                ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
-                ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
-                if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
-                ImGui::EndDisabled();
-                ImGui::Checkbox("use preset camera", &app_state.use_preset_camera);
-                if (ImGui::Button("snap observer to cinematic"))
+                if (cinematic_camera.path_keyframes.size() > 0)
                 {
-                    app_state.observer_camera_controller.position = cinematic_camera.position;
+                    ImGui::BeginDisabled(!app_state.use_preset_camera);
+                    ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
+                    ImGui::EndDisabled();
+                    cinematic_camera.override_keyframe &= app_state.use_preset_camera;
+                    ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
+                    i32 current_keyframe = cinematic_camera.current_keyframe_index;
+                    f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
+                    ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
+                    ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
+                    if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
+                    ImGui::EndDisabled();
+                    ImGui::Checkbox("use preset camera", &app_state.use_preset_camera);
+                    if (ImGui::Button("snap observer to cinematic"))
+                    {
+                        app_state.observer_camera_controller.position = cinematic_camera.position;
+                    }
                 }
             }
             ImGui::SeparatorText("Debug Shader Interface");
