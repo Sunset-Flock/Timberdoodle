@@ -1603,7 +1603,7 @@ auto Renderer::prepare_frame(
     }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
 
-    render_context->render_times.readback_render_times(render_context->render_data.frame_index);
+    render_context->render_times.readback_render_times(render_context->render_data.frame_index - 1);
 
     // Draw Frustum Camera.
     gpu_context->shader_debug_context.aabb_draws.draw(ShaderDebugAABBDraw{
