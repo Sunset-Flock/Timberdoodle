@@ -91,8 +91,8 @@ func generic_fragment<ExtraData : IFragmentExtraData, FragOutT : IFragmentOut>(o
             if (material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {
                 // TODO: WHAT THE FUCK IS THIS BUG? WHY ARE WE SAMPLING diffuse_texture_id IN THIS BRANCH??
-                alpha = Texture2D<float4>::get(material.diffuse_texture_id)
-                    .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).a; 
+                alpha = Texture2D<float4>::get(material.opacity_texture_id)
+                    .Sample( SamplerState::get(masked_data.sampler), masked_data.uv).r; 
             }
             else if (material.diffuse_texture_id.value != 0 && material.alpha_discard_enabled)
             {
@@ -434,7 +434,7 @@ FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMas
         FragmentMaskedData(
             prim.material_index,
             draw_p.materials,
-            draw_p.attach.globals->samplers.linear_repeat,
+            draw_p.attach.globals->samplers.linear_repeat_ani,
             // draw_p.attach.globals->samplers.nearest_repeat,
             vert.uv
         ),
@@ -953,7 +953,7 @@ FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in 
         FragmentMaskedData(
             prim.material_index,
             cull_meshlets_draw_visbuffer_push.materials,
-            cull_meshlets_draw_visbuffer_push.attach.globals.samplers.linear_repeat,
+            cull_meshlets_draw_visbuffer_push.attach.globals.samplers.linear_repeat_ani,
             vert.uv
         ),
         0

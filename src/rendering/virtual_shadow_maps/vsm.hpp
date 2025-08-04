@@ -158,24 +158,6 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
     }
 };
 
-struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
-{
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    static constexpr auto dispatch_size = u32vec2{
-        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
-        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
-    };
-
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
-        GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
-    }
-};
-
 struct FreeWrappedPagesTask : FreeWrappedPagesH::Task
 {
     AttachmentViews views = {};
@@ -541,6 +523,24 @@ struct DebugMetaMemoryTableTask : DebugMetaMemoryTableH::Task
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_debug_meta_memory_table_pipeline_compile_info().name));
         DebugMetaMemoryTableH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
+    }
+};
+
+struct GetDebugStatisticsTask : GetDebugStatisticsH::Task
+{
+    AttachmentViews views = {};
+    RenderContext * render_context = {};
+    static constexpr auto dispatch_size = u32vec2{
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
+        (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
+    };
+
+    void callback(daxa::TaskInterface ti)
+    {
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_get_debug_statistics_pipeline_compile_info().name));
+        GetDebugStatisticsH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
         ti.recorder.dispatch({dispatch_size.x, dispatch_size.y});
     }
