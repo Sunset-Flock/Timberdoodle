@@ -856,7 +856,7 @@ void entry_main_cs(
         if (rtgi_enabled)
         {
             indirect_lighting = AT.rtgi_per_pixel_diffuse.get()[int3(index,0)].rgb * rcp(M_FRAC_1_PI);
-            ambient_occlusion = 1.0f;
+            // ambient_occlusion = 1.0f;
         }
 
 

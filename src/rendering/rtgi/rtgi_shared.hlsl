@@ -5,6 +5,26 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
+
+#define RTGI_USE_POISSON_DISC 0
+
+#define RTGI_SPATIAL_FILTER_SAMPLES 16
+#define RTGI_SPATIAL_FILTER_RADIUS_MIN 2
+#define RTGI_SPATIAL_FILTER_RADIUS_MAX 32
+
+#define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 8
+#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 0
+#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 5
+
+#define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 1
+#define RTGI_BLUR_RAYLEN_RADIUS_SCALE 1
+
+
+func luma_of(float3 color) -> float
+{
+    return (color.r + 2.0f * color.g + color.b) * 0.25f;
+}
+
 func get_geometry_weight_threshold(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
     // The further away the pixel is, the larger difference we allow.
@@ -65,3 +85,8 @@ static const float3 g_Poisson8[8] =
     float3( +0.7836658, -0.4208784, +0.8895339 ),
     float3( +0.1564120, -0.8198990, +0.8346850 )
 };
+
+float get_gaussian_weight( float r )
+{
+    return exp( -0.66 * r * r ); // assuming r is normalized to 1
+}

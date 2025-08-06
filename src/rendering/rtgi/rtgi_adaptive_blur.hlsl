@@ -62,18 +62,61 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
     rand_seed(thread_seed);
 
+    // Load pixels diffuse before value, used for width estimation and fallback diffuse
+    const float4 pixel_value = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
+    const float3 pixel_diffuse = pixel_value.rgb;
+
+    // Determine if the blur radius has to be reduced, based on blurred raylengths
+    float ray_length_radius_max_scale = 1.0f;
+    #if RTGI_BLUR_RAYLEN_RADIUS_SCALE
+        ray_length_radius_max_scale = saturate(pixel_value.a * 0.5);
+    #endif 
+
+    // Determine if the blur radius has to be increased for the post blur
+    float post_blur_min_radius_scale = 0.0f;
+    #if RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE
+        const bool is_post_blur = !push.attach.rtgi_diffuse_accumulated.id.is_empty();
+        if (is_post_blur)
+        {
+            // Calculate relative absolute luma difference
+            // Scale the blur radius up when the luma difference is large
+            // At a relative luma difference of 5%, the radius is scaled to RTGI_SPATIAL_FILTER_RADIUS_MAX
+            // Practically a poor mans version of variance estimation :)
+            const float4 reprojected_diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index].rgba;
+            const float luma_pixel = luma_of(pixel_diffuse);
+            const float luma_reprojected = luma_of(reprojected_diffuse.rgb);
+            const float min_luma = min(luma_pixel, luma_reprojected);
+            const float relative_luma_difference = 0.5f * (luma_pixel + luma_reprojected) * rcp(min_luma) - 1.0f;
+            const float relative_luma_difference_scaling = 0.5f;
+            post_blur_min_radius_scale = saturate(relative_luma_difference * rcp(relative_luma_difference_scaling));
+        }
+    #endif
+
     // Sample disc around normal
-    const uint SAMPLE_COUNT = 4;
-    const float BLUR_PIXEL_RADIUS = 128; // 32 pixels wide
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius_scale = 1.0f / (1.0f + pixel_samplecnt);//(push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
-    const float blur_radius = max(3.5f, BLUR_PIXEL_RADIUS * blur_radius_scale);
+    const float blur_radius_smplcnt_scale = 1.0f / (1.0f + pixel_samplecnt);//(push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
+
+
+    const float min_blur_radius = max(post_blur_min_radius_scale * ray_length_radius_max_scale * RTGI_SPATIAL_FILTER_RADIUS_MAX, RTGI_SPATIAL_FILTER_RADIUS_MIN);
+    push.attach.debug_image.get()[halfres_pixel_index] = (min_blur_radius).xxxx;
+    const float blur_radius = max(min_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MAX * blur_radius_smplcnt_scale);
+
     float weight_accum = 0.0f;
-    float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
-    for (uint s = 0; s < SAMPLE_COUNT; ++s)
+    float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+    for (uint s = 0; s < RTGI_SPATIAL_FILTER_SAMPLES; ++s)
     {
         // Calculate sample position
-        const float2 sample_2d = rand_concentric_sample_disc() * blur_radius * pixel_ws_size;// rand_concentric_sample_disc() * blur_radius * pixel_ws_size;
+        #if RTGI_USE_POISSON_DISC
+            const float r = rand();
+            const float2 basis_a = normalize(rand_concentric_sample_disc());
+            const float2 basis_b = float2(-basis_a.y, basis_a.x);
+            const float3 poisson_sample = g_Poisson8[s];
+            const float sample_weighting = get_gaussian_weight(poisson_sample.z);
+            float2 sample_2d = (basis_a * poisson_sample.x + basis_b * poisson_sample.y) * blur_radius * pixel_ws_size;
+        #else
+            const float sample_weighting = 1.0f;
+            const float2 sample_2d = rand_concentric_sample_disc() * blur_radius * pixel_ws_size;
+        #endif
         const float3 sample_ws = world_position + world_tangent * sample_2d.x + world_bitangent * sample_2d.y;
         const float4 sample_ndc_prev_div = mul(camera.view_proj, float4(sample_ws, 1.0f));
         const float3 sample_ndc = sample_ndc_prev_div.xyz / sample_ndc_prev_div.w;
@@ -81,7 +124,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const uint2 sample_index = uint2(sample_uv * half_res_render_target_size);
 
         // Load sample data
-        const float3 sample_value_diffuse = push.attach.rtgi_diffuse_accumulated.get()[sample_index].rgb;
+        const float4 sample_value = push.attach.rtgi_diffuse_before.get()[sample_index];
         const float3 sample_value_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[sample_index]);
         const float sample_value_samplecnt = push.attach.rtgi_samplecnt.get()[sample_index];
         const float sample_value_depth = push.attach.view_cam_half_res_depth.get()[sample_index];
@@ -94,23 +137,22 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
         const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
         const float sample_count_weight = sample_value_samplecnt / float(push.attach.globals.rtgi_settings.history_frames);
-        const float weight = depth_valid_weight * geometric_weight * normal_weight * sample_count_weight;
+        const float weight = sample_weighting * depth_valid_weight * geometric_weight * normal_weight * sample_count_weight;
 
         // Accumulate blurred diffuse
         weight_accum += weight;
-        blurred_diffuse_accum += weight * sample_value_diffuse;
+        blurred_accum += weight * sample_value;
     }
 
     // Calculate blurred diffuse and fallback blending
     // Some pixels find nearly no suitable spacial samples,
     // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float3 blurry_diffuse = blurred_diffuse_accum * rcp(weight_accum + 0.00000001f);
-    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/4)); 
-    const float3 original_diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index].rgb;
-    const float3 fallback_diffuse = original_diffuse;
-    const float3 blurred_diffuse = lerp(blurry_diffuse, fallback_diffuse, low_weight_fallback_blend);
+    const float4 blurry_value = blurred_accum * rcp(weight_accum + 0.00000001f);
+    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (RTGI_SPATIAL_FILTER_SAMPLES/4)); 
+    const float3 fallback_diffuse = pixel_diffuse;
+    const float3 blurred_diffuse = lerp(blurry_value.rgb, fallback_diffuse, low_weight_fallback_blend);
 
-    push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = float4(blurred_diffuse, 1.0f);
+    push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = float4(blurred_diffuse, blurry_value.a);
 }
 
 [shader("compute")]
@@ -151,27 +193,39 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     // Construct tangent bases matrix and setup rand for sample generation
     const float3 world_tangent = normalize(cross(pixel_face_normal, float3(0,0,1) + 0.0001));
     const float3 world_bitangent = cross(world_tangent, pixel_face_normal);
-    const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
+    // const uint thread_seed = ((dtid.x & 0x1) * 2 + (dtid.y & 0x1)) * push.attach.globals.frame_index;
+    const uint thread_seed = push.attach.globals.frame_index;
+    // const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
     rand_seed(thread_seed);
 
     // Load current pixel ray hit distance to scale blur radius.
     // Helps retain contact detail while not increasing noise significantly
     const float pixel_raw_ray_hit_distance = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].a;
-    const float hit_distance_max_scaling_ws = 0.25f;
+    const float hit_distance_max_scaling_ws = 1.0f;
     const float hit_distance_scaling = min(pixel_raw_ray_hit_distance, hit_distance_max_scaling_ws) * rcp(hit_distance_max_scaling_ws);
 
     // Sample disc around normal
-    const uint SAMPLE_COUNT = 8;
-    const float BLUR_PIXEL_RADIUS = 8; // 8 pixels wide
+    const uint SAMPLE_COUNT = RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR;
+    const float BLUR_PIXEL_RADIUS = RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX;
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
     const float scaled_pixel_radius = hit_distance_scaling * BLUR_PIXEL_RADIUS;
-    const float blur_radius = max(1.5f, scaled_pixel_radius);
+    const float blur_radius = max(RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN, scaled_pixel_radius);
     float weight_accum = 0.0f;
-    float3 blurred_diffuse_accum = float3(0.0f,0.0f,0.0f);
+    float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
     for (uint s = 0; s < SAMPLE_COUNT; ++s)
     {
         // Calculate sample position
-        const float2 sample_2d = rand_concentric_sample_disc() * blur_radius * pixel_ws_size;
+        #if RTGI_USE_POISSON_DISC
+            const float r = rand();
+            const float2 basis_a = normalize(rand_concentric_sample_disc());
+            const float2 basis_b = float2(-basis_a.y, basis_a.x);
+            const float3 poisson_sample = g_Poisson8[s];
+            const float sample_weighting = get_gaussian_weight(poisson_sample.z);
+            float2 sample_2d = (basis_a * poisson_sample.x + basis_b * poisson_sample.y) * blur_radius * pixel_ws_size;
+        #else
+            const float sample_weighting = 1.0f;
+            const float2 sample_2d = rand_concentric_sample_disc() * blur_radius * pixel_ws_size;
+        #endif
         const float3 sample_ws = world_position + world_tangent * sample_2d.x + world_bitangent * sample_2d.y;
         const float4 sample_ndc_prev_div = mul(camera.view_proj, float4(sample_ws, 1.0f));
         const float3 sample_ndc = sample_ndc_prev_div.xyz / sample_ndc_prev_div.w;
@@ -179,7 +233,7 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const uint2 sample_index = uint2(sample_uv * half_res_render_target_size);
 
         // Load sample data
-        const float3 sample_value_diffuse = push.attach.rtgi_diffuse_raw.get()[sample_index].rgb;
+        const float4 sample_value_diffuse = push.attach.rtgi_diffuse_raw.get()[sample_index];
         const float3 sample_value_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[sample_index]);
         const float sample_value_depth = push.attach.view_cam_half_res_depth.get()[sample_index];
         const float3 sample_value_ndc = float3(sample_ndc.xy, sample_value_depth);
@@ -190,21 +244,21 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
         const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
         const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
-        const float weight = depth_valid_weight * geometric_weight * normal_weight;
+        const float weight = sample_weighting * depth_valid_weight * geometric_weight * normal_weight;
 
         // Accumulate blurred diffuse
         weight_accum += weight;
-        blurred_diffuse_accum += weight * POWER_SAMPLE(sample_value_diffuse);
+        blurred_accum += weight * sample_value_diffuse;
     }
 
     // Calculate blurred diffuse and fallback blending
     // Some pixels find nearly no suitable spacial samples,
     // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float3 blurry_diffuse = DE_POWER_SAMPLE(blurred_diffuse_accum * rcp(weight_accum + 0.00000001f));
+    const float4 blurry_diffuse = blurred_accum * rcp(weight_accum + 0.00000001f);
     const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/4)); 
-    const float3 original_diffuse = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgb;
-    const float3 fallback_diffuse = original_diffuse;
-    const float3 blurred_diffuse = lerp(blurry_diffuse, fallback_diffuse, low_weight_fallback_blend);
+    const float3 pixel_diffuse = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgb;
+    const float3 fallback_diffuse = pixel_diffuse;
+    const float3 blurred_diffuse = lerp(blurry_diffuse.rgb, fallback_diffuse, low_weight_fallback_blend);
 
-    push.attach.rtgi_diffuse_raw_pre_blurred.get()[halfres_pixel_index] = float4(blurred_diffuse, 1.0f);
+    push.attach.rtgi_diffuse_raw_pre_blurred.get()[halfres_pixel_index] = float4(blurred_diffuse, blurry_diffuse.a);
 }

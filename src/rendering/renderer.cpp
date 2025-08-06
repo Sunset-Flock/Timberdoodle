@@ -1096,7 +1096,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
-                .rtgi_diffuse_accumulated = rtgi_trace_diffuse_accumulated_image,
+                .rtgi_diffuse_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
+                .rtgi_diffuse_before = rtgi_trace_diffuse_accumulated_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
                 .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
@@ -1111,7 +1112,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
-                .rtgi_diffuse_accumulated = rtgi_blurred_diffuse_image,
+                .rtgi_diffuse_accumulated = rtgi_trace_diffuse_accumulated_image,   // By setting this attachment, the pass knows its the post blur
+                .rtgi_diffuse_before = rtgi_blurred_diffuse_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
                 .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,

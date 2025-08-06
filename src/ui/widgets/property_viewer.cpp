@@ -95,6 +95,9 @@ namespace tido
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 4;
                             better_drag_float({"Angle X", &angle_x_deg, 0.5f, 0.1f, 360.0f, "%.1f°", horizontal_max_width, -10, true});
                             better_drag_float({"Angle Y", &angle_y_deg, 0.5f, 0.1f, 180.0f, "%.1f°", horizontal_max_width, -10, true});
+                            static float sun_speed = 0.0f;
+                            ImGui::DragFloat("sun speed", &sun_speed);
+                            angle_y_deg += sun_speed;
                             render_context.render_data.sky_settings.sun_direction =
                                 {
                                     daxa_f32(glm::cos(glm::radians(angle_x_deg)) * glm::sin(glm::radians(angle_y_deg))),

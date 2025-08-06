@@ -333,6 +333,12 @@ func entry_draw_debug_display(uint2 thread_index : SV_DispatchThreadID)
     }
     
     let one_channel_active = (p.enabled_channels[0] + p.enabled_channels[1] + p.enabled_channels[2] + p.enabled_channels[3]) == 1;
+    let only_alpha_active = one_channel_active && p.enabled_channels[3];
+
+    if (only_alpha_active)
+    {
+        sample_color[3] = (sample_color[3] - p.float_min) * rcp(p.float_max - p.float_min);
+    }
 
     sample_color[0] = p.enabled_channels[0] != 0 ? sample_color[0] : 0.0f;
     sample_color[1] = p.enabled_channels[1] != 0 ? sample_color[1] : 0.0f;

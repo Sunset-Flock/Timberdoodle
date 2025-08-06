@@ -47,28 +47,37 @@ void ray_gen()
             return;
         }
 
-        const float3 sample_pos = rt_calc_ray_start(world_position, face_normal, primary_ray);
-        const float3 world_tangent = normalize(cross(face_normal, float3(0,0,1) + 0.0001));
-        const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
-            
-        const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
-        rand_seed(thread_seed);
-        const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi();
+        float4 acc = float4( 0, 0, 0, 0 );
 
-        RayPayload payload = {};
-        payload.dtid = dtid;
+        static const uint SAMPLES = 1;
+        for (uint i = 0; i < SAMPLES; ++i)
+        {
+            const float3 sample_pos = rt_calc_ray_start(world_position, face_normal, primary_ray);
+            const float3 world_tangent = normalize(cross(face_normal, float3(0,0,1) + 0.0001));
+            const float3x3 tbn = transpose(float3x3(world_tangent, cross(world_tangent, face_normal), face_normal));
+                
+            const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index + i;
+            rand_seed(thread_seed);
+            const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi();
 
-        RayDesc ray = {};
-        ray.Origin = sample_pos;
-        ray.TMax = TMAX;
-        ray.TMin = 0.0f;
+            RayPayload payload = {};
+            payload.dtid = dtid;
 
-        float ao_factor = 0.0f;
-        const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
-        ray.Direction = sample_dir;
-        TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+            RayDesc ray = {};
+            ray.Origin = sample_pos;
+            ray.TMax = TMAX;
+            ray.TMin = 0.0f;
 
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
+            float ao_factor = 0.0f;
+            const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
+            ray.Direction = sample_dir;
+            TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+
+            acc += float4(payload.color,payload.t) * rcp(SAMPLES);
+        }
+
+
+        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc;
     }
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS)

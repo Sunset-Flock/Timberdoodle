@@ -72,7 +72,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))),
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
         };
-        const float4 normal_weight = sqrt(normal_similarity); // sqrt as we do want to allow some blurring across very similar normals.
+        const float4 normal_weight = square(square(normal_similarity)); // sqrt as we do want to allow some blurring across very similar normals.
         const float4 geometry_weights = get_geometry_weight4(inv_half_res_render_target_size, camera.near_plane, pixel_depth, view_position_prev_frame, view_space_normal, depth_reprojected4);
 
         occlusion = geometry_weights * in_screen * normal_weight;
@@ -105,9 +105,9 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
 
     // Read raw traced diffuse
-    float3 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgb;
+    float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;
 
     // Write accumulated diffuse
-    const float3 accumulated = lerp(history, raw, 0.5f * (1.0f - history_blend ));
-    push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(accumulated, 1.0f);
+    const float3 accumulated = lerp(history, raw.rgb, 0.5f * (1.0f - history_blend ));
+    push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(accumulated, raw.a);
 }
