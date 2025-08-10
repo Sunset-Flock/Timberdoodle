@@ -88,7 +88,7 @@ struct UIEngine
         bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
-        bool widget_camera_path_editor = true;
+        bool widget_camera_path_editor = false;
         bool widget_scene_interface = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
@@ -116,9 +116,6 @@ struct UIEngine
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
         void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state, Window & window);
-
-        void tg_resource_debug_ui(RenderContext & render_context);
-        void tg_debug_image_inspector(RenderContext & render_context, std::string active_inspector_key);
 
     private:
         struct DebugCloneUiState

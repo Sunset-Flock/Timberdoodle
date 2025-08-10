@@ -72,6 +72,7 @@ struct Renderer
     void recreate_sky_luts();
     // Return value determines if the frame should be executed.
     auto prepare_frame(
+        u32 frame_index,
         CameraInfo const &camera_info, 
         CameraInfo const &observer_camera_info, 
         f32 const delta_time,

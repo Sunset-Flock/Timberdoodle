@@ -13,92 +13,13 @@
 
 #include "../gpu_context.hpp"
 
+#include "daxa_tg_debugger/daxa_tg_debugger.hpp"
+
 struct DynamicMesh
 {
     glm::mat4x4 prev_transform = {};
     glm::mat4x4 curr_transform = {};
     std::vector<AABB> meshlet_aabbs = {};
-};
-
-union Vec4Union
-{
-    daxa_f32vec4 _float = {0, 0, 0, 0};
-    daxa_i32vec4 _int;
-    daxa_u32vec4 _uint;
-};
-
-struct TgDebugImageInspectorState
-{
-    // Written by ui:
-    f64 min_v = 0.0;
-    f64 max_v = 1.0;
-    u32 mip = 0u;
-    u32 layer = 0u;
-    i32 rainbow_ints = false;
-    i32 nearest_filtering = true;
-    daxa_i32vec4 enabled_channels = {true, true, true, true};
-    daxa_i32vec2 mouse_pos_relative_to_display_image = {0, 0};
-    daxa_i32vec2 mouse_pos_relative_to_image_mip0 = {0, 0};
-    daxa_i32vec2 display_image_size = {0, 0};
-
-    daxa_i32vec2 frozen_mouse_pos_relative_to_image_mip0 = {0, 0};
-    Vec4Union frozen_readback_raw = {};
-    daxa_f32vec4 frozen_readback_color = {0, 0, 0, 0};
-    i32 resolution_draw_mode = 0;
-    bool fixed_display_mip_sizes = true;
-    bool freeze_image = false;
-    bool active = false;
-    bool display_image_hovered = false;
-    bool freeze_image_hover_index = false;
-    bool pre_task = false;
-    // Written by tg:
-    bool slice_valid = true;
-    daxa::TaskImageAttachmentInfo attachment_info = {};
-    daxa::BufferId readback_buffer = {};
-    daxa::ImageInfo runtime_image_info = {};
-    daxa::ImageId display_image = {};
-    daxa::ImageId raw_image_copy = {};
-    daxa::ImageId stale_image = {};
-    daxa::ImageId stale_image1 = {};
-};
-
-struct TgDebugContext
-{
-    daxa_f32vec2 override_mouse_picker_uv = {};
-    bool ui_open = {};
-    bool request_mouse_picker_override = {};
-    bool override_mouse_picker = {};
-    bool override_frozen_state = {};
-    std::array<char, 256> search_substr = {};
-    std::string task_image_name = "color_image";
-    u32 readback_index = 0;
-
-    struct TgDebugTask
-    {
-        usize task_index = {};
-        std::string task_name = {};
-        std::vector<daxa::TaskAttachmentInfo> attachments = {};
-    };
-    std::vector<TgDebugTask> this_frame_task_attachments = {}; // cleared every frame.
-    std::unordered_map<std::string, TgDebugImageInspectorState> inspector_states = {};
-    std::set<std::string> active_inspectors = {};
-
-    void cleanup(daxa::Device device)
-    {
-        for (auto & inspector : inspector_states)
-        {
-            if (!inspector.second.display_image.is_empty())
-                device.destroy_image((inspector.second.display_image));
-            if (!inspector.second.raw_image_copy.is_empty())
-                device.destroy_image((inspector.second.raw_image_copy));
-            if (!inspector.second.stale_image.is_empty())
-                device.destroy_image((inspector.second.stale_image));
-            if (!inspector.second.stale_image1.is_empty())
-                device.destroy_image((inspector.second.stale_image1));
-            if (!inspector.second.readback_buffer.is_empty())
-                device.destroy_buffer((inspector.second.readback_buffer));
-        }
-    }
 };
 
 namespace RenderTimes
@@ -664,7 +585,7 @@ struct RenderContext
     daxa::TaskBuffer tgpu_render_data = {};
 
     // Data
-    TgDebugContext tg_debug = {};
+    DaxaTgDebugContext tg_debug = {};
     ReadbackValues general_readback;
 
     // Prev Settings

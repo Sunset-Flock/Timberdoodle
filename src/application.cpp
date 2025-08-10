@@ -135,6 +135,7 @@ auto Application::run() -> i32
                 app_state.cinematic_camera.make_camera_info(_renderer->render_context->render_data.settings) :
                 app_state.camera_controller.make_camera_info(_renderer->render_context->render_data.settings);
                 execute_frame = _renderer->prepare_frame(
+                    app_state.frame_index,
                     camera_info,
                     app_state.observer_camera_controller.make_camera_info(_renderer->render_context->render_data.settings),
                     app_state.delta_time,
@@ -151,6 +152,7 @@ auto Application::run() -> i32
             }
         }
         _gpu_context->device.collect_garbage();
+        ++app_state.frame_index;
     }
     return 0;
 }

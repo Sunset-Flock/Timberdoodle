@@ -1361,6 +1361,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 }
 
 auto Renderer::prepare_frame(
+    u32 frame_index,
     CameraInfo const & camera_info,
     CameraInfo const & observer_camera_info,
     f32 const delta_time,
@@ -1375,7 +1376,6 @@ auto Renderer::prepare_frame(
     render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(scene->_spot_lights.size());
 
     // Calculate frame relevant values.
-    u32 const flight_frame_index = gpu_context->swapchain.current_cpu_timeline_value() % (gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
     if (render_context->render_data.settings.anti_aliasing_mode == AA_MODE_SUPER_SAMPLE)
     {
@@ -1442,8 +1442,8 @@ auto Renderer::prepare_frame(
         render_context->render_data.main_camera = real_camera_info;
         render_context->render_data.view_camera_prev_frame = render_context->render_data.view_camera;
         render_context->render_data.view_camera = render_context->render_data.settings.draw_from_observer ? observer_camera_info : real_camera_info;
-        render_context->render_data.frame_index = static_cast<u32>(gpu_context->swapchain.current_cpu_timeline_value());
-        render_context->render_data.frames_in_flight = static_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight);
+        render_context->render_data.frame_index = frame_index;
+        render_context->render_data.frames_in_flight = MAX_GPU_FRAMES_IN_FLIGHT;
         render_context->render_data.delta_time = delta_time;
         render_context->render_data.total_elapsed_us = total_elapsed_us;
 
@@ -1605,7 +1605,7 @@ auto Renderer::prepare_frame(
     }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
 
-    render_context->render_times.readback_render_times(render_context->render_data.frame_index - 1);
+    render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 
     // Draw Frustum Camera.
     gpu_context->shader_debug_context.aabb_draws.draw(ShaderDebugAABBDraw{

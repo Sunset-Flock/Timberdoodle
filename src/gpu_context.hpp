@@ -210,7 +210,7 @@ struct ReadbackTask : ReadbackH::Task
     ShaderDebugDrawContext * shader_debug_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        u32 const index = ((shader_debug_context->frame_index-1) % (MAX_GPU_FRAMES_IN_FLIGHT+1));
+        u32 const index = ((shader_debug_context->frame_index) % (MAX_GPU_FRAMES_IN_FLIGHT+1));
         std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
         // Set the currently recording frame to write its debug output to the slot we just read from.
         ti.recorder.copy_buffer_to_buffer({

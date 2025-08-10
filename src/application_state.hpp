@@ -16,6 +16,7 @@ struct ApplicationState
     bool keep_running = true;
     bool reset_observer = false;
     bool decompose_bistro = false;
+    u32 frame_index = 0;
     f32 delta_time = 0.016666f;
     u64 total_elapsed_us = 0;
     f32 time_taken_cpu_windowing = 0.016666f;
