@@ -47,7 +47,7 @@ struct DaxaTgDebugImageInspectorState
     daxa_i32vec2 frozen_mouse_pos_relative_to_image_mip0 = {0, 0};
     Vec4Union frozen_readback_raw = {};
     daxa_f32vec4 frozen_readback_color = {0, 0, 0, 0};
-    daxa::i32 resolution_draw_mode = 0;
+    daxa::f32 inspector_image_draw_scale = -1.0f;
     bool fixed_display_mip_sizes = true;
     bool freeze_image = false;
     bool active = false;
