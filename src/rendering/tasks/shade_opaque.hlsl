@@ -781,14 +781,14 @@ void entry_main_cs(
 
         ScreenSpacePixelWorldFootprint ws_pixel_footprint;
         ws_pixel_footprint.center = tri_point.world_position;
-        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
-        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.world_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_right = ray_plane_intersection(normalize(bottom_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.face_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.bottom_left = ray_plane_intersection(normalize(bottom_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.face_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_right = ray_plane_intersection(normalize(top_right_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.face_normal, ws_pixel_footprint.center);
+        ws_pixel_footprint.top_left = ray_plane_intersection(normalize(top_left_ws - AT.globals.main_camera.position), AT.globals.main_camera.position, tri_point.face_normal, ws_pixel_footprint.center);
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.0, 1.0);
+        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.0001, 1.0);
         float shadow = 1.0f;
         if((AT.globals->vsm_settings.enable != 0 && !skip_shadows))
         {

@@ -840,7 +840,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
             .g_buffer_depth = main_camera_depth,
-            .g_buffer_geo_normal = main_camera_face_normal_image,
+            .g_buffer_face_normal = main_camera_face_normal_image,
             .light_mask_volume = light_mask_volume,
         });
     }

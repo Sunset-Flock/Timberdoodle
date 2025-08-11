@@ -579,7 +579,7 @@ struct TaskDrawVSMsInfo
     daxa::TaskBufferView entity_combined_transforms = {};
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskImageView g_buffer_depth = {};
-    daxa::TaskImageView g_buffer_geo_normal = {};
+    daxa::TaskImageView g_buffer_face_normal = {};
     daxa::TaskImageView light_mask_volume = {};
 };
 
@@ -659,7 +659,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
             .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
             .g_buffer_depth = info.g_buffer_depth,
-            .g_buffer_geo_normal = info.g_buffer_geo_normal,
+            .g_buffer_face_normal = info.g_buffer_face_normal,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
             .vsm_page_table = vsm_page_table_view,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),
