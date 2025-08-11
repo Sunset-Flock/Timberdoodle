@@ -230,7 +230,13 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const float sqrt2 = 1.41421356f;
     const float quantize = 2.0f / (1 << 23);
     const float b = sqrt2 * AT.vsm_globals.clip_0_texel_world_size * pow(2.0f, clip_info.clip_level + 1) / 2.0f;
-    const float bias = quantize + b * length(cross(normal, AT.globals.sky_settings.sun_direction)) / sun_norm_dot;
+    float bias = quantize + b;
+    if(sun_norm_dot < 0.99) {
+        bias += b * length(cross(normal, AT.globals.sky_settings.sun_direction)) / sun_norm_dot;
+    }
+    else {
+        bias += b;
+    }
 
     const float3 view_projected_world_pos = (mul(vsm_shifted_shadow_view, daxa_f32vec4(world_position, 1.0))).xyz;
 
@@ -283,7 +289,7 @@ float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorld
     clip_info = clip_info_from_uvs(base_clip_info);
     if(clip_info.clip_level >= VSM_CLIP_LEVELS) { return 1.0; }
 
-    const float filter_radius = 0.05;
+    const float filter_radius = 0.03;
     float sum = 0.0;
 
     rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f) * AT.globals.frame_index);
@@ -816,7 +822,7 @@ void entry_main_cs(
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.0001, 1.0);
+        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.1, 1.0);
         float shadow = 1.0f;
         if((AT.globals->vsm_settings.enable != 0 && !skip_shadows))
         {
