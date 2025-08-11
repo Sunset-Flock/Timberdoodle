@@ -273,38 +273,41 @@ void Application::update()
         app_state.camera_controller.process_input(*_window, app_state.delta_time);
     }
 
-    if (_window->key_just_pressed(GLFW_KEY_H))
+    if (!ImGui::GetIO().WantCaptureKeyboard)
     {
-        _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
-    }
-    app_state.cinematic_camera.override_keyframe = 
-        _window->key_just_pressed(GLFW_KEY_I) ?
-        !app_state.cinematic_camera.override_keyframe :
-        app_state.cinematic_camera.override_keyframe;
-    if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
-    if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
-    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
-    {
-        _renderer->gpu_context->shader_debug_context.detector_window_position = {
-            _window->get_cursor_x(),
-            _window->get_cursor_y(),
-        };
-    }
-    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
-    {
-        _renderer->gpu_context->shader_debug_context.detector_window_position.x -= 1;
-    }
-    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
-    {
-        _renderer->gpu_context->shader_debug_context.detector_window_position.x += 1;
-    }
-    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
-    {
-        _renderer->gpu_context->shader_debug_context.detector_window_position.y -= 1;
-    }
-    if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
-    {
-        _renderer->gpu_context->shader_debug_context.detector_window_position.y += 1;
+        if (_window->key_just_pressed(GLFW_KEY_H))
+        {
+            _renderer->render_context->render_data.settings.draw_from_observer = !_renderer->render_context->render_data.settings.draw_from_observer;
+        }
+        app_state.cinematic_camera.override_keyframe = 
+            _window->key_just_pressed(GLFW_KEY_I) ?
+            !app_state.cinematic_camera.override_keyframe :
+            app_state.cinematic_camera.override_keyframe;
+        if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
+        if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
+        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
+        {
+            _renderer->gpu_context->shader_debug_context.detector_window_position = {
+                _window->get_cursor_x(),
+                _window->get_cursor_y(),
+            };
+        }
+        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
+        {
+            _renderer->gpu_context->shader_debug_context.detector_window_position.x -= 1;
+        }
+        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
+        {
+            _renderer->gpu_context->shader_debug_context.detector_window_position.x += 1;
+        }
+        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
+        {
+            _renderer->gpu_context->shader_debug_context.detector_window_position.y -= 1;
+        }
+        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
+        {
+            _renderer->gpu_context->shader_debug_context.detector_window_position.y += 1;
+        }
     }
 
     if (app_state.reset_observer)
