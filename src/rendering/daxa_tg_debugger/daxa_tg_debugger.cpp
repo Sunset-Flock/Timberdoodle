@@ -657,12 +657,14 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
         auto const raw_image_copy = inspector_state.raw_image_copy;
         auto const display_image_info = ti.device.info(inspector_state.display_image).value();
         auto const scalar_kind = scalar_kind_of_format(raw_image_copy_info.format);
+        inspector_state.runtime_image_info = raw_image_copy_info;
 
         inspector_state.slice_valid = inspector_state.attachment_info.view.slice.contains(daxa::ImageMipArraySlice{
             .base_mip_level = inspector_state.mip,
             .base_array_layer = inspector_state.layer,
         });
 
+        // Perform Inspector logic
         ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
             .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
@@ -974,54 +976,34 @@ void tg_debug_image_inspector(
                     image_info.array_layer_count,
                     daxa::to_string(image_info.format).data());
 
-                auto resolution_draw_modes = std::array{
-                    "auto size",
-                    "1x",
-                    "1/2x",
-                    "1/4x",
-                    "1/8x",
-                    "1/16x",
-                    "2x",
-                    "4x",
-                    "8x",
-                    "16x",
-                };
-                auto resolution_draw_mode_factors = std::array{
-                    -1.0f,
-                    1.0f,
-                    1.0f / 2.0f,
-                    1.0f / 4.0f,
-                    1.0f / 8.0f,
-                    1.0f / 16.0f,
-                    2.0f,
-                    4.0f,
-                    8.0f,
-                    16.0f,
-                };
-                ImGui::SetNextItemWidth(100.0f);
-                ImGui::Combo("draw resolution mode", &state.resolution_draw_mode, resolution_draw_modes.data(), resolution_draw_modes.size());
+                ImGui::SetNextItemWidth(60.0f);
+                ImGui::InputFloat("scaling", &state.inspector_image_draw_scale);
+                ImGui::SetItemTooltip("scaling of -1 causes automatic scaling to fit the current window size");
+
                 ImGui::SameLine();
                 ImGui::Checkbox("fix mip sizes", &state.fixed_display_mip_sizes);
                 ImGui::SetItemTooltip("fixes all displayed mip sizes to be the scaled size of mip 0");
+                
                 if (tex_id)
                 {
                     float const aspect = static_cast<float>(clone_image_info.size.y) / static_cast<float>(clone_image_info.size.x);
-                    ImVec2 const auto_sized_draw_size_x_based = ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x * aspect);
-                    ImVec2 const auto_sized_draw_size_y_based = ImVec2(ImGui::GetContentRegionAvail().y / aspect, ImGui::GetContentRegionAvail().y);
-                    ImVec2 const auto_sized_draw_size = auto_sized_draw_size_x_based.x < auto_sized_draw_size_y_based.x ? auto_sized_draw_size_x_based : auto_sized_draw_size_y_based;
-                    ImVec2 image_display_size = auto_sized_draw_size;
-                    if (state.resolution_draw_mode != 0)
+                    float const auto_scale = std::min(
+                        ImGui::GetContentRegionAvail().x / static_cast<float>(image_info.size.x), 
+                        ImGui::GetContentRegionAvail().y / static_cast<float>(image_info.size.y)
+                    );
+                    ImVec2 image_display_size = { auto_scale * static_cast<float>(image_info.size.x), auto_scale * static_cast<float>(image_info.size.y) };
+                    if (state.inspector_image_draw_scale > 0.0f)
                     {
                         ImVec2 fixed_size_draw_size = {};
                         if (state.fixed_display_mip_sizes)
                         {
-                            fixed_size_draw_size.x = static_cast<float>(image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                            fixed_size_draw_size.y = static_cast<float>(image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                            fixed_size_draw_size.x = static_cast<float>(image_info.size.x) * state.inspector_image_draw_scale;
+                            fixed_size_draw_size.y = static_cast<float>(image_info.size.y) * state.inspector_image_draw_scale;
                         }
                         else
                         {
-                            fixed_size_draw_size.x = static_cast<float>(clone_image_info.size.x) * resolution_draw_mode_factors[state.resolution_draw_mode];
-                            fixed_size_draw_size.y = static_cast<float>(clone_image_info.size.y) * resolution_draw_mode_factors[state.resolution_draw_mode];
+                            fixed_size_draw_size.x = static_cast<float>(clone_image_info.size.x) * state.inspector_image_draw_scale;
+                            fixed_size_draw_size.y = static_cast<float>(clone_image_info.size.y) * state.inspector_image_draw_scale;
                         };
 
                         image_display_size = fixed_size_draw_size;
@@ -1035,6 +1017,14 @@ void tg_debug_image_inspector(
                     {
                         ImGui::SetScrollX(ImGui::GetScrollX() - ImGui::GetIO().MouseDelta.x);
                         ImGui::SetScrollY(ImGui::GetScrollY() - ImGui::GetIO().MouseDelta.y);
+                    }
+                    else if (state.display_image_hovered && ImGui::IsKeyDown(ImGuiKey_LeftShift) && (ImGui::GetIO().MouseWheel != 0.0f))
+                    {
+                        if (state.inspector_image_draw_scale <= 0.0f)
+                        {
+                            state.inspector_image_draw_scale = auto_scale;
+                        }
+                        state.inspector_image_draw_scale *= (1.0f + ImGui::GetIO().MouseWheel * 0.1f);
                     }
                     ImGui::Image(tex_id, image_display_size);
                     ImVec2 const mouse_pos = ImGui::GetMousePos();
