@@ -9,7 +9,7 @@
 #include "../rasterize_visbuffer/cull_meshes.hpp"
 
 
-MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_invalidate_directional_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/invalidate_pages.hlsl", "directional_main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_free_wrapped_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/free_wrapped_pages.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_force_always_resident_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/force_always_resident_pages.hlsl", "main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_mark_required_pages_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/mark_required_pages.hlsl", "main")
@@ -148,10 +148,10 @@ struct InvalidatePagesTask : InvalidatePagesH::Task
 
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_invalidate_pages_pipeline_compile_info().name));
+        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_invalidate_directional_pages_pipeline_compile_info().name));
         InvalidatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_PAGES_X_DISPATCH);
+        u32 const x_dispatch = round_up_div(render_context->mesh_instance_counts.vsm_invalidate_instance_count, INVALIDATE_DIRECTIONAL_PAGES_X_DISPATCH);
         u32 const y_dispatch = (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION * VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION) / (VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION * VSM_INVALIDATE_PAGE_BLOCK_RESOLUTION);
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "INVALIDATE_PAGES">());
         ti.recorder.dispatch({x_dispatch, y_dispatch, VSM_CLIP_LEVELS});
@@ -579,7 +579,7 @@ struct TaskDrawVSMsInfo
     daxa::TaskBufferView entity_combined_transforms = {};
     daxa::TaskBufferView material_manifest = {};
     daxa::TaskImageView g_buffer_depth = {};
-    daxa::TaskImageView g_buffer_geo_normal = {};
+    daxa::TaskImageView g_buffer_face_normal = {};
     daxa::TaskImageView light_mask_volume = {};
 };
 
@@ -659,7 +659,7 @@ inline void task_draw_vsms(TaskDrawVSMsInfo const & info)
             .vsm_point_lights = info.vsm_state->vsm_point_lights,
             .vsm_spot_lights = info.vsm_state->vsm_spot_lights,
             .g_buffer_depth = info.g_buffer_depth,
-            .g_buffer_geo_normal = info.g_buffer_geo_normal,
+            .g_buffer_face_normal = info.g_buffer_face_normal,
             .vsm_page_view_pos_row = vsm_page_view_pos_row_view,
             .vsm_page_table = vsm_page_table_view,
             .vsm_meta_memory_table = info.vsm_state->meta_memory_table.view(),

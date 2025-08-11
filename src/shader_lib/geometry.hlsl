@@ -72,7 +72,7 @@ void geom_compute_uv_tangent(float3 tri_vert_positions[3], float2 tri_vert_uvs[3
     float2 d_uv2 = tri_vert_uvs[2] - tri_vert_uvs[0];
     float r = 1.0f / (d_uv1.x * d_uv2.y - d_uv1.y * d_uv2.x);
     ret_tangent = normalize((d_p1 * d_uv2.y - d_p2 * d_uv1.y) * r);
-    ret_bitangent = normalize((-d_p1 * d_uv2.y + d_p2 * d_uv1.y) * r);
+    ret_bitangent = normalize((d_p2 * d_uv1.x - d_p1 * d_uv2.x) * r);
 }
 
 float3 geom_compute_arb_tangent(float3 tri_vert_positions[3])

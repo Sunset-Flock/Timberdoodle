@@ -297,7 +297,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_histogram_pipeline_compile_info())},
         {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
         {vsm_free_wrapped_pages_pipeline_compile_info()},
-        {vsm_invalidate_pages_pipeline_compile_info()},
+        {vsm_invalidate_directional_pages_pipeline_compile_info()},
         {vsm_force_always_resident_pages_pipeline_compile_info()},
         {vsm_mark_required_pages_pipeline_compile_info()},
         {vsm_find_free_pages_pipeline_compile_info()},
@@ -840,7 +840,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .entity_combined_transforms = scene->_gpu_entity_combined_transforms,
             .material_manifest = scene->_gpu_material_manifest,
             .g_buffer_depth = main_camera_depth,
-            .g_buffer_geo_normal = main_camera_face_normal_image,
+            .g_buffer_face_normal = main_camera_face_normal_image,
             .light_mask_volume = light_mask_volume,
         });
     }

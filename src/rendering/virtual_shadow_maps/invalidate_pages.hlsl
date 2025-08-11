@@ -6,9 +6,9 @@
 
 [[vk::push_constant]] InvalidatePagesH::AttachmentShaderBlob invalidate_pages_push;
 
-[numthreads(INVALIDATE_PAGES_X_DISPATCH, 1, 1)]
+[numthreads(INVALIDATE_DIRECTIONAL_PAGES_X_DISPATCH, 1, 1)]
 [shader("compute")]
-void main(uint3 svdtid : SV_DispatchThreadID)
+void directional_main(uint3 svdtid : SV_DispatchThreadID)
 {
     let push = invalidate_pages_push;
     if(svdtid.x < push.mesh_instances.vsm_invalidate_draw_list.count) 
