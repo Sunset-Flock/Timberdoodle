@@ -134,7 +134,8 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
 
     const float indirect_ao_range = 0.5f;
-    const float ambient_occlusion = 1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range;
+    const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
+    const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
 
     payload.color.rgb = shade_material<SHADING_QUALITY_HIGH>(
         push.attach.globals, 

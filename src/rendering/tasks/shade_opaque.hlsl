@@ -774,7 +774,7 @@ void entry_main_cs(
             );
         }
         material_point.normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
-        material_point.geometry_normal = flip_normal_on_face_normal(material_point.normal, material_point.face_normal);
+        material_point.geometry_normal = flip_normal_on_face_normal(material_point.geometry_normal, material_point.face_normal);
         let mapped_normal = material_point.normal;
         let albedo = material_point.albedo;
         

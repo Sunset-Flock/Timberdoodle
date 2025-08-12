@@ -910,16 +910,19 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         pgi_info = ret.pgi_info;
         pgi_requests = ret.pgi_requests;
 
-        pgi_screen_irrdiance = task_pgi_eval_screen_irradiance({
-            tg,
-            render_context.get(),
-            pgi_state,
-            main_camera_depth,
-            main_camera_face_normal_image,
-            main_camera_detail_normal_image,
-            debug_image,
-            clocks_image,
-        });
+        if (!render_context->render_data.rtgi_settings.enabled)
+        {
+            pgi_screen_irrdiance = task_pgi_eval_screen_irradiance({
+                tg,
+                render_context.get(),
+                pgi_state,
+                main_camera_depth,
+                main_camera_face_normal_image,
+                main_camera_detail_normal_image,
+                debug_image,
+                clocks_image,
+            });
+        }
     }
 
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
