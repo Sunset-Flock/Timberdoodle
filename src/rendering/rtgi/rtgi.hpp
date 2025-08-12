@@ -144,6 +144,16 @@ inline auto rtgi_create_trace_diffuse_image(daxa::TaskGraph & tg, RenderContext 
     return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, RTGI_DIFFUSE_PIXEL_SCALE_DIV, name));
 }
 
+inline auto rtgi_create_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
+{
+    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, RTGI_DIFFUSE_PIXEL_SCALE_DIV, name));
+}
+
+inline auto rtgi_create_diffuse2_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
+{
+    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16_SFLOAT, RTGI_DIFFUSE_PIXEL_SCALE_DIV, name));
+}
+
 inline auto rtgi_create_upscaled_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
 {
     return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, 1, name));
@@ -169,7 +179,6 @@ inline auto rtgi_create_reconstructed_history_image(daxa::TaskGraph & tg, Render
 /// === Persistent Images ===
 ///
 
-// rgb = diffuse irradiance, a = accumulated samples
 inline auto rtgi_create_diffuse_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
 {
     return daxa::ImageInfo{
@@ -181,6 +190,20 @@ inline auto rtgi_create_diffuse_history_image_info(RenderContext * render_contex
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .name = "rtgi diffuse history image",
+    };
+}
+
+inline auto rtgi_create_diffuse2_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
+{
+    return daxa::ImageInfo{
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = {
+            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            1,
+        },
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "rtgi diffuse2 history image",
     };
 }
 

@@ -11,6 +11,8 @@
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/transform.hlsl"
 
+#include "rtgi_shared.hlsl"
+
 #define PI 3.1415926535897932384626433832795
 
 [shader("raygeneration")]
@@ -48,6 +50,7 @@ void ray_gen()
         }
 
         float4 acc = float4( 0, 0, 0, 0 );
+        float2 acc2 = float2( 0, 0 );
 
         static const uint SAMPLES = 1;
         for (uint i = 0; i < SAMPLES; ++i)
@@ -68,16 +71,23 @@ void ray_gen()
             ray.TMax = TMAX;
             ray.TMin = 0.0f;
 
-            float ao_factor = 0.0f;
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
             TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
 
-            acc += float4(payload.color,payload.t) * rcp(SAMPLES);
+            #if RTGI_USE_SH
+                float4 sh_y_new;
+                float2 cocg_new;
+                radiance_to_y_co_cg_sh(payload.color, sample_dir, sh_y_new, cocg_new);
+                acc += sh_y_new * rcp(SAMPLES);
+                acc2 += cocg_new * rcp(SAMPLES);
+            #else
+                acc += float4(payload.color, 0.0f) * rcp(SAMPLES);
+            #endif
         }
 
-
         push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc;
+        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2;
     }
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS)

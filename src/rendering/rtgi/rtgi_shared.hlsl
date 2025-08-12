@@ -17,7 +17,6 @@
 #define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 5
 
 #define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 1
-#define RTGI_BLUR_RAYLEN_RADIUS_SCALE 1
 
 
 func luma_of(float3 color) -> float
@@ -89,4 +88,61 @@ static const float3 g_Poisson8[8] =
 float get_gaussian_weight( float r )
 {
     return exp( -0.66 * r * r ); // assuming r is normalized to 1
+}
+
+#define RTGI_USE_SH 1
+
+// Sh functions from:
+// https://github.com/NVIDIA-RTX/NRD/blob/03d5e0b2015c6eaf122d8e8f95b0527f6f03633e/Shaders/Include/NRD.hlsli#L361
+
+float3 linear_to_y_co_cg( float3 color )
+{
+    float y = dot( color, float3( 0.25, 0.5, 0.25 ) );
+    float Co = dot( color, float3( 0.5, 0.0, -0.5 ) );
+    float Cg = dot( color, float3( -0.25, 0.5, -0.25 ) );
+
+    return float3( y, Co, Cg );
+}
+
+float3 y_co_cg_to_linear( float3 color )
+{
+    float t = color.x - color.z;
+
+    float3 r;
+    r.y = color.x + color.z;
+    r.x = t + color.y;
+    r.z = t - color.y;
+
+    return max( r, 0.0 );
+}
+
+float3 y_co_cg_to_linear_corrected( float y, float sh_y_0, float2 co_cg )
+{
+    y = max( y, 0.0 );
+    co_cg *= ( y + 1e-6 ) / ( sh_y_0 + 1e-6 );
+
+    return y_co_cg_to_linear( float3( y, co_cg ) );
+}
+
+
+float3 sh_resolve_diffuse( float4 sh_y, float2 co_cg, float3 normal )
+{
+    float y = dot( normal, sh_y.xyz ) + 0.5 * sh_y.w;
+
+    return y_co_cg_to_linear_corrected( y, sh_y.w, co_cg );
+}
+
+float4 y_to_sh(float y, float3 direction)
+{
+    float sh0 = y;
+    float3 sh1 = direction * y;
+    return float4(sh1, sh0);
+}
+
+void radiance_to_y_co_cg_sh(float3 radiance, float3 direction, out float4 sh_y, out float2 co_cg)
+{
+    float3 y_co_cg = linear_to_y_co_cg(radiance);
+    co_cg = y_co_cg.gb;
+
+    sh_y = y_to_sh(y_co_cg.x, direction);
 }
