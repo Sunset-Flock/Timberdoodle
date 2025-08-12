@@ -112,10 +112,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
 
     // Calc new sample count
     float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights ).x;
-    samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
+    samplecnt = min( samplecnt + 4.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
-    const float history_blend = samplecnt / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
+    const float history_blend = samplecnt / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
 
     // Read raw traced diffuse
     float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;
