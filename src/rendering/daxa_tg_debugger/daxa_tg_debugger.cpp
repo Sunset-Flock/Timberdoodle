@@ -658,6 +658,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
         auto const display_image_info = ti.device.info(inspector_state.display_image).value();
         auto const scalar_kind = scalar_kind_of_format(raw_image_copy_info.format);
         inspector_state.runtime_image_info = raw_image_copy_info;
+        inspector_state.attachment_info = attach_info;
 
         inspector_state.slice_valid = inspector_state.attachment_info.view.slice.contains(daxa::ImageMipArraySlice{
             .base_mip_level = inspector_state.mip,
