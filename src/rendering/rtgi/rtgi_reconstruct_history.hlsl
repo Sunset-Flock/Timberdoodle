@@ -141,7 +141,9 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     }
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
-    if (pixel_samplecnt < 5) 
+    // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
+    int mip = clamp(3 - int(floor(pixel_samplecnt * 0.75f)), -1, 3);
+    while (mip >= 0)
     {
         // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
         // Due to this, the uv is shifted by some amount as there are padding texels on the border of the reconstructed history mip chain.
@@ -149,7 +151,6 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float2 half_size_ru16 = float2(round_up_to_multiple(half_res_render_target_size.x, 16), round_up_to_multiple(half_res_render_target_size.y, 16));
         const float2 corrected_uv = sv_xy * rcp(half_size_ru16);
 
-        const float mip = clamp(3.0f - (pixel_samplecnt), 0.0f, 3.0f);
         const float2 mip_size = float2(uint2(half_size_ru16) >> uint(mip+1));
         const float2 inv_mip_size = rcp(mip_size);
         const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( corrected_uv ), mip_size );
@@ -187,7 +188,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         #endif
 
         const float4 depths = float4(depth00, depth10, depth01, depth11);
-        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.5f);
+        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.125f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         const float4 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse00, diffuse10, diffuse01, diffuse11, weights_reconstruct );
@@ -203,6 +204,11 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
             #else
                 push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = float4(reconstructed_diffuse.rgb, 1.0f);
             #endif
+            break;
+        }
+        else
+        {
+            mip -= 1;
         }
     }
 }

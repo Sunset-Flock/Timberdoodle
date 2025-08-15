@@ -112,10 +112,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
 
     // Calc new sample count
     float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights ).x;
-    samplecnt = min( samplecnt + 4.0f, push.attach.globals.rtgi_settings.history_frames );
+    samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
-    const float history_blend = samplecnt / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
+    const float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 3.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
 
     // Read raw traced diffuse
     float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;
@@ -139,14 +139,14 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         float4 y_history = apply_bilinear_custom_weights( y00, y10, y01, y11, sample_weights );
         float2 cocg_history = apply_bilinear_custom_weights( cocg00, cocg10, cocg01, cocg11, sample_weights ).rg;
 
-        if (any(isnan(y_history)) || any(isnan(cocg_history)))
-        {
-            y_history = float4(0, 0, 0, 0);
-            cocg_history = float2(0, 0);
-        }
-
         float4 sh_y_raw = raw;
         float2 cocg_raw = push.attach.rtgi_diffuse2_raw.get()[halfres_pixel_index].rg;
+
+        if (any(isnan(y_history)) || any(isnan(cocg_history)))
+        {
+            y_history = raw;
+            cocg_history = cocg_raw;
+        }
 
         // Write accumulated diffuse
         const float4 sh_y_accumulated = lerp(y_history, sh_y_raw, 0.5f * (1.0f - history_blend ));
@@ -166,11 +166,11 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
 
         if (any(isnan(history)))
         {
-            history = float3(0,0,0);
+            history = raw.rgb;
         }
 
         // Write accumulated diffuse
-        const float3 accumulated = lerp(history, raw.rgb, 0.5f * (1.0f - history_blend ));
+        const float3 accumulated = lerp(raw.rgb, history, history_blend );
         push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(accumulated, raw.a);
     #endif
 }
