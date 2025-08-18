@@ -9,20 +9,16 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 16
-#define RTGI_SPATIAL_FILTER_RADIUS_MIN 2
-#define RTGI_SPATIAL_FILTER_RADIUS_MAX 32
+#define RTGI_SPATIAL_FILTER_RADIUS_MIN 3
+#define RTGI_SPATIAL_FILTER_RADIUS_MAX 16
 
 #define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 8
-#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 0
+#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 2
 #define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 5
 
 #define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 1
 
-
-func luma_of(float3 color) -> float
-{
-    return (color.r + 2.0f * color.g + color.b) * 0.25f;
-}
+#define RTGI_SPATIAL_PASSTHROUGH 0
 
 func get_geometry_weight_threshold(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
@@ -89,8 +85,6 @@ float get_gaussian_weight( float r )
 {
     return exp( -0.66 * r * r ); // assuming r is normalized to 1
 }
-
-#define RTGI_USE_SH 1
 
 // Sh functions from:
 // https://github.com/NVIDIA-RTX/NRD/blob/03d5e0b2015c6eaf122d8e8f95b0527f6f03633e/Shaders/Include/NRD.hlsli#L361

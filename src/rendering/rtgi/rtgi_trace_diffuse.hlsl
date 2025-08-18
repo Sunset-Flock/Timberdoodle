@@ -75,19 +75,15 @@ void ray_gen()
             ray.Direction = sample_dir;
             TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
 
-            #if RTGI_USE_SH
-                float4 sh_y_new;
-                float2 cocg_new;
-                radiance_to_y_co_cg_sh(payload.color, sample_dir, sh_y_new, cocg_new);
-                acc += sh_y_new * rcp(SAMPLES);
-                acc2 += cocg_new * rcp(SAMPLES);
-            #else
-                acc += float4(payload.color, 0.0f) * rcp(SAMPLES);
-            #endif
+            float4 sh_y_new;
+            float2 cocg_new;
+            radiance_to_y_co_cg_sh(payload.color, sample_dir, sh_y_new, cocg_new);
+            acc += sh_y_new * rcp(SAMPLES);
+            acc2 += cocg_new * rcp(SAMPLES);
         }
 
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc;
-        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2;
+        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc * 1e+3f;
+        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2 * 1e+4f;
     }
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS)

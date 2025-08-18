@@ -38,6 +38,7 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_reconstruct_history_apply_diffuse_compile_info, "
 MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_pre_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_diffuse_temporal_stabilization_compile_info, "./src/rendering/rtgi/rtgi_reproject_diffuse.hlsl", "entry_temporal_stabilization")
 
 ///
 /// === Callbacks ===
@@ -119,6 +120,12 @@ inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext 
 {
     auto const & AT = RtgiUpscaleDiffuseH::Info::AT;
     rtgi_common_task_callback<RtgiUpscaleDiffusePush>(ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE_DIFFUSE">(), rtgi_upscale_diffuse_compile_info().name);
+}
+
+inline void rtgi_diffuse_temporal_stabilization_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiDiffuseTemporalStabilizationH::Info::AT;
+    rtgi_common_task_callback<RtgiDiffuseTemporalStabilizationPush>(ti, render_context, AT.view_cam_half_res_depth, RTGI_DIFFUSE_TEMPORAL_STABILIZATION_X, RenderTimes::index<"RTGI", "TEMPORAL_STABILIZATION">(), rtgi_diffuse_temporal_stabilization_compile_info().name);
 }
 
 ///

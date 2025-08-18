@@ -107,6 +107,7 @@ namespace RenderTimes
                 "RECONSTRUCT_HISTORY_APPLY_DIFFUSE",
                 "BLUR_DIFFUSE_0",
                 "BLUR_DIFFUSE_1",
+                "TEMPORAL_STABILIZATION",
                 "UPSCALE_DIFFUSE",
             },
         },

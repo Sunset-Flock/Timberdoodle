@@ -9,4 +9,6 @@ struct RtgiSettings
 {
     daxa_i32 enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 history_frames TIDO_DEFAULT_VALUE(32);
+    daxa_i32 temporal_stabilization_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_f32 temporal_stabilization_sensitivity TIDO_DEFAULT_VALUE(2.0f);
 };

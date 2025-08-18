@@ -264,6 +264,8 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     {
                         app_state.observer_camera_controller.position = cinematic_camera.position;
                     }
+                    ImGui::InputFloat("Fixed X Camera Rotation speed", &fixed_camera_x_rotation_speed);
+                    app_state.camera_controller.yaw += fixed_camera_x_rotation_speed * app_state.delta_time;
                 }
             }
             ImGui::SeparatorText("Debug Shader Interface");
@@ -660,6 +662,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             {
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
+                ImGui::Checkbox("Temporal Stabilization Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_stabilization_enabled));
+                ImGui::InputFloat("Temporal Stabilization Sensitivity", &render_data.rtgi_settings.temporal_stabilization_sensitivity);
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {

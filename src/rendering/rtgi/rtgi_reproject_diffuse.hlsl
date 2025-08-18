@@ -7,6 +7,7 @@
 #include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiReprojectDiffusePush rtgi_denoise_diffuse_reproject_push;
+[[vk::push_constant]] RtgiDiffuseTemporalStabilizationPush rtgi_diffuse_stabilize_history_push;
 
 [shader("compute")]
 [numthreads(RTGI_DENOISE_DIFFUSE_X,RTGI_DENOISE_DIFFUSE_Y,1)]
@@ -72,7 +73,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))),
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
         };
-        const float4 normal_weight = square(normal_similarity);
+        const float4 normal_weight = sqrt(normal_similarity);
 
         // high quality geometric weights
         float4 geometry_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -115,62 +116,153 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
-    const float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 3.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
+    const float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 5.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
 
     // Read raw traced diffuse
     float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;
 
     // Read in diffuse history
-    #if RTGI_USE_SH
-        const float4 history_Y0 = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_Y1 = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_Y2 = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_Y3 = push.attach.rtgi_diffuse_history.get().GatherAlpha( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_Co = push.attach.rtgi_diffuse2_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_Cg = push.attach.rtgi_diffuse2_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 y00 = float4(history_Y0.x, history_Y1.x, history_Y2.x, history_Y3.x);
-        const float4 y10 = float4(history_Y0.y, history_Y1.y, history_Y2.y, history_Y3.y);
-        const float4 y01 = float4(history_Y0.z, history_Y1.z, history_Y2.z, history_Y3.z);
-        const float4 y11 = float4(history_Y0.w, history_Y1.w, history_Y2.w, history_Y3.w);
-        const float4 cocg00 = float4(history_Co.x, history_Cg.x, 0.0f, 0.0f);
-        const float4 cocg10 = float4(history_Co.y, history_Cg.y, 0.0f, 0.0f);
-        const float4 cocg01 = float4(history_Co.z, history_Cg.z, 0.0f, 0.0f);
-        const float4 cocg11 = float4(history_Co.w, history_Cg.w, 0.0f, 0.0f);
-        float4 y_history = apply_bilinear_custom_weights( y00, y10, y01, y11, sample_weights );
-        float2 cocg_history = apply_bilinear_custom_weights( cocg00, cocg10, cocg01, cocg11, sample_weights ).rg;
+    const float4 history_Y0 = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Y1 = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Y2 = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Y3 = push.attach.rtgi_diffuse_history.get().GatherAlpha( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Co = push.attach.rtgi_diffuse2_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Cg = push.attach.rtgi_diffuse2_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 y00 = float4(history_Y0.x, history_Y1.x, history_Y2.x, history_Y3.x);
+    const float4 y10 = float4(history_Y0.y, history_Y1.y, history_Y2.y, history_Y3.y);
+    const float4 y01 = float4(history_Y0.z, history_Y1.z, history_Y2.z, history_Y3.z);
+    const float4 y11 = float4(history_Y0.w, history_Y1.w, history_Y2.w, history_Y3.w);
+    const float4 cocg00 = float4(history_Co.x, history_Cg.x, 0.0f, 0.0f);
+    const float4 cocg10 = float4(history_Co.y, history_Cg.y, 0.0f, 0.0f);
+    const float4 cocg01 = float4(history_Co.z, history_Cg.z, 0.0f, 0.0f);
+    const float4 cocg11 = float4(history_Co.w, history_Cg.w, 0.0f, 0.0f);
+    float4 y_history = apply_bilinear_custom_weights( y00, y10, y01, y11, sample_weights );
+    float2 cocg_history = apply_bilinear_custom_weights( cocg00, cocg10, cocg01, cocg11, sample_weights ).rg;
 
-        float4 sh_y_raw = raw;
-        float2 cocg_raw = push.attach.rtgi_diffuse2_raw.get()[halfres_pixel_index].rg;
+    float4 sh_y_raw = raw;
+    float2 cocg_raw = push.attach.rtgi_diffuse2_raw.get()[halfres_pixel_index].rg;
 
-        if (any(isnan(y_history)) || any(isnan(cocg_history)))
+    if (any(isnan(y_history)) || any(isnan(cocg_history)) || disocclusion)
+    {
+        y_history = raw;
+        cocg_history = cocg_raw;
+    }
+
+    // Write accumulated diffuse
+    const float4 sh_y_accumulated = lerp(sh_y_raw, y_history, history_blend);
+    const float2 cocg_accumulated = lerp(cocg_raw, cocg_history, history_blend);
+
+    push.attach.rtgi_diffuse_accumulated.get()[dtid] = sh_y_accumulated;
+    push.attach.rtgi_diffuse2_accumulated.get()[dtid] = cocg_accumulated;
+
+    // Reproject Stable Diffuse History
+    if (disocclusion) 
+    {
+        push.attach.rtgi_diffuse_stable_reprojected.get()[dtid] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        push.attach.rtgi_diffuse2_stable_reprojected.get()[dtid] = float2(0.0f, 0.0f);
+    }
+    else
+    {
+        const float4 history_Y0_stable = push.attach.rtgi_diffuse_stable_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 history_Y1_stable = push.attach.rtgi_diffuse_stable_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 history_Y2_stable = push.attach.rtgi_diffuse_stable_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 history_Y3_stable = push.attach.rtgi_diffuse_stable_history.get().GatherAlpha( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 history_Co_stable = push.attach.rtgi_diffuse2_stable_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 history_Cg_stable = push.attach.rtgi_diffuse2_stable_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+        const float4 y00_stable = float4(history_Y0_stable.x, history_Y1_stable.x, history_Y2_stable.x, history_Y3_stable.x);
+        const float4 y10_stable = float4(history_Y0_stable.y, history_Y1_stable.y, history_Y2_stable.y, history_Y3_stable.y);
+        const float4 y01_stable = float4(history_Y0_stable.z, history_Y1_stable.z, history_Y2_stable.z, history_Y3_stable.z);
+        const float4 y11_stable = float4(history_Y0_stable.w, history_Y1_stable.w, history_Y2_stable.w, history_Y3_stable.w);
+        const float4 cocg00_stable = float4(history_Co_stable.x, history_Cg_stable.x, 0.0f, 0.0f);
+        const float4 cocg10_stable = float4(history_Co_stable.y, history_Cg_stable.y, 0.0f, 0.0f);
+        const float4 cocg01_stable = float4(history_Co_stable.z, history_Cg_stable.z, 0.0f, 0.0f);
+        const float4 cocg11_stable = float4(history_Co_stable.w, history_Cg_stable.w, 0.0f, 0.0f);
+        float4 y_stable_history = apply_bilinear_custom_weights( y00_stable, y10_stable, y01_stable, y11_stable, sample_weights );
+        float2 cocg_stable_history = apply_bilinear_custom_weights( cocg00_stable, cocg10_stable, cocg01_stable, cocg11_stable, sample_weights ).rg;
+        if (any(isnan(y_stable_history)) || any(isnan(cocg_stable_history)) || disocclusion)
         {
-            y_history = raw;
-            cocg_history = cocg_raw;
+            y_stable_history = float4( 0.0f, 0.0f, 0.0f, 0.0f );
+            cocg_stable_history = float2( 0.0f, 0.0f );
         }
+        push.attach.rtgi_diffuse_stable_reprojected.get()[dtid] = y_stable_history;
+        push.attach.rtgi_diffuse2_stable_reprojected.get()[dtid] = cocg_stable_history;
+    }
+}
 
-        // Write accumulated diffuse
-        const float4 sh_y_accumulated = lerp(y_history, sh_y_raw, 0.5f * (1.0f - history_blend ));
-        const float2 cocg_accumulated = lerp(cocg_history, cocg_raw, 0.5f * (1.0f - history_blend ));
+#define RTGI_TS_BORDER 2
+#define PRELOAD_WIDTH (RTGI_DIFFUSE_TEMPORAL_STABILIZATION_X + RTGI_TS_BORDER * 2)
+groupshared float gs_luma[PRELOAD_WIDTH][PRELOAD_WIDTH];
+groupshared float4 gs_depth_normals_preload[PRELOAD_WIDTH][PRELOAD_WIDTH];
 
-        push.attach.rtgi_diffuse_accumulated.get()[dtid] = sh_y_accumulated;
-        push.attach.rtgi_diffuse2_accumulated.get()[dtid] = cocg_accumulated;
-    #else
-        const float4 history_r = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_g = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 history_b = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-        const float4 s00 = float4(history_r.x, history_g.x, history_b.x, 0.0f);
-        const float4 s10 = float4(history_r.y, history_g.y, history_b.y, 0.0f);
-        const float4 s01 = float4(history_r.z, history_g.z, history_b.z, 0.0f);
-        const float4 s11 = float4(history_r.w, history_g.w, history_b.w, 0.0f);
-        float3 history = apply_bilinear_custom_weights( s00, s10, s01, s11, sample_weights ).rgb;
+func local_offset_to_gs_index(int2 in_group_id, int2 offset) -> int2
+{
+    return in_group_id + 2 + offset;
+}
 
-        if (any(isnan(history)))
+[shader("compute")]
+[numthreads(RTGI_DENOISE_DIFFUSE_X,RTGI_DENOISE_DIFFUSE_Y,1)]
+func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
+{
+    // Get Constants
+    let push = rtgi_diffuse_stabilize_history_push;
+    const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
+
+    // Preload Luma
+    for (int gx = 0; gx < 2; ++gx)
+    {
+        for (int gy = 0; gy < 2; ++gy)
         {
-            history = raw.rgb;
-        }
+            int2 gs_idx = in_group_id + int2(gx,gy) * RTGI_DENOISE_DIFFUSE_X;
+            int2 src_idx = int2(dtid) + int2(gx,gy) * RTGI_DENOISE_DIFFUSE_X - 2;
+            src_idx = clamp(src_idx, int2(0,0), int2(half_res_render_target_size) - 1);
 
-        // Write accumulated diffuse
-        const float3 accumulated = lerp(raw.rgb, history, history_blend );
-        push.attach.rtgi_diffuse_accumulated.get()[dtid] = float4(accumulated, raw.a);
-    #endif
+            if (all(gs_idx <  PRELOAD_WIDTH))
+            {
+                gs_luma[gs_idx.x][gs_idx.y] = push.attach.rtgi_diffuse_blurred.get()[src_idx].w;
+            }
+        }
+    }
+    GroupMemoryBarrierWithGroupSync();
+
+    if (any(dtid.xy >= push.size))
+    {
+        return;
+    }
+
+    // Calculate luma average and sigma
+    float avg_luma = 0.0f;
+    float sigma_luma = 0.0f;
+    for (int x = -2; x <= 2; ++x)
+    {
+        for (int y = -2; y <= 2; ++y)
+        {
+            const int2 gs_index = local_offset_to_gs_index(in_group_id, int2(x,y));
+            const float luma =  gs_luma[gs_index.x][gs_index.y];
+            avg_luma += luma;
+            sigma_luma += luma * luma;
+        }
+    }
+    avg_luma *= rcp(25.0f);
+    sigma_luma *= rcp(25.0f);
+
+    const float4 diffuse_history = push.attach.rtgi_diffuse_stable_history_reprojected.get()[dtid];
+    const float2 diffuse2_history = push.attach.rtgi_diffuse2_stable_history_reprojected.get()[dtid];
+    const float history_luma = diffuse_history.w;
+
+    const float4 diffuse_blurred = push.attach.rtgi_diffuse_blurred.get()[dtid];
+    const float2 diffuse2_blurred = push.attach.rtgi_diffuse2_blurred.get()[dtid];
+    const float luma_diff_relative = (history_luma + avg_luma) / (min(history_luma, avg_luma)) * 0.5f - 1.0f;
+    const float luma_diff_history_scaling = pow(0.5f, luma_diff_relative * push.attach.globals.rtgi_settings.temporal_stabilization_sensitivity);
+    const float smplcnt_history_scaling = square(push.attach.rtgi_samplecnt.get()[dtid] * rcp(push.attach.globals.rtgi_settings.history_frames));
+    float history_blend = luma_diff_history_scaling * smplcnt_history_scaling * 0.99f * push.attach.globals.rtgi_settings.temporal_stabilization_enabled;
+    push.attach.debug_image.get()[dtid] = luma_diff_history_scaling.xxxx;
+    if (all(diffuse_history == 0.0f) && all(diffuse2_history == 0.0f))
+    {
+        history_blend = 0.0f;
+    }
+    const float4 new_diffuse = lerp(diffuse_blurred, diffuse_history, history_blend);
+    const float2 new_diffuse2 = lerp(diffuse2_blurred, diffuse2_history, history_blend);
+
+    push.attach.rtgi_diffuse_stable.get()[dtid] = new_diffuse;
+    push.attach.rtgi_diffuse2_stable.get()[dtid] = new_diffuse2;
 }
