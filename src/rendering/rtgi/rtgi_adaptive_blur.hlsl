@@ -93,7 +93,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius_smplcnt_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
+    const float blur_radius_smplcnt_scale = 1.0f / (pixel_samplecnt);
 
     const float max_blur_radius = RTGI_SPATIAL_FILTER_RADIUS_MAX;
     const float min_blur_radius = max(post_blur_min_radius_scale * max_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MIN);
