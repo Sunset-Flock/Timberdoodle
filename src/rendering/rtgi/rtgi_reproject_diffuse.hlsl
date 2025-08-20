@@ -253,7 +253,7 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
     const float2 diffuse2_blurred = push.attach.rtgi_diffuse2_blurred.get()[dtid];
     const float luma_diff_relative = (history_luma + avg_luma) / (min(history_luma, avg_luma)) * 0.5f - 1.0f;
     const float luma_diff_history_scaling = pow(0.5f, luma_diff_relative * push.attach.globals.rtgi_settings.temporal_stabilization_sensitivity);
-    const float smplcnt_history_scaling = square(push.attach.rtgi_samplecnt.get()[dtid] * rcp(push.attach.globals.rtgi_settings.history_frames));
+    const float smplcnt_history_scaling = sqrt(push.attach.rtgi_samplecnt.get()[dtid] * rcp(push.attach.globals.rtgi_settings.history_frames));
     float history_blend = luma_diff_history_scaling * smplcnt_history_scaling * 0.99f * push.attach.globals.rtgi_settings.temporal_stabilization_enabled;
     push.attach.debug_image.get()[dtid] = luma_diff_history_scaling.xxxx;
     if (all(diffuse_history == 0.0f) && all(diffuse2_history == 0.0f))

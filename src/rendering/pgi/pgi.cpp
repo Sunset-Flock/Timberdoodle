@@ -1848,7 +1848,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
             static_cast<u32>(settings.probe_count.y * (settings.probe_irradiance_resolution + 2)),
             1
         },
-        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count),
+        .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2),
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | 
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
@@ -1918,7 +1918,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    probe_irradiance_view = this->probe_radiance.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
+    probe_irradiance_view = this->probe_radiance.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2));
     probe_visibility_view = this->probe_visibility.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
     probe_info_view = this->probe_info.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
     cell_requests_view = this->cell_requests.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));

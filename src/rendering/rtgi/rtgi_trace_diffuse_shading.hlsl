@@ -165,11 +165,10 @@ void miss(inout RayPayload payload)
     if (!payload.skip_sky_shader)
     {
         #if RTGI_SHORT_MODE
-        const bool stochastic_conservative_sampling = true;
         payload.color = pgi_sample_irradiance(
                 push.attach.globals, 
                 &push.attach.globals.pgi_settings, 
-                WorldRayOrigin(), 
+                WorldRayOrigin() + WorldRayDirection() * TMAX * 0.33f /*0.5 to reduce the number of requested probes*/, 
                 WorldRayDirection(), 
                 WorldRayDirection(), 
                 push.attach.globals.view_camera.position,
@@ -178,8 +177,9 @@ void miss(inout RayPayload payload)
                 push.attach.pgi_info.get(), 
                 push.attach.pgi_requests.get_formatted(), 
                 PGI_PROBE_REQUEST_MODE_DIRECT,
-                false,
-                stochastic_conservative_sampling);
+                true, /*stochastic cascade selection*/
+                false, /*fade_to_black_low_confidence*/
+                true /*sample_raw_radiance*/) * rcp(2.0f * 3.141f);
         #else
         payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
         #endif

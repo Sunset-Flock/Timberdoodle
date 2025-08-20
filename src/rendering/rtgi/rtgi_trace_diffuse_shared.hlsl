@@ -5,7 +5,7 @@
 
 #include "rtgi_trace_diffuse.inl"
 
-#define RTGI_SHORT_MODE 0
+#define RTGI_SHORT_MODE 1
 
 [[vk::push_constant]] RtgiTraceDiffusePush rtgi_trace_diffuse_push;
 

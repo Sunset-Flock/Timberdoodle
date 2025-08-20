@@ -56,8 +56,9 @@ func octahedtral_texel_wrap(int2 index, int resolution) -> int2
 }
 
 __generic<let N : uint>
-func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 probe_res, int3 base_index, int2 probe_texel, vector<float, N> value)
+func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 probe_res, int3 base_index, int2 probe_texel, vector<float, N> value, uint layer_offset = 0)
 {
+    base_index.z += layer_offset;
     bool2 on_edge = probe_texel == 0 || probe_texel == (probe_res - 1);
     int2 mirror_index = probe_texel - probe_res/2;
     mirror_index += int2(mirror_index >= int2(0,0)) * int2(1,1);
@@ -132,6 +133,8 @@ func entry_update_probe_irradiance(
     float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
     float2 probe_texel_uv = (float2(probe_texel) + 0.5f) * rcp(probe_texel_res);
     float3 probe_texel_normal = pgi_probe_uv_to_probe_normal(probe_texel_uv);
+    float2 probe_texel_min_uv = (float2(probe_texel)) * rcp(probe_texel_res);
+    float2 probe_texel_max_uv = (float2(probe_texel) + 1.0f) * rcp(probe_texel_res);
 
     int3 probe_texture_base_index = pgi_probe_texture_base_offset<HAS_BORDER>(settings, probe_texel_res, probe_index);
     int3 probe_texture_index = probe_texture_base_index + int3(probe_texel, 0);
@@ -144,6 +147,9 @@ func entry_update_probe_irradiance(
     float acc_weight = 0.0f;
     float rcp_s = rcp(s);
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
+
+    float3 exact_texel_radiance = float3(0.0f,0.0f,0.0f);
+    float exact_texel_radiance_weight = 0.0f;
     for (int y = 0; y < s; ++y)
     for (int x = 0; x < s; ++x)
     {
@@ -161,8 +167,18 @@ func entry_update_probe_irradiance(
                 cosine_convoluted_trace_result += sample * cos_weight;
                 acc_weight += cos_weight;
             }
+
+            const bool trace_within_probe_texel = all(trace_tex_uv >= probe_texel_min_uv && trace_tex_uv <= probe_texel_max_uv);
+            if (trace_within_probe_texel)
+            {
+                exact_texel_radiance += sample.rgb;
+                exact_texel_radiance_weight += 1.0f;
+            }
         }
+
     }
+
+    exact_texel_radiance *= rcp(exact_texel_radiance_weight);
     
     // If we have 0 weight we have no samples to blend so we dont blend at all.
     if (acc_weight > 0.0f)
@@ -218,8 +234,12 @@ func entry_update_probe_irradiance(
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_frame_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
+    const float3 prev_exact_radiance = push.attach.probe_radiance.get()[probe_texture_index + int3(0,0,settings->cascade_count * settings->probe_count.z)].rgb;
+    const float3 new_exact_texel_radiance = pow(lerp(pow(exact_texel_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_exact_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
+
     float4 value = float4(new_radiance, hysteresis);
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);
+    write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, float4(new_exact_texel_radiance, 1.0f), settings->cascade_count * settings->probe_count.z);
 }
 
 func entry_update_probe_visibility(
@@ -313,8 +333,6 @@ func entry_update_probe_visibility(
     for (int y = 0; y < relevant_texel_range; ++y)
     for (int x = 0; x < relevant_texel_range; ++x)
     {
-        // THIS IS BUGGED
-        // OCTAHEDRAL WRAPPING DOES NOT WORK LIKE THIS!
         int2 probe_trace_tex_index = (int2(x,y) + probe_trace_index_min);
         probe_trace_tex_index = octahedtral_texel_wrap(probe_trace_tex_index, settings.probe_trace_resolution);
         float2 trace_tex_uv = (probe_trace_tex_index + trace_texel_noise) * rcp_s;
@@ -327,7 +345,7 @@ func entry_update_probe_visibility(
         {
             push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_trace_tex_index,0)] = float2(0.05,power_cos_weight);
         }
-        #endif
+    #endif
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float trace_depth = trace_result_tex[sample_texture_index].a;

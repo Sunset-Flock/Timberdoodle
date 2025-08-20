@@ -73,8 +73,8 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
     // Determine if the blur radius has to be increased for the post blur
     float post_blur_min_radius_scale = 0.0f;
+    const bool is_post_blur = !push.attach.rtgi_diffuse_accumulated.id.is_empty();
     #if RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE
-        const bool is_post_blur = !push.attach.rtgi_diffuse_accumulated.id.is_empty();
         if (is_post_blur)
         {
             // Calculate relative absolute luma difference
@@ -95,8 +95,9 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
     const float blur_radius_smplcnt_scale = (push.attach.globals.rtgi_settings.history_frames - pixel_samplecnt) / push.attach.globals.rtgi_settings.history_frames;
 
-    const float min_blur_radius = max(post_blur_min_radius_scale * RTGI_SPATIAL_FILTER_RADIUS_MAX, RTGI_SPATIAL_FILTER_RADIUS_MIN);
-    const float blur_radius = max(min_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MAX * blur_radius_smplcnt_scale);
+    const float max_blur_radius = RTGI_SPATIAL_FILTER_RADIUS_MAX;
+    const float min_blur_radius = max(post_blur_min_radius_scale * max_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MIN);
+    const float blur_radius = max(min_blur_radius, max_blur_radius * blur_radius_smplcnt_scale);
 
     push.attach.debug_image.get()[dtid] = post_blur_min_radius_scale.xxxx;
 
@@ -118,8 +119,8 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
             const float2 sample_2d = rand_concentric_sample_disc() * blur_radius * pixel_ws_size;
         #endif
         const float3 sample_ws = world_position + world_tangent * sample_2d.x + world_bitangent * sample_2d.y;
-        const float4 sample_ndc_prev_div = mul(camera.view_proj, float4(sample_ws, 1.0f));
-        const float3 sample_ndc = sample_ndc_prev_div.xyz / sample_ndc_prev_div.w;
+        const float4 sample_ndc_pre_div = mul(camera.view_proj, float4(sample_ws, 1.0f));
+        const float3 sample_ndc = sample_ndc_pre_div.xyz / sample_ndc_pre_div.w;
         const float2 sample_uv = sample_ndc.xy * 0.5f + 0.5f;
         const uint2 sample_index = uint2(sample_uv * half_res_render_target_size);
 
@@ -219,6 +220,10 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     float weight_accum = 0.0f;
     float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
     float2 blurred_accum2 = float2( 0.0f, 0.0f );
+    float luma_squared_accum = 0.0f;
+    float max_luma = 0.0f;
+    float max_luma_squared = 0.0f;
+    float max_luma_weight = 0.0f;
     for (uint s = 0; s < SAMPLE_COUNT; ++s)
     {
         // Calculate sample position
@@ -258,12 +263,23 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         weight_accum += weight;
         blurred_accum += weight * sample_value_sh_y;
         blurred_accum2 += weight * sample_value_cocg;
+
+        const float luma = sample_value_sh_y.w;
+        luma_squared_accum += square(luma);
+        if (luma > max_luma)
+        {
+            max_luma = luma;
+            max_luma_squared = square(luma);
+            max_luma_weight = weight;
+        }
     }
+
+    // calc luma std dev without max luma sample
 
     // Calculate blurred diffuse and fallback blending
     // Some pixels find nearly no suitable spacial samples,
     // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/4)); 
+    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (SAMPLE_COUNT/8)); 
     const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.00000001f);
     const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.00000001f);
     const float4 pixel_sh_y = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index];

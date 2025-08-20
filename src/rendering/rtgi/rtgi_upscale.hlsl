@@ -8,10 +8,11 @@
 
 [[vk::push_constant]] RtgiUpscaleDiffusePush rtgi_upscale_diffuse_push;
 
-groupshared float4 gs_half_diffuse_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
-groupshared float2 gs_half_diffuse2_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
-groupshared float gs_half_depth_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
-groupshared float4 gs_half_normals_preload[RTGI_UPSCALE_DIFFUSE_X+2][RTGI_UPSCALE_DIFFUSE_Y+2];
+#define GS_PRELOAD_WIDTH (RTGI_UPSCALE_DIFFUSE_X/2+2)
+groupshared float4 gs_half_diffuse_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
+groupshared float2 gs_half_diffuse2_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
+groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
+groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 
 [shader("compute")]
 [numthreads(RTGI_UPSCALE_DIFFUSE_X,RTGI_UPSCALE_DIFFUSE_Y,1)]
@@ -44,34 +45,35 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float3 pixel_face_normal_vs = mul(camera.view, float4(pixel_face_normal,0.0f)).xyz;
 
     // Preload Surrounding half res rtgi values
+    // Each Group works on a 8x8 full res tile.
+    // To full reconstruct the full res tile we need a (8/2 + 2)^2 section of the half res diffuse.
     {
         Texture2D<float4> half_res_diffuse_tex = push.attach.rtgi_diffuse_half_res.get();
         Texture2D<float2> half_res_diffuse2_tex = push.attach.rtgi_diffuse2_half_res.get();
         Texture2D<float> half_res_depth_tex = push.attach.view_cam_half_res_depth.get();
         Texture2D<uint> half_res_face_normal_tex = push.attach.view_cam_half_res_face_normals.get();
 
-        const int needed_preload_threads = square(RTGI_UPSCALE_DIFFUSE_X+2);
-        const int group_threads = square(RTGI_UPSCALE_DIFFUSE_X);
-        const int group_iters = round_up_div(needed_preload_threads, group_threads);
         const int2 group_base_half_index = (group_id * int(RTGI_UPSCALE_DIFFUSE_X/2)) - 1;
-        for (int group_iter = 0; group_iter < group_iters; ++group_iter)
+        if (all(in_group_id < GS_PRELOAD_WIDTH))
         {
-            int preload_flat_index = group_iter * group_threads + in_group_index;
-            if (preload_flat_index >= needed_preload_threads)
-                break;
-
-            const int2 preload_index = int2(preload_flat_index % (RTGI_UPSCALE_DIFFUSE_X+2), preload_flat_index / (RTGI_UPSCALE_DIFFUSE_X+2));
+            const int2 preload_index = in_group_id;
             const int2 load_index = clamp(preload_index + group_base_half_index, int2(0,0), int2(push.size/2-1));
             const float depth = half_res_depth_tex[load_index];
             const float4 sh_y = half_res_diffuse_tex[load_index];
             const float2 cocg = half_res_diffuse2_tex[load_index];
             gs_half_diffuse_preload[preload_index.x][preload_index.y] = sh_y;
             gs_half_diffuse2_preload[preload_index.x][preload_index.y] = cocg;
-            gs_half_depth_preload[preload_index.x][preload_index.y] = depth;
-            float3 half_normal = uncompress_normal_octahedral_32(half_res_face_normal_tex[load_index]);
+            
+            const float3 half_normal = uncompress_normal_octahedral_32(half_res_face_normal_tex[load_index]);
             gs_half_normals_preload[preload_index.x][preload_index.y] = float4(half_normal, 0.0f);
-        }
 
+            const int2 sample_half_res_idx = load_index;
+            const float2 sample_uv = float2(sample_half_res_idx + 0.5f) * inv_half_res_render_target_size;
+            const float3 sample_ndc = float3(sample_uv * 2.0f - 1.0f, depth);
+            const float4 sample_vs_pre_div = mul(camera.inv_proj, float4(sample_ndc,1.0f));
+            const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
+            gs_half_vs_positions[preload_index.x][preload_index.y] = float4(sample_vs, 0.0f);
+        }
         GroupMemoryBarrierWithGroupSync();
     }
 
@@ -103,25 +105,15 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         {
             const int2 offset = int2(row - 1, col - 1);
             const int2 pos = int2(dtid/2) + offset;
-            if (any(pos >= int2(push.size/2)) || any(pos < int2(0,0)))
-            {
-                continue;
-            }
-
 
             // Load values from gs
             const int2 sample_gs_index = in_group_id/2 + offset + int2(1,1);
             const float4 sample_sh_y = gs_half_diffuse_preload[sample_gs_index.x][sample_gs_index.y];
             const float2 sample_cocg = gs_half_diffuse2_preload[sample_gs_index.x][sample_gs_index.y];
-            const float sample_depth = gs_half_depth_preload[sample_gs_index.x][sample_gs_index.y];
             const float3 sample_face_normal = gs_half_normals_preload[sample_gs_index.x][sample_gs_index.y].xyz;
 
             // Calculate sample position
-            const int2 sample_half_res_idx = (full_res_pixel_index/2) + int2(col,row);
-            const float2 sample_uv = float2(sample_half_res_idx + 0.5f) * inv_half_res_render_target_size;
-            const float3 sample_ndc = float3(sample_uv * 2.0f - 1.0f, sample_depth);
-            const float4 sample_vs_pre_div = mul(camera.inv_proj, float4(sample_ndc,1.0f));
-            const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
+            const float3 sample_vs = gs_half_vs_positions[sample_gs_index.x][sample_gs_index.y].xyz;
 
             // Calculate weights
             const float tent_weight = tent_weights_x[row] * tent_weights_y[col];

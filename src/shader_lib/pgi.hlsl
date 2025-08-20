@@ -304,7 +304,8 @@ func pgi_sample_irradiance(
     RWTexture2DArray<uint> probe_requests,
     int probe_request_mode,
     bool stochastic_cascade_selection = false,
-    bool low_certainty_fade_black = false) -> float3
+    bool low_certainty_fade_black = false,
+    bool sample_raw_radiance = false) -> float3
 {
     float cascade = pgi_select_cascade_smooth_spherical(settings, position - globals.main_camera.position);
     if (cascade > settings.cascade_count)
@@ -337,7 +338,8 @@ func pgi_sample_irradiance(
         probe_requests,
         probe_request_mode,
         lower_cascade,
-        min_weight_til_fade_to_black
+        min_weight_til_fade_to_black,
+        sample_raw_radiance
     );
     float3 color = lower_cascade_result.rgb;
     float weight = lower_cascade_result.w;
@@ -358,7 +360,9 @@ func pgi_sample_irradiance(
             probe_infos,
             probe_requests,
             probe_request_mode,
-            higher_cascade
+            higher_cascade,
+            min_weight_til_fade_to_black,
+            sample_raw_radiance
         );
 
         let lower_cascade_color = color;
@@ -389,7 +393,8 @@ func pgi_sample_irradiance_cascade(
     RWTexture2DArray<uint> probe_requests,
     int probe_request_mode,
     int cascade,
-    float min_weight_bias = 0.00001f
+    float min_weight_bias = 0.00001f,
+    bool sample_raw_radiance = false
 ) -> float4 {
     float3 visibility_sample_position = pgi_calc_biased_sample_position(settings, origin, position, geo_normal, cascade);
 
@@ -535,12 +540,19 @@ func pgi_sample_irradiance_cascade(
                 debug_draw_circle(globals.debug, sample_pos_offset);
             }
 
+            int3 color_sample_stable_index = stable_index;
+            // Raw radiance is stored in later layers
+            if (sample_raw_radiance)
+            {
+                color_sample_stable_index.z += settings->cascade_count * settings->probe_count.z;
+            }
+
             float3 linearly_filtered_samples = pgi_sample_probe_irradiance(
                 globals,
                 settings,
                 shading_normal,
                 probes,
-                stable_index
+                color_sample_stable_index
             ).rgb;
 
             accum += probe_weight * sqrt(linearly_filtered_samples.rgb);
