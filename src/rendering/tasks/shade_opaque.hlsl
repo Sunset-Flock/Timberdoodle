@@ -1066,7 +1066,6 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_PGI_RADIANCE:
             {
-                
                 PGISampleInfo info = PGISampleInfo();
                 info.request_mode = PGI_REQUEST_MODE_INDIRECT;
                 info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
@@ -1136,20 +1135,17 @@ void entry_main_cs(
             }      
             case DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING:
             {
-                float3 pgi_nearest_irradiance = pgi_sample_irradiance_nearest(
-                    AT.globals,
-                    &AT.globals.pgi_settings,
-                    tri_point.world_position,
-                    tri_point.world_normal,
-                    material_point.normal,
-                    camera.position,
+                PGISampleInfo pgi_sample_info = PGISampleInfo();
+                pgi_sample_info.probe_blend_nearest = true;
+                
+                output_value.rgb = pgi_sample_probe_volume(
+                    AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
+                    tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
                     AT.pgi_irradiance.get(),
                     AT.pgi_visibility.get(),
                     AT.pgi_info.get(),
-                    AT.pgi_requests.get(),
-                    PGI_REQUEST_MODE_NONE
+                    AT.pgi_requests.get()
                 );
-                output_value.rgb = pgi_nearest_irradiance;
                 break;
             }   
             case DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME:
