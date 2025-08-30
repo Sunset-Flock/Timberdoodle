@@ -234,8 +234,9 @@ func entry_update_probe_irradiance(
     new_radiance = pow(lerp(pow(new_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_frame_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
+    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.75f;
     const float3 prev_exact_radiance = push.attach.probe_radiance.get()[probe_texture_index + int3(0,0,settings->cascade_count * settings->probe_count.z)].rgb;
-    const float3 new_exact_texel_radiance = pow(lerp(pow(exact_texel_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_exact_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
+    const float3 new_exact_texel_radiance = pow(lerp(pow(exact_texel_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_exact_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), radiance_blend), PGI_PERCEPTUAL_EXPONENT);
 
     float4 value = float4(new_radiance, hysteresis);
     write_probe_texel_with_border(push.attach.probe_radiance.get(), settings.probe_irradiance_resolution, probe_texture_base_index, probe_texel, value);

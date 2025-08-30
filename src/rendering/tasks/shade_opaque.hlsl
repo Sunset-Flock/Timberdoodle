@@ -852,20 +852,13 @@ void entry_main_cs(
         {
             if (AT.globals.settings.draw_from_observer == 1)
             {
-                float3 pgi_irradiance = pgi_sample_irradiance(
-                    AT.globals,
-                    &AT.globals.pgi_settings,
-                    tri_point.world_position,
-                    tri_point.world_normal,
-                    material_point.normal,
-                    camera.position,
-                    AT.pgi_irradiance.get(),
-                    AT.pgi_visibility.get(),
-                    AT.pgi_info.get(),
-                    AT.pgi_requests.get(),
-                    PGI_PROBE_REQUEST_MODE_NONE
+                PGISampleInfo pgi_sample_info = PGISampleInfo();
+                const float3 pgi_indirect_irradiance = pgi_sample_probe_volume(
+                    AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
+                    tri_point.world_position, camera.position, material_point.normal, tri_point.face_normal, 
+                    AT.pgi_irradiance.get(), AT.pgi_visibility.get(), AT.pgi_info.get(), AT.pgi_requests.get_formatted()
                 );
-                indirect_lighting = pgi_irradiance;
+                indirect_lighting = pgi_indirect_irradiance;
             }
             else
             {
@@ -1057,6 +1050,41 @@ void entry_main_cs(
                 output_value.rgb = float3(tri_point.uv, 1.0f) * ambient_occlusion;
                 break;
             }
+            case DEBUG_DRAW_MODE_PGI_IRRADIANCE:
+            {
+                PGISampleInfo info = PGISampleInfo();
+                
+                output_value.rgb = pgi_sample_probe_volume(
+                    AT.globals, &AT.globals.pgi_settings, info,
+                    tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
+                    AT.pgi_irradiance.get(),
+                    AT.pgi_visibility.get(),
+                    AT.pgi_info.get(),
+                    AT.pgi_requests.get()
+                ).rgb;
+                break;
+            }
+            case DEBUG_DRAW_MODE_PGI_RADIANCE:
+            {
+                
+                PGISampleInfo info = PGISampleInfo();
+                info.request_mode = PGI_REQUEST_MODE_INDIRECT;
+                info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
+                info.probe_blend_nearest = false;
+                info.color_filter_nearest = true;
+                info.probe_relative_sample_dir = true;
+                info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+                
+                output_value.rgb = pgi_sample_probe_volume(
+                    AT.globals, &AT.globals.pgi_settings, info,
+                    tri_point.world_position, AT.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
+                    AT.pgi_irradiance.get(),
+                    AT.pgi_visibility.get(),
+                    AT.pgi_info.get(),
+                    AT.pgi_requests.get()
+                );
+                break;
+            }
             case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
             case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
             {
@@ -1119,7 +1147,7 @@ void entry_main_cs(
                     AT.pgi_visibility.get(),
                     AT.pgi_info.get(),
                     AT.pgi_requests.get(),
-                    PGI_PROBE_REQUEST_MODE_NONE
+                    PGI_REQUEST_MODE_NONE
                 );
                 output_value.rgb = pgi_nearest_irradiance;
                 break;
@@ -1155,6 +1183,22 @@ void entry_main_cs(
             default:
             output_value.rgb = shaded_color;
             break;
+        }
+        
+        // pgi based reflections
+        if (false)
+        {
+            PGISampleInfo info = PGISampleInfo();
+            info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+            
+            output_value.rgb = ambient_occlusion * pgi_sample_probe_volume(
+                AT.globals, &AT.globals.pgi_settings, info,
+                tri_point.world_position, AT.globals.view_camera.position, reflect(primary_ray, material_point.normal), tri_point.face_normal,
+                AT.pgi_irradiance.get(),
+                AT.pgi_visibility.get(),
+                AT.pgi_info.get(),
+                AT.pgi_requests.get()
+            );
         }
         
         if (debug_mark_light_influence_counter && AT.globals.light_settings.debug_mark_influence)

@@ -125,34 +125,66 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
         push.attach.globals.scene.mesh_groups,
         push.attach.globals.scene.entity_combined_transforms
     );
-    MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
-        push.attach.globals,
-        tri_geo,
-        tri_point
-    );
-    bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-    RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
 
-    const float indirect_ao_range = 0.5f;
-    const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
-    const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
+    #if RTGI_USE_PGI_RADIANCE_ON_HIT
+        if (RayTCurrent() > RTGI_PGI_RADIANCE_CACHE_TMIN || RTGI_PGI_RADIANCE_CACHE_TMIN == 0.0f)
+        {
+            const float3 sample_offset_direction = tri_point.face_normal;
+            const float3 sample_direction = float3(0,0,0); // ignored with probe_relative_sample_dir
+            const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
 
-    payload.color.rgb = shade_material<SHADING_QUALITY_HIGH>(
-        push.attach.globals, 
-        push.attach.sky_transmittance,
-        push.attach.sky,
-        material_point, 
-        push.attach.globals.view_camera.position,
-        WorldRayDirection(), 
-        light_vis_tester, 
-        push.attach.light_mask_volume.get(),
-        push.attach.pgi_irradiance.get(), 
-        push.attach.pgi_visibility.get(), 
-        push.attach.pgi_info.get(),
-        push.attach.pgi_requests.get_formatted(),
-        PGI_PROBE_REQUEST_MODE_INDIRECT,
-        ambient_occlusion
-    ).rgb;
+            const float indirect_ao_range = 1.5f;
+            const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range);
+
+            PGISampleInfo info = PGISampleInfo();
+            info.request_mode = PGI_REQUEST_MODE_INDIRECT;
+            info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
+            info.probe_blend_nearest = false;
+            info.color_filter_nearest = true;
+            info.probe_relative_sample_dir = true;
+            info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+            
+            payload.color.rgb = pgi_sample_probe_volume(
+                push.attach.globals, &push.attach.globals.pgi_settings, info,
+                sample_position, push.attach.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
+                push.attach.pgi_irradiance.get(),
+                push.attach.pgi_visibility.get(),
+                push.attach.pgi_info.get(),
+                push.attach.pgi_requests.get()
+            ) * ambient_occlusion;
+        }
+        else
+    #endif
+    {
+        MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
+            push.attach.globals,
+            tri_geo,
+            tri_point
+        );
+        bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
+        RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
+
+        const float indirect_ao_range = 0.5f;
+        const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
+        const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
+
+        payload.color.rgb = shade_material<SHADING_QUALITY_HIGH>(
+            push.attach.globals, 
+            push.attach.sky_transmittance,
+            push.attach.sky,
+            material_point, 
+            push.attach.globals.view_camera.position,
+            WorldRayDirection(), 
+            light_vis_tester, 
+            push.attach.light_mask_volume.get(),
+            push.attach.pgi_irradiance.get(), 
+            push.attach.pgi_visibility.get(), 
+            push.attach.pgi_info.get(),
+            push.attach.pgi_requests.get_formatted(),
+            PGI_REQUEST_MODE_INDIRECT,
+            ambient_occlusion
+        ).rgb;
+    }
 
     payload.t = RayTCurrent();
 }
@@ -164,22 +196,18 @@ void miss(inout RayPayload payload)
 
     if (!payload.skip_sky_shader)
     {
-        #if RTGI_SHORT_MODE
-        payload.color = pgi_sample_irradiance(
-                push.attach.globals, 
-                &push.attach.globals.pgi_settings, 
-                WorldRayOrigin() + WorldRayDirection() * TMAX * 0.33f /*0.5 to reduce the number of requested probes*/, 
-                WorldRayDirection(), 
-                WorldRayDirection(), 
-                push.attach.globals.view_camera.position,
-                push.attach.pgi_irradiance.get(), 
-                push.attach.pgi_visibility.get(), 
-                push.attach.pgi_info.get(), 
-                push.attach.pgi_requests.get_formatted(), 
-                PGI_PROBE_REQUEST_MODE_DIRECT,
-                true, /*stochastic cascade selection*/
-                false, /*fade_to_black_low_confidence*/
-                true /*sample_raw_radiance*/) * rcp(2.0f * 3.141f);
+        #if RTGI_USE_PGI_RADIANCE_ON_MISS
+            const float3 sample_direction = WorldRayDirection();
+            const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
+
+            payload.color.rgb = pgi_sample_spatial_radiance(
+                push.attach.globals, &push.attach.globals.pgi_settings,
+                sample_position, push.attach.globals.view_camera.position, sample_direction,
+                push.attach.pgi_irradiance.get(),
+                push.attach.pgi_visibility.get(),
+                push.attach.pgi_info.get(),
+                push.attach.pgi_requests.get()
+            ).rgb;
         #else
         payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
         #endif

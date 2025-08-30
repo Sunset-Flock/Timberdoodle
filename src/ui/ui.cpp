@@ -482,6 +482,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "PGI_CASCADE_SMOOTH", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
                     "PGI_CASCADE_ABSOLUTE", // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
                     "PGI_LOW_QUALITY_SAMPLING", // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
+                    "PGI_IRRADIANCE", // DEBUG_DRAW_MODE_PGI_IRRADIANCE
+                    "PGI_RADIANCE", // DEBUG_DRAW_MODE_PGI_RADIANCE
                     "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
                     "RTGI_TRACE_DIFFUSE_CLOCKS", // DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS
                     "RTGI_DEBUG_PRIMARY_TRACE", // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
@@ -592,15 +594,17 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             {
                 {
                     auto modes = std::array{
-                        "NONE",                        // DEBUG_DRAW_MODE_NONE
-                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_AO
-                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "PGI_EVAL_CLOCKS",             // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                        "PGI_CASCADE_SMOOTH",          // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
-                        "PGI_CASCADE_ABSOLUTE",        // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
-                        "PGI_LOW_QUALITY_SAMPLING",    // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
+                        "NONE",                             // DEBUG_DRAW_MODE_NONE
+                        "INDIRECT_DIFFUSE",                 // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                        "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                        "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_AO
+                        "ALL_DIFFUSE",                      // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                        "PGI_EVAL_CLOCKS",                  // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                        "PGI_CASCADE_SMOOTH",               // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                        "PGI_CASCADE_ABSOLUTE",             // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                        "PGI_LOW_QUALITY_SAMPLING",         // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
+                        "PGI_IRRADIANCE",                   // DEBUG_DRAW_MODE_PGI_IRRADIANCE
+                        "PGI_RADIANCE",                     // DEBUG_DRAW_MODE_PGI_RADIANCE
                     };
                     auto mode_mappings = std::array{
                         DEBUG_DRAW_MODE_NONE,
@@ -612,6 +616,8 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
                         DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
                         DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
+                        DEBUG_DRAW_MODE_PGI_IRRADIANCE,
+                        DEBUG_DRAW_MODE_PGI_RADIANCE
                     };
                     ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), modes.size());
                     if (pgi_debug_visualization != 0)
@@ -660,6 +666,37 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
             }
             if (ImGui::CollapsingHeader("RTGI Settings"))
             {
+                auto modes = std::array{
+                    "NONE",                             // DEBUG_DRAW_MODE_NONE
+                    "INDIRECT_DIFFUSE",                 // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
+                    "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
+                    "INDIRECT_DIFFUSE_AO",              // DEBUG_DRAW_MODE_AO
+                    "ALL_DIFFUSE",                      // DEBUG_DRAW_MODE_ALL_DIFFUSE
+                    "PGI_EVAL_CLOCKS",                  // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
+                    "PGI_CASCADE_SMOOTH",               // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
+                    "PGI_CASCADE_ABSOLUTE",             // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
+                    "PGI_LOW_QUALITY_SAMPLING",         // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
+                    "PGI_IRRADIANCE",                   // DEBUG_DRAW_MODE_PGI_IRRADIANCE
+                    "PGI_RADIANCE",                     // DEBUG_DRAW_MODE_PGI_RADIANCE
+                };
+                auto mode_mappings = std::array{
+                    DEBUG_DRAW_MODE_NONE,
+                    DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
+                    DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
+                    DEBUG_DRAW_MODE_AO,
+                    DEBUG_DRAW_MODE_ALL_DIFFUSE,
+                    DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS,
+                    DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH,
+                    DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
+                    DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
+                    DEBUG_DRAW_MODE_PGI_IRRADIANCE,
+                    DEBUG_DRAW_MODE_PGI_RADIANCE
+                };
+                ImGui::Combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), modes.size());
+                if (rtgi_debug_visualization != 0)
+                {
+                    debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
+                }
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::Checkbox("Temporal Stabilization Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_stabilization_enabled));

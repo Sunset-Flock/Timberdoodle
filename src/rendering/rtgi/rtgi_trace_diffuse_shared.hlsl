@@ -5,14 +5,15 @@
 
 #include "rtgi_trace_diffuse.inl"
 
-#define RTGI_SHORT_MODE 1
+#define RTGI_USE_PGI_RADIANCE_ON_MISS 0
+#define RTGI_USE_PGI_RADIANCE_ON_HIT 1
 
 [[vk::push_constant]] RtgiTraceDiffusePush rtgi_trace_diffuse_push;
 
-static const float3 sky_color = float3(0.5f, 0.7f, 1.0f);
+#define RTGI_PGI_RADIANCE_CACHE_TMIN 0.0f
 
-#if RTGI_SHORT_MODE
-static const float TMAX = 10.0f;
+#if RTGI_USE_PGI_RADIANCE_ON_MISS
+static const float TMAX = 4.0f;
 #else
 static const float TMAX = 100000000000.0f; // Arbitrary large value
 #endif

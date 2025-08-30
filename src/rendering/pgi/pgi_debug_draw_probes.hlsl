@@ -75,7 +75,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     
 
     float3 view_ray = -vertToPix.normal;
-    float4 irradiance_hysteresis = pgi_sample_probe_irradiance(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
+    float4 irradiance_hysteresis = pgi_sample_probe_color(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
     float3 irradiance = irradiance_hysteresis.rgb;
     float hysteresis = irradiance_hysteresis.a;
     float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), stable_index);

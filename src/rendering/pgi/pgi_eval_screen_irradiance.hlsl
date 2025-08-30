@@ -42,21 +42,14 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
     float3 ws_position = pixel_index_to_world_space(*camera, dtid, depth);
     float3 primary_ray = normalize(ws_position - camera.position);
 
-    float3 pgi_irradiance = pgi_sample_irradiance(
-        push.attach.globals,
-        &push.attach.globals.pgi_settings,
-        ws_position,
-        face_normal,
-        detail_normal,
-        camera.position,
-        push.attach.probe_radiance.get(),
-        push.attach.probe_visibility.get(),
-        push.attach.probe_info.get(),
-        push.attach.probe_requests.get_formatted(),
-        PGI_PROBE_REQUEST_MODE_DIRECT
+    PGISampleInfo pgi_sample_info = PGISampleInfo();
+    float3 pgi_indirect_irradiance = pgi_sample_probe_volume(
+        push.attach.globals, &push.attach.globals.pgi_settings, pgi_sample_info,
+        ws_position, camera.position, detail_normal, face_normal, 
+        push.attach.probe_radiance.get(), push.attach.probe_visibility.get(), push.attach.probe_info.get(), push.attach.probe_requests.get_formatted()
     );
 
-    push.attach.irradiance_depth.get()[dtid] = float4(pgi_irradiance, depth);
+    push.attach.irradiance_depth.get()[dtid] = float4(pgi_indirect_irradiance, depth);
 
     let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS)

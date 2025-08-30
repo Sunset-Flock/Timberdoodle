@@ -267,21 +267,14 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         }
         if (SHADING_QUALITY >= SHADING_QUALITY_HIGH)
         {
-            const bool stochastic_conservative_sampling = SHADING_QUALITY == SHADING_QUALITY_HIGH_STOCHASTIC;
-            indirect_diffuse = pgi_sample_irradiance(
-                globals, 
-                &globals.pgi_settings, 
-                material_point.position, 
-                material_point.geometry_normal, 
-                material_point.geometry_normal, 
-                origin,
-                probe_irradiance, 
-                probe_visibility, 
-                probe_infos, 
-                probe_requests, 
-                pgi_request_mode,
-                stochastic_conservative_sampling,
-                stochastic_conservative_sampling);
+            PGISampleInfo pgi_sample_info = PGISampleInfo();
+            pgi_sample_info.cascade_mode = SHADING_QUALITY == SHADING_QUALITY_HIGH_STOCHASTIC ? PGI_CASCADE_MODE_STOCHASTIC_BLEND : PGI_CASCADE_MODE_BLEND;
+            pgi_sample_info.request_mode = pgi_request_mode;
+            indirect_diffuse = pgi_sample_probe_volume(
+                globals, &globals.pgi_settings, pgi_sample_info,
+                material_point.position, origin, material_point.normal, material_point.face_normal, 
+                probe_irradiance, probe_visibility, probe_infos, probe_requests
+            );
         }
         diffuse_light += indirect_diffuse * ambient_occlusion;
     }
