@@ -23,35 +23,35 @@ void ray_gen()
     const int2 dtid = DispatchRaysIndex().xy;
 
     const float depth = push.attach.view_cam_half_res_depth.get()[dtid];
+    const float2 pixel_index = float2(dtid.xy * 2u) + 0.5f;
+    const CameraInfo camera = push.attach.globals.view_camera;
+    const float3 world_position = pixel_index_to_world_space(camera, pixel_index, depth);
+    const float3 face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[dtid].r);
+    const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
+            
+    if (push.debug_primary_trace)
+    {
+        RayPayload payload = {};
+        
+        RayDesc ray = {};
+        ray.Origin = camera.position;
+        ray.TMax = 1000000000.0f;
+        ray.TMin = 0.0f;
+        ray.Direction = primary_ray;
+
+        payload.color = float3(0,0,0);
+        TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+
+        float4 value = float4(payload.color, 1.0f);
+        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
+        return;
+    }
+
+    float4 acc = float4( 0, 0, 0, 0 );
+    float2 acc2 = float2( 0, 0 );
+
     if(depth > 0.0f)
     {
-        const float2 pixel_index = float2(dtid.xy * 2u) + 0.5f;
-        const CameraInfo camera = push.attach.globals.view_camera;
-        const float3 world_position = pixel_index_to_world_space(camera, pixel_index, depth);
-        const float3 face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[dtid].r);
-        const float3 primary_ray = normalize(world_position - push.attach.globals.view_camera.position);
-            
-        if (push.debug_primary_trace)
-        {
-            RayPayload payload = {};
-            
-            RayDesc ray = {};
-            ray.Origin = camera.position;
-            ray.TMax = 1000000000.0f;
-            ray.TMin = 0.0f;
-            ray.Direction = primary_ray;
-
-            payload.color = float3(0,0,0);
-            TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
-
-            float4 value = float4(payload.color, 1.0f);
-            push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
-            return;
-        }
-
-        float4 acc = float4( 0, 0, 0, 0 );
-        float2 acc2 = float2( 0, 0 );
-
         static const uint SAMPLES = 1;
         for (uint i = 0; i < SAMPLES; ++i)
         {

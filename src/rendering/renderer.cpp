@@ -649,7 +649,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(swapchain_image);
 
     // TODO: Move into an if and create persistent state only if necessary.
-    tg.use_persistent_image(pgi_state.probe_radiance);
+    tg.use_persistent_image(pgi_state.probe_color);
     tg.use_persistent_image(pgi_state.probe_visibility);
     tg.use_persistent_image(pgi_state.probe_info);
     tg.use_persistent_image(pgi_state.cell_requests);
@@ -1401,7 +1401,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .probe_indirections = pgi_indirections,
                 .color_image = color_image,
                 .depth_image = debug_draw_depth,
-                .probe_radiance = pgi_state.probe_irradiance_view,
+                .probe_color = pgi_state.probe_color_view,
                 .probe_visibility = pgi_state.probe_visibility_view,
                 .probe_info = pgi_state.probe_info_view,
                 .probe_requests = pgi_state.cell_requests_view,

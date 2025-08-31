@@ -13,7 +13,7 @@ DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(PGITraceProbeLightingH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_u32vec4>, light_mask_volume)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_radiance)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_color)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec2>, probe_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
@@ -155,20 +155,23 @@ void entry_ray_gen()
 {
     let push = pgi_trace_probe_lighting_push;
     PGISettings* settings = &push.attach.globals.pgi_settings;
+    PGISettings reg_settings = *settings;
     int3 dtid = DispatchRaysIndex().xyz;
 
     uint indirect_index = {};
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        indirect_index = dtid.x / (settings.probe_trace_resolution * settings.probe_trace_resolution);
-        uint local_index = (dtid.x - indirect_index * (settings.probe_trace_resolution * settings.probe_trace_resolution));
-        probe_texel.y = local_index / settings.probe_trace_resolution;
-        probe_texel.x = local_index - settings.probe_trace_resolution * probe_texel.y;
+        indirect_index = dtid.x / (reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution);
+        uint local_index = (dtid.x - indirect_index * (reg_settings.probe_trace_resolution * reg_settings.probe_trace_resolution));
+        probe_texel.y = local_index / reg_settings.probe_trace_resolution;
+        probe_texel.x = local_index - reg_settings.probe_trace_resolution * probe_texel.y;
 
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index];
         probe_index = pgi_unpack_indirect_probe(indirect_package);
     }
+    
+    PGICascade reg_cascade = settings->cascades[probe_index.w];
 
     uint frame_index = push.attach.globals.frame_index;
 
@@ -176,15 +179,15 @@ void entry_ray_gen()
     // This is important to be able to efficiently reconstruct data between tracing and probe texel updates.
     float2 in_texel_offset = pgi_probe_trace_noise(probe_index, frame_index);
 
-    PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
 
-    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
 
-    uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(settings, indirect_index), 0);
+    uint3 probe_texture_base_index = uint3(pgi_indirect_index_to_trace_tex_offset(reg_settings, indirect_index), 0);
     uint3 probe_texture_index = probe_texture_base_index + uint3(probe_texel, 0);
     uint3 trace_result_texture_index = probe_texture_index;
 
-    float2 probe_uv = float2(float2(probe_texel) + in_texel_offset) * rcp(settings.probe_trace_resolution);
+    float2 probe_uv = float2(float2(probe_texel) + in_texel_offset) * rcp(reg_settings.probe_trace_resolution);
 
     float3 probe_normal = pgi_probe_uv_to_probe_normal(probe_uv);
 
@@ -192,25 +195,6 @@ void entry_ray_gen()
     // Reduces artifacts caused by specific probe positioning.
     float3 sample_origin = probe_position;
     float3 sample_direction = probe_normal;
-    if (false && probe_info.validity > 1.0f)
-    {
-        rand_seed((probe_index.x * 231) ^ (probe_index.y * 3) ^ (probe_index.z * 523) ^ (probe_texel.x * 132) ^ (probe_texel.y * 311) ^ (push.attach.globals.frame_index * 213));
-        float3 rand3 = float3(rand(), rand(), rand()) * 2.0f - 1.0f;
-        float3 tangent = normalize(cross(sample_direction, rand3));
-
-        int3 stable_index = pgi_probe_to_stable_index(settings, probe_index);
-        float2 vis = pgi_sample_probe_visibility(push.attach.globals,settings, tangent, push.attach.probe_visibility.get(), stable_index);
-
-        float offset_len = clamp(settings.cascades[0].probe_spacing.x * 0.5f * 0.33f, 0.01f, vis.x * 0.8f) * rand();
-        float3 offset = tangent * offset_len;
-        sample_origin += offset;
-
-        ShaderDebugCircleDraw circle = {};
-        circle.position = sample_origin;
-        circle.radius = 0.01;
-        circle.color = float3(1,1,1);
-        //debug_draw_circle(push.attach.globals.debug, circle);
-    }
 
     RayDesc ray = {};
     ray.Direction = sample_direction;
@@ -251,11 +235,14 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
     payload.hit = true;
 
     PGISettings* pgi_settings = &push.attach.globals.pgi_settings;
+    PGISettings reg_settings = *pgi_settings;
+    PGICascade reg_cascade = pgi_settings->cascades[payload.probe_index.w];
     float3 hit_position = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
 
     uint request_mode = pgi_get_probe_request_mode(
         push.attach.globals,
-        pgi_settings,
+        reg_settings,
+        reg_cascade,
         push.attach.probe_requests.get_formatted(),
         payload.probe_index);
     request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
@@ -294,11 +281,11 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.sky_transmittance,
                 push.attach.sky,
                 material_point, 
-                WorldRayOrigin(),
+                push.attach.globals.view_camera.position,
                 WorldRayDirection(), 
                 light_vis_tester, 
                 push.attach.light_mask_volume.get(),
-                push.attach.probe_radiance.get(), 
+                push.attach.probe_color.get(), 
                 push.attach.probe_visibility.get(), 
                 push.attach.probe_info.get(),
                 push.attach.probe_requests.get_formatted(),

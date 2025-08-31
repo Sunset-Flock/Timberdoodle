@@ -1053,6 +1053,7 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_PGI_IRRADIANCE:
             {
                 PGISampleInfo info = PGISampleInfo();
+                info.request_mode = PGI_REQUEST_MODE_NONE;
                 
                 output_value.rgb = pgi_sample_probe_volume(
                     AT.globals, &AT.globals.pgi_settings, info,
@@ -1067,7 +1068,7 @@ void entry_main_cs(
             case DEBUG_DRAW_MODE_PGI_RADIANCE:
             {
                 PGISampleInfo info = PGISampleInfo();
-                info.request_mode = PGI_REQUEST_MODE_INDIRECT;
+                info.request_mode = PGI_REQUEST_MODE_NONE;
                 info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
                 info.probe_blend_nearest = false;
                 info.color_filter_nearest = true;
@@ -1092,16 +1093,19 @@ void entry_main_cs(
                 bool pgi_checker = false;
                 float pgi_color_mul = 1.0f;
                 PGISettings * pgi = &AT.globals.pgi_settings;
+                PGISettings reg_pgi_settings = *pgi;
+
                 for (int cascade = 0; cascade < pgi.cascade_count; ++cascade)
                 {
-                    let in_cascade = pgi_is_pos_in_cascade(pgi, material_point.position, cascade);
+                    PGICascade reg_pgi_cascade = pgi->cascades[cascade];
+                    let in_cascade = pgi_is_pos_in_cascade(reg_pgi_settings, reg_pgi_cascade, material_point.position, cascade);
                     if (in_cascade)
                     {
                         pgi_absolute_cascade = cascade;
-                        float3 grid_coord = pgi_grid_coord_of_position(pgi, material_point.position, cascade);
+                        float3 grid_coord = pgi_grid_coord_of_position(reg_pgi_settings, reg_pgi_cascade, material_point.position);
                         int4 base_probe = int4(floor(grid_coord), cascade);
                         pgi_is_center_8 = any(base_probe.xyz >= pgi.probe_count/2-1 && base_probe.xyz < pgi.probe_count/2);
-                        let stable_index = pgi_probe_to_stable_index(pgi, base_probe);
+                        let stable_index = pgi_probe_to_stable_index(reg_pgi_settings, reg_pgi_cascade, base_probe);
                         pgi_checker = ((uint(stable_index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.z + int(~0u >> 2)) & 0x1) != 0);
                         if (pgi_is_center_8)
                         {
@@ -1115,7 +1119,7 @@ void entry_main_cs(
                         break;
                     }
                 }
-                float smooth_cascade = pgi_select_cascade_smooth_spherical(pgi, material_point.position - AT.globals.main_camera.position);
+                float smooth_cascade = pgi_select_cascade_smooth_spherical(*pgi, material_point.position - AT.globals.main_camera.position);
                 switch(AT.globals->settings.debug_draw_mode)
                 {
                     case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
@@ -1137,6 +1141,7 @@ void entry_main_cs(
             {
                 PGISampleInfo pgi_sample_info = PGISampleInfo();
                 pgi_sample_info.probe_blend_nearest = true;
+                pgi_sample_info.request_mode = PGI_REQUEST_MODE_NONE;
                 
                 output_value.rgb = pgi_sample_probe_volume(
                     AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
@@ -1186,6 +1191,7 @@ void entry_main_cs(
         {
             PGISampleInfo info = PGISampleInfo();
             info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+            info.color_filter_nearest = true;
             
             output_value.rgb = ambient_occlusion * pgi_sample_probe_volume(
                 AT.globals, &AT.globals.pgi_settings, info,

@@ -46,7 +46,7 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
     float3 pgi_indirect_irradiance = pgi_sample_probe_volume(
         push.attach.globals, &push.attach.globals.pgi_settings, pgi_sample_info,
         ws_position, camera.position, detail_normal, face_normal, 
-        push.attach.probe_radiance.get(), push.attach.probe_visibility.get(), push.attach.probe_info.get(), push.attach.probe_requests.get_formatted()
+        push.attach.probe_color.get(), push.attach.probe_visibility.get(), push.attach.probe_info.get(), push.attach.probe_requests.get_formatted()
     );
 
     push.attach.irradiance_depth.get()[dtid] = float4(pgi_indirect_irradiance, depth);

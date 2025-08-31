@@ -19,8 +19,8 @@ struct PGIState
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
     // TODO(pahrens): rename to irradiance
-    daxa::TaskImage probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
-    daxa::TaskImageView probe_irradiance_view = daxa::NullTaskImage;
+    daxa::TaskImage probe_color = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
+    daxa::TaskImageView probe_color_view = daxa::NullTaskImage;
     daxa::TaskImage probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe visibility texture"});
     daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
     daxa::TaskImage probe_info = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe info texture"});

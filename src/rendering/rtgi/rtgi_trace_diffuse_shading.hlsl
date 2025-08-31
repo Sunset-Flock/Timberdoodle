@@ -200,9 +200,17 @@ void miss(inout RayPayload payload)
             const float3 sample_direction = WorldRayDirection();
             const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
 
-            payload.color.rgb = pgi_sample_spatial_radiance(
-                push.attach.globals, &push.attach.globals.pgi_settings,
-                sample_position, push.attach.globals.view_camera.position, sample_direction,
+            PGISampleInfo info = PGISampleInfo();
+            info.request_mode = PGI_REQUEST_MODE_INDIRECT;
+            info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
+            info.probe_blend_nearest = false;
+            info.color_filter_nearest = true;
+            info.probe_relative_sample_dir = false;
+            info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+
+            payload.color.rgb = pgi_sample_probe_volume(
+                push.attach.globals, &push.attach.globals.pgi_settings, info,
+                sample_position, push.attach.globals.view_camera.position, sample_direction,, sample_direction
                 push.attach.pgi_irradiance.get(),
                 push.attach.pgi_visibility.get(),
                 push.attach.pgi_info.get(),

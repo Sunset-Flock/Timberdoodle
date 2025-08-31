@@ -1593,7 +1593,7 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
     ti.recorder.push_constant(push);
     ti.recorder.dispatch_indirect({
         .indirect_buffer = ti.id(AT.probe_indirections),
-        .offset = offsetof(PGIIndirections, probe_radiance_update_dispatch),
+        .offset = offsetof(PGIIndirections, probe_color_update_dispatch),
     });  
 
     push.update_radiance = false;
@@ -1712,7 +1712,7 @@ auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const
         prev.probe_count.y != curr.probe_count.y ||
         prev.probe_count.z != curr.probe_count.z ||
         prev.cascade_count != curr.cascade_count ||
-        prev.probe_irradiance_resolution != curr.probe_irradiance_resolution ||
+        prev.probe_color_resolution != curr.probe_color_resolution ||
         prev.probe_trace_resolution != curr.probe_trace_resolution ||
         prev.probe_visibility_resolution != curr.probe_visibility_resolution ||
         prev.enabled != curr.enabled;
@@ -1742,7 +1742,7 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
         return valid_resolutions.back();
     };
 
-    render_data.pgi_settings.probe_irradiance_resolution = constrain_resolution(render_data.pgi_settings.probe_irradiance_resolution);
+    render_data.pgi_settings.probe_color_resolution = constrain_resolution(render_data.pgi_settings.probe_color_resolution);
     render_data.pgi_settings.probe_visibility_resolution = constrain_resolution(render_data.pgi_settings.probe_visibility_resolution);
 
     for (u32 c = 0; c < render_data.pgi_settings.cascade_count; ++c)
@@ -1793,8 +1793,8 @@ void pgi_resolve_settings(PGISettings const & prev_settings, RenderGlobalData & 
         1.0f / static_cast<float>(render_data.pgi_settings.probe_count.y),
         1.0f / static_cast<float>(render_data.pgi_settings.probe_count.z),
     };
-    render_data.pgi_settings.irradiance_resolution_w_border = static_cast<float>(render_data.pgi_settings.probe_irradiance_resolution + 2);
-    render_data.pgi_settings.irradiance_resolution_w_border_rcp = 1.0f / static_cast<float>(render_data.pgi_settings.probe_irradiance_resolution + 2);;
+    render_data.pgi_settings.irradiance_resolution_w_border = static_cast<float>(render_data.pgi_settings.probe_color_resolution + 2);
+    render_data.pgi_settings.irradiance_resolution_w_border_rcp = 1.0f / static_cast<float>(render_data.pgi_settings.probe_color_resolution + 2);;
     render_data.pgi_settings.visibility_resolution_w_border = static_cast<float>(render_data.pgi_settings.probe_visibility_resolution + 2);
     render_data.pgi_settings.visibility_resolution_w_border_rcp = 1.0f / static_cast<float>(render_data.pgi_settings.probe_visibility_resolution + 2);
 }
@@ -1823,9 +1823,9 @@ void PGIState::initialize(daxa::Device& device)
 
 void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & settings)
 {
-    if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
+    if (!this->probe_color.get_state().images.empty() && !this->probe_color.get_state().images[0].is_empty())
     {
-        device.destroy_image(this->probe_radiance.get_state().images[0]);
+        device.destroy_image(this->probe_color.get_state().images[0]);
     }
     if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
     {
@@ -1840,12 +1840,12 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         device.destroy_image(this->cell_requests.get_state().images[0]);
     }
 
-    daxa::ImageId probe_radiance_image = device.create_image({
+    daxa::ImageId probe_color_image = device.create_image({
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {
-            static_cast<u32>(settings.probe_count.x * (settings.probe_irradiance_resolution + 2)),
-            static_cast<u32>(settings.probe_count.y * (settings.probe_irradiance_resolution + 2)),
+            static_cast<u32>(settings.probe_count.x * (settings.probe_color_resolution + 2)),
+            static_cast<u32>(settings.probe_count.y * (settings.probe_color_resolution + 2)),
             1
         },
         .array_layer_count = static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2),
@@ -1901,8 +1901,8 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    this->probe_radiance = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ probe_radiance_image }},
+    this->probe_color = daxa::TaskImage(daxa::TaskImageInfo{
+        .initial_images = daxa::TrackedImages{.images = std::array{ probe_color_image }},
         .name = "pgi probe radiance",
     });
     this->probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{
@@ -1918,7 +1918,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    probe_irradiance_view = this->probe_radiance.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2));
+    probe_color_view = this->probe_color.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count * 2));
     probe_visibility_view = this->probe_visibility.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
     probe_info_view = this->probe_info.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
     cell_requests_view = this->cell_requests.view().layers(0, static_cast<u32>(settings.probe_count.z * settings.cascade_count));
@@ -1927,11 +1927,11 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .device = device,
         .name = "clear pgi resources",
     }};
-    tg.use_persistent_image(probe_radiance);
+    tg.use_persistent_image(probe_color);
     tg.use_persistent_image(probe_visibility);
     tg.use_persistent_image(probe_info);
     tg.use_persistent_image(cell_requests);
-    tg.clear_image({.view = probe_irradiance_view, .name = "clear pgi radiance"});
+    tg.clear_image({.view = probe_color_view, .name = "clear pgi radiance"});
     tg.clear_image({.view = probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = probe_info_view, .name = "clear pgi info"});
     tg.clear_image({.view = cell_requests_view, .name = "clear pgi cell requests"});
@@ -1946,10 +1946,10 @@ void PGIState::cleanup(daxa::Device& device)
     {
         device.destroy_buffer(this->debug_probe_mesh_buffer);
     }
-    if (!this->probe_radiance.get_state().images.empty() && !this->probe_radiance.get_state().images[0].is_empty())
+    if (!this->probe_color.get_state().images.empty() && !this->probe_color.get_state().images[0].is_empty())
     {
-        device.destroy_image(this->probe_radiance.get_state().images[0]);
-        probe_irradiance_view = daxa::NullTaskImage;
+        device.destroy_image(this->probe_color.get_state().images[0]);
+        probe_color_view = daxa::NullTaskImage;
     }
     if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
     {
@@ -2056,7 +2056,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
             .globals = info.render_context->tgpu_render_data.view(),
             .probe_indirections = pgi_indirections,
             .light_mask_volume = info.light_mask_volume,
-            .probe_radiance = info.pgi_state.probe_irradiance_view,
+            .probe_color = info.pgi_state.probe_color_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_info = info.pgi_state.probe_info_view,
             .probe_requests = info.pgi_state.cell_requests_view,
@@ -2091,7 +2091,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
         .views = PGIUpdateProbeTexelsTask::Views{
             .globals = info.render_context->tgpu_render_data.view(),
             .probe_indirections = pgi_indirections,
-            .probe_radiance = info.pgi_state.probe_irradiance_view,
+            .probe_color = info.pgi_state.probe_color_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_info = info.pgi_state.probe_info_view,
             .trace_result = pgi_trace_result,
@@ -2103,7 +2103,7 @@ auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
 
     TaskPGIUpdateOut ret = {};
     ret.pgi_indirections = pgi_indirections;
-    ret.pgi_irradiance = info.pgi_state.probe_irradiance_view;
+    ret.pgi_irradiance = info.pgi_state.probe_color_view;
     ret.pgi_visibility = info.pgi_state.probe_visibility_view;
     ret.pgi_info = info.pgi_state.probe_info_view;
     ret.pgi_requests = info.pgi_state.cell_requests_view;
@@ -2122,7 +2122,7 @@ auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & inf
             .main_cam_face_normals = info.view_camera_face_normal_image,
             .main_cam_detail_normals = info.view_camera_detail_normal_image,
             .probe_info = info.pgi_state.probe_info_view,
-            .probe_radiance = info.pgi_state.probe_irradiance_view,
+            .probe_color = info.pgi_state.probe_color_view,
             .probe_visibility = info.pgi_state.probe_visibility_view,
             .probe_requests = info.pgi_state.cell_requests_view,
             .irradiance_depth = pgi_screen_irrdiance,

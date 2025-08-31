@@ -146,11 +146,11 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     daxa_ImageViewId sky_transmittance,
     daxa_ImageViewId sky,
     MaterialPointData material_point, 
-    float3 origin, // Camera Position or Ray Origin
+    float3 camera_position,
     float3 incoming_ray,
     LIGHT_VIS_TESTER_T light_visibility,
     Texture2DArray<uint4> light_mask_volume,
-    Texture2DArray<float4> probe_irradiance,
+    Texture2DArray<float4> probe_color,
     Texture2DArray<float2> probe_visibility,
     Texture2DArray<float4> probe_infos,
     RWTexture2DArray<uint> probe_requests,
@@ -256,8 +256,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
 
         const float3 indirect_diffuse = pgi_sample_probe_volume(
             globals, &globals.pgi_settings, pgi_sample_info,
-            material_point.position, origin, material_point.normal, material_point.face_normal, 
-            probe_irradiance, probe_visibility, probe_infos, probe_requests
+            material_point.position, camera_position, material_point.normal, material_point.face_normal, 
+            probe_color, probe_visibility, probe_infos, probe_requests
         );
         diffuse_light += indirect_diffuse * ambient_occlusion;
     }

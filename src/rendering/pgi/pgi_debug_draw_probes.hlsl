@@ -36,13 +36,16 @@ func entry_vertex_draw_debug_probes(uint vertex_index : SV_VertexID, uint instan
         uint indirect_package = ((uint*)(push.attach.probe_indirections + 1))[indirect_index + PGI_MAX_UPDATES_PER_FRAME];
         probe_index = pgi_unpack_indirect_probe(indirect_package);
     }
+
+    PGISettings reg_settings = *settings;
+    PGICascade reg_cascade = settings->cascades[probe_index.w];
     
     var position = push.probe_mesh_positions[vertex_index];
     var normal = position;
-    position *= 0.03f * settings.cascades[probe_index.w].max_visibility_distance;
+    position *= 0.03f * reg_cascade.max_visibility_distance;
 
-    PGIProbeInfo probe_info = PGIProbeInfo::load(settings, push.attach.probe_info.get(), probe_index);
-    float3 probe_position = pgi_probe_index_to_worldspace(settings, probe_info, probe_index);
+    PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
+    float3 probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
     position += probe_position;
 
     float4x4 viewproj = push.attach.globals.view_camera.view_proj;
@@ -71,29 +74,31 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 {
     let push = draw_debug_probe_p;
     PGISettings* settings = &push.attach.globals.pgi_settings;
-    int3 stable_index = pgi_probe_to_stable_index(settings, vertToPix.probe_index);
+    PGISettings reg_settings = *settings;
+    PGICascade reg_cascade = settings->cascades[vertToPix.probe_index.w];
+    int3 stable_index = pgi_probe_to_stable_index(reg_settings, reg_cascade, vertToPix.probe_index);
     
 
     float3 view_ray = -vertToPix.normal;
-    float4 irradiance_hysteresis = pgi_sample_probe_color(push.attach.globals, settings, vertToPix.normal, push.attach.probe_radiance.get(), stable_index);
-    float3 irradiance = irradiance_hysteresis.rgb;
-    float hysteresis = irradiance_hysteresis.a;
-    float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, settings, vertToPix.normal, push.attach.probe_visibility.get(), stable_index);
+    float4 color_hysteresis = pgi_sample_probe_color(push.attach.globals, reg_settings, vertToPix.normal, push.attach.probe_color.get(), stable_index);
+    float3 color = color_hysteresis.rgb;
+    float hysteresis = color_hysteresis.a;
+    float2 visibility = 0.01f * pgi_sample_probe_visibility(push.attach.globals, reg_settings, vertToPix.normal, push.attach.probe_visibility.get(), stable_index);
     float mean = abs(visibility.x);
     float mean2 = visibility.y;
 
     float2 uv = pgi_probe_normal_to_probe_uv(vertToPix.normal);
-    float2 texel = floor(uv * settings.probe_visibility_resolution) * rcp(settings.probe_visibility_resolution);
+    float2 texel = floor(uv * reg_settings.probe_visibility_resolution) * rcp(reg_settings.probe_visibility_resolution);
 
     float exposure = deref(push.attach.exposure);
-    irradiance *= exposure;
+    color *= exposure;
     visibility *= exposure;
 
     float3 draw_color = (float3)0;
-    switch(settings.debug_probe_draw_mode)
+    switch(reg_settings.debug_probe_draw_mode)
     {
         case PGI_DEBUG_PROBE_DRAW_MODE_OFF: break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = irradiance; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = color; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE: draw_color = visibility.xxx; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY: draw_color = visibility.yyy; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_TEXEL: draw_color = float3(texel,0); break;
@@ -103,7 +108,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     }
 
     #if defined(DEBUG_PROBE_TEXEL_UPDATE)
-    bool debug_mode = any(settings.debug_probe_index != 0);
+    bool debug_mode = any(reg_settings.debug_probe_index != 0);
     if (debug_mode)
     {
         draw_color = float3(visibility,0) * 100;

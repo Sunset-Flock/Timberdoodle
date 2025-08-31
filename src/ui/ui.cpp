@@ -639,7 +639,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "1_OF_64", // PGI_UPDATE_RATE_1_OF_64
                 };
                 ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), update_rates.size());
-                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_irradiance_resolution);
+                ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_color_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
                 ImGui::InputFloat("Probe cos wrap around", &render_data.pgi_settings.cos_wrap_around);
