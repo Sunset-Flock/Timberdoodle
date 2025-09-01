@@ -1233,8 +1233,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
         tg.copy_image_to_image({.src = view_camera_half_res_depth_image, .dst = rtgi_depth_history.view(), .name = "save rtgi depth history"});
         tg.copy_image_to_image({.src = rtgi_samplecnt_image, .dst = rtgi_samplecnt_history.view(), .name = "save rtgi samplecnt history"});
-        tg.copy_image_to_image({.src = rtgi_blurred_diffuse_image2, .dst = rtgi_diffuse_history.view(), .name = "save rtgi diffuse history"});
-        tg.copy_image_to_image({.src = rtgi_blurred_diffuse2_image2, .dst = rtgi_diffuse2_history.view(), .name = "save rtgi diffuse2 history"});
+        tg.copy_image_to_image({.src = rtgi_diffuse_accumulated_image, .dst = rtgi_diffuse_history.view(), .name = "save rtgi diffuse history"});
+        tg.copy_image_to_image({.src = rtgi_diffuse2_accumulated_image, .dst = rtgi_diffuse2_history.view(), .name = "save rtgi diffuse2 history"});
         tg.copy_image_to_image({.src = rtgi_diffuse_stable_image, .dst = rtgi_diffuse_stable_history.view(), .name = "save rtgi_diffuse_stable_history"});
         tg.copy_image_to_image({.src = rtgi_diffuse2_stable_image, .dst = rtgi_diffuse2_stable_history.view(), .name = "save rtgi_diffuse2_stable_history"});
         tg.copy_image_to_image({.src = view_camera_half_res_face_normal_image, .dst = rtgi_face_normal_history.view(), .name = "save rtgi face normal history"});

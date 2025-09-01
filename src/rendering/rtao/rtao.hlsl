@@ -263,8 +263,6 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             interpolants.x * interpolants.y
         );
 
-        // push.attach.debug_image.get()[index] = float4(uncompress_normal_octahedral_32(push.attach.normal_history.get()[index]), 1.0f);
-
         float linear_prev_depth = linearise_depth(prev_frame_ndc.z, camera.near_plane);
         float3 interpolated_ao = 0.0f;
         float interpolated_ao_weight_sum = 0.0f;
@@ -299,8 +297,6 @@ void entry_rtao_denoiser(int2 index : SV_DispatchThreadID)
             validity = 0;
             acceptance = 0.0f;
         }
-        //accepted_history_ao = push.attach.history.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), pixel_prev_uv, 0.0f).x;
-        //push.attach.debug_image.get()[index].xy = interpolated_ao;
     }
 
     validity = min(validity, VALIDITY_FRAMES);

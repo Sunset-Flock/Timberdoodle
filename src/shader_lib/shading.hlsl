@@ -141,6 +141,11 @@ float3 get_sun_direct_lighting(
     return direct_sun_illuminance;
 }
 
+struct ShadingInfo
+{
+
+};
+
 func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVisibilityTesterI>(
     RenderGlobalData* globals, 
     daxa_ImageViewId sky_transmittance,
@@ -251,7 +256,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     {
         PGISampleInfo pgi_sample_info = PGISampleInfo();
         pgi_sample_info.cascade_mode = SHADING_QUALITY == SHADING_QUALITY_HIGH_STOCHASTIC ? PGI_CASCADE_MODE_STOCHASTIC_BLEND : PGI_CASCADE_MODE_BLEND;
-        pgi_sample_info.probe_blend_nearest = SHADING_QUALITY == SHADING_QUALITY_LOW;
+        //pgi_sample_info.probe_blend_nearest = SHADING_QUALITY == SHADING_QUALITY_LOW;
         pgi_sample_info.request_mode = pgi_request_mode;
 
         const float3 indirect_diffuse = pgi_sample_probe_volume(

@@ -101,8 +101,6 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         const uint packed_detail_normal = compress_normal_octahedral_32(detail_normal);
         push.attachments.detail_normal_image.get()[dtid] = packed_detail_normal;
 
-        push.attachments.debug_image.get()[dtid] = float4(material_point.normal * 0.5f + 0.5f,0);
-
         gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
         gs_depths[gtid.x][gtid.y] = depth;
     }

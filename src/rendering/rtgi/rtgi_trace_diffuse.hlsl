@@ -73,7 +73,7 @@ void ray_gen()
 
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
-            TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+            TraceRay(push.attach.tlas.get(), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
 
             float4 sh_y_new;
             float2 cocg_new;

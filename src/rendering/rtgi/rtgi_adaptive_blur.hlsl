@@ -93,13 +93,11 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
-    const float blur_radius_smplcnt_scale = 1.0f / (pixel_samplecnt);
+    const float blur_radius_smplcnt_scale = 1.0f / (pixel_samplecnt + 1.0f);
 
     const float max_blur_radius = RTGI_SPATIAL_FILTER_RADIUS_MAX;
     const float min_blur_radius = max(post_blur_min_radius_scale * max_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MIN);
     const float blur_radius = max(min_blur_radius, max_blur_radius * blur_radius_smplcnt_scale);
-
-    push.attach.debug_image.get()[dtid] = post_blur_min_radius_scale.xxxx;
 
     float weight_accum = 0.0f;
     float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -150,9 +148,9 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     // Calculate blurred diffuse and fallback blending
     // Some pixels find nearly no suitable spacial samples,
     // if less than 1/4th of the samples matter, we start to fallback to the original diffuse
-    const float low_weight_fallback_blend = max(0.0f, 1.0f - weight_accum / (RTGI_SPATIAL_FILTER_SAMPLES/4)); 
-    const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.00000001f);
-    const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.00000001f);
+    const float low_weight_fallback_blend = max(0.0f, 1.0f - (weight_accum / (RTGI_SPATIAL_FILTER_SAMPLES/4.0f))); 
+    const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.0001f);
+    const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.0001f);
     const float4 pixel_sh_y = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
     const float2 pixel_cocg = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index].rg;
     const float4 blurred_sh_y = lerp(blurry_sh_y, pixel_sh_y, low_weight_fallback_blend);
