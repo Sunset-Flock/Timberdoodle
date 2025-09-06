@@ -103,7 +103,7 @@ struct DebugDrawTask : DebugDrawH::Task
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
                     .image_view = ti.get(AT.depth_image).view_ids[0],
-                    .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                    .layout = daxa::ImageLayout::GENERAL,
                     .load_op = daxa::AttachmentLoadOp::LOAD,
                     .store_op = daxa::AttachmentStoreOp::STORE,
                     .clear_value = daxa::DepthValue{0.0f, 0},
@@ -113,7 +113,7 @@ struct DebugDrawTask : DebugDrawH::Task
         render_pass_begin_info.color_attachments = {
             daxa::RenderAttachmentInfo{
                 .image_view = ti.get(AT.color_image).view_ids[0],
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},

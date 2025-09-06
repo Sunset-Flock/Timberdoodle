@@ -532,7 +532,7 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
     /// TODO: If we are generating mips this will need to change
     device.transition_image_layout({
         .image = parsed_data.dst_image,
-        .new_image_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+        .new_image_layout = daxa::ImageLayout::GENERAL,
         .image_slice = image_view_info.slice,
     });
     daxa::ImageInfo image_info = device.image_info(parsed_data.dst_image).value();
@@ -544,7 +544,6 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
         device.copy_memory_to_image({
             .memory_ptr = parsed_data.src_data.data() + parsed_data.mip_copy_offsets[mip],
             .image = parsed_data.dst_image,
-            .image_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
             .image_slice = {
                 .mip_level = mip,
             },

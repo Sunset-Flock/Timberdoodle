@@ -118,7 +118,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         render_pass_begin_info.depth_attachment =
             daxa::RenderAttachmentInfo{
                 .image_view = ti.id(AT.depth_image).default_view(),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::DepthValue{0.0f, 0},
@@ -126,7 +126,7 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         render_pass_begin_info.color_attachments.push_back(
             daxa::RenderAttachmentInfo{
                 .image_view = ti.id(AT.vis_image).default_view(),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
@@ -184,7 +184,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         render_pass_begin_info.depth_attachment =
             daxa::RenderAttachmentInfo{
                 .image_view = ti.view(AT.depth_image),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::DepthValue{0.0f, 0},
@@ -192,7 +192,7 @@ struct CullMeshletsDrawVisbufferTask : CullMeshletsDrawVisbufferH::Task
         render_pass_begin_info.color_attachments.push_back(
             daxa::RenderAttachmentInfo{
                 .image_view = ti.view(AT.vis_image),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
@@ -332,7 +332,6 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
             },
             .gpu_context = info.render_context->gpu_context,
             .push = DrawVisbufferPush_WriteCommand{.pass = pass},
-            .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
         };
         info.tg.add_task(write_task);
 
@@ -408,7 +407,6 @@ inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
         },
         .gpu_context = info.render_context->gpu_context,
         .push = DrawVisbufferPush_WriteCommand{.pass = info.pass},
-        .dispatch_callback = [](){ return daxa::DispatchInfo{1,1,1}; },
     };
     info.tg.add_task(write_task);
 

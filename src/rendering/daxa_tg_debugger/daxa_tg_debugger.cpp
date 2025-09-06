@@ -149,7 +149,6 @@ auto channel_count_of_format(daxa::Format format) -> daxa::u32
         case daxa::Format::BC5_SNORM_BLOCK: return 1;
         default: return 0;
     }
-    return 0;
 }
 
 auto scalar_kind_of_format(daxa::Format format) -> ScalarKind
@@ -595,7 +594,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
 
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_slice = slice,
                 .image_id = inspector_state.raw_image_copy,
             });
@@ -614,8 +613,8 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = ti.get(src).access,
                 .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-                .src_layout = ti.get(src).layout,
-                .dst_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
+                .src_layout = daxa::ImageLayout::GENERAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_slice = ti.get(src).view.slice,
                 .image_id = attach_real_id,
             });
@@ -639,16 +638,16 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = daxa::AccessConsts::TRANSFER_WRITE,
                 .dst_access = ti.get(src).access,
-                .src_layout = daxa::ImageLayout::TRANSFER_SRC_OPTIMAL,
-                .dst_layout = ti.get(src).layout,
+                .src_layout = daxa::ImageLayout::GENERAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_slice = ti.get(src).view.slice,
                 .image_id = attach_real_id,
             });
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = daxa::AccessConsts::TRANSFER_WRITE,
                 .dst_access = daxa::AccessConsts::COMPUTE_SHADER_READ,
-                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                .dst_layout = daxa::ImageLayout::GENERAL,               // STORAGE always uses general in daxa
+                .src_layout = daxa::ImageLayout::GENERAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_slice = slice,
                 .image_id = inspector_state.raw_image_copy,
             });
@@ -668,7 +667,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
         // Perform Inspector logic
         ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .dst_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+            .dst_layout = daxa::ImageLayout::GENERAL,
             .image_id = inspector_state.display_image,
         });
 
@@ -682,7 +681,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = daxa::AccessConsts::TRANSFER_WRITE,
                 .dst_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
-                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
+                .src_layout = daxa::ImageLayout::GENERAL,
                 .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_slice = ti.device.image_view_info(inspector_state.display_image.default_view()).value().slice,
                 .image_id = inspector_state.display_image,
@@ -727,7 +726,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
                 .src_access = daxa::AccessConsts::COMPUTE_SHADER_WRITE,
                 .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
                 .src_layout = daxa::ImageLayout::GENERAL,
-                .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_id = inspector_state.display_image,
             });
         }
@@ -736,8 +735,8 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.pipeline_barrier_image_transition(daxa::ImageMemoryBarrierInfo{
                 .src_access = daxa::AccessConsts::TRANSFER_WRITE,
                 .dst_access = daxa::AccessConsts::FRAGMENT_SHADER_READ,
-                .src_layout = daxa::ImageLayout::TRANSFER_DST_OPTIMAL,
-                .dst_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+                .src_layout = daxa::ImageLayout::GENERAL,
+                .dst_layout = daxa::ImageLayout::GENERAL,
                 .image_id = inspector_state.display_image,
             });
         }

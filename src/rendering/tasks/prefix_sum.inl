@@ -92,12 +92,12 @@ inline daxa::ComputePipelineCompileInfo prefix_sum_upsweep_pipeline_compile_info
 struct PrefixSumUpsweepTask : PrefixSumUpsweepH::Task
 {
     AttachmentViews views = {};
-    std::shared_ptr<daxa::ComputePipeline> pipeline = {};
+    //std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * gpu_context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
+        //ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
         PrefixSumUpsweepPush push{ .range = range };
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
@@ -120,12 +120,12 @@ inline daxa::ComputePipelineCompileInfo prefix_sum_downsweep_pipeline_compile_in
 struct PrefixSumDownsweepTask : PrefixSumDownsweepH::Task
 {
     AttachmentViews views = {};
-    std::shared_ptr<daxa::ComputePipeline> pipeline = {};
+    //std::shared_ptr<daxa::ComputePipeline> pipeline = {};
     GPUContext * gpu_context = {};
     PrefixSumRange range = {};
     void callback(daxa::TaskInterface ti)
     {
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
+        //ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(prefix_sum_upsweep_pipeline_compile_info().name));
         PrefixSumUpsweepPush push{ .range = range };
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);

@@ -98,17 +98,14 @@ struct SimpleComputeTask : HeadTaskT
     HeadTaskT::AttachmentViews views = {};
     GPUContext * gpu_context = {};
     PushT push = {};
-    std::function<daxa::DispatchInfo(void)> dispatch_callback = []()
-    {
-        return daxa::DispatchInfo{1, 1, 1};
-    };
+
     static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::Info::NAME}));
         push.attach = ti.attachment_shader_blob;
         ti.recorder.push_constant(push);
-        ti.recorder.dispatch(dispatch_callback());
+        ti.recorder.dispatch(daxa::DispatchInfo{1, 1, 1});
     }
 };
 

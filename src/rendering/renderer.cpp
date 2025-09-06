@@ -288,6 +288,7 @@ void Renderer::compile_pipelines()
         {rtgi_reconstruct_history_gen_mips_diffuse_compile_info()},
         {rtgi_reconstruct_history_apply_diffuse_compile_info()},
         {rtgi_adaptive_blur_diffuse_compile_info()},
+        {rtgi_atrous_blur_diffuse_compile_info()},
         {rtgi_pre_blur_diffuse_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {rtgi_diffuse_temporal_stabilization_compile_info()},
@@ -1157,43 +1158,74 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto rtgi_blurred_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred_diffuse2_image");
         tg.clear_image({ .view = rtgi_blurred_diffuse_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse image"});
         tg.clear_image({ .view = rtgi_blurred_diffuse2_image, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse2 image"});
-        tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur1")
-            .head_views({
-                .globals = render_context->tgpu_render_data.view(),
-                .debug_image = debug_image,
-                .clocks_image = clocks_image,
-                .rtgi_diffuse_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
-                .rtgi_diffuse2_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
-                .rtgi_diffuse_before = rtgi_diffuse_accumulated_image,
-                .rtgi_diffuse2_before = rtgi_diffuse2_accumulated_image,
-                .rtgi_samplecnt = rtgi_samplecnt_image,
-                .view_cam_half_res_depth = view_camera_half_res_depth_image,
-                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
-                .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image,
-                .rtgi_diffuse2_blurred = rtgi_blurred_diffuse2_image,
-            })
-            .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get(), 0u));
-
         auto rtgi_blurred_diffuse_image2 = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_blurred_diffuse_image2");
         auto rtgi_blurred_diffuse2_image2 = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred_diffuse2_image2");
         tg.clear_image({ .view = rtgi_blurred_diffuse_image2, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse image2"});
         tg.clear_image({ .view = rtgi_blurred_diffuse2_image2, .clear_value = std::array{0.0f, 0.0f, 0.0f, 0.0f}, .name = "clear rtgi blurred diffuse2 image2"});
-        tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
-            .head_views({
-                .globals = render_context->tgpu_render_data.view(),
-                .debug_image = debug_image,
-                .clocks_image = clocks_image,
-                .rtgi_diffuse_accumulated = rtgi_diffuse_accumulated_image,   // By setting this attachment, the pass knows its the post blur
-                .rtgi_diffuse2_accumulated = rtgi_diffuse2_accumulated_image,   // By setting this attachment, the pass knows its the post blur
-                .rtgi_diffuse_before = rtgi_blurred_diffuse_image,
-                .rtgi_diffuse2_before = rtgi_blurred_diffuse2_image,
-                .rtgi_samplecnt = rtgi_samplecnt_image,
-                .view_cam_half_res_depth = view_camera_half_res_depth_image,
-                .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
-                .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image2,
-                .rtgi_diffuse2_blurred = rtgi_blurred_diffuse2_image2,
-            })
-            .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get(), 1u));
+
+        auto blur_out = rtgi_blurred_diffuse_image;
+        auto blur_out2 = rtgi_blurred_diffuse2_image;
+        for (u32 pass = 0; pass < 7; ++pass)
+        {
+            auto blur_in = pass == 0 ? rtgi_diffuse_accumulated_image : blur_out;
+            auto blur_in2 = pass == 0 ? rtgi_diffuse2_accumulated_image : blur_out2;
+            blur_out = (pass & 0x1) == 0 ? rtgi_blurred_diffuse_image : rtgi_blurred_diffuse_image2;
+            blur_out2 = (pass & 0x1) == 0 ? rtgi_blurred_diffuse2_image : rtgi_blurred_diffuse2_image2;
+
+            tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>(std::string("RtgiAtrousPass") + std::to_string(pass))
+                .head_views({
+                    .globals = render_context->tgpu_render_data.view(),
+                    .debug_image = debug_image,
+                    .clocks_image = clocks_image,
+                    .rtgi_diffuse_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
+                    .rtgi_diffuse2_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
+                    .rtgi_diffuse_before = blur_in,
+                    .rtgi_diffuse2_before = blur_in2,
+                    .rtgi_samplecnt = rtgi_samplecnt_image,
+                    .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                    .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                    .rtgi_diffuse_blurred = blur_out,
+                    .rtgi_diffuse2_blurred = blur_out2,
+                })
+                .executes(rtgi_atrous_blur_diffuse_callback, render_context.get(), pass));
+        }
+
+        if (false)
+        {
+            tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur1")
+                .head_views({
+                    .globals = render_context->tgpu_render_data.view(),
+                    .debug_image = debug_image,
+                    .clocks_image = clocks_image,
+                    .rtgi_diffuse_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
+                    .rtgi_diffuse2_accumulated = daxa::NullTaskImage,            // By setting this attachment to null, the pass knows its the pre blur
+                    .rtgi_diffuse_before = rtgi_diffuse_accumulated_image,
+                    .rtgi_diffuse2_before = rtgi_diffuse2_accumulated_image,
+                    .rtgi_samplecnt = rtgi_samplecnt_image,
+                    .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                    .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                    .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image,
+                    .rtgi_diffuse2_blurred = rtgi_blurred_diffuse2_image,
+                })
+                .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get(), 0u));
+
+            tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
+                .head_views({
+                    .globals = render_context->tgpu_render_data.view(),
+                    .debug_image = debug_image,
+                    .clocks_image = clocks_image,
+                    .rtgi_diffuse_accumulated = rtgi_diffuse_accumulated_image,   // By setting this attachment, the pass knows its the post blur
+                    .rtgi_diffuse2_accumulated = rtgi_diffuse2_accumulated_image,   // By setting this attachment, the pass knows its the post blur
+                    .rtgi_diffuse_before = rtgi_blurred_diffuse_image,
+                    .rtgi_diffuse2_before = rtgi_blurred_diffuse2_image,
+                    .rtgi_samplecnt = rtgi_samplecnt_image,
+                    .view_cam_half_res_depth = view_camera_half_res_depth_image,
+                    .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
+                    .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image2,
+                    .rtgi_diffuse2_blurred = rtgi_blurred_diffuse2_image2,
+                })
+                .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get(), 1u));
+        }
 
         auto rtgi_diffuse_stable_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_diffuse_stable_image");
         auto rtgi_diffuse2_stable_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_diffuse2_stable_image");
@@ -1202,8 +1234,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
-                .rtgi_diffuse_blurred = rtgi_blurred_diffuse_image2,
-                .rtgi_diffuse2_blurred = rtgi_blurred_diffuse2_image2,
+                .rtgi_diffuse_blurred = blur_out,
+                .rtgi_diffuse2_blurred = blur_out2,
                 .rtgi_diffuse_stable_history_reprojected = rtgi_diffuse_stable_reprojected_image,
                 .rtgi_diffuse2_stable_history_reprojected = rtgi_diffuse2_stable_reprojected_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,

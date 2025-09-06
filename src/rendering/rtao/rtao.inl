@@ -50,7 +50,7 @@ DAXA_DECL_TASK_HEAD_END
 
 struct RTAODenoiserPush
 {
-    RTAODenoiserH::AttachmentShaderBlob attach;
+    RTAODenoiserH::AttachmentShaderBlob attach; 
     daxa_u32vec2 size;
     daxa_f32vec2 inv_size;
 };

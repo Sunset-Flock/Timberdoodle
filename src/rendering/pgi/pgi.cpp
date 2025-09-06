@@ -1537,7 +1537,7 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
         .depth_attachment =
             daxa::RenderAttachmentInfo{
                 .image_view = ti.view(AT.depth_image),
-                .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::DepthValue{0.0f, 0},
@@ -1547,7 +1547,7 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
     render_pass_begin_info.color_attachments = {
         daxa::RenderAttachmentInfo{
             .image_view = ti.view(AT.color_image),
-            .layout = daxa::ImageLayout::ATTACHMENT_OPTIMAL,
+            .layout = daxa::ImageLayout::GENERAL,
             .load_op = daxa::AttachmentLoadOp::LOAD,
             .store_op = daxa::AttachmentStoreOp::STORE,
             .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
