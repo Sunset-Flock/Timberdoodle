@@ -116,7 +116,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
-    const float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 5.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
+    float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 5.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
 
     // Read raw traced diffuse
     float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;
@@ -148,9 +148,20 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         cocg_history = cocg_raw;
     }
 
-    // Write accumulated diffuse
+    #if RTGI_FIREFLY_FILTER
+        const float new_to_old_luma_ratio = sh_y_raw.w / (0.001f + abs(y_history.w));
+        const float supression_factor = min(1.0f, RTGI_FIREFLY_FILTER_THRESHOLD / new_to_old_luma_ratio );
+        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD tu=imes  larger than the history
+        sh_y_raw = lerp(y_history, sh_y_raw, supression_factor);
+        cocg_raw = lerp(cocg_history, cocg_raw, supression_factor);
+    #endif
+
     const float4 sh_y_accumulated = lerp(sh_y_raw, y_history, history_blend);
     const float2 cocg_accumulated = lerp(cocg_raw, cocg_history, history_blend);
+
+    // const bool is_center = (all(dtid.xy == (push.attach.globals.settings.render_target_size / 4)));
+    // push.attach.rtgi_diffuse_accumulated.get()[dtid] = is_center ? float4(1,1,1,1) : float4(0,0,0,0);// sh_y_accumulated;
+    // push.attach.rtgi_diffuse2_accumulated.get()[dtid] = float2(0,0);//cocg_accumulated;
 
     push.attach.rtgi_diffuse_accumulated.get()[dtid] = sh_y_accumulated;
     push.attach.rtgi_diffuse2_accumulated.get()[dtid] = cocg_accumulated;
