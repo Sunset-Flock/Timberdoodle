@@ -1287,6 +1287,10 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             meshlet_aabbs.size() * sizeof(AABB));
         accumulated_offset += sizeof(AABB) * meshlet_count;
         // ---
+        while( ( meshlet_micro_indices.size() % 4 ) != 0)
+        {
+            meshlet_micro_indices.push_back({});
+        }
         DBG_ASSERT_TRUE_M(meshlet_micro_indices.size() % 4 == 0, "Thats crazy");
         mesh.micro_indices = mesh_bda + accumulated_offset;
         std::memcpy(

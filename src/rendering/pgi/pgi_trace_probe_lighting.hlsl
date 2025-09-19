@@ -62,6 +62,7 @@ struct RayPayload
     bool hit;
     float4 color_depth;
     int4 probe_index;
+    float probe_validity;
 }
 
 func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
@@ -203,9 +204,12 @@ void entry_ray_gen()
     ray.TMin = 0.0f;
 
     RayPayload payload;
+    payload.color_depth = float4(0,0,0,0);
     payload.probe_index = probe_index;
+    payload.probe_validity = probe_info.validity;
+    payload.hit = true;
 
-    TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+    TraceRay(push.attach.tlas.get(), 0u, ~0, 0, 0, 0, ray, payload);
 
     RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
@@ -265,6 +269,8 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             push.attach.globals.scene.mesh_groups,
             push.attach.globals.scene.entity_combined_transforms
         );
+
+
         MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
             push.attach.globals,
             tri_geo,
@@ -273,6 +279,14 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
         bool backface = dot(WorldRayDirection(), tri_point.face_normal) > 0.01f && !double_sided_or_blend;
         payload.color_depth.rgb = float3(0,0,0);
+
+        // ~10% speedup
+        if (payload.probe_validity < 0.01f)
+        {
+            payload.color_depth = float4(0,0,0, RayTCurrent() * (backface ? -1 : 1));
+            return;
+        }
+
         if (!backface)
         {
             PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
@@ -299,8 +313,16 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         {
             payload.color_depth.a = -RayTCurrent();
         }
+
+        // ShaderDebugLineDraw line;
+        // line.color = float3(2,1,0);
+        // line.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+        // line.start = WorldRayDirection() * RayTCurrent() + WorldRayOrigin();
+        // line.end = WorldRayDirection() * RayTCurrent() + WorldRayOrigin() + tri_point.face_normal * 0.1f;
+        // debug_draw_line(push.attach.globals.debug, line);
     }
 
+    
 }
 
 [shader("miss")]

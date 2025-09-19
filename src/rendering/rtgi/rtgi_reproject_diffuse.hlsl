@@ -73,7 +73,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))),
             max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
         };
-        const float4 normal_weight = sqrt(normal_similarity);
+        const float4 normal_weight = square(normal_similarity);
 
         // high quality geometric weights
         float4 geometry_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -148,13 +148,27 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         cocg_history = cocg_raw;
     }
 
-    #if RTGI_FIREFLY_FILTER
-        const float new_to_old_luma_ratio = sh_y_raw.w / (0.001f + abs(y_history.w));
-        const float supression_factor = min(1.0f, RTGI_FIREFLY_FILTER_THRESHOLD / new_to_old_luma_ratio );
-        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD tu=imes  larger than the history
-        sh_y_raw = lerp(y_history, sh_y_raw, supression_factor);
-        cocg_raw = lerp(cocg_history, cocg_raw, supression_factor);
-    #endif
+#if RTGI_FIREFLY_FILTER
+    const float new_to_old_luma_ratio = sh_y_raw.w / (0.000000001f + abs(y_history.w));
+    const float supression_factor = min(1.0f, RTGI_FIREFLY_FILTER_THRESHOLD / new_to_old_luma_ratio );
+    // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
+
+    // Calculate the cut radiance, supress it also to at most 16x RTGI_FIREFLY_FILTER_THRESHOLD.
+    // The resulting texture will be separately blurred with a wide radius using 16 taps
+    {
+        float4 cut_energy_sh_y = sh_y_raw * (1.0f - supression_factor);
+        float2 cut_energy_cocg = cocg_raw * (1.0f - supression_factor);
+
+        const float cut_to_old_luma_ratio = cut_energy_sh_y.w / (0.000000001f + abs(y_history.w));
+        const float cut_supression_factor = min(1.0f, ( 4.0f ) / cut_to_old_luma_ratio );
+
+        push.attach.rtgi_diffuse_high_energy.get()[dtid] = cut_energy_sh_y * cut_supression_factor * 0;
+        push.attach.rtgi_diffuse2_high_energy.get()[dtid] = cut_energy_cocg * cut_supression_factor * 0;
+    }
+
+    sh_y_raw = sh_y_raw * supression_factor;
+    cocg_raw = cocg_raw * supression_factor;
+#endif
 
     const float4 sh_y_accumulated = lerp(sh_y_raw, y_history, history_blend);
     const float2 cocg_accumulated = lerp(cocg_raw, cocg_history, history_blend);

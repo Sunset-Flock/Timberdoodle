@@ -37,7 +37,6 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_reconstruct_history_gen_mips_diffuse_compile_info
 MAKE_COMPUTE_COMPILE_INFO(rtgi_reconstruct_history_apply_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reconstruct_history.hlsl", "entry_apply_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_pre_blur_diffuse")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_atrous_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_atrous_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_diffuse_temporal_stabilization_compile_info, "./src/rendering/rtgi/rtgi_reproject_diffuse.hlsl", "entry_temporal_stabilization")
 
@@ -114,21 +113,6 @@ inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext
 {
     auto const & AT = RtgiPreBlurH::Info::AT;
     rtgi_common_task_callback(RtgiPreBlurPush(), ti, render_context, AT.view_cam_half_res_depth, RTGI_PRE_BLUR_DIFFUSE_X, RenderTimes::index<"RTGI", "PRE_BLUR_DIFFUSE">(), rtgi_pre_blur_diffuse_compile_info().name);
-}
-
-inline void rtgi_atrous_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
-{
-    auto const & AT = RtgiAdaptiveBlurH::Info::AT;
-    std::array pass_times = {
-        RenderTimes::index<"RTGI", "ATROUS_0">(),
-        RenderTimes::index<"RTGI", "ATROUS_1">(),
-        RenderTimes::index<"RTGI", "ATROUS_2">(),
-        RenderTimes::index<"RTGI", "ATROUS_3">(),
-        RenderTimes::index<"RTGI", "ATROUS_4">(),
-        RenderTimes::index<"RTGI", "ATROUS_5">(),
-        RenderTimes::index<"RTGI", "ATROUS_6">(),
-    };
-    rtgi_common_task_callback(RtgiAtrousBlurPush{.pass = pass}, ti, render_context, AT.view_cam_half_res_depth, RTGI_ATROUS_BLUR_DIFFUSE_X, pass_times[pass], rtgi_atrous_blur_diffuse_compile_info().name);
 }
 
 inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)

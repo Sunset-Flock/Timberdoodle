@@ -651,14 +651,17 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Checkbox("Debug Draw Probe Repositioning Forces", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_repositioning_forces));
                 ImGui::Checkbox("Debug Draw Probe Grid", reinterpret_cast<bool *>(&render_data.pgi_settings.debug_draw_grid));
                 auto debug_daw_modes = std::array{
-                    "OFF",         // PGI_DEBUG_PROBE_DRAW_MODE_OFF
-                    "IRRADIANCE",  // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
-                    "DISTANCE",    // PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE
-                    "UNCERTAINTY", // PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY
-                    "TEXEL",       // PGI_DEBUG_PROBE_DRAW_MODE_TEXEL
-                    "UV",          // PGI_DEBUG_PROBE_DRAW_MODE_UV
-                    "NORMAL",      // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
-                    "HYSTERESIS",  // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
+                    "OFF",                  // PGI_DEBUG_PROBE_DRAW_MODE_OFF
+                    "IRRADIANCE",           // PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE
+                    "RADIANCE",             // PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE
+                    "RADIANCE_REFLECTION",  // PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE_REFLECTION
+                    "DISTANCE",             // PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE
+                    "UNCERTAINTY",          // PGI_DEBUG_PROBE_DRAW_MODE_UNCERTAINTY
+                    "COLOR_TEXEL",          // PGI_DEBUG_PROBE_DRAW_MODE_COLOR_TEXEL
+                    "DEPTH_TEXEL",          // PGI_DEBUG_PROBE_DRAW_MODE_DEPTH_TEXEL
+                    "UV",                   // PGI_DEBUG_PROBE_DRAW_MODE_UV
+                    "NORMAL",               // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
+                    "HYSTERESIS",           // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
                 ImGui::Combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);

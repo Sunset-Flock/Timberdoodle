@@ -9,18 +9,20 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 12
-#define RTGI_SPATIAL_FILTER_RADIUS_MIN 6
+#define RTGI_SPATIAL_FILTER_RADIUS_MIN 4
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 64
 
-#define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 1
-#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 0
-#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 0
+#define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 16
+#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 64
+#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 64
 
 #define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 0
 
 #define RTGI_SPATIAL_PASSTHROUGH 0
 
 #define RTGI_FIREFLY_FILTER 1
+// With a value of 32 AND a value of 32 accumulated frames,
+// Effectively, each pixel can AT MOST double its brightness every frame PRE blurring.
 #define RTGI_FIREFLY_FILTER_THRESHOLD 32.0f
 
 func get_geometry_weight_threshold(float2 inv_render_target_size, float near_plane, float depth) -> float

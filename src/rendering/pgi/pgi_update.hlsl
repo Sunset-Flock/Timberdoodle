@@ -93,7 +93,16 @@ func write_probe_texel_with_border(RWTexture2DArray<vector<float,N>> tex, int2 p
 
 [[vk::push_constant]] PGIUpdateProbeTexelsPush update_probe_texels_push;
 
+func abs_radiance(float3 radiance) -> float
+{
+    return radiance.r + radiance.g * 2.0f + radiance.b * 0.5f;
+}
+
 #define PGI_PERCEPTUAL_EXPONENT 4.0f
+func perceptual_lerp3(float3 a, float3 b, float v) -> float3
+{
+    return pow(lerp(pow(a + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), v), PGI_PERCEPTUAL_EXPONENT);
+}
 
 func entry_update_probe_color(
     int3 dtid,
@@ -149,6 +158,9 @@ func entry_update_probe_color(
     float rcp_s = rcp(s);
     Texture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
+    float4 prev_frame_texel = push.attach.probe_color.get()[probe_texture_index];
+    float3 prev_frame_irradiance = prev_frame_texel.rgb;
+
     float3 radiance = float3(0.0f,0.0f,0.0f);
     float radiance_weight = 0.0f;
     for (int y = 0; y < s; ++y)
@@ -161,6 +173,15 @@ func entry_update_probe_color(
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
+
+            // Firely filter
+            if (true) 
+            {
+                const float firely_clamp_threshold_ratio = 64.0f;
+                const float relative_radiance_difference = abs_radiance(sample.rgb) / ( 0.000001f + abs_radiance(prev_frame_irradiance) );
+                const float supression_factor = min(1.0f, firely_clamp_threshold_ratio / relative_radiance_difference );
+                sample.rgb *= supression_factor;
+            }
             
             const bool backface_hit = sample.a < 0.0f;
             if (!backface_hit)
@@ -190,27 +211,24 @@ func entry_update_probe_color(
     }
 
     float3 new_irradiance = cosine_convoluted_trace_result.rgb;
-    float4 prev_frame_texel = push.attach.probe_color.get()[probe_texture_index];
-    float3 prev_frame_irradiance = prev_frame_texel.rgb;
-
+    
     // Automatic Hysteresis
     float hysteresis = prev_frame_texel.a;
     {
-        // calculate the difference in a tonemap space (pow2), So we get the perceptual lighting change.
-        const float3 power_scaled_irradiance_prev = prev_frame_irradiance;
-        const float3 power_scaled_irradiance_new = new_irradiance;
-        const float3 power_scaled_min = min(power_scaled_irradiance_prev, power_scaled_irradiance_new);
-        const float3 power_scaled_max = max(power_scaled_irradiance_prev, power_scaled_irradiance_new);
+        const float HYSTERESIS_UPDATE_RATE = 0.05f;
+        const float HYSTERESIS_MIN_RELATIVE_CHANGE = 2.0f;
+        const float MAX_MAX_RELATIVE_DIFFERENCE = 3.0f;
 
-        const float3 relative_difference = (power_scaled_max - power_scaled_min) / power_scaled_min;
-        const float max_relative_difference = max3(relative_difference.x, relative_difference.y, relative_difference.z);
-
-        float factor = 2.0f - max_relative_difference;
-        hysteresis += clamp(factor, -0.01f, 0.05f);
-        hysteresis = clamp(hysteresis, 0.1f, 1.2f); // allow it to go over 1 to have some buffer for shot term light changes.
+        const float3 power_scaled_min = min(prev_frame_irradiance, new_irradiance);
+        const float3 relative_difference = abs(prev_frame_irradiance - new_irradiance) / power_scaled_min;
+        const float max_relative_difference = min(max3(relative_difference.x, relative_difference.y, relative_difference.z), MAX_MAX_RELATIVE_DIFFERENCE);
+        const float BASE_CONFIDENCE_GAIN = HYSTERESIS_UPDATE_RATE;
+        const float RELATIVE_DIFFERENCE_SCALING = BASE_CONFIDENCE_GAIN / HYSTERESIS_MIN_RELATIVE_CHANGE;
+        hysteresis += -max_relative_difference * RELATIVE_DIFFERENCE_SCALING + BASE_CONFIDENCE_GAIN;
+        hysteresis = clamp(hysteresis, 0.0f, 0.95f);
     }
-    hysteresis = clamp(hysteresis, 0.75f, 0.975f);
     float blend = hysteresis;
+    // default initialize probe lighting with higher cascade value if possible
     if (probe_info.validity < 0.5f)
     {
         if (probe_index.w + 1 < reg_settings.cascade_count)
@@ -230,13 +248,15 @@ func entry_update_probe_color(
         blend = 0.0f;
         hysteresis = 0.5f;
     }
-    // Perform blend in perceptual space. Reduces noise and increased convergence from bright to drark drastically.
-    new_irradiance = pow(lerp(pow(new_irradiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_frame_irradiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), blend), PGI_PERCEPTUAL_EXPONENT);
+    
+    // Perceptual lerp helps with blending to dark values
+    new_irradiance = perceptual_lerp3(new_irradiance, prev_frame_irradiance, blend);
     new_irradiance = max(new_irradiance, float3(0,0,0)); // remove nans, what can i say...
 
-    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.75f;
+    // Perceptual lerp helps with blending to dark values
+    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.5f;
     const float3 prev_exact_radiance = push.attach.probe_color.get()[probe_texture_index + int3(0, 0, reg_settings.cascade_count * reg_settings.probe_count.z)].rgb;
-    float3 new_radiance = pow(lerp(pow(radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(prev_exact_radiance + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), radiance_blend), PGI_PERCEPTUAL_EXPONENT);
+    float3 new_radiance = perceptual_lerp3(radiance, prev_exact_radiance, radiance_blend);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
 
     write_probe_texel_with_border(push.attach.probe_color.get(), reg_settings.probe_color_resolution, probe_texture_base_index, probe_texel, float4(new_irradiance, hysteresis));
