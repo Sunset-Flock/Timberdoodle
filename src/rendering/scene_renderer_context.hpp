@@ -368,7 +368,7 @@ namespace RenderTimes
 
         void init(daxa::Device & device, u32 frames_in_flight)
         {
-            query_version_count = frames_in_flight + 1;
+            query_version_count = frames_in_flight;
             timeline_query_pool = device.create_timeline_query_pool({
                 .query_count = 2 * FLAT_TIMINGS_COUNT * query_version_count,
                 .name = "render times query pool",

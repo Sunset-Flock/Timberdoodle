@@ -787,7 +787,7 @@ void tg_debug_image_inspector(
     std::string active_attachment_key, 
     daxa::u32 frame_index)
 {
-    tg_debug.readback_index = frame_index % (tg_debug.frames_in_flight + 1);
+    tg_debug.readback_index = frame_index % tg_debug.frames_in_flight;
     auto & state = tg_debug.inspector_states[active_attachment_key];
     if (ImGui::Begin(std::format("Inspector for {}", active_attachment_key.c_str()).c_str(), nullptr, {}))
     {

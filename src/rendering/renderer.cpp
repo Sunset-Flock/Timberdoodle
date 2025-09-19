@@ -76,7 +76,7 @@ Renderer::Renderer(
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     exposure_state = create_task_buffer(gpu_context, sizeof(AutoExposureState), "exposure state", "exposure_state");
     general_readback_buffer = gpu_context->device.create_buffer({
-        .size = sizeof(ReadbackValues) * (MAX_GPU_FRAMES_IN_FLIGHT + 1),
+        .size = sizeof(ReadbackValues) * (MAX_GPU_FRAMES_IN_FLIGHT),
         .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "general readback buffer",
     });
@@ -1602,7 +1602,7 @@ auto Renderer::prepare_frame(
 
     // Do General Readback
     {
-        u32 const index = render_context->render_data.frame_index % (MAX_GPU_FRAMES_IN_FLIGHT + 1);
+        u32 const index = render_context->render_data.frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
         render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
         render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
         render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame

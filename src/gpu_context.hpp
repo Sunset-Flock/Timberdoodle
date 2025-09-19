@@ -112,7 +112,7 @@ struct ShaderDebugDrawContext
         });
 
         readback_queue = device.create_buffer({
-            .size = sizeof(ShaderDebugOutput) * (MAX_GPU_FRAMES_IN_FLIGHT + 1),
+            .size = sizeof(ShaderDebugOutput) * (MAX_GPU_FRAMES_IN_FLIGHT),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
             .name = "shader debug readback queue",
         });
@@ -124,7 +124,7 @@ struct ShaderDebugDrawContext
 
         // Readback
         {
-            u32 const readback_index = frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
+            u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
             auto& readback_buffer_ref = device.buffer_host_address_as<ShaderDebugOutput>(readback_queue).value()[readback_index];
             shader_debug_output = readback_buffer_ref;  // read back from previous frame
             readback_buffer_ref = {};                   // clear for next frame
@@ -133,7 +133,7 @@ struct ShaderDebugDrawContext
     
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
-        u32 const readback_index = frame_index % (MAX_GPU_FRAMES_IN_FLIGHT+1);
+        u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
         u32 buffer_mem_offset = sizeof(ShaderDebugBufferHead);
         auto head = ShaderDebugBufferHead{
             .cpu_input = shader_debug_input,
@@ -210,7 +210,7 @@ struct ReadbackTask : ReadbackH::Task
     ShaderDebugDrawContext * shader_debug_context = {};
     void callback(daxa::TaskInterface ti)
     {
-        u32 const index = ((shader_debug_context->frame_index) % (MAX_GPU_FRAMES_IN_FLIGHT+1));
+        u32 const index = ((shader_debug_context->frame_index) % MAX_GPU_FRAMES_IN_FLIGHT);
         std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
         // Set the currently recording frame to write its debug output to the slot we just read from.
         ti.recorder.copy_buffer_to_buffer({
