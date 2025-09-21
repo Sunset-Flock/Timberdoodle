@@ -177,8 +177,8 @@ func entry_update_probe_color(
             // Firefly filter
             if (true) 
             {
-                const float firely_clamp_threshold_ratio = 32.0f;
-                const float relative_radiance_difference = abs_radiance(sample.rgb) / ( 0.000001f + abs_radiance(prev_frame_irradiance) );
+                const float firely_clamp_threshold_ratio = 64.0f;
+                const float relative_radiance_difference = abs_radiance(sample.rgb) / ( 0.0001f + abs_radiance(prev_frame_irradiance) );
                 const float supression_factor = min(1.0f, firely_clamp_threshold_ratio / relative_radiance_difference );
                 sample.rgb *= supression_factor;
             }

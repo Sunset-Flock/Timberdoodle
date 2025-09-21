@@ -211,7 +211,7 @@ void miss(inout RayPayload payload)
 
             payload.color.rgb = pgi_sample_probe_volume(
                 push.attach.globals, &push.attach.globals.pgi_settings, info,
-                sample_position, push.attach.globals.view_camera.position, sample_direction,, sample_direction
+                sample_position, push.attach.globals.view_camera.position, sample_direction, -sample_direction,
                 push.attach.pgi_irradiance.get(),
                 push.attach.pgi_visibility.get(),
                 push.attach.pgi_info.get(),

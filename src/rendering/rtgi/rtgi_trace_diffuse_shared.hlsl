@@ -13,7 +13,7 @@
 #define RTGI_PGI_RADIANCE_CACHE_TMIN 0.0f
 
 #if RTGI_USE_PGI_RADIANCE_ON_MISS
-static const float TMAX = 4.0f;
+static const float TMAX = 8.0f;
 #else
 static const float TMAX = 100000000000.0f; // Arbitrary large value
 #endif
