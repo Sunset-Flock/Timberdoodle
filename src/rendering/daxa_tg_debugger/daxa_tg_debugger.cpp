@@ -659,7 +659,15 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
         inspector_state.runtime_image_info = raw_image_copy_info;
         inspector_state.attachment_info = attach_info;
 
-        inspector_state.slice_valid = inspector_state.attachment_info.view.slice.contains(daxa::ImageMipArraySlice{
+        auto const image_slice = inspector_state.attachment_info.view.slice;
+        auto const validated_slice = daxa::ImageMipArraySlice{
+            .base_mip_level = image_slice.base_mip_level,
+            .level_count = image_slice.level_count,
+            .base_array_layer = image_slice.base_array_layer,
+            .layer_count = std::max(image_slice.layer_count, attach_real_info.size.z)
+        };
+
+        inspector_state.slice_valid = validated_slice.contains(daxa::ImageMipArraySlice{
             .base_mip_level = inspector_state.mip,
             .base_array_layer = inspector_state.layer,
         });
@@ -690,6 +698,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.set_pipeline(pipeline);
 
             daxa::ImageViewInfo src_image_view_info = ti.device.image_view_info(raw_image_copy.default_view()).value();
+            src_image_view_info.type = daxa::ImageViewType::REGULAR_2D;
             src_image_view_info.slice.level_count = 1;
             src_image_view_info.slice.layer_count = 1;
             src_image_view_info.slice.base_mip_level = inspector_state.mip;

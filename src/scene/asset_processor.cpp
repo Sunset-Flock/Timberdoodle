@@ -314,7 +314,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
     //        wrapper so that it can internally process the data
     FIMEMORY * fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
-    defer
+    tido_defer
     {
         FreeImage_CloseMemory(fif_memory_wrapper);
     };
@@ -334,7 +334,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
         return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT;
     }
     FIBITMAP * image_bitmap = FreeImage_LoadFromMemory(image_format, fif_memory_wrapper);
-    defer
+    tido_defer
     {
         FreeImage_Unload(image_bitmap);
     };
@@ -393,7 +393,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     {
         modified_bitmap = image_bitmap;
     }
-    defer
+    tido_defer
     {
         if (channel_count == 3)
             FreeImage_Unload(modified_bitmap);
@@ -447,7 +447,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
-    defer
+    tido_defer
     {
         ktxTexture_Destroy(ktxTexture(texture));
     };
@@ -1385,3 +1385,4 @@ void AssetProcessor::clear()
         _upload_texture_queue.clear();
     }
 }
+

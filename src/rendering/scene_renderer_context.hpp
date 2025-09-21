@@ -112,6 +112,13 @@ namespace RenderTimes
             },
         },
         GroupNames{
+            "CLOUDS",
+            {
+                "RAYMARCH",
+                "COMPOSE",
+            }
+        },
+        GroupNames{
             "MISC",
             {
                 "CULL_LIGHTS",
@@ -561,9 +568,25 @@ struct RenderContext
                 .max_lod = 3.0f,
                 .name = "normals sampler",
             }),
+            .clouds_noise_sampler = gpu_context->device.create_sampler({
+                .mipmap_filter = daxa::Filter::NEAREST,
+                .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+                .mip_lod_bias = 0.0f,
+                .name = "Clouds noise sampler",
+            }),
+            .cubic_clamp_sampler = gpu_context->device.create_sampler({
+                .magnification_filter = daxa::Filter::CUBIC_IMG,
+                .minification_filter = daxa::Filter::CUBIC_IMG,
+                .mipmap_filter = daxa::Filter::NEAREST,
+                .address_mode_u = daxa::SamplerAddressMode::CLAMP_TO_BORDER,
+                .address_mode_v = daxa::SamplerAddressMode::CLAMP_TO_BORDER,
+                .address_mode_w = daxa::SamplerAddressMode::CLAMP_TO_BORDER,
+            })
         };
         render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
-        render_times.init(gpu_context->device, gpu_context->swapchain.info().max_allowed_frames_in_flight);
+        render_times.init(gpu_context->device, gpu_context->swapchain.info().max_allowed_frames_in_flight + 1);
     }
     ~RenderContext()
     {
@@ -576,6 +599,8 @@ struct RenderContext
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat_ani));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.clouds_noise_sampler));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.cubic_clamp_sampler));
     }
 
     // GPUContext containing all shared global-ish gpu related data.
@@ -605,6 +630,7 @@ struct RenderContext
     i32 debug_frustum = {-1};
     bool visualize_point_frustum = {};
     bool visualize_spot_frustum = {};
+    bool visualize_clouds_bounds = {};
 
     // TimingName code:
     RenderTimes::State render_times = {};

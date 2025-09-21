@@ -1,5 +1,6 @@
 #include "application.hpp"
 #include "json_handler.hpp"
+#include "openvdb_loader.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
 
@@ -14,6 +15,21 @@ Application::Application()
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\NubisCloudsPack\\NVDFs\\Examples\\ParkouringCloud\\VDB\\ParkouringCloud.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\NubisCloudsPack\\NVDFs\\Examples\\StormbirdCloud\\VDB\\StormbirdCloud.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\VDB Clouds Pack\\VDB Clouds Pack\\Cloud_03.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\wdas_cloud\\wdas_cloud\\wdas_cloud_sixteenth.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\IntelVolumetricClouds_medium\\intelCloudLib_dense.0.M.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\IntelVolumetricClouds_small\\intelCloudLib_dense.2.S.vdb";
+    // std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\Anvil_Field_2\\f420\\Anvil_Field_2.f420.eighth.vdb";
+    std::filesystem::path const TEST_VDB_PATH = "assets\\Clouds\\Houdini_cloud_experiments\\test18.vdb";
+
+
+    std::filesystem::path const TEST_DETAIL_NOISE_PATH = "assets\\Clouds\\NubisCloudsPack\\Noise\\Examples\\VDB\\NubisVoxelCloudNoise.vdb";
+    // _gpu_context->cloud_data_field = load_vdb(TEST_VDB_PATH, _gpu_context->device, true, true);
+    _gpu_context->cloud_data_field = load_vdb(TEST_VDB_PATH, _gpu_context->device, false, false);
+    _gpu_context->cloud_detail_noise = load_vdb(TEST_DETAIL_NOISE_PATH, _gpu_context->device, false, false);
+
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
 
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
@@ -23,6 +39,7 @@ Application::Application()
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\keypoints.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\exported_path.json";
 
+    _renderer->render_context->render_data.volumetric_settings.size = std::bit_cast<daxa_u32vec3>(_gpu_context->device.image_info(_gpu_context->cloud_data_field).value().size);
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 

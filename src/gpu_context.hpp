@@ -235,6 +235,9 @@ struct GPUContext
     daxa::Swapchain swapchain = {};
     daxa::PipelineManager pipeline_manager = {};
 
+    daxa::ImageId cloud_data_field;
+    daxa::ImageId cloud_detail_noise;
+
     ShaderDebugDrawContext shader_debug_context = {};
 
     struct RayTracingPipelineInfo

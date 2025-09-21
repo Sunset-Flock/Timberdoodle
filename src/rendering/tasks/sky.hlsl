@@ -1,5 +1,6 @@
 #include <daxa/daxa.inl>
 #include "shader_lib/sky_util.glsl"
+#include "shader_lib/volumetric.hlsl"
 #include "sky.inl"
 
 [[vk::push_constant]] ComputeTransmittanceH::AttachmentShaderBlob transmittance_push;
@@ -76,29 +77,6 @@ float get_integration_length(const float3 world_position, const float3 world_dir
     const float capped_atmo_bottom_dist = (atmo_bottom_intersect_distance == -1.0f) ? float.maxValue : atmo_bottom_intersect_distance;
     const float capped_atmo_top_dist = (atmo_top_intersect_distance == -1.0f) ? float.maxValue : atmo_top_intersect_distance;
     return min(capped_atmo_bottom_dist, capped_atmo_top_dist);
-}
-
-float rayleigh_phase(float cos_theta)
-{
-    float factor = 3.0 / (16.0 * PI);
-    return factor * (1.0 + cos_theta * cos_theta);
-}
-// https://research.nvidia.com/labs/rtr/approximate-mie/publications/approximate-mie.pdf
-float draine_phase(float alpha, float g, float cos_theta)
-{
-    return (1.0 / (4.0 * PI)) *
-           ((1.0 - (g * g)) / pow((1.0 + (g * g) - (2.0 * g * cos_theta)), 3.0 / 2.0)) *
-           ((1.0 + (alpha * cos_theta * cos_theta)) / (1.0 + (alpha * (1.0 / 3.0) * (1.0 + (2.0 * g * g)))));
-}
-
-float hg_draine_phase(float cos_theta, float diameter)
-{
-    const float g_hg = exp(-(0.0990567 / (diameter - 1.67154)));
-    const float g_d = exp(-(2.20679 / (diameter + 3.91029)) - 0.428934);
-    const float alpha = exp(3.62489 - (8.29288 / (diameter + 5.52825)));
-    const float w_d = exp(-(0.599085 / (diameter - 0.641583)) - 0.665888);
-
-    return lerp(draine_phase(0, g_hg, cos_theta), draine_phase(alpha, g_d, cos_theta), w_d);
 }
 
 struct GetMultipleScatteringInfo

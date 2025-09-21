@@ -49,6 +49,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"
     "src/json_handler.cpp"
+    "src/openvdb_loader.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/daxa_tg_debugger/daxa_tg_debugger.cpp"
 )
@@ -59,6 +60,7 @@ find_package(fastgltf CONFIG REQUIRED)
 find_package(freeimage CONFIG REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(implot CONFIG REQUIRED)
+find_package(OpenVDB CONFIG REQUIRED)
 
 # NOTE(grundlett): Really hacky. It appears there's no way to create plugin dll dependencies...
 # see https://gitlab.kitware.com/cmake/cmake/-/issues/22993
@@ -106,6 +108,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     freeimage::FreeImage
     nlohmann_json::nlohmann_json
     implot::implot
+    OpenVDB::openvdb
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")

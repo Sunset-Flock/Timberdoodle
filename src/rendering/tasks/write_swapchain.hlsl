@@ -250,10 +250,10 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     // Crosshair:
     int crosshair_extent = 16;
     int crosshair_thickness = 2;
-    if ((all(index > (push.size/2-(crosshair_extent/2)) && all(index < (push.size/2+(crosshair_extent/2))))) && (any(index > (push.size/2-(crosshair_thickness/2)) && index < (push.size/2+(crosshair_thickness/2)))))
-    {
-        color.rgb = rotate_ldr_color(color.rgb);
-    }
+    // if ((all(index > (push.size/2-(crosshair_extent/2)) && all(index < (push.size/2+(crosshair_extent/2))))) && (any(index > (push.size/2-(crosshair_thickness/2)) && index < (push.size/2+(crosshair_thickness/2)))))
+    // {
+    //     color.rgb = rotate_ldr_color(color.rgb);
+    // }
 
 
     float3 gamma_correct = sRGB_OETF(color);

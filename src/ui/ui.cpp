@@ -7,6 +7,7 @@
 #include "../daxa_helper.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
 #include "../rendering/daxa_tg_debugger/daxa_tg_debugger.hpp"
+#include "../shader_lib/volumetric.hlsl"
 
 void setup_colors()
 {
@@ -830,6 +831,192 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::Text("Drawn Total %i", drawn_directional + drawn_point);
                 ImGui::Text("Cached Total %i", cached_point + cached_point_visible + cached_directional + cached_directional_visible);
                 ImGui::Text("Total %i", cached_pages + free_pages + visible_pages);
+            }
+            if (ImGui::CollapsingHeader("Clouds Settings"))
+            {
+                bool enable = s_cast<bool>(render_context.render_data.volumetric_settings.enable);
+                ImGui::Checkbox("Enable Volumetrics", &enable);
+
+                ImGui::SeparatorText("Clouds");
+                ImGui::Checkbox("Visualize bounds", &render_context.visualize_clouds_bounds);
+
+                ImGui::Dummy({0.0, 3.0f});
+
+                {
+                    f32 const text_size = s_cast<f32>(ImGui::GetContentRegionAvail().x * 0.2f);
+                    ImGui::Text("Position");
+                    ImGui::SameLine(text_size);
+                    ImGui::DragFloat3("##pos", r_cast<f32*>(&render_context.render_data.volumetric_settings.position), 10.0f, -1000.0f, 1000.0f);
+
+                    ImGui::Text("Scale");
+                    ImGui::SameLine(text_size);
+                    ImGui::DragFloat("##scale", r_cast<f32*>(&render_context.render_data.volumetric_settings.scale), 10.0f, 0.01f, 1000.0f);
+
+                    ImGui::Text("Max secondary ray march steps:");
+                    ImGui::DragInt("##secondary_steps", &render_context.render_data.volumetric_settings.secondary_steps, 1, 0, 20);
+                }
+
+                {
+                    f32 const text_size = s_cast<f32>(ImGui::GetContentRegionAvail().x * 0.4f);
+                    f32 const drag_size = (s_cast<f32>(ImGui::GetContentRegionAvail().x) - text_size);
+                    f32 const indent_size = 10.0f;
+                    ImGui::Indent(indent_size);
+                    ImGui::SeparatorText("Material");
+
+                    ImGui::Text("Albedo");
+                    ImGui::SameLine(text_size);
+                    ImGui::SetNextItemWidth(drag_size);
+                    ImGui::DragFloat("##albedo", &render_context.render_data.volumetric_settings.clouds_albedo, 0.01f, 0.0f, 1.0f);
+
+                    ImGui::Text("Density scale");
+                    ImGui::SameLine(text_size);
+                    ImGui::SetNextItemWidth(drag_size);
+                    ImGui::DragFloat("##density", &render_context.render_data.volumetric_settings.clouds_density_scale, 0.01f, 0.0f, 10.0f);
+
+                    ImGui::Unindent(indent_size);
+                }
+
+                {
+                    f32 const indent_size = 10.0f;
+                    ImGui::Indent(indent_size);
+                    ImGui::SeparatorText("Phase function");
+
+                    auto phase_functions = std::array{
+                        "HENYEY_GREENSTEIN",
+                        "HENYEY_GREENSTEIN_OCTAVES",
+                        "DRAINE",
+                    };
+                    auto phase_function_mappings = std::array{
+                        HENYEY_GREENSTEIN,
+                        HENYEY_GREENSTEIN_OCTAVES,
+                        DRAINE,
+                    };
+
+                    i32 & phase_model = render_context.render_data.volumetric_settings.phase_function_model;
+                    ImGui::Combo("Model", &phase_model, phase_functions.data(), s_cast<int>(phase_functions.size()));
+
+                    const i32 samples = 1000;
+                    std::array<f32, samples> x_values = {};
+                    std::array<f32, samples> y_values = {};
+
+                    f32 & g = render_context.render_data.volumetric_settings.g;
+                    f32 & diameter = render_context.render_data.volumetric_settings.diameter;
+
+                    f32 & w_0 = render_context.render_data.volumetric_settings.w_0;
+                    f32 & w_1 = render_context.render_data.volumetric_settings.w_1;
+                    i32 & octaves = render_context.render_data.volumetric_settings.octaves;
+
+                    static f32 extinction = 1.0f;
+
+                    bool modulate_density = (render_context.render_data.volumetric_settings.use_density_modulated_g == 1u);
+                    ImGui::Checkbox("Modulate g with density", &modulate_density);
+                    render_context.render_data.volumetric_settings.use_density_modulated_g = modulate_density ? 1u : 0u;
+
+                    switch(phase_model)
+                    {
+                        case HENYEY_GREENSTEIN:
+                        {
+                            ImGui::DragFloat("g", &g, 0.01f, 0.0f, 1.0f);
+                            break;
+                        }
+                        case HENYEY_GREENSTEIN_OCTAVES:
+                        {
+                            ImGui::DragFloat("g", &g, 0.01f, 0.0f, 1.0f);
+                            ImGui::DragFloat("w_0", &w_0, 0.01f, 0.0f, 10.0f);
+                            ImGui::DragFloat("w_1", &w_1, 0.01f, 0.0f, 10.0f);
+                            ImGui::InputInt("octaves", &octaves, 1, 1);
+                            ImGui::DragFloat("extinction", &extinction, 0.1f, 0.0f, 100.0f);
+                            break;
+                        }
+                        case DRAINE:
+                        {
+                            ImGui::DragFloat("g", &g, 0.01f, 0.0f, 1.0f);
+                            ImGui::DragFloat("diameter", &diameter, 0.5f, 5.0f, 50.0f);
+                        }
+                    }
+
+                    for (i32 i = 0; i < x_values.size(); i++)
+                    {
+                        f32 const angle_rad = (f32(i) / samples) * 2.0f * s_cast<f32>(PI);
+                        f32 const cos_theta = std::cos(angle_rad);
+                        f32 r = 1.0f;
+                        switch(phase_model)
+                        {
+                            case HENYEY_GREENSTEIN: 
+                            {
+                                r = henyey_greenstein_phase(g, cos_theta);
+                                break;
+                            }
+                            case HENYEY_GREENSTEIN_OCTAVES:
+                            {
+                                r = multi_octave_hg(g, cos_theta, extinction, w_0, w_1, octaves);
+                                break;
+                            }
+                            case DRAINE:
+                            {
+                                r = draine_phase(diameter, g, cos_theta);
+                                break;
+                            }
+                        }
+                        x_values[i] = r * std::cos(angle_rad);
+                        y_values[i] = r * std::sin(angle_rad);
+                    }
+
+                    ImPlot::PushStyleColor(ImPlotCol_FrameBg, bg_4);
+                    f32 const size = ImGui::GetContentRegionAvail().x - 20.0f;
+                    if (ImPlot::BeginPlot("##hg", {size, size}, ImPlotFlags_Equal))
+                    {
+
+                        ImPlot::PushStyleColor(ImPlotCol_Line, ImGui::ColorConvertFloat4ToU32(select_blue_1));
+                        ImPlot::SetupAxes("##x", "##y", ImPlotAxisFlags_AutoFit, ImPlotAxisFlags_AutoFit);
+                        ImPlot::PlotLine("", x_values.data(), y_values.data(), samples);
+                        ImPlot::PopStyleColor();
+
+                        ImPlot::EndPlot();
+                    }
+                    ImPlot::PopStyleColor();
+                    ImGui::Unindent(indent_size);
+                }
+
+                {
+                    i32vec2 const screen_bounds = s_cast<i32vec2>(std::bit_cast<u32vec2>(render_context.render_data.settings.render_target_size));
+                    f32 const text_size = s_cast<f32>(ImGui::GetContentRegionAvail().x * 0.4f);
+                    f32 const drag_size = (s_cast<f32>(ImGui::GetContentRegionAvail().x) - text_size) * 0.5f;
+                    ImGui::Text("Debug Pixel");
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(drag_size);
+                    ImGui::DragInt("##debug_pixel_x", &render_context.render_data.volumetric_settings.debug_pixel.x, 10, -1, screen_bounds.x);
+                    ImGui::SameLine();
+                    ImGui::SetNextItemWidth(drag_size);
+                    ImGui::DragInt("##debug_pixel_y", &render_context.render_data.volumetric_settings.debug_pixel.y, 10, -1, screen_bounds.y);
+                }
+
+                const bool debug_pixel_selected = 
+                    render_context.render_data.volumetric_settings.debug_pixel.x > 0 &&
+                    render_context.render_data.volumetric_settings.debug_pixel.y > 0;
+
+                if (!app_state.draw_observer && debug_pixel_selected) 
+                {
+                    f32vec2 aabb_size = {
+                        render_context.render_data.settings.render_target_size_inv.x,
+                        render_context.render_data.settings.render_target_size_inv.y 
+                    };
+                    daxa_f32vec3 aabb_pos = {
+                        ((s_cast<f32>(render_context.render_data.volumetric_settings.debug_pixel.x) + 0.5f) * aabb_size.x) * 2.0f - 1.0f,
+                        ((s_cast<f32>(render_context.render_data.volumetric_settings.debug_pixel.y) + 0.5f) * aabb_size.y) * 2.0f - 1.0f,
+                        0.5f,
+                    };
+                    render_context.gpu_context->shader_debug_context.aabb_draws.draw({
+                        ShaderDebugAABBDraw{
+                            .position = aabb_pos,
+                            .size = {0.01f, 0.01f},
+                            .color = {1.0f, 0.0f, 0.0f},
+                            .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA,
+                        }
+                    });
+                }
+                
+                render_context.render_data.volumetric_settings.enable = enable;
             }
         }
     }

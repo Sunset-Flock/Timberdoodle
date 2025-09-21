@@ -104,6 +104,8 @@ struct Renderer
     daxa::TaskImage rtgi_depth_history = {};
     daxa::TaskImage rtgi_face_normal_history = {};
     daxa::TaskImage rtgi_samplecnt_history = {};
+    daxa::TaskImage cloud_data_field = {};
+    daxa::TaskImage cloud_detail_noise = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};

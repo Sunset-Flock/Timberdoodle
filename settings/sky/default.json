@@ -3,39 +3,39 @@
     "absorption_density": [
         {
             "const_term": 0.0,
-            "exp_scale": 0.122,
+            "exp_scale": 0.2,
             "exp_term": 0.00182376393,
-            "layer_width": 52.9,
+            "layer_width": 35.0,
             "lin_term": 0.0
         },
         {
             "const_term": 0.0,
             "exp_scale": -0.06666666666,
             "exp_term": 20.6245170027,
-            "layer_width": 52.2,
+            "layer_width": 65.0,
             "lin_term": 0.0
         }
     ],
     "absorption_extinction": {
-        "x": 0.00129072,
-        "y": 0.00254036,
+        "x": 0.00229072,
+        "y": 0.00154036,
         "z": 0.0
     },
     "atmosphere_bottom": 6360.0,
     "atmosphere_top": 6460.0,
     "mie_density": [
         {
-            "const_term": 0.266,
-            "exp_scale": -0.530,
-            "exp_term": 1.19,
-            "layer_width": 11.0,
+            "const_term": 0.0,
+            "exp_scale": -0.8333333134651184,
+            "exp_term": 1.0,
+            "layer_width": 100.0,
             "lin_term": 0.0
         },
         {
             "const_term": 0.0,
-            "exp_scale": -0.090,
-            "exp_term": 0.730,
-            "layer_width": 74.7,
+            "exp_scale": 0.0,
+            "exp_term": 0.0,
+            "layer_width": 0.0,
             "lin_term": 0.0
         }
     ],
@@ -58,17 +58,17 @@
     "multiscattering_step_count": 20,
     "rayleigh_density": [
         {
-            "const_term": 0.166,
-            "exp_scale": -0.325,
-            "exp_term": 2.0,
-            "layer_width": 23.1,
+            "const_term": 0.0,
+            "exp_scale": -0.125,
+            "exp_term": 1.0,
+            "layer_width": 100.0,
             "lin_term": 0.0
         },
         {
-            "const_term": 0.021,
-            "exp_scale": -0.085,
+            "const_term": 0.0,
+            "exp_scale": 0.0,
             "exp_term": 0.0,
-            "layer_width": 100.0,
+            "layer_width": 0.0,
             "lin_term": 0.0
         }
     ],
@@ -76,7 +76,7 @@
     "rayleigh_scattering": {
         "x": 0.006604931,
         "y": 0.012344918,
-        "z": 0.039412623
+        "z": 0.029412623
     },
     "sky_dimensions": {
         "x": 256,
