@@ -108,13 +108,13 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
 
     float exposure = deref(push.attach.exposure);
     color *= exposure;
-    visibility *= exposure;
+    visibility *= exposure;;
 
     float3 draw_color = (float3)0;
     switch(reg_settings.debug_probe_draw_mode)
     {
         case PGI_DEBUG_PROBE_DRAW_MODE_OFF: break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = color; break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_IRRADIANCE: draw_color = color * 2 * 3.14; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE: draw_color = color; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_RADIANCE_REFLECTION: draw_color = color; break;
         case PGI_DEBUG_PROBE_DRAW_MODE_DISTANCE: draw_color = visibility.xxx; break;
@@ -123,16 +123,8 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
         case PGI_DEBUG_PROBE_DRAW_MODE_DEPTH_TEXEL: draw_color = float3(depth_texel,0); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = TurboColormap(hysteresis); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = TurboColormap(hysteresis) * exposure; break;
     }
-
-    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
-    bool debug_mode = any(reg_settings.debug_probe_index != 0);
-    if (debug_mode)
-    {
-        draw_color = float3(visibility,0) * 100;
-    }
-    #endif
 
     return DrawDebugProbesFragmentOut(float4(draw_color,1));
 }

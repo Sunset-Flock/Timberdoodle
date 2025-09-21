@@ -174,10 +174,10 @@ func entry_update_probe_color(
         {
             float4 sample = trace_result_tex[sample_texture_index].rgba;
 
-            // Firely filter
+            // Firefly filter
             if (true) 
             {
-                const float firely_clamp_threshold_ratio = 64.0f;
+                const float firely_clamp_threshold_ratio = 32.0f;
                 const float relative_radiance_difference = abs_radiance(sample.rgb) / ( 0.000001f + abs_radiance(prev_frame_irradiance) );
                 const float supression_factor = min(1.0f, firely_clamp_threshold_ratio / relative_radiance_difference );
                 sample.rgb *= supression_factor;
@@ -339,20 +339,32 @@ func entry_update_probe_visibility(
     const float2 probe_trace_uv_min = probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f;
     const int2 probe_trace_index_min = int2(floor(probe_trace_uv_min * reg_settings.probe_trace_resolution));
 
-    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
-    bool debug_mode = any(reg_settings.debug_probe_index != 0);
-    if (debug_mode && ((push.attach.globals.frame_index % 256) == 0))
+#if PGI_SHARP_DEPTH
     {
-        push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_texel, 0)] = float2(0,0);
-        return;
-    }
-    bool debug_texel = (all(reg_settings.debug_probe_index.xy == probe_texel));
-    if (debug_mode && !debug_texel)
-    {
-        return;
-    }
-    #endif
+        int3 sample_texture_index = trace_result_texture_base_index + int3(probe_texel,0);
+        float trace_depth = trace_result_tex[sample_texture_index].a;
+        bool is_backface = trace_depth < 0.0f;
 
+        trace_depth = abs(trace_depth);
+        trace_depth = min(trace_depth, max_depth);
+        if (is_backface) // Backface probe killer.
+        { 
+            relevant_trace_blend.x += -trace_depth * PGI_BACKFACE_DIST_SCALE;
+            relevant_trace_blend.y += 0.0f;
+            acc_cos_weights += PGI_BACKFACE_DIST_SCALE;
+        }
+        else
+        {
+            relevant_trace_blend.x += trace_depth;
+            // Smooth out hard contacts. Its always better to have a minimum difference to the average.
+            const float DIFF_TO_AVERAGE_BIAS = 0.01f;
+            float difference_to_average = abs(max(0.0f, prev_frame_visibility.x) - trace_depth) + DIFF_TO_AVERAGE_BIAS * max_depth;
+            relevant_trace_blend.y += square(difference_to_average);
+            acc_cos_weights += 1.0f;
+        }
+        valid_trace_count = 1;
+    }
+#else
     for (int y = 0; y < relevant_texel_range; ++y)
     for (int x = 0; x < relevant_texel_range; ++x)
     {
@@ -363,12 +375,6 @@ func entry_update_probe_visibility(
         float cos_weight = (dot(trace_direction, probe_texel_normal));        
         int3 sample_texture_index = trace_result_texture_base_index + int3(probe_trace_tex_index,0);
         float power_cos_weight = pow(cos_weight, COS_POWER);
-    #if defined(DEBUG_PROBE_TEXEL_UPDATE)
-        if (debug_mode && debug_texel)
-        {
-            push.attach.probe_visibility.get()[probe_texture_base_index + int3(probe_trace_tex_index,0)] = float2(0.05,power_cos_weight);
-        }
-    #endif
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
             float trace_depth = trace_result_tex[sample_texture_index].a;
@@ -396,6 +402,7 @@ func entry_update_probe_visibility(
             }
         }
     }
+#endif
     
     if (valid_trace_count > 0)
     {

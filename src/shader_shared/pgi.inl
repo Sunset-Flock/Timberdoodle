@@ -28,6 +28,18 @@
 #define PGI_MAX_REQUESTED_PROBES (1u << 18u)
 #define PGI_MAX_CASCADES (16)
 
+// greater precision for depth testing, leaks less, requires less rays.
+// makes direct use of probe irradiance look visible uglier due to non smooth depth interpolation.
+#define PGI_SHARP_DEPTH 1
+
+#if PGI_SHARP_DEPTH
+    #define PGI_TRACE_RES 12
+    #define PGI_DEPTH_RES 12
+#else
+    #define PGI_TRACE_RES 16
+    #define PGI_DEPTH_RES 16
+#endif
+
 struct PGICascade
 {
     daxa_i32vec3 window_to_stable_index_offset;
@@ -49,8 +61,8 @@ struct PGISettings
     daxa_b32 debug_draw_grid TIDO_DEFAULT_VALUE(false);
     daxa_b32 debug_draw_repositioning_forces TIDO_DEFAULT_VALUE(false);
     daxa_i32 probe_color_resolution TIDO_DEFAULT_VALUE(12);
-    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(16);
-    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(16);
+    daxa_i32 probe_trace_resolution TIDO_DEFAULT_VALUE(PGI_TRACE_RES);
+    daxa_i32 probe_visibility_resolution TIDO_DEFAULT_VALUE(PGI_DEPTH_RES);
     daxa_b32 probe_repositioning TIDO_DEFAULT_VALUE(true);
     daxa_b32 probe_repositioning_spring_force TIDO_DEFAULT_VALUE(true);
     daxa_i32 cascade_count TIDO_DEFAULT_VALUE(6);

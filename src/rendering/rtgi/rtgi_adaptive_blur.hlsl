@@ -104,7 +104,6 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float min_blur_radius = max(post_blur_min_radius_scale * max_blur_radius, RTGI_SPATIAL_FILTER_RADIUS_MIN);
     const float blur_radius = max(min_blur_radius, max_blur_radius * blur_radius_smplcnt_scale);
 
-    const float3 pixel_to_camera_dir = normalize(world_position - push.attach.globals.view_camera.position);
     const float2 ss_gradient = float2(
         sin(acos(vs_normal.x)),
         sin(acos(vs_normal.y)),
@@ -150,8 +149,8 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
         // Accumulate blurred diffuse
         weight_accum += weight;
-            blurred_accum += weight * sample_sh_y;
-            blurred_accum2 += weight * sample_cocg;
+        blurred_accum += weight * sample_sh_y;
+        blurred_accum2 += weight * sample_cocg;
     }
 
     // Calculate blurred diffuse and fallback blending

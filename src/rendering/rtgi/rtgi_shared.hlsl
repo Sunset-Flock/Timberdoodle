@@ -91,9 +91,6 @@ float get_gaussian_weight( float r )
     return exp( -0.66 * r * r ); // assuming r is normalized to 1
 }
 
-// Sh functions from:
-// https://github.com/NVIDIA-RTX/NRD/blob/03d5e0b2015c6eaf122d8e8f95b0527f6f03633e/Shaders/Include/NRD.hlsli#L361
-
 float3 linear_to_y_co_cg( float3 color )
 {
     float y = dot( color, float3( 0.25, 0.5, 0.25 ) );

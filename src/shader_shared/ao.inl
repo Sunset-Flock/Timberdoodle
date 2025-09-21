@@ -21,7 +21,7 @@ struct AoSettings
             return std::memcmp(this, &other, sizeof(AoSettings)) != 0;
         }
         AoSettings()
-            : mode{ AMBIENT_OCCLUSION_MODE_RTAO },
+            : mode{ AMBIENT_OCCLUSION_MODE_NONE },
             sample_count{ 1 },
             ao_range{ 1.5f },
             denoiser_accumulation_max_epsi{ 0.95f }
