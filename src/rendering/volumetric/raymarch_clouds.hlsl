@@ -306,13 +306,13 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
 
     if(pixel_in_bounds)
     {
-        float depth = 10000.0f;
+        float depth = 0.0f;
         for (int offset = 0; offset < 4; ++offset)
         {
             const int offset_x = offset & 0b1;
             const int offset_y = offset / 2;
-            const float offset_depth = push.attach.depth.get()[uint2(pixel_index) * 3 + uint2(offset_x, offset_y)].x;
-            depth = min(depth, offset_depth);
+            const float offset_depth = push.attach.depth.get()[uint2(pixel_index) * 2 + uint2(offset_x, offset_y)].x;
+            depth = max(depth, offset_depth);
         }
 
         const float clamped_depth = max(0.000001f, depth);

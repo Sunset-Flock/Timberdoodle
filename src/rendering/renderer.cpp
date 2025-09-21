@@ -111,7 +111,7 @@ Renderer::Renderer(
         .images = {&gpu_context->cloud_data_field, 1},
         .latest_slice_states = std::array{daxa::ImageSliceState{
             .latest_access = daxa::AccessConsts::HOST_WRITE,
-            .latest_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+            .latest_layout = daxa::ImageLayout::GENERAL,
             .slice = {},
         }}
     });
@@ -121,7 +121,7 @@ Renderer::Renderer(
         .images = {&gpu_context->cloud_detail_noise, 1},
         .latest_slice_states = std::array{daxa::ImageSliceState{
             .latest_access = daxa::AccessConsts::HOST_WRITE,
-            .latest_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
+            .latest_layout = daxa::ImageLayout::GENERAL,
             .slice = {},
         }}
     });
@@ -1402,8 +1402,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             tg.add_task(daxa::HeadTask<ComposeCloudsH::Info>()
                 .head_views(ComposeCloudsH::Info::Views{
                     .globals = render_context->tgpu_render_data.view(),
+                    .debug_image = debug_image,
                     .clouds_raymarched_result = clouds_raymarch_result,
-                    .depth = view_camera_depth,
+                    .view_cam_depth = view_camera_depth,
                     .color_image = color_image,
                 })
                 .executes(compose_clouds_callback, render_context.get()));

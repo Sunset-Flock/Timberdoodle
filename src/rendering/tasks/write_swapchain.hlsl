@@ -9,7 +9,7 @@ float3 index_to_color(uint index)
     return float3(cos(index), cos(index * 2 + 1), cos(index * 3 + 2)) * 0.5 + 0.5;
 }
 
-const float SRGB_ALPHA = 0.055;
+static const float SRGB_ALPHA = 0.055;
 
 static float4 DEBUG = (0.0f).xxxx;
 
