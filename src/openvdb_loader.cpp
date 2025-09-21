@@ -53,7 +53,7 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
     daxa::ImageId cloud_data_image = device.create_image({
         .flags = daxa::ImageCreateFlagBits::COMPATIBLE_2D_ARRAY,
         .dimensions = 3,
-        .format = daxa::Format::R32G32B32A32_SFLOAT,
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size =  {image_size.x, image_size.y, image_size.z},
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::HOST_TRANSFER,
         // Ignored when allocating with a memory block.
@@ -61,9 +61,9 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
         .name = {"Clouds voxel image"},
     });
 
-    std::vector<f32vec4> raw_data = {};
+    std::vector<std::array<short, 4>> raw_data = {};
     raw_data.resize(image_size[0] * image_size[1] * image_size[2]);
-    std::fill(raw_data.begin(), raw_data.end(), bcg_value);
+    // std::fill(raw_data.begin(), raw_data.end(), bcg_value);
 
     {
         int j = 0;
@@ -86,7 +86,7 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
                         openvdb::Coord coord(x, y, z);
                         const i32 index = zero_based_coord[0] + (zero_based_coord[2] * image_size[0]) + (zero_based_coord[1] * image_size[0] * image_size[1]);
                         const float value = accessor.getValue(coord);
-                        raw_data.at(index)[mapping[j]] = value;
+                        raw_data.at(index)[mapping[j]] = std::bit_cast<short>(glm::detail::toFloat16(value));
                     }
                 }
             }
@@ -98,7 +98,7 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
     {
         for (auto & field_value : raw_data)
         {
-            field_value.a = field_value.a / 4096.0f;
+            field_value[3] = field_value[3] / 4096.0f;
         }
     }
 
