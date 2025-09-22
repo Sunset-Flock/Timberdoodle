@@ -1402,6 +1402,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             tg.add_task(daxa::HeadTask<ComposeCloudsH::Info>()
                 .head_views(ComposeCloudsH::Info::Views{
                     .globals = render_context->tgpu_render_data.view(),
+                    .exposure = exposure_state.view(),
                     .debug_image = debug_image,
                     .clouds_raymarched_result = clouds_raymarch_result,
                     .view_cam_depth = view_camera_depth,

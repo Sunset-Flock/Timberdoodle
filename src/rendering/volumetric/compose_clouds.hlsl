@@ -91,9 +91,11 @@ func entry_compose(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
         }
     }
 
+    const float exposure = deref(push.attach.exposure);
+
     // a channel contains transmittance
     const float4 upscaled_cloud_color = acc_cloud_color * rcp(acc_weight + 0.0000001f);
     const float3 pixel_color = push.attach.color_image.get()[dtid];
-    const float3 composed_color = pixel_color * (upscaled_cloud_color.a) + (upscaled_cloud_color.rgb);
+    const float3 composed_color = pixel_color * (upscaled_cloud_color.a) + (upscaled_cloud_color.rgb * exposure);
     push.attach.color_image.get()[dtid] = composed_color;
 }
