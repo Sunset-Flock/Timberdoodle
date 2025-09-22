@@ -131,9 +131,10 @@ CloudData get_cloud_data(float3 position, float3 cloud_aabb_min, float3 cloud_aa
         in_cloud_aabb_relative_position,
         0,
         int3(0)
-    ));
+    ).rgrr);
 
     modeling_data.sdf = modeling_data.detail_type / 512;
+
     modeling_data.density_scale = pow(saturate(0.0f + (in_cloud_aabb_relative_position.z)), 0.5);
     modeling_data.detail_type = pow(saturate(in_cloud_aabb_relative_position.z), 0.5);
 

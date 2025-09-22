@@ -18,7 +18,7 @@
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RaymarchCloudsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture3DId<daxa_f32vec4>, cloud_data_field)
+DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture3DId<daxa_f32vec2>, cloud_data_field)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture3DId<daxa_f32vec4>, cloud_detail_noise)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, transmittance)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)

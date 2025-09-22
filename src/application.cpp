@@ -27,8 +27,8 @@ Application::Application()
 
     std::filesystem::path const TEST_DETAIL_NOISE_PATH = "assets\\Clouds\\NubisCloudsPack\\Noise\\Examples\\VDB\\NubisVoxelCloudNoise.vdb";
     // _gpu_context->cloud_data_field = load_vdb(TEST_VDB_PATH, _gpu_context->device, true, true);
-    _gpu_context->cloud_data_field = load_vdb(TEST_VDB_PATH, _gpu_context->device, false, false);
-    _gpu_context->cloud_detail_noise = load_vdb(TEST_DETAIL_NOISE_PATH, _gpu_context->device, false, false);
+    _gpu_context->cloud_data_field = load_vdb(TEST_VDB_PATH, _gpu_context->device, false, false, true);
+    _gpu_context->cloud_detail_noise = load_vdb(TEST_DETAIL_NOISE_PATH, _gpu_context->device, false, false, false);
 
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
 

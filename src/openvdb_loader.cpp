@@ -2,7 +2,7 @@
 
 #include <openvdb/openvdb.h>
 
-daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device, bool normalize_sdf, bool remap_channels)
+daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device, bool normalize_sdf, bool remap_channels, bool is_cloud_data)
 {
     openvdb::initialize();
 
@@ -50,10 +50,12 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
     DBG_ASSERT_TRUE_M(grid_extents.x > 0 && grid_extents.y > 0 && grid_extents.z > 0, "Extents must be positive");
 
     auto const image_size = u32vec3(s_cast<u32>(grid_extents[0]) + 1u, s_cast<u32>(grid_extents[2]) + 1u, s_cast<u32>(grid_extents[1]) + 1);
+
+    auto const format = is_cloud_data ? daxa::Format::R16G16_SFLOAT : daxa::Format::R16G16B16A16_SFLOAT;
     daxa::ImageId cloud_data_image = device.create_image({
         .flags = daxa::ImageCreateFlagBits::COMPATIBLE_2D_ARRAY,
         .dimensions = 3,
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .format = format,
         .size =  {image_size.x, image_size.y, image_size.z},
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::HOST_TRANSFER,
         // Ignored when allocating with a memory block.
@@ -61,8 +63,17 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
         .name = {"Clouds voxel image"},
     });
 
-    std::vector<std::array<short, 4>> raw_data = {};
-    raw_data.resize(image_size[0] * image_size[1] * image_size[2]);
+    std::vector<std::array<short, 2>> cloud_raw_data = {};
+    std::vector<std::array<short, 4>> noise_raw_data = {};
+
+    if (is_cloud_data)
+    {
+        cloud_raw_data.resize(image_size[0] * image_size[1] * image_size[2]);
+    }
+    else
+    {
+        noise_raw_data.resize(image_size[0] * image_size[1] * image_size[2]);
+    }
     // std::fill(raw_data.begin(), raw_data.end(), bcg_value);
 
     {
@@ -86,7 +97,14 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
                         openvdb::Coord coord(x, y, z);
                         const i32 index = zero_based_coord[0] + (zero_based_coord[2] * image_size[0]) + (zero_based_coord[1] * image_size[0] * image_size[1]);
                         const float value = accessor.getValue(coord);
-                        raw_data.at(index)[mapping[j]] = std::bit_cast<short>(glm::detail::toFloat16(value));
+                        if (is_cloud_data)
+                        {
+                            cloud_raw_data.at(index)[mapping[j]] = std::bit_cast<short>(glm::detail::toFloat16(value));
+                        }
+                        else
+                        {
+                            noise_raw_data.at(index)[mapping[j]] = std::bit_cast<short>(glm::detail::toFloat16(value));
+                        }
                     }
                 }
             }
@@ -94,13 +112,13 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
     }
 
     // Normalize the SDF values so that they are in the range of [-0.0625; 1.0] instead of the original range [-256;4096]
-    if(normalize_sdf)
-    {
-        for (auto & field_value : raw_data)
-        {
-            field_value[3] = field_value[3] / 4096.0f;
-        }
-    }
+    // if(normalize_sdf)
+    // {
+    //     for (auto & field_value : raw_data)
+    //     {
+    //         field_value[3] = field_value[3] / 4096.0f;
+    //     }
+    // }
 
     file.close();
 
@@ -115,9 +133,10 @@ daxa::ImageId load_vdb(std::filesystem::path const & path, daxa::Device & device
         }
     });
 
+    auto const * data = is_cloud_data ? r_cast<std::byte const *>(cloud_raw_data.data()) : r_cast<std::byte const *>(noise_raw_data.data());
     daxa::ImageInfo image_info = device.image_info(cloud_data_image).value();
     device.copy_memory_to_image({
-        .memory_ptr = r_cast<std::byte const*>(raw_data.data()),
+        .memory_ptr = data,
         .image = cloud_data_image,
         .image_layout = daxa::ImageLayout::READ_ONLY_OPTIMAL,
         .image_offset = {0, 0, 0},
