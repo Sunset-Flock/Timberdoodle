@@ -130,6 +130,9 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
     int mip = clamp(3 - int(floor(pixel_samplecnt * 0.75f)), -1, 3);
+    float4 reconstructed_diffuse;
+    float2 reconstructed_diffuse2;
+    bool reconstruction_valid = false;
     while (mip >= 0)
     {
         // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
@@ -163,19 +166,24 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.125f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
-        const float4 reconstructed_diffuse = apply_bilinear_custom_weights( diffuse00, diffuse10, diffuse01, diffuse11, weights_reconstruct );
-        const float2 reconstructed_diffuse2 = apply_bilinear_custom_weights( diffuse00_2, diffuse10_2, diffuse01_2, diffuse11_2, weights_reconstruct ).rg;
+        reconstructed_diffuse = apply_bilinear_custom_weights( diffuse00, diffuse10, diffuse01, diffuse11, weights_reconstruct );
+        reconstructed_diffuse2 = apply_bilinear_custom_weights( diffuse00_2, diffuse10_2, diffuse01_2, diffuse11_2, weights_reconstruct ).rg;
         
         if (dot(geometric_weight4, 1) > 0.0f)
         {
-            push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse;
-            push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse2;
+            reconstruction_valid = true;
             break;
         }
         else
         {
             mip -= 1;
         }
+    }
+    
+    if (reconstruction_valid)
+    {
+        push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse;
+        push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse2;
     }
 }
 

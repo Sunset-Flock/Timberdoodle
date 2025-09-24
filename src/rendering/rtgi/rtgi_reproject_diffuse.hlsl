@@ -116,7 +116,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
-    float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 5.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
+    float history_blend = min(push.attach.globals.rtgi_settings.history_frames, samplecnt * 4.0f) / float(push.attach.globals.rtgi_settings.history_frames + 1.0f);
 
     // Read raw traced diffuse
     float4 raw = push.attach.rtgi_diffuse_raw.get()[halfres_pixel_index].rgba;

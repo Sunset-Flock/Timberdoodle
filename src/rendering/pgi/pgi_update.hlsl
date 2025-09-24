@@ -215,13 +215,14 @@ func entry_update_probe_color(
     // Automatic Hysteresis
     float hysteresis = prev_frame_texel.a;
     {
-        const float HYSTERESIS_UPDATE_RATE = 0.05f;
-        const float HYSTERESIS_MIN_RELATIVE_CHANGE = 2.0f;
-        const float MAX_MAX_RELATIVE_DIFFERENCE = 3.0f;
+        const float HYSTERESIS_UPDATE_RATE = 0.25f;
+        const float HYSTERESIS_MIN_RELATIVE_CHANGE = 1.2f;
+        const float MAX_CONSIDERED_RELATIVE_DIFFERENCE = 50.0f;
+        const float HYSTERESIS_SMALL_LIGHT_BIAS = 0.000001f;
 
-        const float3 power_scaled_min = min(prev_frame_irradiance, new_irradiance);
+        const float3 power_scaled_min = min(prev_frame_irradiance, new_irradiance) + HYSTERESIS_SMALL_LIGHT_BIAS;
         const float3 relative_difference = abs(prev_frame_irradiance - new_irradiance) / power_scaled_min;
-        const float max_relative_difference = min(max3(relative_difference.x, relative_difference.y, relative_difference.z), MAX_MAX_RELATIVE_DIFFERENCE);
+        const float max_relative_difference = min(max3(relative_difference.x, relative_difference.y, relative_difference.z), MAX_CONSIDERED_RELATIVE_DIFFERENCE);
         const float BASE_CONFIDENCE_GAIN = HYSTERESIS_UPDATE_RATE;
         const float RELATIVE_DIFFERENCE_SCALING = BASE_CONFIDENCE_GAIN / HYSTERESIS_MIN_RELATIVE_CHANGE;
         hysteresis += -max_relative_difference * RELATIVE_DIFFERENCE_SCALING + BASE_CONFIDENCE_GAIN;
@@ -254,7 +255,7 @@ func entry_update_probe_color(
     new_irradiance = max(new_irradiance, float3(0,0,0)); // remove nans, what can i say...
 
     // Perceptual lerp helps with blending to dark values
-    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.5f;
+    const float radiance_blend = probe_info.validity < 0.5f ? 0.0f : 0.75f * hysteresis;
     const float3 prev_exact_radiance = push.attach.probe_color.get()[probe_texture_index + int3(0, 0, reg_settings.cascade_count * reg_settings.probe_count.z)].rgb;
     float3 new_radiance = perceptual_lerp3(radiance, prev_exact_radiance, radiance_blend);
     new_radiance = max(new_radiance, float3(0,0,0)); // remove nans, what can i say...
@@ -339,7 +340,7 @@ func entry_update_probe_visibility(
     const float2 probe_trace_uv_min = probe_texel_uv - float2(RELEVANT_RANGE,RELEVANT_RANGE) * 0.5f;
     const int2 probe_trace_index_min = int2(floor(probe_trace_uv_min * reg_settings.probe_trace_resolution));
 
-#if PGI_SHARP_DEPTH
+#if PGI_SHARP_DEPTH && false
     {
         int3 sample_texture_index = trace_result_texture_base_index + int3(probe_texel,0);
         float trace_depth = trace_result_tex[sample_texture_index].a;
@@ -377,6 +378,14 @@ func entry_update_probe_visibility(
         float power_cos_weight = pow(cos_weight, COS_POWER);
         // If statement on cos weight would REDUCE PERFORMANCE. Reads in branches lead to poor latency hiding due to long scoreboard stalls.
         {
+            #if PGI_SHARP_DEPTH
+            const bool trace_within_probe_texel = all(trace_tex_uv >= probe_texel_min_uv && trace_tex_uv <= probe_texel_max_uv);
+            if (!trace_within_probe_texel)
+            {
+                continue;
+            }
+            #endif
+
             float trace_depth = trace_result_tex[sample_texture_index].a;
             bool is_backface = trace_depth < 0.0f;
 
@@ -445,7 +454,7 @@ func entry_update_probe_texels(
 
 #define PGI_DESIRED_RELATIVE_DISTANCE 0.3f 
 #define PGI_RELATIVE_REPOSITIONING_STEP 0.2f
-#define PGI_MAX_RELATIVE_REPOSITIONING 0.4f
+#define PGI_MAX_RELATIVE_REPOSITIONING 0.66f
 #define PGI_ACCEPTABLE_SURFACE_DISTANCE (PGI_DESIRED_RELATIVE_DISTANCE * 0.3)
 #define PGI_BACKFACE_ESCAPE_RANGE (PGI_DESIRED_RELATIVE_DISTANCE * 3)
 #define PGI_PROBE_VIEW_DISTANCE 1.0
@@ -605,7 +614,7 @@ func entry_update_probe(
     probe_info.validity += 0.05f;
 
     // Calculate backface attraction
-    bool too_few_backface_hits = backface_count < ceil(float(s*s) * 0.1f);
+    bool too_few_backface_hits = backface_count < ceil(float(s) * 0.1f);
     if (too_few_backface_hits)
     {
         closest_backface_dist = SOME_LARGE_VALUE;
