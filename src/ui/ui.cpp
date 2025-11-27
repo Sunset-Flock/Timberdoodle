@@ -109,7 +109,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     icons.reserve(s_cast<u32>(ICONS::SIZE));
     for (u32 icon_idx = 0; icon_idx < s_cast<u32>(ICONS::SIZE); icon_idx++)
     {
-        AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture(ICON_TO_PATH.at(icon_idx));
+        AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({ICON_TO_PATH.at(icon_idx)});
         if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
         {
             DEBUG_MSG(fmt::format("[UIEngine::UIEngine] ERROR failed to load icon from path {}", ICON_TO_PATH.at(icon_idx)));
@@ -761,6 +761,12 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 ImGui::EndChild();
 
                 ImGui::Checkbox("Enable VSM", &enable);
+
+                if (!enable)
+                {
+                    printf("SAKY FIX THIS!!!!! VSM DISABLED DOES NOT WORK!!!!!\n");
+                    exit(-1);
+                }
                 ImGui::Checkbox("Shadow everything", &shadow_everything);
                 ImGui::Checkbox("Force clip level", &force_clip_level);
                 ImGui::SliderInt("Force mesh Lod", &render_context.render_data.vsm_settings.force_mesh_lod, -1, 15);

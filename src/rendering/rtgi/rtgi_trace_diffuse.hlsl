@@ -13,7 +13,46 @@
 
 #include "rtgi_shared.hlsl"
 
+#define GOLDEN_RATIO 1.6181
 #define PI 3.1415926535897932384626433832795
+
+#define STBN_SIZE uint3(128,128,32)
+#define STBN_GRID_SIZE uint3(128,128,32)
+
+float2 rand_stbn2d(Texture2DArray<float4> stbn2d_image, uint2 pixel, int frame)
+{
+    const uint z_wrap = 0;//frame / STBN_SIZE.z;
+    const uint2 xy_wrap = pixel / STBN_SIZE.xy;
+    const uint z = frame % STBN_SIZE.z;// + xy_wrap.x + xy_wrap.y * 17;
+    pixel = (pixel + uint2(GOLDEN_RATIO * float2(STBN_SIZE.xy * z_wrap))) % STBN_SIZE.xy;
+    return stbn2d_image[uint3(pixel,z)].xy;
+}
+
+float3 rand_stbnCosDir(Texture2DArray<float4> stbn2d_image, uint2 pixel, int frame)
+{
+    pixel = pixel % STBN_GRID_SIZE.xy;
+    const uint z_wrap = frame / STBN_SIZE.z;
+    const uint z = frame % STBN_SIZE.z;
+    pixel = (pixel + uint2(GOLDEN_RATIO * float2(STBN_SIZE.xy * z_wrap))) % STBN_SIZE.xy;
+    return stbn2d_image[uint3(pixel,z)].xyz * 2.0f - 1.0f;
+}
+
+float2 rand_concentric_sample_disc_stbn(uint2 pixel_frame)
+{
+    let push = rtgi_trace_diffuse_push;
+    float2 rr = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), pixel_frame.xy, push.attach.globals.frame_index);
+    rr = abs(rr);
+    float r = rr.x;
+    float theta = rr.y * 2 * PI;
+    return float2(cos(theta), sin(theta)) * r;
+}
+
+float3 rand_cosine_sample_hemi_stbn(uint2 pixel_frame)
+{
+    float2 d = rand_concentric_sample_disc_stbn(pixel_frame);
+    float z = sqrt(max(0.0f, 1.0f - d.x * d.x - d.y * d.y));
+    return float3(d.x, d.y, z);
+}
 
 [shader("raygeneration")]
 void ray_gen()
@@ -50,6 +89,20 @@ void ray_gen()
     float4 acc = float4( 0, 0, 0, 0 );
     float2 acc2 = float2( 0, 0 );
 
+    const uint thread_seed = dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y + push.attach.globals.frame_index * push.attach.globals->settings.render_target_size.y * push.attach.globals->settings.render_target_size.x;
+    rand_seed(thread_seed);
+    float2 rr_stbn = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), dtid.xy, push.attach.globals.frame_index);
+    float2 rr = float2(rand(), rand());
+
+    if (dtid.x > (push.attach.globals.settings.render_target_size.x/4))
+    {
+        push.attach.debug_image.get()[dtid] = float4(rr_stbn, 0,1);
+    }
+    else
+    {
+        push.attach.debug_image.get()[dtid] = float4(rr, 0,1);
+    }
+
     if(depth > 0.0f)
     {
         static const uint SAMPLES = 1;
@@ -61,7 +114,19 @@ void ray_gen()
                 
             const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index + i;
             rand_seed(thread_seed);
-            const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi();
+            // const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi();
+            // const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
+            
+            float3 importance_rand_hemi_sample;
+            if (dtid.x > (push.attach.globals.settings.render_target_size.x/4))
+            {
+                // importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
+                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, push.attach.globals.frame_index);
+            }
+            else
+            {
+                importance_rand_hemi_sample = rand_cosine_sample_hemi();
+            }
 
             RayPayload payload = {};
             payload.dtid = dtid;

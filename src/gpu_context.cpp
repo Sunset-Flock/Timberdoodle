@@ -40,6 +40,7 @@ GPUContext::GPUContext(Window const & window)
               auto device_info = daxa::DeviceInfo2{};
               device_info.max_allowed_images = 100000;
               device_info.max_allowed_buffers = 100000;
+              device_info.max_allowed_acceleration_structures = 100000;
               device_info.name = "Timberdoodle";
 
               device_info = this->instance.choose_device(required_implicit, device_info);

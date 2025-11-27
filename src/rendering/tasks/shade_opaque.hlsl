@@ -1258,6 +1258,6 @@ void entry_main_cs(
 
     const float exposure = deref(AT.exposure);
     float3 exposed_color = output_value.rgb * exposure;
-    
+
     AT.color_image.get()[index] = exposed_color;
 }

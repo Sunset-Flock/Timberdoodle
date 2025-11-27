@@ -218,6 +218,14 @@ Renderer::~Renderer()
     {
         gpu_context->device.destroy_image(rtgi_face_normal_history.get_state().images[0]);
     }
+    if (!stbn2d.is_empty())
+    {
+        gpu_context->device.destroy_image(stbn2d);
+    }
+    if (!stbnCosDir.is_empty())
+    {
+        gpu_context->device.destroy_image(stbnCosDir);
+    }
     pgi_state.cleanup(gpu_context->device);
     vsm_state.cleanup_persistent_state(gpu_context);
     this->gpu_context->device.wait_idle();

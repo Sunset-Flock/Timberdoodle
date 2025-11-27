@@ -5,6 +5,44 @@
 
 #include <intrin.h>
 
+auto load_stbn2D(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
+{
+    std::filesystem::path const STBN_BASE_PATH = "assets\\STBN\\";
+    std::filesystem::path const stbn_vec2_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_vec2_2Dx1D_128x128x64_0.png";
+
+    AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
+        stbn_vec2_2Dx1D_128x128x64_base_path,
+        64,
+        false
+    });
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+    {
+        DEBUG_MSG(fmt::format("[Renderer] ERROR failed to load Spatio Temporal Blue Noise (STBN) from path {}", stbn_vec2_2Dx1D_128x128x64_base_path.string()));
+        return {};
+    }
+
+    return std::get<daxa::ImageId>(ret);
+}
+
+auto load_stbnCosDir(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
+{
+    std::filesystem::path const STBN_BASE_PATH = "assets\\STBN\\";
+    std::filesystem::path const stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_unitvec3_cosine_2Dx1D_128x128x64_0.png";
+
+    AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
+        stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path,
+        64,
+        false
+    });
+    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&ret))
+    {
+        DEBUG_MSG(fmt::format("[Renderer] ERROR failed to load Spatio Temporal Blue Noise (STBN) from path {}", stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path.string()));
+        return {};
+    }
+
+    return std::get<daxa::ImageId>(ret);
+}
+
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(7);
@@ -22,6 +60,11 @@ Application::Application()
     std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path_bistro.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\keypoints.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\exported_path.json";
+
+    _renderer->stbn2d = load_stbn2D(*_asset_manager, _gpu_context->device);
+    _renderer->render_context->render_data.stbn2d = std::bit_cast<daxa_ImageViewId>(_renderer->stbn2d.default_view());
+    _renderer->stbnCosDir = load_stbnCosDir(*_asset_manager, _gpu_context->device);
+    _renderer->render_context->render_data.stbnCosDir = std::bit_cast<daxa_ImageViewId>(_renderer->stbnCosDir.default_view());
 
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));

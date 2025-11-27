@@ -221,11 +221,11 @@ func entry_update_probe_color(
         const float HYSTERESIS_SMALL_LIGHT_BIAS = 0.000001f;
 
         const float3 power_scaled_min = min(prev_frame_irradiance, new_irradiance) + HYSTERESIS_SMALL_LIGHT_BIAS;
-        const float3 relative_difference = abs(prev_frame_irradiance - new_irradiance) / power_scaled_min;
-        const float max_relative_difference = min(max3(relative_difference.x, relative_difference.y, relative_difference.z), MAX_CONSIDERED_RELATIVE_DIFFERENCE);
+        const float3 relative_difference3 = abs(prev_frame_irradiance - new_irradiance) / power_scaled_min;
+        const float relative_difference = min(max3(relative_difference3.x, relative_difference3.y, relative_difference3.z), MAX_CONSIDERED_RELATIVE_DIFFERENCE);
         const float BASE_CONFIDENCE_GAIN = HYSTERESIS_UPDATE_RATE;
         const float RELATIVE_DIFFERENCE_SCALING = BASE_CONFIDENCE_GAIN / HYSTERESIS_MIN_RELATIVE_CHANGE;
-        hysteresis += -max_relative_difference * RELATIVE_DIFFERENCE_SCALING + BASE_CONFIDENCE_GAIN;
+        hysteresis += -relative_difference * RELATIVE_DIFFERENCE_SCALING + BASE_CONFIDENCE_GAIN;
         hysteresis = clamp(hysteresis, 0.0f, 0.95f);
     }
     float blend = hysteresis;

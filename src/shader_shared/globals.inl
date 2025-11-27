@@ -41,6 +41,10 @@ struct RenderGlobalData
     daxa_u32 selected_triangle_in_meshlet_index;
     daxa_i32 selected_mark_mode;
     daxa_f32vec2 cursor_uv;
+
+    // Global Textures
+    daxa_ImageViewId stbn2d;
+    daxa_ImageViewId stbnCosDir;
     
     // Renderer Written Data:
     GPUScene scene; // Passing scene directly into push can yield good perf gains, avoid this field.

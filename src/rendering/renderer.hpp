@@ -79,6 +79,9 @@ struct Renderer
         u64 const total_elapsed_us) -> bool;
     void readback_statistics(daxa::TaskGraph & tg);
 
+    daxa::ImageId stbn2d = {};
+    daxa::ImageId stbnCosDir = {};
+
     daxa::TaskBuffer meshlet_instances = {};
     daxa::TaskBuffer visible_meshlet_instances = {};
     daxa::TaskBuffer visible_mesh_instances = {};

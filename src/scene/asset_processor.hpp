@@ -51,6 +51,8 @@ struct AssetProcessor
         ERROR_MISSING_VERTEX_TANGENTS,
         ERROR_FAULTY_GLTF_VERTEX_TANGENTS,
         ERROR_FAILED_TO_PROCESS_KTX,
+        ERROR_LAYER_IMAGES_NOT_IDENTICAL_SIZE,
+        ERROR_LAYER_IMAGES_NOT_IDENTICAL_FORMAT,
     };
     static auto to_string(AssetLoadResultCode code) -> std::string_view
     {
@@ -85,8 +87,14 @@ struct AssetProcessor
     AssetProcessor(AssetProcessor &&) = default;
     ~AssetProcessor();
 
+    struct LoadNonManifestTextureInfo
+    {
+        std::filesystem::path const & filepath;
+        u32 layers = 1;
+        bool load_as_srgb = true;
+    };
     using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
-    auto load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb = true) -> NonmanifestLoadRet;
+    auto load_nonmanifest_texture(LoadNonManifestTextureInfo const & info) -> NonmanifestLoadRet;
 
     /**
      * THREADSAFETY:

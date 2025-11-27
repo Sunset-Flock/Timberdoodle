@@ -124,10 +124,11 @@ static auto raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo const
 #pragma endregion
 
 #pragma region IMAGE_RAW_DATA_PARSING_HELPERS
+
 struct ParsedImageData
 {
     std::vector<std::byte> src_data = {};
-    daxa::ImageId dst_image = {};
+    daxa::ImageInfo image_info = {};
     u32 mips_to_copy = {};
     std::array<u32, 16> mip_copy_offsets = {};
     bool compressed_bc5_rg = {};
@@ -308,9 +309,9 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
     return format;
 };
 
-static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
+static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
 {
-    bool load_as_srgb = type == TextureMaterialType::DIFFUSE;
+    bool load_as_srgb = type == TextureMaterialType::DIFFUSE && allow_srgb;
     /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
     //        wrapper so that it can internally process the data
     FIMEMORY * fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
@@ -405,7 +406,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
     memcpy(ret.src_data.data(), r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
 
     ret.mips_to_copy = 1;
-    ret.dst_image = device.create_image({
+    ret.image_info = {
         .dimensions = 2,
         .format = daxa_image_format,
         .size = {width, height, 1},
@@ -419,7 +420,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
             daxa::ImageUsageFlagBits::HOST_TRANSFER |
             daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = raw_data.image_path.filename().string(),
-    });
+    };
     return ret;
 }
 
@@ -472,7 +473,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     ret.src_data.resize(texture->dataSize);
     ktx_uint8_t * image_ktx_data = ktxTexture_GetData(ktxTexture(texture));
     daxa::Format const format = std::bit_cast<daxa::Format>(texture->vkFormat);
-    daxa::ImageId image_id = device.create_image({
+    ret.image_info = {
         .flags = {},
         .dimensions = 2,
         .format = format,
@@ -485,8 +486,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
                  daxa::ImageUsageFlagBits::TRANSFER_DST,
         .allocate_info = {},
         .name = raw_data.image_path.filename().string(),
-    });
-    ret.dst_image = image_id;
+    };
     ret.compressed_bc5_rg = transcode_format == KTX_TTF_BC5_RG;
     ret.mips_to_copy = texture->numLevels;
     for (u32 mip = 0; mip < texture->numLevels; ++mip)
@@ -526,16 +526,16 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
-void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
+void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::ImageId & image, u32 layer = 0u)
 {
-    daxa::ImageViewInfo image_view_info = device.info(parsed_data.dst_image.default_view()).value();
+    daxa::ImageViewInfo image_view_info = device.info(image.default_view()).value();
     /// TODO: If we are generating mips this will need to change
     device.transition_image_layout({
-        .image = parsed_data.dst_image,
+        .image = image,
         .new_image_layout = daxa::ImageLayout::GENERAL,
         .image_slice = image_view_info.slice,
     });
-    daxa::ImageInfo image_info = device.image_info(parsed_data.dst_image).value();
+    daxa::ImageInfo image_info = device.image_info(image).value();
     for (u32 mip = 0; mip < parsed_data.mips_to_copy; ++mip)
     {
         u32 width = std::max(1u, image_info.size.x >> mip);
@@ -543,9 +543,10 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
         u32 depth = std::max(1u, image_info.size.z >> mip);
         device.copy_memory_to_image({
             .memory_ptr = parsed_data.src_data.data() + parsed_data.mip_copy_offsets[mip],
-            .image = parsed_data.dst_image,
+            .image = image,
             .image_slice = {
                 .mip_level = mip,
+                .base_array_layer = layer,
             },
             .image_offset = {0, 0, 0},
             .image_extent = {width, height, depth},
@@ -555,34 +556,75 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data)
     parsed_data.src_data.shrink_to_fit();
 }
 
-auto AssetProcessor::load_nonmanifest_texture(std::filesystem::path const & filepath, bool const load_as_srgb) -> NonmanifestLoadRet
+auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const & info) -> NonmanifestLoadRet
 {
-    RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
-    if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
-    {
-        return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
-    }
-    ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-    ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE);
-    if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
-    {
-        return *error;
-    }
-    ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
+    std::vector<ParsedImageData> parsed_images = {};
+    parsed_images.reserve(info.layers);
 
-    upload_texture(_device, parsed_data);
+    auto extension = info.filepath.extension();
+    auto filename = info.filepath.filename().replace_extension("").string();
 
-    return parsed_data.dst_image;
+    for (u32 l = 0; l < info.layers; ++l)
+    {   
+        auto filepath = info.filepath;
+        if (l > 0)
+        {
+            auto filename_tmp = filename;
+            filename_tmp.pop_back();
+            filename_tmp.append(std::to_string(l));
+            filename_tmp.append(extension.string());
+            filepath.replace_filename(filename_tmp);
+        }
+
+        RawDataRet raw_data_ret = raw_image_data_from_path(filepath);
+        if (std::holds_alternative<AssetProcessor::AssetLoadResultCode>(raw_data_ret))
+        {
+            return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
+        }
+        ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
+        ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE, info.load_as_srgb);
+        if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
+        {
+            return *error;
+        }
+        parsed_images.push_back(std::get<ParsedImageData>(parsed_data_ret));
+
+        if (l > 0)
+        {
+            auto const & info = parsed_images.back().image_info;
+            auto const & prev_info = parsed_images.at(parsed_images.size()-2).image_info;
+
+            if (info.size != prev_info.size)
+            {
+                return AssetLoadResultCode::ERROR_LAYER_IMAGES_NOT_IDENTICAL_SIZE;
+            }
+            if (info.format != prev_info.format)
+            {
+                return AssetLoadResultCode::ERROR_LAYER_IMAGES_NOT_IDENTICAL_FORMAT;
+            }            
+        }
+    }
+
+    daxa::ImageInfo image_info = parsed_images[0].image_info;
+    image_info.array_layer_count = info.layers;
+    daxa::ImageId image = _device.create_image(image_info);
+
+    for (u32 l = 0; l < info.layers; ++l)
+    {
+        upload_texture(_device, parsed_images[l], image, l);
+    }
+
+    return image;
 }
 
 auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode
 {
     fastgltf::Asset const & gltf_asset = *info.asset;
-    fastgltf::Image const & image = gltf_asset.images.at(info.gltf_image_index);
+    fastgltf::Image const & fgltf_image = gltf_asset.images.at(info.gltf_image_index);
     std::vector<std::byte> raw_data = {};
 
     RawDataRet ret = {};
-    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&image.data))
+    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&fgltf_image.data))
     {
         ret = std::move(raw_image_data_from_URI(RawImageDataFromURIInfo{
             .uri = *uri,
@@ -590,7 +632,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
             .scene_dir_path = std::filesystem::path(info.asset_path).remove_filename(),
         }));
     }
-    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&fgltf_image.data))
     {
         ret = std::move(raw_image_data_from_buffer_view(RawImageDataFromBufferViewInfo{
             .buffer_view = *buffer_view,
@@ -628,24 +670,27 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     }
     ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
     ParsedImageData const * opaque_data = std::get_if<ParsedImageData>(&opaque_data_ret);
-
-    upload_texture(_device, parsed_data);
+    
+    daxa::ImageId image = _device.create_image(parsed_data.image_info);
+    daxa::ImageId opaque_image = {};
+    upload_texture(_device, parsed_data, image);
     if (opaque_data)
     {
-        upload_texture(_device, *opaque_data);
+        opaque_image = _device.create_image(opaque_data->image_info);
+        upload_texture(_device, *opaque_data, opaque_image);
     }
     /// NOTE: Append the processed texture to the upload queue.
     {
         std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
         _upload_texture_queue.push_back(LoadedTextureInfo{
-            .image = parsed_data.dst_image,
+            .image = image,
             .texture_manifest_index = info.texture_manifest_index,
             .compressed_bc5_rg = parsed_data.compressed_bc5_rg,
         });
         if (opaque_data)
         {
             _upload_texture_queue.push_back(LoadedTextureInfo{
-                .image = opaque_data->dst_image,
+                .image = opaque_image,
                 .texture_manifest_index = info.texture_manifest_index,
                 .secondary_texture = true,
                 .compressed_bc5_rg = false,
