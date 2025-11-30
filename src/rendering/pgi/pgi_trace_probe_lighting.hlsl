@@ -289,6 +289,11 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
 
         if (!backface)
         {
+            // ambient occlusion term helps greatly with lighting "getting stuck" in small enclosed spaces such as the picapica holes.
+            const float indirect_ao_range = reg_cascade.max_visibility_distance;
+            const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
+            const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
+
             PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
             payload.color_depth.rgb = shade_material<SHADING_QUALITY_LOW>(
                 push.attach.globals, 
@@ -303,7 +308,8 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
                 push.attach.probe_visibility.get(), 
                 push.attach.probe_info.get(),
                 push.attach.probe_requests.get_formatted(),
-                request_mode
+                request_mode,
+                ambient_occlusion
             ).rgb;
 
             payload.color_depth.a = RayTCurrent();
