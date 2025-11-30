@@ -595,7 +595,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
             ti.recorder.pipeline_image_barrier(daxa::ImageBarrierInfo{
                 .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
                 .image_id = inspector_state.raw_image_copy,
-                .memory_op = daxa::ImageBarrierMemoryOp::TO_GENERAL,
+                .layout_operation = daxa::ImageLayoutOperation::TO_GENERAL,
             });
 
             ti.recorder.clear_image({
@@ -658,7 +658,7 @@ void debug_task(daxa::TaskInterface ti, DaxaTgDebugContext & tg_debug, daxa::Com
         ti.recorder.pipeline_image_barrier(daxa::ImageBarrierInfo{
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
             .image_id = inspector_state.display_image,
-            .memory_op = daxa::ImageBarrierMemoryOp::TO_GENERAL,
+            .layout_operation = daxa::ImageLayoutOperation::TO_GENERAL,
         });
 
         ti.recorder.clear_image({

@@ -1067,13 +1067,7 @@ void entry_main_cs(
             }
             case DEBUG_DRAW_MODE_PGI_RADIANCE:
             {
-                PGISampleInfo info = PGISampleInfo();
-                info.request_mode = PGI_REQUEST_MODE_NONE;
-                info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
-                info.probe_blend_nearest = false;
-                info.color_filter_nearest = true;
-                info.probe_relative_sample_dir = true;
-                info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+                PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
                 
                 output_value.rgb = pgi_sample_probe_volume(
                     AT.globals, &AT.globals.pgi_settings, info,

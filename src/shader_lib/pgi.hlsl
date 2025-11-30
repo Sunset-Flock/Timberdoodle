@@ -329,6 +329,19 @@ struct PGISampleInfo
     bool probe_relative_sample_dir = false;
 };
 
+PGISampleInfo PGISampleInfoNearestSurfaceRadiance()
+{
+    PGISampleInfo ret               = {};
+    ret.request_mode                = PGI_REQUEST_MODE_INDIRECT;
+    ret.sample_mode                 = PGI_SAMPLE_MODE_RADIANCE;
+    ret.cascade_mode                = PGI_CASCADE_MODE_NEAREST;
+    ret.low_visibility_fade_black   = true;
+    ret.color_filter_nearest        = true;
+    ret.probe_blend_nearest         = false;
+    ret.probe_relative_sample_dir   = true;
+    return ret;
+}
+
 func pgi_sample_probe_volume(
     RenderGlobalData* globals,
     PGISettings* settings,
@@ -428,7 +441,7 @@ func pgi_sample_probe_volume_cascade(
     const int3 base_probe = int3(floor(grid_coord));
     const float3 grid_interpolants = frac(grid_coord);
     const float3 cell_size = reg_cascade.probe_spacing;
-    const float min_weight_bias = info.low_visibility_fade_black ? 0.2f : 0.00000001f;
+    const float min_weight_bias = info.low_visibility_fade_black ? 0.1f : 0.00000001f;
 
     float3 accum = float3(0,0,0);
     float weight_accum = 0.00001f;

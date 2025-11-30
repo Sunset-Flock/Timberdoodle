@@ -137,13 +137,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
             const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
 
-            PGISampleInfo info = PGISampleInfo();
-            info.request_mode = PGI_REQUEST_MODE_INDIRECT;
-            info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
-            info.probe_blend_nearest = false;
-            info.color_filter_nearest = true;
-            info.probe_relative_sample_dir = true;
-            info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+            PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
             
             payload.color.rgb = pgi_sample_probe_volume(
                 push.attach.globals, &push.attach.globals.pgi_settings, info,
@@ -208,6 +202,7 @@ void miss(inout RayPayload payload)
             info.color_filter_nearest = true;
             info.probe_relative_sample_dir = false;
             info.sample_mode = PGI_SAMPLE_MODE_RADIANCE;
+            info.low_visibility_fade_black = true;
 
             payload.color.rgb = pgi_sample_probe_volume(
                 push.attach.globals, &push.attach.globals.pgi_settings, info,
