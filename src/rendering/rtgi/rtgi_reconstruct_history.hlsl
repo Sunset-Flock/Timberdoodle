@@ -179,11 +179,71 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
             mip -= 1;
         }
     }
-    
+
+    float4 diffuse;
+    float2 diffuse2;
     if (reconstruction_valid)
     {
-        push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse;
-        push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = reconstructed_diffuse2;
+        diffuse = reconstructed_diffuse;
+        diffuse2 = reconstructed_diffuse2;
     }
+    else
+    {
+        diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index];
+        diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index];
+    }
+
+#if 1
+    float luma_sqrt_sum = 0.0f;
+    float weight_sum = 0.0f;
+    for (int x = -2; x <= 2; ++x)
+    {
+        for (int y = -2; y <= 2; ++y)
+        {
+            if (x == 0 && y == 0)
+                continue;
+
+            const int2 load_idx = clamp(int2(x,y) * 2 + int2(dtid.xy), int2(0,0), int2(push.size) - int2(1,1));
+            const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+            const float luma = push.attach.rtgi_diffuse_accumulated.get()[load_idx].w;
+            if (sample_validity > 8.0f)
+            {
+                luma_sqrt_sum += sqrt(luma);
+                weight_sum += 1.0f;
+            }
+        }
+    }
+
+    if (pixel_samplecnt < 8.0f && weight_sum > 0.0f)
+    {
+        const float blended_luma_sum = square(luma_sqrt_sum * rcp(weight_sum));
+        
+        const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(blended_luma_sum));
+        const float supression_factor = min(1.0f, (2) / new_to_old_luma_ratio );
+        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
+
+        // Calculate the cut radiance, supress it also to at most 16x RTGI_FIREFLY_FILTER_THRESHOLD.
+        // The resulting texture will be separately blurred with a wide radius using 16 taps
+        {
+            float4 cut_energy_sh_y = diffuse * (1.0f - supression_factor);
+            float2 cut_energy_cocg = diffuse2 * (1.0f - supression_factor);
+
+            const float cut_to_old_luma_ratio = cut_energy_sh_y.w / (0.000000001f + abs(blended_luma_sum));
+            const float cut_supression_factor = min(1.0f, ( 4.0f ) / cut_to_old_luma_ratio );
+        }
+
+        diffuse = diffuse * supression_factor;
+        diffuse2 = diffuse2 * supression_factor;
+        push.attach.debug_image.get()[dtid.xy] = float4(blended_luma_sum.xxx,1);
+    }
+#endif
+    
+    push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = diffuse;
+    push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = diffuse2;
 }
 
+[shader("compute")]
+func entry_spatial_firefly_filter(uint3 dtid : SV_DispatchThreadID)
+{
+
+}

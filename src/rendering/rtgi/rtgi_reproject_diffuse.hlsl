@@ -112,7 +112,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     // In order to detect a disocclusion, test if the sum of sample weights is lower than 1/4 - epsilon.
     // If at the sum of sample weights is > (1/4-epsi), we have enough non-occluded samples with a relevant bilinear weight.
     // When the sum is lower, the visible samples do not have enough bilinear weight to be relevant.
-    const float SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD = 0.9999f * 0.25f;
+    const float SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD = 0.9f * 0.25f;
     const float total_sample_weight = dot(1.0f, sample_weights);
     const bool disocclusion = total_sample_weight < SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD;
 
