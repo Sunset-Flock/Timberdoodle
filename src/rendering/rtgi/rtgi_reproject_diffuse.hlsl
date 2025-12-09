@@ -68,12 +68,12 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     {
         const float in_screen = all(uv_prev_frame > 0.0f && uv_prev_frame < 1.0f) ? 1.0f : 0.0f;
         const float4 normal_similarity = {
-            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.x))),
-            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.y))),
-            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))),
-            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w)))
+            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.x))) * 0.5f + 0.5f,
+            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.y))) * 0.5f + 0.5f,
+            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z))) * 0.5f + 0.5f,
+            max(0.0f, dot(pixel_face_normal, uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w))) * 0.5f + 0.5f
         };
-        const float4 normal_weight = square(normal_similarity);
+        const float4 normal_weight = square(normal_similarity); // identical normal -> 1, 90deg tangential -> 0.25, opposite -> 0
 
         // high quality geometric weights
         float4 geometry_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );

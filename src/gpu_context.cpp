@@ -61,7 +61,7 @@ GPUContext::GPUContext(Window const & window)
           },
           .present_mode = daxa::PresentMode::FIFO_RELAXED,
           .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
-          .name = "Sandbox Swapchain",
+          .name = "Timberdoodle Swapchain",
       })},
       pipeline_manager{daxa::PipelineManager{daxa::PipelineManagerInfo2{
           .device = this->device,
@@ -76,7 +76,7 @@ GPUContext::GPUContext(Window const & window)
           .register_null_pipelines_when_first_compile_fails = true,
           .default_language = daxa::ShaderLanguage::GLSL,
           .default_enable_debug_info = true,
-          .name = "Sandbox PipelineCompiler",
+          .name = "Timberdoodle PipelineCompiler",
       }}},
       lin_clamp_sampler{this->device.create_sampler({.name = "default linear clamp sampler"})},
       nearest_clamp_sampler{this->device.create_sampler({

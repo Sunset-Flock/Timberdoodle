@@ -622,7 +622,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
         .post_task_callback = [=, this](daxa::TaskInterface ti)
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
-        .name = "Sandbox main TaskGraph",
+        .name = "Timberdoodle main TaskGraph",
     }};
     for (auto const & tbuffer : buffers)
     {
@@ -1144,6 +1144,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .clocks_image = clocks_image,
                 .rtgi_diffuse_accumulated = rtgi_diffuse_accumulated_image,
                 .rtgi_diffuse2_accumulated = rtgi_diffuse2_accumulated_image,
+                .rtgi_samplecnt = rtgi_samplecnt_image,
                 .rtgi_reconstructed_diffuse_history = rtgi_reconstructed_history_diffuse_image,
                 .rtgi_reconstructed_diffuse2_history = rtgi_reconstructed_history_diffuse2_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,

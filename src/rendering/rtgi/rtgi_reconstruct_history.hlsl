@@ -71,8 +71,46 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     const uint2 clamped_index = min( half_res_index, push.size - 1u );
     const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
     gs_depth[gtid.x][gtid.y][0] = depth;
-    const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[clamped_index];
-    const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[clamped_index];
+    float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[clamped_index];
+    float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[clamped_index];
+    const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
+
+#if 1
+    float4 diffuse_sum = float4(0,0,0,0);
+    float2 diffuse2_sum = float2(0,0);
+    float weight_sum = 0.0f;
+    for (int x = -2; x <= 2; ++x)
+    {
+        for (int y = -2; y <= 2; ++y)
+        {
+            if (x == 0 && y == 0)
+                continue;
+
+            const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
+            const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+            const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
+            const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
+            if (sample_validity > 2.0f)
+            {
+                diffuse_sum += diffuse;
+                diffuse2_sum = diffuse2;
+                weight_sum += 1.0f;
+            }
+        }
+    }
+
+    if (pixel_samplecnt < RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES && weight_sum > 0.0f)
+    {
+        const float average_luma = diffuse.w * rcp(weight_sum);
+        
+        const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(average_luma));
+        const float supression_factor = min(1.0f, (1) / new_to_old_luma_ratio );
+        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
+        diffuse = lerp(diffuse, diffuse_sum * rcp(weight_sum), 1.0f - supression_factor);
+        //diffuse2 = lerp(diffuse2, diffuse2_sum * rcp(weight_sum), 1.0f - supression_factor);
+    }
+#endif
+
     gs_diffuse[gtid.x][gtid.y][0] = diffuse;
     gs_diffuse2[gtid.x][gtid.y][0] = diffuse2;
 
@@ -133,6 +171,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;
     bool reconstruction_valid = false;
+    bool wants_reconstruction = mip >= 0;
     while (mip >= 0)
     {
         // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
@@ -194,47 +233,41 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     }
 
 #if 1
-    float luma_sqrt_sum = 0.0f;
-    float weight_sum = 0.0f;
-    for (int x = -2; x <= 2; ++x)
+    if (wants_reconstruction && !reconstruction_valid)
     {
-        for (int y = -2; y <= 2; ++y)
+        float4 diffuse_sum = float4(0,0,0,0);
+        float2 diffuse2_sum = float2(0,0);
+        float weight_sum = 0.0f;
+        for (int x = -2; x <= 2; ++x)
         {
-            if (x == 0 && y == 0)
-                continue;
-
-            const int2 load_idx = clamp(int2(x,y) * 2 + int2(dtid.xy), int2(0,0), int2(push.size) - int2(1,1));
-            const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
-            const float luma = push.attach.rtgi_diffuse_accumulated.get()[load_idx].w;
-            if (sample_validity > 8.0f)
+            for (int y = -2; y <= 2; ++y)
             {
-                luma_sqrt_sum += sqrt(luma);
-                weight_sum += 1.0f;
+                if (x == 0 && y == 0)
+                    continue;
+
+                const int2 load_idx = clamp(int2(x,y) * 2 + int2(halfres_pixel_index), int2(0,0), int2(push.size) - int2(1,1));
+                const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+                const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
+                const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
+                if (sample_validity > 2.0f)
+                {
+                    diffuse_sum += diffuse;
+                    diffuse2_sum = diffuse2;
+                    weight_sum += 1.0f;
+                }
             }
         }
-    }
 
-    if (pixel_samplecnt < 8.0f && weight_sum > 0.0f)
-    {
-        const float blended_luma_sum = square(luma_sqrt_sum * rcp(weight_sum));
-        
-        const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(blended_luma_sum));
-        const float supression_factor = min(1.0f, (2) / new_to_old_luma_ratio );
-        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
-
-        // Calculate the cut radiance, supress it also to at most 16x RTGI_FIREFLY_FILTER_THRESHOLD.
-        // The resulting texture will be separately blurred with a wide radius using 16 taps
+        if (pixel_samplecnt < RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES && weight_sum > 0.0f)
         {
-            float4 cut_energy_sh_y = diffuse * (1.0f - supression_factor);
-            float2 cut_energy_cocg = diffuse2 * (1.0f - supression_factor);
-
-            const float cut_to_old_luma_ratio = cut_energy_sh_y.w / (0.000000001f + abs(blended_luma_sum));
-            const float cut_supression_factor = min(1.0f, ( 4.0f ) / cut_to_old_luma_ratio );
+            const float average_luma = diffuse.w * rcp(weight_sum);
+            
+            const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(average_luma));
+            const float supression_factor = min(1.0f, (1) / new_to_old_luma_ratio );
+            // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
+            diffuse = lerp(diffuse, diffuse_sum * rcp(weight_sum), 1.0f - supression_factor);
+            //diffuse2 = lerp(diffuse2, diffuse2_sum * rcp(weight_sum), 1.0f - supression_factor);
         }
-
-        diffuse = diffuse * supression_factor;
-        diffuse2 = diffuse2 * supression_factor;
-        push.attach.debug_image.get()[dtid.xy] = float4(blended_luma_sum.xxx,1);
     }
 #endif
     

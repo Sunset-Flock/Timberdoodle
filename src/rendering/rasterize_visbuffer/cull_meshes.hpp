@@ -31,7 +31,7 @@ struct TaskExpandMeshesToMeshletsInfo
     daxa::TaskBufferView mesh_instances = {};
     std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> & meshlet_expansions;
     DispatchIndirectStruct dispatch_clear = {0, 1, 1};
-    std::string buffer_name_prefix = "";
+    std::string_view buffer_name_prefix = "";
 };
 inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const & info)
 {
@@ -42,11 +42,11 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
     auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2BucketWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
     auto opaque_expansion = info.tg.create_transient_buffer({
         .size = expansion_size,
-        .name = info.buffer_name_prefix + "opaque_meshlet_expansion_buffer" + std::to_string(rand()),
+        .name = std::string(info.buffer_name_prefix) + "opaque_meshlet_expansion_buffer" + std::to_string(rand()),
     });
     auto masked_expansion = info.tg.create_transient_buffer({
         .size = expansion_size,
-        .name = info.buffer_name_prefix + "masked_meshlet_expansion_buffer" + std::to_string(rand()),
+        .name = std::string(info.buffer_name_prefix) + "masked_meshlet_expansion_buffer" + std::to_string(rand()),
     });
     info.tg.add_task(daxa::InlineTask{std::string("clear work expansion buffer") + std::to_string(rand())}
         .transfer.writes(opaque_expansion, masked_expansion)

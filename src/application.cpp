@@ -46,7 +46,7 @@ auto load_stbnCosDir(AssetProcessor & asset_processor, daxa::Device & device) ->
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(7);
-    _window = std::make_unique<Window>(1024, 1024, "Sandbox");
+    _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _scene = std::make_unique<Scene>(_gpu_context->device, _gpu_context.get());
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
