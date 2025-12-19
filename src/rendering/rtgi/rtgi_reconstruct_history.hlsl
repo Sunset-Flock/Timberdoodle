@@ -15,7 +15,7 @@ groupshared float2 gs_diffuse2[RTGI_RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE_X][RTGI
 
 func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mip, uint gs_src)
 {
-    let mip_factor = 2u << mip;
+    let mip_factor = 1u << mip;
     let push = rtgi_reconstruct_history_gen_mips_diffuse_push;
     let remaining_block_size = RTGI_RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE_X/mip_factor;
     if (all(group_thread_index.xy < remaining_block_size))
@@ -75,9 +75,9 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[clamped_index];
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
 
-#if 1
-    float4 diffuse_sum = float4(0,0,0,0);
-    float2 diffuse2_sum = float2(0,0);
+#if RTGI_FIREFLY_FILTER
+    const float FIREFLY_AVERAGE_POWER = 2.0f;
+    float radiance_power_sum = 0.0f;
     float weight_sum = 0.0f;
     for (int x = -2; x <= 2; ++x)
     {
@@ -90,45 +90,49 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
             const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
             const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
             const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
-            if (sample_validity > 2.0f)
+            //if (sample_validity > 2.0f)
             {
-                diffuse_sum += diffuse;
-                diffuse2_sum = diffuse2;
+                radiance_power_sum += pow(diffuse.w, 1.0f / FIREFLY_AVERAGE_POWER);
                 weight_sum += 1.0f;
             }
         }
     }
 
-    if (pixel_samplecnt < RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES && weight_sum > 0.0f)
+    float4 diffuse_before = diffuse;
+
+    if (weight_sum > 0.0f)
     {
-        const float average_luma = diffuse.w * rcp(weight_sum);
+        const float average = pow(radiance_power_sum * rcp(weight_sum), FIREFLY_AVERAGE_POWER);
         
-        const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(average_luma));
-        const float supression_factor = min(1.0f, (1) / new_to_old_luma_ratio );
-        // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
-        diffuse = lerp(diffuse, diffuse_sum * rcp(weight_sum), 1.0f - supression_factor);
-        //diffuse2 = lerp(diffuse2, diffuse2_sum * rcp(weight_sum), 1.0f - supression_factor);
+        const float radiance_ratio = diffuse.w / (0.000000001f + average);
+        const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD / radiance_ratio );
+        // Effectively clamps the new value down to a value where its new luma is at most RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD times  larger than the history
+        diffuse *= supression_factor;
+        diffuse2 *= supression_factor;
     }
 #endif
 
+
+    push.attach.rtgi_reconstructed_diffuse_history[0].get()[dtid] = diffuse;
+    push.attach.rtgi_reconstructed_diffuse2_history[0].get()[dtid] = float4(diffuse2, depth, 0.0f);
     gs_diffuse[gtid.x][gtid.y][0] = diffuse;
     gs_diffuse2[gtid.x][gtid.y][0] = diffuse2;
 
     // Mip 0:
     GroupMemoryBarrierWithGroupSync();
-    downsample_mip_linear(dtid, gtid, 0, 0);
+    downsample_mip_linear(dtid, gtid, 1, 0);
 
     // Mip 1:
     GroupMemoryBarrierWithGroupSync();
-    downsample_mip_linear(dtid, gtid, 1, 1);
+    downsample_mip_linear(dtid, gtid, 2, 1);
 
     // Mip 2:
     GroupMemoryBarrierWithGroupSync();
-    downsample_mip_linear(dtid, gtid, 2, 0);
+    downsample_mip_linear(dtid, gtid, 3, 0);
 
     // Mip 3:
     GroupMemoryBarrierWithGroupSync();
-    downsample_mip_linear(dtid, gtid, 3, 1);
+    downsample_mip_linear(dtid, gtid, 4, 1);
 }
 
 [shader("compute")]
@@ -167,12 +171,12 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
-    int mip = clamp(3 - int(floor(pixel_samplecnt * 0.75f)), -1, 3);
+    int mip = clamp(4 - int(floor(pixel_samplecnt * 0.75f)), -1, 5);
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;
     bool reconstruction_valid = false;
     bool wants_reconstruction = mip >= 0;
-    while (mip >= 0)
+    while (mip > 0)
     {
         // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
         // Due to this, the uv is shifted by some amount as there are padding texels on the border of the reconstructed history mip chain.
@@ -180,7 +184,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float2 half_size_ru16 = float2(round_up_to_multiple(half_res_render_target_size.x, 16), round_up_to_multiple(half_res_render_target_size.y, 16));
         const float2 corrected_uv = sv_xy * rcp(half_size_ru16);
 
-        const float2 mip_size = float2(uint2(half_size_ru16) >> uint(mip+1));
+        const float2 mip_size = float2(uint2(half_size_ru16) >> uint(mip));
         const float2 inv_mip_size = rcp(mip_size);
         const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( corrected_uv ), mip_size );
         
@@ -202,7 +206,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float depth11 = reconstruct11_2.z;
 
         const float4 depths = float4(depth00, depth10, depth01, depth11);
-        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.125f);
+        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.5f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         reconstructed_diffuse = apply_bilinear_custom_weights( diffuse00, diffuse10, diffuse01, diffuse11, weights_reconstruct );
@@ -228,48 +232,9 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
     }
     else
     {
-        diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index];
-        diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index];
+        diffuse = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(halfres_pixel_index, 0));
+        diffuse2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(halfres_pixel_index, 0)).xy;
     }
-
-#if 1
-    if (wants_reconstruction && !reconstruction_valid)
-    {
-        float4 diffuse_sum = float4(0,0,0,0);
-        float2 diffuse2_sum = float2(0,0);
-        float weight_sum = 0.0f;
-        for (int x = -2; x <= 2; ++x)
-        {
-            for (int y = -2; y <= 2; ++y)
-            {
-                if (x == 0 && y == 0)
-                    continue;
-
-                const int2 load_idx = clamp(int2(x,y) * 2 + int2(halfres_pixel_index), int2(0,0), int2(push.size) - int2(1,1));
-                const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
-                const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
-                const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
-                if (sample_validity > 2.0f)
-                {
-                    diffuse_sum += diffuse;
-                    diffuse2_sum = diffuse2;
-                    weight_sum += 1.0f;
-                }
-            }
-        }
-
-        if (pixel_samplecnt < RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES && weight_sum > 0.0f)
-        {
-            const float average_luma = diffuse.w * rcp(weight_sum);
-            
-            const float new_to_old_luma_ratio = diffuse.w / (0.000000001f + abs(average_luma));
-            const float supression_factor = min(1.0f, (1) / new_to_old_luma_ratio );
-            // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
-            diffuse = lerp(diffuse, diffuse_sum * rcp(weight_sum), 1.0f - supression_factor);
-            //diffuse2 = lerp(diffuse2, diffuse2_sum * rcp(weight_sum), 1.0f - supression_factor);
-        }
-    }
-#endif
     
     push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = diffuse;
     push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = diffuse2;

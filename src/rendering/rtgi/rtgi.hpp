@@ -173,11 +173,11 @@ inline auto rtgi_create_samplecnt_image(daxa::TaskGraph & tg, RenderContext * re
 // 16 -> 8 -> 4 -> 2 -> 1
 inline auto rtgi_create_reconstructed_history_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
 {
-    auto info = rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, 1, name);
-    // round up to multiple of 8 to make sure that all mip texels align exactly 2x2 -> 1
-    info.size.x = round_up_to_multiple(info.size.x / (RTGI_DIFFUSE_PIXEL_SCALE_DIV*2), 8),
-    info.size.y = round_up_to_multiple(info.size.y / (RTGI_DIFFUSE_PIXEL_SCALE_DIV*2), 8),
-    info.mip_level_count = 4;
+    auto info = rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, RTGI_DIFFUSE_PIXEL_SCALE_DIV, name);
+    // round up to multiple of 16 to make sure that all mip texels align exactly 2x2 -> 1
+    info.size.x = round_up_to_multiple(info.size.x, 16),
+    info.size.y = round_up_to_multiple(info.size.y, 16),
+    info.mip_level_count = 5;
     return tg.create_transient_image(info);
 }
 

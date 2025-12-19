@@ -114,7 +114,9 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     // When the sum is lower, the visible samples do not have enough bilinear weight to be relevant.
     const float SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD = 0.9f * 0.25f;
     const float total_sample_weight = dot(1.0f, sample_weights);
-    const bool disocclusion = total_sample_weight < SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD;
+    bool disocclusion = total_sample_weight < SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD;
+
+    // disocclusion = true;
 
     // Calc new sample count
     float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights ).x;
@@ -155,10 +157,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
 
 #if RTGI_FIREFLY_FILTER
     const float new_to_old_luma_ratio = sh_y_raw.w / (0.000000001f + abs(y_history.w));
-    const float supression_factor = min(1.0f, RTGI_FIREFLY_FILTER_THRESHOLD / new_to_old_luma_ratio );
-    // Effectively clamps the new value down to a value where its new luma is at most RTGI_FIREFLY_FILTER_THRESHOLD times  larger than the history
+    const float supression_factor = min(1.0f, RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD / new_to_old_luma_ratio );
+    // Effectively clamps the new value down to a value where its new luma is at most RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD times  larger than the history
 
-    // Calculate the cut radiance, supress it also to at most 16x RTGI_FIREFLY_FILTER_THRESHOLD.
+    // Calculate the cut radiance, supress it also to at most 16x RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD.
     // The resulting texture will be separately blurred with a wide radius using 16 taps
     {
         float4 cut_energy_sh_y = sh_y_raw * (1.0f - supression_factor);

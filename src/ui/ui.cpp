@@ -1141,37 +1141,17 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
 
             for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
             {
-                std::string_view timing_unit = {};
-                decltype(render_times_history.scrolling_ewa) * data = {};
-                if (selected_item == 0)
-                {
-                    timing_unit = "ewa";
-                    data = &render_times_history.scrolling_ewa;
-                }
-                else if (selected_item == 1)
-                {
-                    timing_unit = "average";
-                    data = &render_times_history.scrolling_mean;
-                }
-                else
-                {
-                    timing_unit = "raw";
-                    data = &render_times_history.scrolling_raw;
-                }
-                bool open = ImGui::CollapsingHeader(fmt::format("{:<30}",
-                    fmt::format("{} {}: ",
-                        RenderTimes::group_name(group_i), timing_unit.data())
-                        .c_str())
-                        .c_str());
+                bool open = ImGui::CollapsingHeader(fmt::format("{:<25}", RenderTimes::group_name(group_i)).c_str());
                 ImGui::SameLine();
-                ImGui::Text(fmt::format("{:>10.2f} us", data->at(group_i).back().y).c_str());
+                ImGui::Text("%8.1fus", render_context.render_times.get_group_average(group_i) * 0.001f);
                 if (open)
                 {
-                    if (ImGui::BeginTable("Detail Timings", 3, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+                    if (ImGui::BeginTable("Detail Timings", 4, ImGuiTableFlags_SizingFixedFit | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
                     {
                         ImGui::TableSetupColumn("Timing", {});
-                        ImGui::TableSetupColumn("Value", {});
-                        ImGui::TableSetupColumn("Value Smooth", {});
+                        ImGui::TableSetupColumn("Average", {});
+                        ImGui::TableSetupColumn("Std Dev", {});
+                        ImGui::TableSetupColumn("Raw", {});
                         ImGui::TableHeadersRow();
                         for (auto in_group_i = 0; in_group_i < RenderTimes::group_size(group_i); ++in_group_i)
                         {
@@ -1186,12 +1166,17 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                             if (skip)
                                 ImGui::Text("-");
                             else
-                                ImGui::Text("%fus", static_cast<f32>(render_context.render_times.get(timing_index)) * 0.001f);
+                                ImGui::Text("%8.1fus", static_cast<f32>(render_context.render_times.get_average(timing_index)) * 0.001f);
                             ImGui::TableSetColumnIndex(2);
                             if (skip)
                                 ImGui::Text("-");
                             else
-                                ImGui::Text("%fus", static_cast<f32>(render_context.render_times.get_smooth(timing_index)) * 0.001f);
+                                ImGui::Text("%8.1fus", std::sqrt(static_cast<f32>(render_context.render_times.get_variance(timing_index)) * 0.001));
+                            ImGui::TableSetColumnIndex(3);
+                            if (skip)
+                                ImGui::Text("-");
+                            else
+                                ImGui::Text("%8.1fus", static_cast<f32>(render_context.render_times.get(timing_index)) * 0.001f);
                         }
                         ImGui::EndTable();
                     }
@@ -1207,7 +1192,7 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                 }
             }
         }
-        ImGui::SeparatorText("Utalizations");
+        ImGui::SeparatorText("Render Systems Utilization");
         {
             ui_visbuffer_pipeline_statistics(scene, render_context, app_state);
             ui_pgi_statistics(scene, render_context, app_state);

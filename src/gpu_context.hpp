@@ -70,6 +70,7 @@ struct ShaderDebugDrawContext
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                             daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_SRC |
                             daxa::ImageUsageFlagBits::TRANSFER_DST,
                         .name = "vsm debug page table physical image",
                     }),
@@ -87,6 +88,7 @@ struct ShaderDebugDrawContext
                         .usage =
                             daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                             daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                            daxa::ImageUsageFlagBits::TRANSFER_SRC |
                             daxa::ImageUsageFlagBits::TRANSFER_DST,
                         .name = "vsm debug meta memory table physical image",
                     }),

@@ -364,7 +364,11 @@ namespace RenderTimes
         daxa::TimelineQueryPool timeline_query_pool = {};
         std::array<bool, FLAT_TIMINGS_COUNT> timer_set = {};
         std::array<u64, FLAT_TIMINGS_COUNT> current_times = {};
-        std::array<u64, FLAT_TIMINGS_COUNT> smooth_current_times = {};
+        std::array<f64, FLAT_TIMINGS_COUNT> smooth_times = {};
+        std::array<f64, FLAT_TIMINGS_COUNT> smooth_variances = {};
+        std::array<u64, GROUP_COUNT> current_group_times = {};
+        std::array<f64, GROUP_COUNT> smooth_group_times = {};
+        std::array<f64, GROUP_COUNT> smooth_group_variances = {};
 
         void init(daxa::Device & device, u32 frames_in_flight)
         {
@@ -405,9 +409,34 @@ namespace RenderTimes
             {
                 if (!timer_set[i])
                 {
-                    smooth_current_times[i] = 0;
+                    smooth_times[i] = 0;
                 }
-                smooth_current_times[i] = (smooth_current_times[i] * 199 + current_times[i]) / 200;
+                smooth_times[i] = (smooth_times[i] * 99.0 + static_cast<f64>(current_times[i])) / 100.0;
+                f64 current_diff_to_mean = std::abs(static_cast<f64>(current_times[i]) - smooth_times[i]);
+                current_diff_to_mean = std::min(smooth_times[i] * 4, current_diff_to_mean); // clamp outliers down
+                f64 const variance = current_diff_to_mean * current_diff_to_mean;
+                smooth_variances[i] = (smooth_variances[i] * 19 + variance) / 20.0;
+            }
+            for (u32 group_i = 0; group_i < GROUP_COUNT; ++group_i)
+            {
+                u32 const group_size = GROUP_SIZES[group_i];
+                u32 const group_first_index = group_first_flat_index(group_i);
+
+                u64 raw_sum = 0;
+                f64 smooth_sum = 0.0;
+                for (u32 timer_i = 0; timer_i < group_size; ++timer_i)
+                {
+                    u32 const timer_index = group_first_index + timer_i;
+                    raw_sum += current_times[timer_index];
+                    smooth_sum += smooth_times[timer_index];
+                }
+
+                current_group_times[group_i] = raw_sum;
+                smooth_group_times[group_i] = smooth_sum;
+                f64 current_diff_to_mean = std::abs(static_cast<f64>(current_group_times[group_i]) - smooth_group_times[group_i]);
+                current_diff_to_mean = std::min(smooth_group_times[group_i] * 4, current_diff_to_mean); // clamp outliers down
+                f64 const variance = current_diff_to_mean * current_diff_to_mean;
+                smooth_group_variances[group_i] = (smooth_group_variances[group_i] * 19 + variance) / 20.0;
             }
         }
 
@@ -466,9 +495,25 @@ namespace RenderTimes
         {
             return current_times[render_time_index];
         }
-        auto get_smooth(u32 render_time_index) -> u64
+        auto get_average(u32 render_time_index) -> u64
         {
-            return smooth_current_times[render_time_index];
+            return static_cast<u64>(smooth_times[render_time_index]);
+        }
+        auto get_variance(u32 render_time_index) -> u64
+        {
+            return static_cast<u64>(smooth_variances[render_time_index]);
+        }
+        auto get_group(u32 group_index) -> u64
+        {
+            return current_group_times[group_index];
+        }
+        auto get_group_average(u32 group_index) -> u64
+        {
+            return static_cast<u64>(smooth_group_times[group_index]);
+        }
+        auto get_group_variance(u32 group_index) -> u64
+        {
+            return static_cast<u64>(smooth_group_variances[group_index]);
         }
         void reset_timestamps_for_current_frame(daxa::CommandRecorder & recorder)
         {

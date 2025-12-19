@@ -52,7 +52,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
     //     - Reset (Deallocate) the entry that previously owned this memory in virtual page table 
     //     - Assign new entries to the page_table_texel and meta_memory_texel
 
-    const FindFreePagesHeader * header = AT.vsm_find_free_pages_header;
+    FindFreePagesHeader * header = AT.vsm_find_free_pages_header;
 
     const int free_pages_shifted_index = index - header.free_buffer_counter;
     // First try to use up all the free pages.

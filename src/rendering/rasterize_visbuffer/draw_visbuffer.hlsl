@@ -453,7 +453,6 @@ struct CullMeshletsDrawVisbufferPayload
     uint task_shader_meshlet_instances_offset;
     uint task_shader_surviving_meshlets_mask;
     uint cull_backfaces_mask;
-    uint enable_hiz_triangle_culling;
 };
 
 // TODO: This should not be three functions but only one. (Maybe make it a template?)
