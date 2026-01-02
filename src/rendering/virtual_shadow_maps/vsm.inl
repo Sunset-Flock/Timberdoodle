@@ -108,7 +108,7 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FindFreePagesHeader), vsm_find_free_page
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PageCoordBuffer), vsm_free_pages_buffer)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PageCoordBuffer), vsm_not_visited_pages_buffer)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_indirect)
+DAXA_TH_BUFFER_PTR(INDIRECT_COMMAND_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_allocate_indirect)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
@@ -129,7 +129,7 @@ struct AllocatePagesPush
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ClearPagesH)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
+DAXA_TH_BUFFER_PTR(INDIRECT_COMMAND_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_indirect)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_f32>, vsm_memory_block)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
@@ -238,7 +238,7 @@ struct CullAndDrawPointPagesPush
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ClearDirtyBitH)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMAllocationRequestsHeader), vsm_allocation_requests)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
+DAXA_TH_BUFFER_PTR(INDIRECT_COMMAND_READ, daxa_BufferPtr(DispatchIndirectStruct), vsm_clear_dirty_bit_indirect)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D_ARRAY, vsm_page_table)
 DAXA_DECL_TASK_HEAD_END
 

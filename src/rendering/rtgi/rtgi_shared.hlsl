@@ -9,7 +9,7 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
-#define RTGI_SPATIAL_FILTER_RADIUS_MIN 6
+#define RTGI_SPATIAL_FILTER_RADIUS_MIN 4
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 64
 #define RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES 12
 
@@ -21,11 +21,11 @@
 
 #define RTGI_SPATIAL_PASSTHROUGH 0
 
-#define RTGI_FIREFLY_FILTER 1
 // With a value of 32 AND a value of 32 accumulated frames,
 // Effectively, each pixel can AT MOST double its brightness every frame PRE blurring.
+#define RTGI_FIREFLY_FILTER 1
 #define RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD 32.0f
-#define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD 32.0f
+#define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME 8.0f
 
 func get_geometry_weight_threshold(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
@@ -37,6 +37,7 @@ func get_geometry_weight_threshold(float2 inv_render_target_size, float near_pla
     return pixel_ws_size;
 }
 
+// geometry weight is used as a hard cutoff to prevent ghosting
 func get_geometry_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
     float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float
@@ -69,10 +70,11 @@ func get_geometry_weight4(
     return validity;
 }
 
-func get_normal_diffuse_weight(float3 normal, float3 other_normal) -> float
+// Due to the low resolution the tracing and de-noising runs at we have to use normals only as a strong suggestion, not for cutoff.
+func get_normal_weight(float3 normal, float3 other_normal) -> float
 {
-    const float validity = max(0.0f, dot(normal, other_normal));
-    const float tight_validity = pow(validity, 8.0f);
+    const float validity = (max(0.0f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
+    const float tight_validity = square(validity);
     return tight_validity;
 }
 
@@ -112,6 +114,12 @@ float3 y_co_cg_to_linear( float3 color )
     r.z = t - color.y;
 
     return max( r, 0.0 );
+}
+
+float y_co_cg_to_radiance(float3 yCoCg)
+{
+    const float3 linear = y_co_cg_to_linear(yCoCg);
+    return linear.r + linear.g * 2.0f + linear.b * 0.5f;
 }
 
 float3 y_co_cg_to_linear_corrected( float y, float sh_y_0, float2 co_cg )

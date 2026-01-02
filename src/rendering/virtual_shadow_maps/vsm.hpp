@@ -22,7 +22,7 @@ MAKE_COMPUTE_COMPILE_INFO(vsm_debug_virtual_page_table_pipeline_compile_info, ".
 MAKE_COMPUTE_COMPILE_INFO(vsm_debug_meta_memory_table_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "debug_meta_main")
 MAKE_COMPUTE_COMPILE_INFO(vsm_recreate_shadow_map_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/draw_debug_textures.hlsl", "recreate_shadow_map")
 MAKE_COMPUTE_COMPILE_INFO(vsm_get_debug_statistics_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/get_debug_statistics.hlsl", "main")
-MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./src/rendering/virtual_shadow_maps/gen_point_dirty_bit_hiz.hlsl", "entry_gen_dirty_bit_hiz")
 
 static constexpr inline char const CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_directional_pages.hlsl";
 

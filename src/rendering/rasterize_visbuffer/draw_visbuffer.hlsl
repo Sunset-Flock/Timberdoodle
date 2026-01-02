@@ -18,6 +18,8 @@
 #include "shader_lib/misc.hlsl"
 #include "shader_lib/vsm_util.glsl"
 
+#define MESH_SHADER_DISPATCH_BLOCK_SIZE (1u << 10u)
+
 [shader("compute")]
 [numthreads(1,1,1)]
 void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
@@ -32,11 +34,13 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
             draw_list_type);
             
         meshlets_to_draw = min(meshlets_to_draw, MAX_MESHLET_INSTANCES);
-            DispatchIndirectStruct command;
-            command.x = meshlets_to_draw;
-            command.y = 1;
-            command.z = 1;
-            ((DispatchIndirectStruct*)(push.attach.draw_commands))[draw_list_type] = command;
+        uint blocks = round_up_div(meshlets_to_draw, MESH_SHADER_DISPATCH_BLOCK_SIZE);
+
+        DispatchIndirectStruct command;
+        command.x = 1;
+        command.y = blocks;
+        command.z = MESH_SHADER_DISPATCH_BLOCK_SIZE;
+        ((DispatchIndirectStruct*)(push.attach.draw_commands))[draw_list_type] = command;
     }
 }
 
@@ -378,32 +382,33 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_opaque(
-    uint gtid : SV_GroupThreadID,
-    uint gid : SV_GroupID,
+    uint3 dtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-
+    uint gtid = dtid.x;
+    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
     generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 // Didnt seem to do much.
 // [earlydepthstencil]
 [shader("fragment")]
-FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive daxa_prim_in)
 {
     FragmentOut ret;
     generic_fragment(
         ret,
         uint2(vert.position.xy),
-        prim.visibility_id,
+        daxa_prim_in.visibility_id,
         draw_p.attach.overdraw_image,
         NoIFragmentExtraData(),
         0
     );
     return ret;
 }
+
 // --- Mesh shader opaque ---
 
 
@@ -413,26 +418,27 @@ FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderO
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_masked(
-    uint gtid : SV_GroupThreadID,
-    uint gid : SV_GroupID,
+    uint3 dtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
+    uint gtid = dtid.x;
+    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
     generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
-FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+FragmentOut entry_fragment_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive daxa_prim_in)
 {
     FragmentOut ret;
     generic_fragment(
         ret,
         uint2(vert.position.xy),
-        prim.visibility_id,
+        daxa_prim_in.visibility_id,
         draw_p.attach.overdraw_image,
         FragmentMaskedData(
-            prim.material_index,
+            daxa_prim_in.material_index,
             draw_p.materials,
             draw_p.attach.globals->samplers.linear_repeat_ani,
             // draw_p.attach.globals->samplers.nearest_repeat,
@@ -840,15 +846,16 @@ func wave32_find_nth_set_bit(uint mask, uint n) -> uint
 }
 
 func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    in uint3 svtid,
+    in uint gid,
+    in uint gtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
     out OutputPrimitives<P, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in CullMeshletsDrawVisbufferPayload payload)
 {
     let push = cull_meshlets_draw_visbuffer_push;
-    let wave_lane_index = svtid.x;
-    let group_index = svtid.y;
+    let wave_lane_index = gtid;
+    let group_index = gid;
     // The payloads packed survivor indices go from 0-survivor_count.
     // These indices map to the meshlet instance indices.
     let local_meshlet_instance_index = group_index;
@@ -896,43 +903,47 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         return;
     }
     let cull_hiz_occluded = push.draw_data.pass_index != VISBUF_FIRST_PASS;
-    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, svtid.x, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
+    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, gid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_mesh_meshlet_cull_opaque(
-    in uint3 svtid : SV_DispatchThreadID,
+    in uint3 dtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
-    generic_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
+    uint gtid = dtid.x;
+    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
+    generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_mesh_meshlet_cull_masked(
-    in uint3 svtid : SV_DispatchThreadID,
+    in uint3 dtid : SV_DispatchThreadID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
-    generic_mesh_cull_draw(svtid, out_indices, out_vertices, out_primitives, payload);
+    uint gtid = dtid.x;
+    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
+    generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
 [shader("fragment")]
-FragmentOut entry_fragment_meshlet_cull_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive prim)
+FragmentOut entry_fragment_meshlet_cull_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderOpaquePrimitive daxa_prim_in)
 {
     FragmentOut ret;
     generic_fragment(
         ret,
         uint2(vert.position.xy),
-        prim.visibility_id,
+        daxa_prim_in.visibility_id,
         cull_meshlets_draw_visbuffer_push.attach.overdraw_image,
         NoIFragmentExtraData(),
         0
@@ -941,16 +952,16 @@ FragmentOut entry_fragment_meshlet_cull_opaque(in MeshShaderOpaqueVertex vert, i
 }
 
 [shader("fragment")]
-FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive prim)
+FragmentOut entry_fragment_meshlet_cull_masked(in MeshShaderMaskVertex vert, in MeshShaderMaskPrimitive daxa_prim_in)
 {  
     FragmentOut ret;
     generic_fragment(
         ret,
         uint2(vert.position.xy),
-        prim.visibility_id,
+        daxa_prim_in.visibility_id,
         cull_meshlets_draw_visbuffer_push.attach.overdraw_image,
         FragmentMaskedData(
-            prim.material_index,
+            daxa_prim_in.material_index,
             cull_meshlets_draw_visbuffer_push.materials,
             cull_meshlets_draw_visbuffer_push.attach.globals.samplers.linear_repeat_ani,
             vert.uv

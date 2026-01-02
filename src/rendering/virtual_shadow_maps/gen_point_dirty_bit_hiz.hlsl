@@ -93,8 +93,9 @@ void downsample_64x64<let START_MIP_LEVEL : int>(
 
 [numthreads(GEN_DIRTY_BIT_HIZ_X_DISPATCH, GEN_DIRTY_BIT_HIZ_Y_DISPATCH, 1)]
 [shader("compute")]
-void main(uint2 liid : SV_GroupThreadID, uint3 wgid : SV_GroupID)
+void entry_gen_dirty_bit_hiz(uint2 liid : SV_GroupThreadID, uint3 wgid : SV_GroupID)
 {
+    #if 0
     const uint per_light_images = (7 * 6); // 7 mips 6 cubemap faces.
     const uint point_light_images = push.attachments.globals.vsm_settings.point_light_count * per_light_images;
     const bool is_point_light = (wgid.z < point_light_images);
@@ -129,4 +130,5 @@ void main(uint2 liid : SV_GroupThreadID, uint3 wgid : SV_GroupID)
         case 5: downsample_64x64<5>(push.attachments.vsm_dirty_bit_hiz_mip5, liid, wgid.xy, array_layer_idx, 2);
         case 6: downsample_64x64<6>(push.attachments.vsm_dirty_bit_hiz_mip6, liid, wgid.xy, array_layer_idx, 1);
     }
+    #endif
 }

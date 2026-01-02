@@ -68,6 +68,7 @@ struct Renderer
     void clear_select_buffers();
     void window_resized();
     auto create_main_task_graph() -> daxa::TaskGraph;
+    auto create_debug_task_graph() -> daxa::TaskGraph;
     auto create_sky_lut_task_graph() -> daxa::TaskGraph;
     void recreate_sky_luts();
     // Return value determines if the frame should be executed.
@@ -121,6 +122,7 @@ struct Renderer
     UIEngine *ui_engine = {};
     AssetProcessor *asset_manager = {};
     daxa::TaskGraph main_task_graph;
+    daxa::TaskGraph debug_task_graph;
     daxa::TaskGraph sky_task_graph;
     daxa::CommandSubmitInfo submit_info = {};
     daxa::ImGuiRenderer* imgui_renderer;

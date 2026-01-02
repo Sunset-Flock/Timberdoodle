@@ -194,12 +194,12 @@ func point_vsm_entry_mesh_masked(
 [shader("fragment")]
 void point_vsm_entry_fragment_opaque(
     in MeshShaderOpaqueVertex vert,
-    in PointVSMOpaqueMeshShaderPrimitive prim)
+    in PointVSMOpaqueMeshShaderPrimitive daxa_prim_in)
 {
     let push = point_vsm_push;
 
     let page_coords = uint2(vert.position.xy) / VSM_PAGE_SIZE;
-    let indirections = unpack_vsm_point_spot_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_point_spot_light_indirections(daxa_prim_in.vsm_meta_info);
 
     let vsm_page_entry = push.attachments.vsm_point_spot_page_table[indirections.mip_level].get()[int3(page_coords.xy, indirections.array_layer_index)];
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
@@ -220,13 +220,13 @@ void point_vsm_entry_fragment_opaque(
 [shader("fragment")]
 void point_vsm_entry_fragment_masked(
     in MeshShaderMaskVertex vert,
-    in PointVSMMaskMeshShaderPrimitive prim)
+    in PointVSMMaskMeshShaderPrimitive daxa_prim_in)
 {
 
     let push = point_vsm_push;
 
     let page_coords = uint2(vert.position.xy) / VSM_PAGE_SIZE;
-    let indirections = unpack_vsm_point_spot_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_point_spot_light_indirections(daxa_prim_in.vsm_meta_info);
 
     let vsm_page_entry = push.attachments.vsm_point_spot_page_table[indirections.mip_level].get()[int3(page_coords.xy, indirections.array_layer_index)];
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
@@ -237,9 +237,9 @@ void point_vsm_entry_fragment_masked(
         const uint2 in_memory_offset = memory_page_coords * VSM_PAGE_SIZE;
         const uint2 memory_texel_coord = in_memory_offset + in_page_texel_coord;
 
-        if(prim.material_index != INVALID_MANIFEST_INDEX)
+        if(daxa_prim_in.material_index != INVALID_MANIFEST_INDEX)
         {
-            const GPUMaterial material = deref_i(push.attachments.material_manifest, prim.material_index);
+            const GPUMaterial material = deref_i(push.attachments.material_manifest, daxa_prim_in.material_index);
             float alpha = 1.0;
             if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {

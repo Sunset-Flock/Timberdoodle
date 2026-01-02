@@ -157,11 +157,11 @@ func directional_vsm_entry_mesh_masked(
 [shader("fragment")]
 void directional_vsm_entry_fragment_opaque(
     in MeshShaderOpaqueVertex vert,
-    in DirectionalVSMOpaqueMeshShaderPrimitive prim)
+    in DirectionalVSMOpaqueMeshShaderPrimitive daxa_prim_in)
 {
     let push = vsm_push;
     const float2 virtual_uv = vert.position.xy / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
-    let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_directional_light_indirections(daxa_prim_in.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
         {indirections.cascade, virtual_uv},
@@ -187,11 +187,11 @@ void directional_vsm_entry_fragment_opaque(
 [shader("fragment")]
 void directional_vsm_entry_fragment_masked(
     in MeshShaderMaskVertex vert,
-    in DirectionalVSMMaskMeshShaderPrimitive prim)
+    in DirectionalVSMMaskMeshShaderPrimitive daxa_prim_in)
 {
     let push = vsm_push;
     const float2 virtual_uv = vert.position.xy / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
-    let indirections = unpack_vsm_directional_light_indirections(prim.vsm_meta_info);
+    let indirections = unpack_vsm_directional_light_indirections(daxa_prim_in.vsm_meta_info);
 
     let wrapped_coords = vsm_clip_info_to_wrapped_coords(
         {indirections.cascade, virtual_uv},
@@ -200,9 +200,9 @@ void directional_vsm_entry_fragment_masked(
     let vsm_page_entry = RWTexture2DArray<uint>::get(push.attachments.vsm_page_table)[uint3(wrapped_coords)].x;
     if(get_is_allocated(vsm_page_entry) && get_is_dirty(vsm_page_entry))
     {
-        if(prim.material_index != INVALID_MANIFEST_INDEX)
+        if(daxa_prim_in.material_index != INVALID_MANIFEST_INDEX)
         {
-            const GPUMaterial material = deref_i(push.attachments.material_manifest, prim.material_index);
+            const GPUMaterial material = deref_i(push.attachments.material_manifest, daxa_prim_in.material_index);
             float alpha = 1.0;
             if(material.opacity_texture_id.value != 0 && material.alpha_discard_enabled)
             {

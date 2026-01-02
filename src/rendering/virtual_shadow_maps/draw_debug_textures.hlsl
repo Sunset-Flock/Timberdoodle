@@ -16,16 +16,16 @@ void debug_virtual_main(uint3 svdtid : SV_DispatchThreadID)
     if(all(lessThan(svdtid.xy, int2(VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION))))
     {
         const bool level_forced = push.globals.vsm_settings.force_clip_level != 0;
-        const int clip_level = level_forced ? push.globals.vsm_settings.force_clip_level : 0;
+        const int clip_level = level_forced ? push.globals.vsm_settings.forced_clip_level : 0;
 
         const int3 page_entry_coords = int3(svdtid.xy, clip_level);
-        const uint page_entry = push.vsm_page_table.get_formatted()[page_entry_coords];
+        const uint page_entry = push.vsm_page_table.get()[page_entry_coords];
         float4 color = float4(0.0f, 0.0f, 0.0f, 1.0f);
 
         const float hue = pow(float(page_entry_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5f);
         if(get_is_allocated(page_entry))        { color.rgb = hsv2rgb(float3(hue, 0.8f, 0.2f)); }
-        if(get_is_dirty(page_entry))            { color.rgb = float3(1.0f); }
-        if(get_allocation_failed(page_entry))   { color.rgb = float3(1.0f, 0.0f, 0.0f); }
+        // if(get_is_dirty(page_entry))            { color.rgb = float3(1.0f); }
+        // if(get_allocation_failed(page_entry))   { color.rgb = float3(1.0f, 0.0f, 0.0f); }
         if(get_is_visited_marked(page_entry))   { color.rgb = hsv2rgb(float3(hue, 1.0f, 0.8f)); }
 
         push.vsm_debug_page_table.get()[svdtid.xy] = color;

@@ -59,7 +59,10 @@ inline daxa::ComputePipelineCompileInfo sky_into_cubemap_pipeline_compile_info()
     return {
         .shader_info = daxa::ShaderCompileInfo{
             .source = daxa::ShaderFile{"./src/rendering/tasks/sky.glsl"},
-            .compile_options = {.defines = {{"CUBEMAP", "1"}}},
+            .compile_options = {
+                .defines = {{"CUBEMAP", "1"}},
+                .required_subgroup_size = 32,
+            },
         },
         .push_constant_size = static_cast<u32>(sizeof(SkyIntoCubemapH::AttachmentShaderBlob)),
         .name = std::string{SkyIntoCubemapH::NAME},

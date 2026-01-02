@@ -417,7 +417,7 @@ static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::
         /// TODO: Potentially take more flags from the user here
         .usage =
             daxa::ImageUsageFlagBits::TRANSFER_DST |
-            daxa::ImageUsageFlagBits::HOST_TRANSFER |
+            // daxa::ImageUsageFlagBits::HOST_TRANSFER |
             daxa::ImageUsageFlagBits::SHADER_SAMPLED,
         .name = raw_data.image_path.filename().string(),
     };
@@ -482,7 +482,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
         .array_layer_count = numLayers,
         .sample_count = 1,
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                 daxa::ImageUsageFlagBits::HOST_TRANSFER |
+                 // daxa::ImageUsageFlagBits::HOST_TRANSFER |
                  daxa::ImageUsageFlagBits::TRANSFER_DST,
         .allocate_info = {},
         .name = raw_data.image_path.filename().string(),
@@ -529,20 +529,47 @@ AssetProcessor::~AssetProcessor()
 void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::ImageId & image, u32 layer = 0u)
 {
     daxa::ImageViewInfo image_view_info = device.info(image.default_view()).value();
-    /// TODO: If we are generating mips this will need to change
-    device.transition_image_layout({
-        .image = image,
-        .new_image_layout = daxa::ImageLayout::GENERAL,
-        .image_slice = image_view_info.slice,
+
+    auto cr = device.create_command_recorder({.name = "upload image"});
+
+    cr.pipeline_image_barrier({
+        .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .image_id = image,
+        .layout_operation = daxa::ImageLayoutOperation::TO_GENERAL,
     });
+
+    daxa::BufferId staging_buffer = device.create_buffer({
+        .size = parsed_data.src_data.size(),
+        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "upload image",
+    });
+    cr.destroy_buffer_deferred(staging_buffer);
+    std::memcpy(device.buffer_host_address(staging_buffer).value(), parsed_data.src_data.data(), parsed_data.src_data.size());
+
+    // device.transition_image_layout({
+    //     .image = image,
+    //     .new_image_layout = daxa::ImageLayout::GENERAL,
+    //     .image_slice = image_view_info.slice,
+    // });
     daxa::ImageInfo image_info = device.image_info(image).value();
     for (u32 mip = 0; mip < parsed_data.mips_to_copy; ++mip)
     {
         u32 width = std::max(1u, image_info.size.x >> mip);
         u32 height = std::max(1u, image_info.size.y >> mip);
         u32 depth = std::max(1u, image_info.size.z >> mip);
-        device.copy_memory_to_image({
-            .memory_ptr = parsed_data.src_data.data() + parsed_data.mip_copy_offsets[mip],
+        // device.copy_memory_to_image({
+        //     .memory_ptr = parsed_data.src_data.data() + parsed_data.mip_copy_offsets[mip],
+        //     .image = image,
+        //     .image_slice = {
+        //         .mip_level = mip,
+        //         .base_array_layer = layer,
+        //     },
+        //     .image_offset = {0, 0, 0},
+        //     .image_extent = {width, height, depth},
+        // });
+        cr.copy_buffer_to_image({
+            .buffer = staging_buffer,
+            .buffer_offset = parsed_data.mip_copy_offsets[mip],
             .image = image,
             .image_slice = {
                 .mip_level = mip,
@@ -552,6 +579,19 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
             .image_extent = {width, height, depth},
         });
     }
+    
+    cr.pipeline_image_barrier({
+        .src_access = daxa::AccessConsts::TRANSFER_WRITE,
+        .dst_access = daxa::AccessConsts::READ,
+        .image_id = image,
+    });
+
+    device.submit_commands({
+        .command_lists = std::array{cr.complete_current_commands()},
+    });
+    device.wait_idle();
+    device.collect_garbage();
+
     parsed_data.src_data.resize(0);
     parsed_data.src_data.shrink_to_fit();
 }

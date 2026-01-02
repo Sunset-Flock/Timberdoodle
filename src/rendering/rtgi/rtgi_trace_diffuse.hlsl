@@ -96,11 +96,11 @@ void ray_gen()
 
     if (dtid.x > (push.attach.globals.settings.render_target_size.x/4))
     {
-        push.attach.debug_image.get()[dtid] = float4(rr_stbn, 0,1);
+        // push.attach.debug_image.get()[dtid] = float4(rr_stbn, 0,1);
     }
     else
     {
-        push.attach.debug_image.get()[dtid] = float4(rr, 0,1);
+        // push.attach.debug_image.get()[dtid] = float4(rr, 0,1);
     }
 
     if(depth > 0.0f)
@@ -118,7 +118,7 @@ void ray_gen()
             // const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
             
             float3 importance_rand_hemi_sample;
-            if (dtid.x > (push.attach.globals.settings.render_target_size.x/4))
+            if (dtid.x > (push.attach.globals.settings.render_target_size.x/4) && false)
             {
                 // importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
                 importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, push.attach.globals.frame_index);

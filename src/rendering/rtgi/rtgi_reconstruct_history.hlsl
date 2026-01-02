@@ -76,37 +76,28 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
 
 #if RTGI_FIREFLY_FILTER
-    const float FIREFLY_AVERAGE_POWER = 2.0f;
-    float radiance_power_sum = 0.0f;
-    float weight_sum = 0.0f;
-    for (int x = -2; x <= 2; ++x)
+    if (pixel_samplecnt == 0)
     {
-        for (int y = -2; y <= 2; ++y)
+        const float FIREFLY_AVERAGE_POWER = 4.0f;
+        float radiance_power_sum = 0.0f;
+        for (int x = -2; x <= 2; ++x)
         {
-            if (x == 0 && y == 0)
-                continue;
-
-            const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
-            const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
-            const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
-            const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
-            //if (sample_validity > 2.0f)
+            for (int y = -2; y <= 2; ++y)
             {
-                radiance_power_sum += pow(diffuse.w, 1.0f / FIREFLY_AVERAGE_POWER);
-                weight_sum += 1.0f;
+                if (x == 0 && y == 0)
+                    continue;
+
+                const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
+                const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+                const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
+                const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
+                radiance_power_sum += pow(y_co_cg_to_radiance(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER);
             }
         }
-    }
 
-    float4 diffuse_before = diffuse;
-
-    if (weight_sum > 0.0f)
-    {
-        const float average = pow(radiance_power_sum * rcp(weight_sum), FIREFLY_AVERAGE_POWER);
-        
-        const float radiance_ratio = diffuse.w / (0.000000001f + average);
-        const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD / radiance_ratio );
-        // Effectively clamps the new value down to a value where its new luma is at most RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD times  larger than the history
+        const float average = pow(radiance_power_sum * rcp(5*5), FIREFLY_AVERAGE_POWER);
+        const float radiance_ratio = y_co_cg_to_radiance(float3(diffuse.w, diffuse2)) / (0.000000001f + average);
+        const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME / radiance_ratio );
         diffuse *= supression_factor;
         diffuse2 *= supression_factor;
     }

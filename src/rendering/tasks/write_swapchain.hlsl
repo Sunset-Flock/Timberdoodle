@@ -3,6 +3,7 @@
 #include "write_swapchain.inl"
 
 #include "shader_lib/visbuffer.hlsl"
+#include "shader_lib/depth_util.glsl"
 
 float3 index_to_color(uint index)
 {
@@ -194,10 +195,11 @@ func check_mark_selected(Texture2D<float> selecetd_mark, int2 size, int2 index, 
     mark_border = !self_marked && surrounding_area_at_least_one_marked;
 }
 
-[[vk::push_constant]] WriteSwapchainPush push;
+[[vk::push_constant]] WriteSwapchainPush normal_push;
 [numthreads(WRITE_SWAPCHAIN_WG_X,WRITE_SWAPCHAIN_WG_Y,1)]
 void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
 {
+    let push = normal_push;
     if (any(greaterThanEqual(index, push.size)))
     {
         return;
@@ -259,4 +261,22 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     float3 gamma_correct = sRGB_OETF(color);
 
     push.attachments.swapchain.get()[index] = float4(gamma_correct.rgb, 1);
+}
+
+
+[[vk::push_constant]] WriteSwapchainDebugPush debug_push;
+[numthreads(WRITE_SWAPCHAIN_WG_X,WRITE_SWAPCHAIN_WG_Y,1)]
+void entry_write_swapchain_debug(uint2 index : SV_DispatchThreadID)
+{
+    let push = debug_push;
+    if (any(greaterThanEqual(index, push.size)))
+    {
+        return;
+    }
+
+    float depth = push.attachments.depth_image.get()[index];
+    float3 depth_color = unband_z_color(index.x, index.y, linearise_depth(push.attachments.globals.main_camera.near_plane, depth));
+
+    float3 gamma_correct = sRGB_OETF(depth_color);
+    push.attachments.swapchain.get()[index] = float4(gamma_correct, 1);
 }

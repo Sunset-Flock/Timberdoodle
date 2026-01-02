@@ -35,6 +35,7 @@ GPUContext::GPUContext(Window const & window)
                   daxa::ImplicitFeatureFlagBits::BASIC_RAY_TRACING |
                   daxa::ImplicitFeatureFlagBits::MESH_SHADER |
                   daxa::ImplicitFeatureFlagBits::SHADER_CLOCK |
+                  // daxa::ImplicitFeatureFlagBits::HOST_IMAGE_COPY |
                   daxa::ImplicitFeatureFlagBits::SWAPCHAIN;
 
               auto device_info = daxa::DeviceInfo2{};
@@ -42,8 +43,9 @@ GPUContext::GPUContext(Window const & window)
               device_info.max_allowed_buffers = 1u << 17u;
               device_info.max_allowed_acceleration_structures = 1u << 17u;
               device_info.name = "Timberdoodle";
+              device_info.physical_device_index = 0;
 
-              device_info = this->instance.choose_device(required_implicit, device_info);
+              //device_info = this->instance.choose_device(required_implicit, device_info);
 
               fmt::println("Choosen GPU: {}", reinterpret_cast<char const * const>(&this->instance.list_devices_properties()[device_info.physical_device_index].device_name));
 
@@ -61,8 +63,8 @@ GPUContext::GPUContext(Window const & window)
                   default:                           return 0;
               }
           },
-          .present_mode = daxa::PresentMode::FIFO_RELAXED,
-          .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE,
+          .present_mode = daxa::PresentMode::IMMEDIATE,
+          .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_DST,
           .name = "Timberdoodle Swapchain",
       })},
       pipeline_manager{daxa::PipelineManager{daxa::PipelineManagerInfo2{

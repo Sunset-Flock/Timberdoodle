@@ -30,7 +30,7 @@ struct RayPayload
 [shader("raygeneration")]
 void ray_gen()
 {
-    let clk_start = clockARB();
+    //let clk_start = clockARB();
     let push = rt_ao_push;
     const int2 index = DispatchRaysIndex().xy;
     const float2 screen_uv = index * push.attach.globals->settings.render_target_size_inv;
@@ -80,10 +80,10 @@ void ray_gen()
             push.attach.rtao_raw_image.get()[index.xy] = float4(ao_value,0,0,0);
         }
     }
-    let clk_end = clockARB();
+    //let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS)
     {
-        push.attach.clocks_image.get()[index] = uint(clk_end - clk_start);
+        //push.attach.clocks_image.get()[index] = uint(clk_end - clk_start);
     }
 }
 
@@ -92,15 +92,15 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
 {
     let push = rt_ao_push;
 
-    if (!rt_is_alpha_hit(
-        push.attach.globals,
-        push.attach.mesh_instances,
-        push.attach.globals.scene.meshes,
-        push.attach.globals.scene.materials,
-        attr.barycentrics))
-    {
-        IgnoreHit();
-    }
+    // if (!rt_is_alpha_hit(
+    //     push.attach.globals,
+    //     push.attach.mesh_instances,
+    //     push.attach.globals.scene.meshes,
+    //     push.attach.globals.scene.materials,
+    //     attr.barycentrics))
+    // {
+    //     IgnoreHit();
+    // }
 }
 
 func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
@@ -127,12 +127,12 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     let push = rt_ao_push;
 
     payload.miss = false;
-    {
-        if (!payload.miss)
-        {
-            payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
-        }
-    }
+    // {
+    //     if (!payload.miss)
+    //     {
+    //         payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
+    //     }
+    // }
 }
 
 [shader("miss")]

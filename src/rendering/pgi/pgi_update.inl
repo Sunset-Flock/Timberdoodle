@@ -22,7 +22,7 @@ struct PGIIndirections
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), exposure)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
@@ -43,7 +43,7 @@ struct PGIDrawDebugProbesPush
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbeTexelsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_color)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec2>, probe_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
@@ -58,7 +58,7 @@ struct PGIUpdateProbeTexelsPush
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIUpdateProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
+DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, probe_info)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info_copy)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, trace_result)

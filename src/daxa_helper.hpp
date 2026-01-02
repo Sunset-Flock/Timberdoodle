@@ -17,6 +17,7 @@ namespace tido
             return daxa::ComputePipelineCompileInfo2{                                                  \
                 .source = daxa::ShaderSource{daxa::ShaderFile{PATH}},                                  \
                 .entry_point = std::string(ENTRY),                                                     \
+                .required_subgroup_size = WARP_SIZE,                                                   \
                 .name = (std::filesystem::path(PATH).filename().string() + "::") + std::string(ENTRY), \
             };                                                                                         \
         }();                                                                                           \

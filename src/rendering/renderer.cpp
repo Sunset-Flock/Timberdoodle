@@ -158,6 +158,7 @@ Renderer::Renderer(
     recreate_framebuffer();
     recreate_sky_luts();
     main_task_graph = create_main_task_graph();
+    debug_task_graph = create_debug_task_graph();
     sky_task_graph = create_sky_lut_task_graph();
 }
 
@@ -309,6 +310,7 @@ void Renderer::compile_pipelines()
         {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
         {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},
+        {write_swapchain_debug_pipeline_compile_info2()},
         {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
         {expand_meshes_pipeline_compile_info()},
         {tido::upgrade_compute_pipeline_compile_info(PrefixSumCommandWriteTask::pipeline_compile_info)},
@@ -500,7 +502,6 @@ void Renderer::clear_select_buffers()
     using namespace daxa;
     TaskGraph tg{{
         .device = this->gpu_context->device,
-        .swapchain = this->gpu_context->swapchain,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .pre_task_callback = [=, this](daxa::TaskInterface ti)
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
@@ -607,7 +608,7 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     return tg;
 }
 
-auto Renderer::create_main_task_graph() -> daxa::TaskGraph
+auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
 {
     using namespace daxa;
     TaskGraph tg{{
@@ -624,6 +625,46 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Timberdoodle main TaskGraph",
     }};
+    tg.use_persistent_image(swapchain_image);
+    tg.clear_image({.view = swapchain_image.view()});
+    tg.submit({});
+
+    tg.add_task(daxa::InlineTask{"ImGui Draw"}
+            .color_attachment.reads_writes(swapchain_image)
+            .executes(
+                [=, this](daxa::TaskInterface ti)
+                {
+                    ImGui::Render();
+                    auto size = ti.info(swapchain_image.view()).value().size;
+                    imgui_renderer->record_commands(
+                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y);
+                }));
+
+    tg.submit({});
+    tg.present({});
+    tg.complete({});
+    return tg;
+}
+
+auto Renderer::create_main_task_graph() -> daxa::TaskGraph
+{
+    using namespace daxa;
+    TaskGraph tg{{
+        .device = this->gpu_context->device,
+        .swapchain = this->gpu_context->swapchain,
+        .reorder_tasks = true,
+        .alias_transients = false,
+        .use_split_barriers = false,
+        .staging_memory_pool_size = 2'097'152, // 2MiB.
+        // Extra flags are required for tg debug inspector:
+        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
+        .pre_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
+        .post_task_callback = [=, this](daxa::TaskInterface ti)
+        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
+        .name = "Timberdoodle main TaskGraph",
+    }};
+    tg.use_persistent_image(swapchain_image);
     for (auto const & tbuffer : buffers)
     {
         tg.use_persistent_buffer(tbuffer);
@@ -654,7 +695,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
     tg.use_persistent_image(gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table);
-    tg.use_persistent_image(swapchain_image);
 
     // TODO: Move into an if and create persistent state only if necessary.
     tg.use_persistent_image(pgi_state.probe_color);
@@ -754,6 +794,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .executes(cull_lights_task, render_context.get()));
 
     auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
+    #if 1
     tg.add_task(daxa::Task::RayTracing("build scene tlas")
             .acceleration_structure_build.writes(scene_main_tlas)
             .uses_queue(tlas_build_task_queue)
@@ -764,6 +805,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
                     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
                 }));
+    #endif
 
     ///
     /// === Misc Tasks End ===
@@ -775,9 +817,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_visbuffer = visbuffer_ret.view_camera_visbuffer;
     daxa::TaskImageView view_camera_depth = visbuffer_ret.view_camera_depth;
     daxa::TaskImageView overdraw_image = visbuffer_ret.view_camera_overdraw;
-
-    // Flush commands for lower latency and better async compute overlap in early commands.
-    // Also required to allow for access to tlas, sky and light mask when using async compute
 
     daxa::TaskImageView main_camera_face_normal_image = tg.create_transient_image({
         .format = GBUFFER_NORMAL_FORMAT,
@@ -872,6 +911,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.submit({});
     }
 
+    #if 0
+
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -895,6 +936,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         vsm_state.zero_out_transient_state();
     }
 
+    auto const vsm_page_table_view = vsm_state.page_table.view().layers(0, VSM_CLIP_LEVELS);
+    auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().layers(0, VSM_CLIP_LEVELS);
+    auto const vsm_point_spot_page_table_view =
+        vsm_state.point_spot_page_tables.view()
+            .mips(0, s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1)
+            .layers(0, (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS);
+
     auto color_image = tg.create_transient_image({
         .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
         .size = {
@@ -905,21 +953,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "color_image",
     });
 
-    auto const vsm_page_table_view = vsm_state.page_table.view().layers(0, VSM_CLIP_LEVELS);
-    auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().layers(0, VSM_CLIP_LEVELS);
-    auto const vsm_point_spot_page_table_view =
-        vsm_state.point_spot_page_tables.view()
-            .mips(0, s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1)
-            .layers(0, (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS);
-
-    tg.submit({});
-
-    daxa::TaskBufferView pgi_indirections = {};
+    daxa::TaskBufferView pgi_indirections = daxa::NullTaskBuffer;
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
     daxa::TaskImageView pgi_irradiance = daxa::NullTaskImage;
     daxa::TaskImageView pgi_visibility = daxa::NullTaskImage;
     daxa::TaskImageView pgi_info = daxa::NullTaskImage;
     daxa::TaskImageView pgi_requests = daxa::NullTaskImage;
+
     if (render_context->render_data.pgi_settings.enabled)
     {
         auto ret = task_pgi_update({
@@ -957,6 +997,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
         }
     }
+    #endif
 
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
     if (render_context->render_data.ao_settings.mode == AMBIENT_OCCLUSION_MODE_RTAO)
@@ -1010,6 +1051,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
         tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name = "save rtao history"});
     }
+    #if 0
 
     // RTGI
     daxa::TaskImageView rtgi_per_pixel_diffuse = daxa::NullTaskImage;
@@ -1258,8 +1300,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.copy_image_to_image({.src = view_camera_half_res_face_normal_image, .dst = rtgi_face_normal_history.view(), .name = "save rtgi face normal history"});
     }
 
-    tg.submit({});
-
     auto selected_mark_image = tg.create_transient_image({
         .format = daxa::Format::R8_UNORM,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
@@ -1309,7 +1349,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .color_image = color_image,
                 .selected_mark_image = selected_mark_image,
-                .ao_image = ao_image,
+                .ao_image = daxa::NullTaskImage,// ao_image,
                 .vis_image = view_camera_visbuffer,
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
                 .depth = view_camera_depth,
@@ -1342,8 +1382,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .pgi_visibility = pgi_visibility,
                 .pgi_info = pgi_info,
                 .pgi_requests = pgi_requests,
-                .rtgi_per_pixel_diffuse = rtgi_per_pixel_diffuse,
-                .rtgi_debug_primary_trace = rtgi_debug_primary_trace,
+                .rtgi_per_pixel_diffuse = daxa::NullTaskImage, //rtgi_per_pixel_diffuse,
+                .rtgi_debug_primary_trace = daxa::NullTaskImage, //rtgi_debug_primary_trace,
                 .tlas = scene_main_tlas,
             },
             .render_context = render_context.get(),
@@ -1410,7 +1450,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, daxa::QUEUE_MAIN, "copy depth to debug depth"});
-    if (render_context->render_data.pgi_settings.enabled)
+    if (render_context->render_data.pgi_settings.enabled && false)
     {
         tg.add_task(PGIDrawDebugProbesTask{
             .views = PGIDrawDebugProbesTask::Views{
@@ -1429,14 +1469,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .pgi_state = &pgi_state,
         });
     }
-    tg.add_task(DebugDrawTask{
-        .views = DebugDrawTask::Views{
-            .globals = render_context->tgpu_render_data.view(),
-            .color_image = color_image,
-            .depth_image = debug_draw_depth,
-        },
-        .render_context = render_context.get(),
-    });
+    // tg.add_task(DebugDrawTask{
+    //     .views = DebugDrawTask::Views{
+    //         .globals = render_context->tgpu_render_data.view(),
+    //         .color_image = color_image,
+    //         .depth_image = debug_draw_depth,
+    //     },
+    //     .render_context = render_context.get(),
+    // });
 
     tg.add_task(CopyDepthTask{
         .views = CopyDepthTask::Views{
@@ -1446,6 +1486,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .render_context = render_context.get(),
     });
     tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy to normal history"});
+
+
 
     tg.add_task(WriteSwapchainTask{
         .views = WriteSwapchainTask::Views{
@@ -1457,6 +1499,18 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .gpu_context = gpu_context,
     });
+
+    #endif
+    
+    tg.add_task(daxa::HeadTask<WriteSwapchainDebugH::Info>()
+        .head_views({
+            .globals = render_context->tgpu_render_data.view(),
+            .debug_image = debug_image,
+            .depth_image = view_camera_depth,
+            .swapchain = swapchain_image.view(),
+        })
+        .executes(write_swapchain_debug_callback, render_context.get()));
+
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
             .color_attachment.reads_writes(swapchain_image)
@@ -1594,11 +1648,14 @@ auto Renderer::prepare_frame(
     }
     if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ao_settings_changed || rtgi_settings_changed)
     {
+        this->gpu_context->device.wait_idle();
+        this->gpu_context->device.collect_garbage();
         gpu_context->swapchain.set_present_mode(render_context->render_data.settings.enable_vsync ? daxa::PresentMode::FIFO : daxa::PresentMode::IMMEDIATE);
         main_task_graph = create_main_task_graph();
         recreate_framebuffer();
         clear_select_buffers();
     }
+    main_task_graph.imgui_ui();
     {
         // std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
         // main_task_graph = create_main_task_graph();

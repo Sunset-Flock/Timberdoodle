@@ -102,12 +102,15 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float blur_radius_lerp = min(1.0f, pixel_samplecnt / RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES);
     const float blur_radius = lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, RTGI_SPATIAL_FILTER_RADIUS_MIN, blur_radius_lerp);
 
+    // We want the kernel to align with the surface, 
+    // but on shallow angles we would loose too much pixel footprint, 
+    // so we bias the normal to face the camera more.
+    const float ss_gradient_view_bias = 0.1;
+    const float3 biased_vs_normal = lerp(vs_normal, float3(0,0,1), ss_gradient_view_bias);
     const float2 ss_gradient = float2(
-        sin(acos(vs_normal.x)),
-        sin(acos(vs_normal.y)),
+        sin(acos(biased_vs_normal.x)),
+        sin(acos(biased_vs_normal.y)),
     ) * inv_half_res_render_target_size;
-
-    push.attach.debug_image.get()[dtid] = float4(blur_radius,0,0,1);
 
     float weight_accum = 0.0f;
     float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -142,7 +145,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         // Calculate validity weights
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
         const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
-        const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
+        const float normal_weight = get_normal_weight(pixel_face_normal, sample_value_normal);
         const float weight = depth_valid_weight * geometric_weight * normal_weight;
 
         // Accumulate blurred diffuse
@@ -254,7 +257,7 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         // Calculate validity weights
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
         const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
-        const float normal_weight = get_normal_diffuse_weight(pixel_face_normal, sample_value_normal);
+        const float normal_weight = get_normal_weight(pixel_face_normal, sample_value_normal);
         const float weight = sample_weighting * depth_valid_weight * geometric_weight * normal_weight;
 
         // Accumulate blurred diffuse

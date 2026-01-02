@@ -354,6 +354,7 @@ struct VSMState
                             .dst_slice = ti.get(point_spot_table_array_view).view.slice,
                         });
                     }));
+        upload_task_graph.submit({});
         upload_task_graph.complete({});
         upload_task_graph.execute({});
     }

@@ -1028,10 +1028,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
                     scene._newly_completed_mesh_groups.push_back(mesh_lod_group.mesh_group_manifest_index);
                 }
             }
-            if (upload.lods[0].material_index != mesh_lod_group.material_index)
-            {
-                printf("AAAA\n");
-            }
+            DAXA_DBG_ASSERT_TRUE_M(upload.lods[0].material_index == mesh_lod_group.material_index.value_or(INVALID_MANIFEST_INDEX), "IMPOSSIBLE CASE! material index MUST MATCH!");
             std::memcpy(mesh_staging_ptr + upload_index * MAX_MESHES_PER_LOD_GROUP, &upload.lods, sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP);
             recorder.copy_buffer_to_buffer({
                 .src_buffer = staging_buffer,
@@ -1315,7 +1312,7 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
         blas_instances_buffer = _device.create_buffer({.size = sizeof(daxa_BlasInstanceData) * blas_instances.size(),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "blas instances buffer"});
-        recorder.destroy_buffer_deferred(blas_instances_buffer);
+        // recorder.destroy_buffer_deferred(blas_instances_buffer);
 
         std::memcpy(_device.buffer_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(),
             blas_instances.data(),
