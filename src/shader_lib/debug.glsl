@@ -4,9 +4,23 @@
 
 #include "shader_shared/debug.inl"
 
-#define GPU_ASSERT_STRING "GPU ASSERT FAILED IN \"" __FILE__ "\": "
+#define GPU_ASSERT_ENABLE 1
 
-#define GPU_ASSERTS 1
+#if GPU_ASSERT_ENABLE
+
+#define GPU_ASSERT(COND)\
+{\
+    if (!COND)\
+    {\
+        printf("GPU ASSERT FAILED IN " __FILE__ ":%i: " #COND "\n", __LINE__);\
+    }\
+}
+
+#else
+
+#define GPU_ASSERT(A, OP, B)
+
+#endif
 
 #define DEBUG_DRAW(DEBUG_DATA, field, VALUE)\
 {\

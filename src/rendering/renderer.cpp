@@ -1704,7 +1704,7 @@ auto Renderer::prepare_frame(
     render_context->prev_ao_settings = render_context->render_data.ao_settings;
     render_context->prev_rtgi_settings = render_context->render_data.rtgi_settings;
 
-    // Write GPUScene pointers
+    // Write GPUScene
     {
         auto & device = render_context->gpu_context->device;
         render_context->render_data.scene.meshes = device.device_address(scene->_gpu_mesh_manifest.get_state().buffers[0]).value();
@@ -1712,6 +1712,7 @@ auto Renderer::prepare_frame(
         render_context->render_data.scene.mesh_groups = device.device_address(scene->_gpu_mesh_group_manifest.get_state().buffers[0]).value();
         render_context->render_data.scene.entity_to_meshgroup = device.device_address(scene->_gpu_entity_mesh_groups.get_state().buffers[0]).value();
         render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.material_count = scene->_material_manifest.size();
         render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.get_state().buffers[0]).value();
         render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.get_state().buffers[0]).value();
         render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.get_state().buffers[0]).value();

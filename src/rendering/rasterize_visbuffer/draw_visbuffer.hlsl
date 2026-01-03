@@ -183,6 +183,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     in bool cull_backfaces,
     in bool cull_hiz_occluded)
 {          
+    
     const Meshlet meshlet = deref_i(mesh.meshlets, meshlet_instance.meshlet_index);
     const bool observer_pass = push.draw_data.observer;
     cull_hiz_occluded = cull_hiz_occluded && !(observer_pass);

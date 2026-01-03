@@ -1312,7 +1312,7 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
         blas_instances_buffer = _device.create_buffer({.size = sizeof(daxa_BlasInstanceData) * blas_instances.size(),
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "blas instances buffer"});
-        // recorder.destroy_buffer_deferred(blas_instances_buffer);
+        recorder.destroy_buffer_deferred(blas_instances_buffer);
 
         std::memcpy(_device.buffer_host_address_as<daxa_BlasInstanceData>(blas_instances_buffer).value(),
             blas_instances.data(),
