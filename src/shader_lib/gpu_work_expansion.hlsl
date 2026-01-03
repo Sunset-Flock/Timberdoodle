@@ -3,6 +3,7 @@
 #include <daxa/daxa.inl>
 
 #include "misc.hlsl"
+#include "debug.glsl"
 #include "../shader_shared/gpu_work_expansion.inl"
 
 #define PO2_COMPACT 0
@@ -160,10 +161,9 @@ func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, 
     InterlockedAdd(self->expansion_count, 1, expansion_index);
     const uint cur_expansion_count = expansion_index + 1;
 
+    GPU_ASSERT_COMPARE_INT(expansion_index, <, self->expansions_max);
     if (expansion_index >= self->expansions_max)
     {
-        // TODO: WRITE NUMBER OF FAILED ALLOCS TO READBACK BUFFER!
-        printf("GPU ERROR: work expansion failed, ran out of memory, expansion. %i, max expansions: %i\n", expansion_index, self->expansions_max);
         return;
     }
 
@@ -199,10 +199,9 @@ func po2bucket_expansion_add_workitems(Po2BucketWorkExpansionBufferHead * self, 
     InterlockedAdd(self->bucket_thread_counts[bucket], work_item_count, first_thread_in_bucket);
     uint last_thread_in_bucket = first_thread_in_bucket + work_item_count - 1;
 
+    GPU_ASSERT_COMPARE_INT(last_thread_in_bucket, <, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS);
     if (last_thread_in_bucket >= WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS)
     {
-        // TODO: WRITE NUMBER OF FAILED ALLOCS TO READBACK BUFFER!
-        printf("GPU ERROR: work expansion failed, attempted to add threads %i to %i, max expansion threads: %i\n", first_thread_in_bucket, last_thread_in_bucket, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS);
         return;
     }
 
@@ -330,9 +329,9 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
     const uint expansion_index = window_begin;
     const uint expansion_inc_prefix_value = self->expansions_inclusive_prefix_sum[expansion_index];
     const bool found_expansion = expansion_index < expansion_count;
+    GPU_ASSERT(found_expansion)
     if (!found_expansion)
     {
-        printf("GPU ERROR: did not find expansion index for thread: %i, expansion_index: %i, expansion count: %i\n", thread_index, expansion_index, expansion_count);
         ret = (DstItemInfo)0;
         return false;
     }
@@ -343,9 +342,9 @@ func prefix_sum_expansion_get_workitem(PrefixSumWorkExpansionBufferHead * self, 
 
     // This case is possible under normal circumstances for the last few threads that may overhang for the last expansion.
     const bool dst_work_item_valid = in_expansion_index < expansion_factor;
+    GPU_ASSERT(found_expansion)
     if (!dst_work_item_valid)
     {
-        printf("GPU ERROR: dst item invalid: %i, dst item count: %i, thread: %i, expansion index index %i, expansion count: %i\n", in_expansion_index, expansion_factor, thread_index, expansion_index, expansion_count);
         ret = (DstItemInfo)0;
         return false;
     }

@@ -71,13 +71,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
             combined_transforms
         );     
         TriangleGeometry tri_geo = visbuf_tri.tri_geo;
-
-        if (tri_geo.material_index != 0 && tri_geo.material_index!= ~0u && tri_geo.material_index >= push.attachments.globals.scene.material_count)
-        {
-            // printf("INVALID MATERIAL INDEX %i meshlet instance %i mesh instance %i mesh %i material count %i\n", tri_geo.material_index, tri_geo.mesh_instance_index, tri_geo.mesh_instance_index, tri_geo.mesh_index);
-            return;
-        }
-        if (tri_geo.material_index == 0)
+        if (GPU_ASSERT_FAIL)
         {
             return;
         }

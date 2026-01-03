@@ -109,15 +109,13 @@ VisbufferTriangleGeometry visgeo_triangle_data(
     ret.meshlet_instance_index = TRIANGLE_ID_GET_MESHLET_INSTANCE_INDEX(triangle_id);
     ret.meshlet_triangle_index = TRIANGLE_ID_GET_MESHLET_TRIANGLE_INDEX(triangle_id);
 
-    #if GPU_ASSERT_ENABLE
-        const uint meshlet_instance_count = meshlet_instances.pass_counts[0] + meshlet_instances.pass_counts[1];
-        if (!(ret.meshlet_instance_index < meshlet_instance_count))
-        {
-            GPU_ASSERT(ret.meshlet_instance_index < meshlet_instance_count);
-            ret = {};
-            return ret;
-        }
-    #endif
+    const uint meshlet_instance_count = meshlet_instances.pass_counts[0] + meshlet_instances.pass_counts[1];
+    GPU_ASSERT_COMPARE_INT(ret.meshlet_instance_index, <, meshlet_instance_count);
+    if (GPU_ASSERT_FAIL)
+    {
+        ret = {};
+        return ret;
+    }
 
     MeshletInstance meshlet_instance = deref_i(deref(meshlet_instances).meshlets, ret.meshlet_instance_index);
     ret.tri_geo.entity_index = meshlet_instance.entity_index;

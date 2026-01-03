@@ -8,17 +8,35 @@
 
 #if GPU_ASSERT_ENABLE
 
+static bool _GPU_ASSERT_FAIL_BOOL = false;
+#define GPU_ASSERT_FAIL _GPU_ASSERT_FAIL_BOOL
+
 #define GPU_ASSERT(COND)\
 {\
     if (!COND)\
     {\
         printf("GPU ASSERT FAILED IN " __FILE__ ":%i: " #COND "\n", __LINE__);\
+        GPU_ASSERT_FAIL = true;\
+    }\
+}
+
+#define GPU_ASSERT_COMPARE_INT(A, OP, B)\
+{\
+    int a = A;\
+    int b = B;\
+    bool COND = a OP b;\
+    if (!COND)\
+    {\
+        printf("GPU ASSERT FAILED IN " __FILE__ ":%i: " #A " " #OP " " #B ": %i " #OP " %i\n", __LINE__, a, b);\
+        GPU_ASSERT_FAIL = true;\
     }\
 }
 
 #else
 
-#define GPU_ASSERT(A, OP, B)
+#define GPU_ASSERT_FAIL false
+#define GPU_ASSERT(COND)
+#define GPU_ASSERT_COMPARE_INT(A, OP, B)
 
 #endif
 

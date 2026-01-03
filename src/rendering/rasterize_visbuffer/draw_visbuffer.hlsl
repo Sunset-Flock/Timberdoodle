@@ -197,10 +197,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
     let mvp = mul(view_proj, model_mat);
 
     SetMeshOutputCounts(meshlet.vertex_count, meshlet.triangle_count);
-    if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
-    {
-        printf("GPU ERROR: Invalid meshlet passed to mesh shader! Meshlet instance index %i exceeded max meshlet instance count %i\n", meshlet_instance_index, MAX_MESHLET_INSTANCES);
-    }
+    GPU_ASSERT_COMPARE_INT(meshlet_instance_index, <, MAX_MESHLET_INSTANCES)
 
     float4 local_clip_vertices[2];
     float3 local_ndc_vertices[2];
@@ -669,14 +666,15 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshlet_
             // When we fail to push back into the meshlet instances we dont need to do anything extra.
             // get_meshlet_instance_from_arg_buckets will make sure that no meshlet indices past the max number are attempted to be drawn.
 
-            if (meshlet_instance_idx < MAX_MESHLET_INSTANCES)
+            bool meshlet_instance_allocation_success = meshlet_instance_idx < MAX_MESHLET_INSTANCES;
+            GPU_ASSERT(meshlet_instance_allocation_success)
+            if (meshlet_instance_allocation_success)
             {
                 deref_i(deref(push.attach.meshlet_instances).meshlets, meshlet_instance_idx) = meshlet_instance;
             }
             else
             {
                 allocation_failed = true;
-                //printf("ERROR: Exceeded max meshlet instances! Entity: %i\n", meshlet_instance.entity_index);
             }
 
             // Only needed for observer:
@@ -700,14 +698,14 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshlet_
 [shader("compute")]
 [numthreads(MESHLET_CULL_WORKGROUP_X, 1, 1)]
 func entry_compute_meshlet_cull(
-    uint3 svtid : SV_DispatchThreadID,
-    uint3 svgid : SV_GroupID
+    uint thread_index : SV_DispatchThreadID,
+    uint gid : SV_GroupID
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
         
-    if (svtid.x == 0)
+    if (thread_index == 0)
     {
         uint meshlets_pre_cull = 0;
         uint meshes_post_cull = 0;
@@ -744,7 +742,7 @@ func entry_compute_meshlet_cull(
         expansion,
         push.attach.mesh_instances,
         push.meshes,
-        svtid.x,
+        thread_index,
         meshlet_instance
     );
     
@@ -754,15 +752,15 @@ func entry_compute_meshlet_cull(
 [shader("amplification")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_task_meshlet_cull(
-    uint3 svtid : SV_DispatchThreadID,
-    uint3 svgid : SV_GroupID
+    uint thread_index : SV_DispatchThreadID,
+    uint gid : SV_GroupID
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
 
     uint64_t expansion = (push.draw_data.draw_list_section_index == PREPASS_DRAW_LIST_OPAQUE ? push.attach.po2expansion : push.attach.masked_po2expansion);
 
-    if (svtid.x == 0)
+    if (thread_index == 0)
     {
         uint meshlets_pre_cull = 0;
         uint meshes_post_cull = 0;
@@ -799,7 +797,7 @@ func entry_task_meshlet_cull(
         expansion,
         push.attach.mesh_instances,
         push.meshes,
-        svtid.x,
+        thread_index,
         meshlet_instance
     );
     
@@ -808,7 +806,7 @@ func entry_task_meshlet_cull(
     let surviving_meshlet_count = WaveActiveSum(valid_meshlet ? 1u : 0u);
 
     CullMeshletsDrawVisbufferPayload payload;
-    payload.task_shader_wg_meshlet_args_offset = svgid.x * MESH_SHADER_WORKGROUP_X;
+    payload.task_shader_wg_meshlet_args_offset = gid * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
 
@@ -904,7 +902,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         return;
     }
     let cull_hiz_occluded = push.draw_data.pass_index != VISBUF_FIRST_PASS;
-    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, gid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
+    generic_mesh(fake_draw_p, out_indices, out_vertices, out_primitives, mesh, gtid, meshlet_instance_index, meshlet_instance, cull_backfaces, cull_hiz_occluded);
 }
 
 [outputtopology("triangle")]
@@ -918,7 +916,7 @@ func entry_mesh_meshlet_cull_opaque(
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
     uint gtid = dtid.x;
-    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
+    uint gid = dtid.y;
     generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
@@ -933,7 +931,7 @@ func entry_mesh_meshlet_cull_masked(
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
     uint gtid = dtid.x;
-    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
+    uint gid = dtid.y;
     generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
