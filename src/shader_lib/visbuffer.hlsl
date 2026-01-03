@@ -113,9 +113,8 @@ VisbufferTriangleGeometry visgeo_triangle_data(
         const uint meshlet_instance_count = meshlet_instances.pass_counts[0] + meshlet_instances.pass_counts[1];
         if (!(ret.meshlet_instance_index < meshlet_instance_count))
         {
-            printf(GPU_ASSERT_STRING" Invalid Triangle ID passed to visgeo_triangle_data");
-            ret.meshlet_instance_index = {};
-            ret.meshlet_triangle_index = {};
+            printf(GPU_ASSERT_STRING"meshlet_instance_index < meshlet_instance_count: %i < %i\n", ret.meshlet_instance_index, meshlet_instance_count);
+            ret = {};
             return ret;
         }
     #endif
