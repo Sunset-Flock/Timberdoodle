@@ -9,7 +9,8 @@
 #endif
 
 #define PO2_WORK_EXPANSION_BUCKET_COUNT 32
-#define PO2_WORK_EXPANSION_ARG_ARRAY_COUNT (PO2_WORK_EXPANSION_BUCKET_COUNT/2)
+// pairs of two buckets grow into a single double ended stack
+#define PO2_WORK_EXPANSION_BUCKET_ARRAY_COUNT (PO2_WORK_EXPANSION_BUCKET_COUNT/2)
 
 // Default 270 million. 
 // Lower max factor will result in less memory usage
@@ -19,12 +20,12 @@
 #if defined(__cplusplus)
 inline
 #endif
-daxa::u32 size_of_po2_arg_array(daxa::u32 expansions_max, daxa::u32 arg_array)
+daxa::u32 po2_expansion_max_bucket_entries(daxa::u32 expansions_max, daxa::u32 bucket)
 {
     #if defined(__cplusplus)
-        return std::min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> (arg_array*2));
+        return std::min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> bucket) * 2;
     #else
-        return min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> (arg_array*2));
+        return min(expansions_max, WORK_EXPANSION_PO2_MAX_TOTAL_EXPANDED_THREADS >> bucket) * 2;
     #endif
 }
 
@@ -46,8 +47,7 @@ struct Po2BucketWorkExpansionBufferHead
 
     daxa::u32 bucket_arg_counts[PO2_WORK_EXPANSION_BUCKET_COUNT];
     daxa::u32 bucket_thread_counts[PO2_WORK_EXPANSION_BUCKET_COUNT];
-    daxa::u32* arg_array[PO2_WORK_EXPANSION_ARG_ARRAY_COUNT];          // uints point to expansions, each arg can have to expansions.
-    daxa::u32 arg_array_sizes[PO2_WORK_EXPANSION_ARG_ARRAY_COUNT];
+    daxa::u32* bucket_arg_array_ptrs[PO2_WORK_EXPANSION_BUCKET_COUNT];
 
     daxa::u32 buffer_size;
 
@@ -59,22 +59,28 @@ struct Po2BucketWorkExpansionBufferHead
             Po2BucketWorkExpansionBufferHead* out)
         {
             out->dispatch = dispatch_clear;
-            daxa::u32 size = sizeof(Po2BucketWorkExpansionBufferHead);
+            daxa::u32 total_size = sizeof(Po2BucketWorkExpansionBufferHead);
             out->expansions_max = expansions_max;
             out->expansion_count = 0;
             out->expansions_thread_count = 0;
-            out->expansions = reinterpret_cast<Po2BucketWorkExpansion*>(reinterpret_cast<daxa::u8*>(device_address) + size);
-            size += sizeof(Po2BucketWorkExpansion) * expansions_max;
-            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_ARG_ARRAY_COUNT; ++i)
+            out->expansions = reinterpret_cast<Po2BucketWorkExpansion*>(device_address + total_size);
+            total_size += sizeof(Po2BucketWorkExpansion) * expansions_max;
+            for (daxa::u32 bucket_pair_i = 0; bucket_pair_i < PO2_WORK_EXPANSION_BUCKET_ARRAY_COUNT; ++bucket_pair_i)
             {
-                out->bucket_arg_counts[i] = 0;
-                out->bucket_thread_counts[i] = 0;
-                out->arg_array[i] = reinterpret_cast<daxa_u32*>(reinterpret_cast<daxa::u8*>(device_address) + size);
-                daxa::u32 const size_of_arg_array = size_of_po2_arg_array(expansions_max, i) * sizeof(daxa_u32) * 2;
-                out->arg_array_sizes[i] = size_of_arg_array;
-                size += size_of_arg_array;
+                u32 first_bucket = bucket_pair_i * 2u;
+                u32 second_bucket = bucket_pair_i * 2u + 1u;
+                out->bucket_arg_counts[first_bucket] = 0u;
+                out->bucket_arg_counts[second_bucket] = 0u;
+                out->bucket_thread_counts[first_bucket] = 0u;
+                out->bucket_thread_counts[second_bucket] = 0u;
+                u32 first_bucket_max_entries = po2_expansion_max_bucket_entries(expansions_max, first_bucket);
+                u32 second_bucket_max_entries = po2_expansion_max_bucket_entries(expansions_max, second_bucket);
+                u32 bucket_pair_size = first_bucket_max_entries * sizeof(daxa_u32);                                                                    // lower index buckets can always have >= elements.
+                out->bucket_arg_array_ptrs[first_bucket] = reinterpret_cast<u32*>(device_address + total_size);                                        // points to first element in bucket pair array
+                out->bucket_arg_array_ptrs[second_bucket] = reinterpret_cast<u32*>(device_address + total_size + bucket_pair_size - sizeof(daxa_u32)); // points to last element in bucket pair array
+                total_size += bucket_pair_size;
             }
-            out->buffer_size = size;
+            out->buffer_size = total_size;
         }
 
         static auto create(
@@ -92,10 +98,10 @@ struct Po2BucketWorkExpansionBufferHead
             daxa::u32 ret = {};
             ret = sizeof(Po2BucketWorkExpansionBufferHead);
             ret += sizeof(Po2BucketWorkExpansion) * expansions_max;
-            for (daxa::u32 i = 0; i < PO2_WORK_EXPANSION_ARG_ARRAY_COUNT; ++i)
+            for (daxa::u32 bucket_pair_i = 0; bucket_pair_i < PO2_WORK_EXPANSION_BUCKET_ARRAY_COUNT; ++bucket_pair_i)
             {
-                auto const cap = size_of_po2_arg_array(expansions_max, i) * sizeof(daxa_u32) * 2;
-                ret += cap;
+                u32 first_bucket = bucket_pair_i * 2;   // lower index buckets can always have >= elements.
+                ret += po2_expansion_max_bucket_entries(expansions_max, first_bucket) * sizeof(daxa_u32);
             }
             return ret;
         }

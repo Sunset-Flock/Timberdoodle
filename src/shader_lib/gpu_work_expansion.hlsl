@@ -13,28 +13,16 @@ struct DstItemInfo
     uint work_item_index;
 };
 
-func po2bucket_expansion_arg_array_index(uint bucket) -> uint
-{
-    return bucket >> 1;
-}
-
-func po2bucket_expansion_arg_index(Po2BucketWorkExpansionBufferHead * self, uint bucket, uint arg) -> uint
-{
-    let arg_array_idx = po2bucket_expansion_arg_array_index(bucket);
-    let arg_array_size = self->arg_array_sizes[arg_array_idx];
-    let is_backwards = (bucket & 0x1) != 0;
-
-    let forward_arg = arg;
-    let backwards_arg = arg_array_size - 1 - arg;
-
-    return select(is_backwards, backwards_arg, forward_arg);
-}
-
 func po2bucket_get_arg(Po2BucketWorkExpansionBufferHead * self, uint bucket, uint arg) -> uint*
 {
-    let arg_array_idx = po2bucket_expansion_arg_array_index(bucket);
-    let arg_idx = po2bucket_expansion_arg_index(self, bucket, arg);
-    return &self->arg_array[arg_array_idx][arg_idx];
+    // Pairs of buckets (even and odd index) share a stack section for their args.
+    // The even one grows upwards and the odd one downwards into the same memory section.
+
+    // Slang pointer arithmetic is broken for int offsets, cast to int64_t to avoid this bug.
+    uint* ret;
+    let is_bucket_downwards = (bucket & 0x1) != 0;
+    let offset = (is_bucket_downwards ? -int64_t(arg) : int64_t(arg)) * sizeof(uint);
+    return (uint*)(int64_t(self->bucket_arg_array_ptrs[bucket]) + offset);
 }
 
 /// WARNING: FUNCTION EXPECTS ALL THREADS IN THE WARP TO BE ACTIVE.
@@ -149,12 +137,12 @@ func po2bucket_expansion_get_workitem(Po2BucketWorkExpansionBufferHead * self, u
     let first_arg_idx = round_down_div_btsft(bucket_relative_thread_index, bucket_index);
     let secnd_arg_idx = min(first_arg_idx + 1, bucket_arg_count - 1);
     let first_expansion_idx = *po2bucket_get_arg(self, bucket_index, first_arg_idx);
-    let secnd_expansion_idx = *po2bucket_get_arg(self, bucket_index, secnd_arg_idx);
+    let second_expansion_idx = *po2bucket_get_arg(self, bucket_index, secnd_arg_idx);
     let first_expansion = self->expansions[first_expansion_idx];
     let first_expansion_payload = first_expansion.payload;
     let first_expansion_factor = first_expansion.work_item_count;
     let first_expansion_first_thread_in_bucket = first_expansion.first_thread_in_bucket;
-    let secnd_expansion_payload = self->expansions[secnd_expansion_idx].payload;
+    let secnd_expansion_payload = self->expansions[second_expansion_idx].payload;
     
     let in_first_expansion = bucket_relative_thread_index < (first_expansion_first_thread_in_bucket + first_expansion_factor);
     ret.payload = select(in_first_expansion, first_expansion_payload, secnd_expansion_payload);
