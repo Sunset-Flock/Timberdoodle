@@ -68,7 +68,7 @@ float rayquery_shadow_path(RaytracingAccelerationStructure tlas, float3 origin, 
                 hit = true;
             }
 
-            const GPUMaterial *material = globals->scene.materials + mesh.material_index;
+            GPUMaterial *material = globals->scene.materials + mesh.material_index;
             if (!material.alpha_discard_enabled || (material.opacity_texture_id.is_empty() && material.diffuse_texture_id.is_empty()))
             {
                 q.CommitNonOpaqueTriangleHit();
@@ -332,7 +332,7 @@ func rt_is_alpha_hit(
         return true;
     }
 
-    const GPUMaterial *material = materials + mesh.material_index;
+    GPUMaterial *material = materials + mesh.material_index;
     if (!material.alpha_discard_enabled || (material.opacity_texture_id.is_empty() && material.diffuse_texture_id.is_empty()))
     {
         return true;

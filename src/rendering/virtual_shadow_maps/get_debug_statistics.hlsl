@@ -13,7 +13,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 
     if(svdtid.x == 0)
     {
-        const FindFreePagesHeader * header = push.vsm_find_free_pages_header;
+        FindFreePagesHeader * header = push.vsm_find_free_pages_header;
         push.globals.readback.cached_pages = header.not_visited_buffer_counter;
         push.globals.readback.free_pages = header.free_buffer_counter;
         push.globals.readback.drawn_pages = push.vsm_allocation_requests.counter;
