@@ -79,7 +79,7 @@ void ray_gen()
         ray.Direction = primary_ray;
 
         payload.color = float3(0,0,0);
-        TraceRay(push.attach.tlas.get(), 0, ~0, 0, 0, 0, ray, payload);
+        TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0, ~0, 0, 0, 0, ray, payload);
 
         float4 value = float4(payload.color, 1.0f);
         push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
@@ -138,7 +138,7 @@ void ray_gen()
 
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
-            TraceRay(push.attach.tlas.get(), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
+            TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
 
             float4 sh_y_new;
             float2 cocg_new;

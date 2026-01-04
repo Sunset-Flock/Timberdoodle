@@ -28,7 +28,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, brdf_lut)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), exposure)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct ReferencePathTraceAttachments

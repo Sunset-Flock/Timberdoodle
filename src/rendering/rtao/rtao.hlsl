@@ -54,7 +54,7 @@ void ray_gen()
         const uint thread_seed = (index.x * push.attach.globals->settings.render_target_size.y + index.y) * push.attach.globals.frame_index;
         rand_seed(RAY_COUNT * thread_seed);
 
-        RaytracingAccelerationStructure tlas = daxa::acceleration_structures[push.attach.tlas.index()];
+        RaytracingAccelerationStructure tlas = RaytracingAccelerationStructure::get(push.attach.tlas);
         RayPayload payload = {};
 
         if (push.attach.globals.ao_settings.mode == AMBIENT_OCCLUSION_MODE_RTAO)
@@ -92,15 +92,15 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
 {
     let push = rt_ao_push;
 
-    // if (!rt_is_alpha_hit(
-    //     push.attach.globals,
-    //     push.attach.mesh_instances,
-    //     push.attach.globals.scene.meshes,
-    //     push.attach.globals.scene.materials,
-    //     attr.barycentrics))
-    // {
-    //     IgnoreHit();
-    // }
+    if (!rt_is_alpha_hit(
+        push.attach.globals,
+        push.attach.mesh_instances,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.materials,
+        attr.barycentrics))
+    {
+        IgnoreHit();
+    }
 }
 
 func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, float3 light_position, float3 flat_normal, float3 incoming_ray) -> bool
@@ -127,12 +127,12 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     let push = rt_ao_push;
 
     payload.miss = false;
-    // {
-    //     if (!payload.miss)
-    //     {
-    //         payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
-    //     }
-    // }
+    {
+        if (!payload.miss)
+        {
+            payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
+        }
+    }
 }
 
 [shader("miss")]

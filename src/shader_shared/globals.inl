@@ -1,5 +1,6 @@
 #pragma once
 
+#define DAXA_RAY_TRACING 1
 #include "daxa/daxa.inl"
 
 #include "shared.inl"

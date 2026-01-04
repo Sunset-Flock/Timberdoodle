@@ -37,9 +37,9 @@ void entry_write_commands(uint3 dtid : SV_DispatchThreadID)
         uint blocks = round_up_div(meshlets_to_draw, MESH_SHADER_DISPATCH_BLOCK_SIZE);
 
         DispatchIndirectStruct command;
-        command.x = 1;
+        command.x = MESH_SHADER_DISPATCH_BLOCK_SIZE;
         command.y = blocks;
-        command.z = MESH_SHADER_DISPATCH_BLOCK_SIZE;
+        command.z = 1;
         ((DispatchIndirectStruct*)(push.attach.draw_commands))[draw_list_type] = command;
     }
 }
@@ -327,7 +327,7 @@ func generic_mesh<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 }
 
 func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    in uint gid,
+    in uint fgid,
     in uint gtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -338,7 +338,7 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
         draw_p.attach.meshlet_instances, 
         draw_p.draw_data.pass_index, 
         V::PREPASS_DRAW_LIST_TYPE,
-        gid);
+        fgid);
     if (meshlet_instance_index >= MAX_MESHLET_INSTANCES)
     {
         SetMeshOutputCounts(0,0);
@@ -380,14 +380,14 @@ func generic_mesh_draw_only<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_opaque(
-    uint3 dtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint3 gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    uint gtid = dtid.x;
-    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
-    generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
+    uint fgid = gid.x + gid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE;
+    generic_mesh_draw_only(fgid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 // Didnt seem to do much.
@@ -416,14 +416,14 @@ FragmentOut entry_fragment_opaque(in MeshShaderOpaqueVertex vert, in MeshShaderO
 [numthreads(MESH_SHADER_WORKGROUP_X,1,1)]
 [shader("mesh")]
 func entry_mesh_masked(
-    uint3 dtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint3 gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives)
 {
-    uint gtid = dtid.x;
-    uint gid = dtid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE + dtid.z;
-    generic_mesh_draw_only(gid, gtid, out_indices, out_vertices, out_primitives);
+    uint fgid = gid.x + gid.y * MESH_SHADER_DISPATCH_BLOCK_SIZE;
+    generic_mesh_draw_only(fgid, gtid, out_indices, out_vertices, out_primitives);
 }
 
 [shader("fragment")]
@@ -699,7 +699,7 @@ func cull_and_writeout_meshlet(inout bool draw_meshlet, MeshletInstance meshlet_
 [numthreads(MESHLET_CULL_WORKGROUP_X, 1, 1)]
 func entry_compute_meshlet_cull(
     uint thread_index : SV_DispatchThreadID,
-    uint gid : SV_GroupID
+    uint fgid : SV_GroupID
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
@@ -753,7 +753,7 @@ func entry_compute_meshlet_cull(
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_task_meshlet_cull(
     uint thread_index : SV_DispatchThreadID,
-    uint gid : SV_GroupID
+    uint fgid : SV_GroupID
 )
 {
     let push = cull_meshlets_draw_visbuffer_push;
@@ -806,7 +806,7 @@ func entry_task_meshlet_cull(
     let surviving_meshlet_count = WaveActiveSum(valid_meshlet ? 1u : 0u);
 
     CullMeshletsDrawVisbufferPayload payload;
-    payload.task_shader_wg_meshlet_args_offset = gid * MESH_SHADER_WORKGROUP_X;
+    payload.task_shader_wg_meshlet_args_offset = fgid * MESH_SHADER_WORKGROUP_X;
     payload.task_shader_meshlet_instances_offset = cull_result.warp_meshlet_instances_offset;
     payload.task_shader_surviving_meshlets_mask = WaveActiveBallot(valid_meshlet).x;  
 
@@ -821,7 +821,7 @@ func entry_task_meshlet_cull(
     }
     payload.cull_backfaces_mask = WaveActiveBallot(cull_backfaces).x;
 
-    DispatchMesh(1, surviving_meshlet_count, 1, payload);
+    DispatchMesh(surviving_meshlet_count, 1, 1, payload);
 }
 
 // Starts counting bits from 0
@@ -845,7 +845,7 @@ func wave32_find_nth_set_bit(uint mask, uint n) -> uint
 }
 
 func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
-    in uint gid,
+    in uint fgid,
     in uint gtid,
     out OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     out OutputVertices<V, MAX_VERTICES_PER_MESHLET> out_vertices,
@@ -854,7 +854,7 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 {
     let push = cull_meshlets_draw_visbuffer_push;
     let wave_lane_index = gtid;
-    let group_index = gid;
+    let group_index = fgid;
     // The payloads packed survivor indices go from 0-survivor_count.
     // These indices map to the meshlet instance indices.
     let local_meshlet_instance_index = group_index;
@@ -909,30 +909,30 @@ func generic_mesh_cull_draw<V: MeshShaderVertexT, P: MeshShaderPrimitiveT>(
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_mesh_meshlet_cull_opaque(
-    in uint3 dtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint3 gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderOpaqueVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderOpaquePrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
-    uint gtid = dtid.x;
-    uint gid = dtid.y;
-    generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
+    uint fgid = gid.x;
+    generic_mesh_cull_draw(fgid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
 [outputtopology("triangle")]
 [shader("mesh")]
 [numthreads(MESH_SHADER_WORKGROUP_X, 1, 1)]
 func entry_mesh_meshlet_cull_masked(
-    in uint3 dtid : SV_DispatchThreadID,
+    uint gtid : SV_GroupThreadID,
+    uint3 gid : SV_GroupID,
     OutputIndices<uint3, MAX_TRIANGLES_PER_MESHLET> out_indices,
     OutputVertices<MeshShaderMaskVertex, MAX_VERTICES_PER_MESHLET> out_vertices,
     OutputPrimitives<MeshShaderMaskPrimitive, MAX_TRIANGLES_PER_MESHLET> out_primitives,
     in payload CullMeshletsDrawVisbufferPayload payload)
 {
-    uint gtid = dtid.x;
-    uint gid = dtid.y;
-    generic_mesh_cull_draw(gid, gtid, out_indices, out_vertices, out_primitives, payload);
+    uint fgid = gid.x;
+    generic_mesh_cull_draw(fgid, gtid, out_indices, out_vertices, out_primitives, payload);
 }
 
 [shader("fragment")]

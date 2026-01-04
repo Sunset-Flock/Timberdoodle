@@ -157,7 +157,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             tri_point
         );
         bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
-        RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
+        RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(RaytracingAccelerationStructure::get(push.attach.tlas), push.attach.globals);
 
         const float indirect_ao_range = 0.5f;
         const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;

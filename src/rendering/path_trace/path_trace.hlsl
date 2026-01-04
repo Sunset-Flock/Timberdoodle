@@ -146,7 +146,7 @@ void ray_gen()
 {
     const uint2 px = DispatchRaysIndex().xy;
     let output_tex = AT.history_image.get();
-    let acceleration_structure = AT.tlas.get();
+    let acceleration_structure = RaytracingAccelerationStructure::get(AT.tlas);
     
     const float exposure = deref(AT.exposure);
     atmo_position = get_atmo_position(AT.globals);

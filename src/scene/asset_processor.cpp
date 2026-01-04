@@ -579,17 +579,19 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
             .image_extent = {width, height, depth},
         });
     }
-    
+
     cr.pipeline_image_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ,
         .image_id = image,
     });
 
-    device.submit_commands({
-        .command_lists = std::array{cr.complete_current_commands()},
+    device.wait_on_submit({
+        daxa::QUEUE_MAIN,
+        device.submit_commands({
+            .command_lists = std::array{cr.complete_current_commands()},
+        }),
     });
-    device.wait_idle();
     device.collect_garbage();
 
     parsed_data.src_data.resize(0);
@@ -605,7 +607,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
     auto filename = info.filepath.filename().replace_extension("").string();
 
     for (u32 l = 0; l < info.layers; ++l)
-    {   
+    {
         auto filepath = info.filepath;
         if (l > 0)
         {
@@ -632,7 +634,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
         if (l > 0)
         {
             auto const & info = parsed_images.back().image_info;
-            auto const & prev_info = parsed_images.at(parsed_images.size()-2).image_info;
+            auto const & prev_info = parsed_images.at(parsed_images.size() - 2).image_info;
 
             if (info.size != prev_info.size)
             {
@@ -641,7 +643,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
             if (info.format != prev_info.format)
             {
                 return AssetLoadResultCode::ERROR_LAYER_IMAGES_NOT_IDENTICAL_FORMAT;
-            }            
+            }
         }
     }
 
@@ -710,7 +712,7 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     }
     ParsedImageData const & parsed_data = std::get<ParsedImageData>(parsed_data_ret);
     ParsedImageData const * opaque_data = std::get_if<ParsedImageData>(&opaque_data_ret);
-    
+
     daxa::ImageId image = _device.create_image(parsed_data.image_info);
     daxa::ImageId opaque_image = {};
     upload_texture(_device, parsed_data, image);
@@ -1372,7 +1374,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             meshlet_aabbs.size() * sizeof(AABB));
         accumulated_offset += sizeof(AABB) * meshlet_count;
         // ---
-        while( ( meshlet_micro_indices.size() % 4 ) != 0)
+        while ((meshlet_micro_indices.size() % 4) != 0)
         {
             meshlet_micro_indices.push_back({});
         }

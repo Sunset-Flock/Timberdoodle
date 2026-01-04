@@ -19,7 +19,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayIndex<daxa_f32vec4>, probe_info
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, probe_requests)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky_transmittance)
 DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
-DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_f32vec4>, trace_result)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
 // VSM:
@@ -209,7 +209,7 @@ void entry_ray_gen()
     payload.probe_validity = probe_info.validity;
     payload.hit = true;
 
-    TraceRay(push.attach.tlas.get(), 0u, ~0, 0, 0, 0, ray, payload);
+    TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0u, ~0, 0, 0, 0, ray, payload);
 
     RWTexture2DArray<float4> trace_result_tex = push.attach.trace_result.get();
 
@@ -294,7 +294,7 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
             const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
             const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
 
-            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(push.attach.tlas.get(), push.attach.globals);
+            PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(RaytracingAccelerationStructure::get(push.attach.tlas), push.attach.globals);
             payload.color_depth.rgb = shade_material<SHADING_QUALITY_LOW>(
                 push.attach.globals, 
                 push.attach.sky_transmittance,

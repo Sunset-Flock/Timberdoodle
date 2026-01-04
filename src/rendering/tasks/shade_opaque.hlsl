@@ -266,7 +266,7 @@ float get_dir_shadow_rt(float3 position, float3 normal, float3 primary_ray, floa
         float t_max = 100000.0f;//length(offset_light_position - position);
         float3 direction = normalize(AT.globals.sky_settings.sun_direction);
         // float3 start = rt_calc_ray_start(position, normal, primary_ray);
-        float t = rayquery_shadow_path(AT.tlas.get(), position, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        float t = rayquery_shadow_path(RaytracingAccelerationStructure::get(AT.tlas), position, direction, t_max, AT.globals, AT.mesh_instances.instances);
         sum += float(t != t_max);
     }
     return 1.0f - (sum / PCF_NUM_SAMPLES);
@@ -341,7 +341,7 @@ float get_rt_point_shadow(GPUPointLight light, float3 position, float3 normal, f
         float t_max = length(offset_light_position - position) - 0.05;
         float3 direction = normalize(offset_light_position - position);
         float3 start = position;//rt_calc_ray_start(position, normal, primary_ray);
-        float t = rayquery_shadow_path(AT.tlas.get(), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        float t = rayquery_shadow_path(RaytracingAccelerationStructure::get(AT.tlas), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
         sum += bool(t < t_max);
     }
     return 1.0f - float(sum / PCF_NUM_SAMPLES);
@@ -425,7 +425,7 @@ float get_rt_spot_shadow(GPUSpotLight light, float3 position, float3 normal, flo
         float t_max = length(offset_light_position - position) - 0.05;
         float3 direction = normalize(offset_light_position - position);
         float3 start = rt_calc_ray_start(position, normal, primary_ray);
-        float t = rayquery_shadow_path(AT.tlas.get(), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
+        float t = rayquery_shadow_path(RaytracingAccelerationStructure::get(AT.tlas), start, direction, t_max, AT.globals, AT.mesh_instances.instances);
         sum += t < t_max;
     }
     return 1.0f - float(sum / PCF_NUM_SAMPLES);

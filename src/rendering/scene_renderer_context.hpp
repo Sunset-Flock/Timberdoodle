@@ -361,12 +361,13 @@ namespace RenderTimes
         bool enable_render_times = {};
         u32 query_version_index = {};
         u32 query_version_count = {};
+        f64 time_scale = {};
         daxa::TimelineQueryPool timeline_query_pool = {};
         std::array<bool, FLAT_TIMINGS_COUNT> timer_set = {};
-        std::array<u64, FLAT_TIMINGS_COUNT> current_times = {};
+        std::array<f64, FLAT_TIMINGS_COUNT> current_times = {};
         std::array<f64, FLAT_TIMINGS_COUNT> smooth_times = {};
         std::array<f64, FLAT_TIMINGS_COUNT> smooth_variances = {};
-        std::array<u64, GROUP_COUNT> current_group_times = {};
+        std::array<f64, GROUP_COUNT> current_group_times = {};
         std::array<f64, GROUP_COUNT> smooth_group_times = {};
         std::array<f64, GROUP_COUNT> smooth_group_variances = {};
 
@@ -377,6 +378,7 @@ namespace RenderTimes
                 .query_count = 2 * FLAT_TIMINGS_COUNT * query_version_count,
                 .name = "render times query pool",
             });
+            time_scale = device.properties().limits.timestamp_period;
         }
 
         void readback_render_times(u32 frame_index)
@@ -396,13 +398,13 @@ namespace RenderTimes
                 // [1] start timestamp readyness
                 // [2] end timestamp value
                 // [3] end timestamp readyness
-                u64 start = results[i * 4 + 0];
-                u64 start_ready = results[i * 4 + 1];
-                u64 end = results[i * 4 + 2];
-                u64 end_ready = results[i * 4 + 3];
+                f64 start = results[i * 4 + 0];
+                f64 start_ready = results[i * 4 + 1];
+                f64 end = results[i * 4 + 2];
+                f64 end_ready = results[i * 4 + 3];
                 if (start_ready && end_ready)
                 {
-                    current_times[i] = end - start;
+                    current_times[i] = (end - start) * time_scale;
                 }
             }
             for (u32 i = 0; i < FLAT_TIMINGS_COUNT; ++i)
@@ -411,8 +413,8 @@ namespace RenderTimes
                 {
                     smooth_times[i] = 0;
                 }
-                smooth_times[i] = (smooth_times[i] * 99.0 + static_cast<f64>(current_times[i])) / 100.0;
-                f64 current_diff_to_mean = std::abs(static_cast<f64>(current_times[i]) - smooth_times[i]);
+                smooth_times[i] = (smooth_times[i] * 99.0 + current_times[i]) / 100.0;
+                f64 current_diff_to_mean = std::abs(current_times[i] - smooth_times[i]);
                 current_diff_to_mean = std::min(smooth_times[i] * 4, current_diff_to_mean); // clamp outliers down
                 f64 const variance = current_diff_to_mean * current_diff_to_mean;
                 smooth_variances[i] = (smooth_variances[i] * 19 + variance) / 20.0;

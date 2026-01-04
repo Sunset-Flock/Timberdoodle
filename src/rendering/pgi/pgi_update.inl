@@ -29,7 +29,7 @@ DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_color)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, probe_visibility)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, probe_info)
 DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32>, probe_requests)
-DAXA_TH_TLAS_ID(READ, tlas)
+DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 
 struct PGIDrawDebugProbesPush

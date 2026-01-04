@@ -760,7 +760,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     auto luminance_histogram = tg.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
 
-    auto misc_tasks_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_1 : daxa::QUEUE_MAIN;
+    auto misc_tasks_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
     auto tlas_build_task_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
 
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().layers(0, 6);
@@ -863,6 +863,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy detail normals to history"});
 
+    #if 0
     // Some following passes need either the main views camera OR the views cameras perspective.
     // The observer camera is not always appropriate to be used.
     // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
@@ -911,8 +912,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.submit({});
     }
 
-    #if 0
-
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -935,6 +934,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         vsm_state.zero_out_transient_state();
     }
+
+    #endif
 
     auto const vsm_page_table_view = vsm_state.page_table.view().layers(0, VSM_CLIP_LEVELS);
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().layers(0, VSM_CLIP_LEVELS);
@@ -997,6 +998,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             });
         }
     }
+
+    #if 0
     #endif
 
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
@@ -1300,6 +1303,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.copy_image_to_image({.src = view_camera_half_res_face_normal_image, .dst = rtgi_face_normal_history.view(), .name = "save rtgi face normal history"});
     }
 
+    #endif
+
     auto selected_mark_image = tg.create_transient_image({
         .format = daxa::Format::R8_UNORM,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
@@ -1349,7 +1354,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .color_image = color_image,
                 .selected_mark_image = selected_mark_image,
-                .ao_image = daxa::NullTaskImage,// ao_image,
+                .ao_image = ao_image,
                 .vis_image = view_camera_visbuffer,
                 .pgi_screen_irrdiance = pgi_screen_irrdiance,
                 .depth = view_camera_depth,
@@ -1499,9 +1504,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .gpu_context = gpu_context,
     });
-
-    #endif
     
+    #if 0
     tg.add_task(daxa::HeadTask<WriteSwapchainDebugH::Info>()
         .head_views({
             .globals = render_context->tgpu_render_data.view(),
@@ -1510,6 +1514,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .swapchain = swapchain_image.view(),
         })
         .executes(write_swapchain_debug_callback, render_context.get()));
+    #endif
 
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
