@@ -794,7 +794,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .executes(cull_lights_task, render_context.get()));
 
     auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
-    #if 1
     tg.add_task(daxa::Task::RayTracing("build scene tlas")
             .acceleration_structure_build.writes(scene_main_tlas)
             .uses_queue(tlas_build_task_queue)
@@ -805,7 +804,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     scene->build_tlas_from_mesh_instances(ti.recorder, ti.id(scene_main_tlas));
                     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC", "BUILD_TLAS">());
                 }));
-    #endif
 
     ///
     /// === Misc Tasks End ===
@@ -1055,7 +1053,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
         tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name = "save rtao history"});
     }
-    #if 0
+    #if 1
 
     // RTGI
     daxa::TaskImageView rtgi_per_pixel_diffuse = daxa::NullTaskImage;
@@ -1388,8 +1386,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .pgi_visibility = pgi_visibility,
                 .pgi_info = pgi_info,
                 .pgi_requests = pgi_requests,
-                .rtgi_per_pixel_diffuse = daxa::NullTaskImage, //rtgi_per_pixel_diffuse,
-                .rtgi_debug_primary_trace = daxa::NullTaskImage, //rtgi_debug_primary_trace,
+                .rtgi_per_pixel_diffuse = rtgi_per_pixel_diffuse,
+                .rtgi_debug_primary_trace = rtgi_debug_primary_trace,
                 .tlas = scene_main_tlas,
             },
             .render_context = render_context.get(),

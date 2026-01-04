@@ -709,7 +709,7 @@ func entry_update_probe(
     }
 
     // Invalidate probes that are either too close to a surface or see backfaces
-    if (closest_backface_dist != SOME_LARGE_VALUE)// || closest_frontface_dist < PGI_ACCEPTABLE_SURFACE_DISTANCE)
+    if (closest_backface_dist != SOME_LARGE_VALUE || closest_frontface_dist < PGI_ACCEPTABLE_SURFACE_DISTANCE)
     {
         probe_info.validity = 0.0f;
     }
