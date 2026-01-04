@@ -910,7 +910,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     }
     
 
-    #if 0
+    #if 1
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);

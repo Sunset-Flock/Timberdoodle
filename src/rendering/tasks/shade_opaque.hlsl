@@ -20,7 +20,7 @@ static int debug_mark_light_influence_counter = 0;
 
 [[vk::push_constant]] ShadeOpaquePush push_opaque;
 
-#define RT 1
+#define RT 0
 
 #define AT deref(push_opaque.attachments).attachments
 

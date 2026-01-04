@@ -36,8 +36,8 @@ struct LightSettings
             debug_mark_influence_shadowed{ false },
             selected_debug_point_light{ -1 },
             selected_debug_spot_light{ -1 },
-            cull_all_point_lights{ false },
-            cull_all_spot_lights{ false }
+            cull_all_point_lights{ true },
+            cull_all_spot_lights{ true }
         {
         }
         auto operator==(LightSettings const & other) const -> bool
