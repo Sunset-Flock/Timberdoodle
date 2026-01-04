@@ -863,7 +863,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     tg.copy_image_to_image({main_camera_detail_normal_image, normal_history, daxa::QUEUE_MAIN, "copy detail normals to history"});
 
-    #if 0
     // Some following passes need either the main views camera OR the views cameras perspective.
     // The observer camera is not always appropriate to be used.
     // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
@@ -911,7 +910,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         tg.submit({});
     }
+    
 
+    #if 0
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -931,11 +932,11 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
     }
     else
+    #endif
     {
         vsm_state.zero_out_transient_state();
     }
 
-    #endif
 
     auto const vsm_page_table_view = vsm_state.page_table.view().layers(0, VSM_CLIP_LEVELS);
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().layers(0, VSM_CLIP_LEVELS);
@@ -1394,41 +1395,41 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(DebugVirtualPageTableTask{
-            .views = DebugVirtualPageTableTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_globals = vsm_state.globals.view(),
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table.view(),
-            },
-            .render_context = render_context.get(),
-        });
+        // tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+        // tg.add_task(DebugVirtualPageTableTask{
+        //     .views = DebugVirtualPageTableTask::Views{
+        //         .globals = render_context->tgpu_render_data.view(),
+        //         .vsm_globals = vsm_state.globals.view(),
+        //         .vsm_page_table = vsm_page_table_view,
+        //         .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table.view(),
+        //     },
+        //     .render_context = render_context.get(),
+        // });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(RecreateShadowMapTask{
-            .views = RecreateShadowMapTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_clip_projections = vsm_state.clip_projections,
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_memory_block = vsm_state.memory_block.view(),
-                .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
-                .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
-            },
-            .render_context = render_context.get(),
-        });
+       // tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+       // tg.add_task(RecreateShadowMapTask{
+       //     .views = RecreateShadowMapTask::Views{
+       //         .globals = render_context->tgpu_render_data.view(),
+       //         .vsm_clip_projections = vsm_state.clip_projections,
+       //         .vsm_page_table = vsm_page_table_view,
+       //         .vsm_memory_block = vsm_state.memory_block.view(),
+       //         .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
+       //         .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
+       //     },
+       //     .render_context = render_context.get(),
+       // });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(DebugMetaMemoryTableTask{
-            .views = DebugMetaMemoryTableTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_meta_memory_table = vsm_state.meta_memory_table.view(),
-                .vsm_debug_meta_memory_table = render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table.view(),
-                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
-            },
-            .render_context = render_context.get(),
-        });
+       // tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+       // tg.add_task(DebugMetaMemoryTableTask{
+       //     .views = DebugMetaMemoryTableTask::Views{
+       //         .globals = render_context->tgpu_render_data.view(),
+       //         .vsm_page_table = vsm_page_table_view,
+       //         .vsm_meta_memory_table = vsm_state.meta_memory_table.view(),
+       //         .vsm_debug_meta_memory_table = render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table.view(),
+       //         .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
+       //     },
+       //     .render_context = render_context.get(),
+       // });
     }
 
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
@@ -1455,7 +1456,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .name = "debug depth",
     });
     tg.copy_image_to_image({view_camera_depth, debug_draw_depth, daxa::QUEUE_MAIN, "copy depth to debug depth"});
-    if (render_context->render_data.pgi_settings.enabled && false)
+    if (render_context->render_data.pgi_settings.enabled)
     {
         tg.add_task(PGIDrawDebugProbesTask{
             .views = PGIDrawDebugProbesTask::Views{
@@ -1474,14 +1475,14 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .pgi_state = &pgi_state,
         });
     }
-    // tg.add_task(DebugDrawTask{
-    //     .views = DebugDrawTask::Views{
-    //         .globals = render_context->tgpu_render_data.view(),
-    //         .color_image = color_image,
-    //         .depth_image = debug_draw_depth,
-    //     },
-    //     .render_context = render_context.get(),
-    // });
+    tg.add_task(DebugDrawTask{
+        .views = DebugDrawTask::Views{
+            .globals = render_context->tgpu_render_data.view(),
+            .color_image = color_image,
+            .depth_image = debug_draw_depth,
+        },
+        .render_context = render_context.get(),
+    });
 
     tg.add_task(CopyDepthTask{
         .views = CopyDepthTask::Views{

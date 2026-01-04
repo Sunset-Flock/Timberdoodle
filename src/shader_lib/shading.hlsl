@@ -194,7 +194,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     }
 
     // Local Lights
-    {
+    if (false) {
         let light_settings = globals.light_settings;
         uint4 light_mask = lights_get_mask(light_settings, material_point.position, light_mask_volume);
         // Point Lights

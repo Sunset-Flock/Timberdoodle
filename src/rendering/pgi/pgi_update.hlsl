@@ -104,6 +104,11 @@ func perceptual_lerp3(float3 a, float3 b, float v) -> float3
     return pow(lerp(pow(a + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/PGI_PERCEPTUAL_EXPONENT)), v), PGI_PERCEPTUAL_EXPONENT);
 }
 
+func fast_uint_div(uint a, uint b) -> uint
+{
+    return uint(floor(float(a) / float(b) + rcp(float(1u << 12u))));
+}
+
 func entry_update_probe_color(
     int3 dtid,
 ) 
@@ -117,9 +122,9 @@ func entry_update_probe_color(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        uint probes_in_column = uint(float(48) * rcp(float(reg_settings.probe_color_resolution)));
-        uint indirect_index_y = uint(float(dtid.y) * rcp(float(reg_settings.probe_color_resolution)));
-        uint indirect_index_x = uint(float(dtid.x) * rcp(float(reg_settings.probe_color_resolution)));
+        uint probes_in_column = fast_uint_div(48, reg_settings.probe_color_resolution);
+        uint indirect_index_y = fast_uint_div(dtid.y, reg_settings.probe_color_resolution);
+        uint indirect_index_x = fast_uint_div(dtid.x, reg_settings.probe_color_resolution);
         indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
         let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
@@ -138,6 +143,11 @@ func entry_update_probe_color(
     {
         return;
     }
+
+    GPU_ASSERT_COMPARE_INT(probe_texel.x, >=, 0);
+    GPU_ASSERT_COMPARE_INT(probe_texel.x, <, reg_settings.probe_color_resolution);
+    GPU_ASSERT_COMPARE_INT(probe_texel.y, >=, 0);
+    GPU_ASSERT_COMPARE_INT(probe_texel.y, <, reg_settings.probe_color_resolution);
     
     PGIProbeInfo probe_info = PGIProbeInfo::load(reg_settings, reg_cascade, push.attach.probe_info.get(), probe_index);
     float3 probe_position = pgi_probe_index_to_worldspace(reg_settings, reg_cascade, probe_info, probe_index);
@@ -277,9 +287,9 @@ func entry_update_probe_visibility(
     int4 probe_index = {};
     int2 probe_texel = {};
     {
-        uint probes_in_column = uint(float(48) * rcp(float(reg_settings.probe_visibility_resolution)));
-        uint indirect_index_y = uint(float(dtid.y) * rcp(float(reg_settings.probe_visibility_resolution)));
-        uint indirect_index_x = uint(float(dtid.x) * rcp(float(reg_settings.probe_visibility_resolution)));
+        uint probes_in_column = fast_uint_div(48, reg_settings.probe_visibility_resolution);
+        uint indirect_index_y = fast_uint_div(dtid.y, reg_settings.probe_visibility_resolution);
+        uint indirect_index_x = fast_uint_div(dtid.x, reg_settings.probe_visibility_resolution);
         indirect_index = indirect_index_x * probes_in_column + indirect_index_y;
         let is_overhang = indirect_index >= push.attach.probe_indirections.probe_update_count;
         if (is_overhang)
@@ -521,7 +531,7 @@ func entry_update_probe(
     for (int wave_i = 0; wave_i < wave_iterations; ++wave_i)
     {
         int i = wave_i * WARP_SIZE + group_index;
-        int y = int(float(i) * rcp(float(s))); // Can not be negative, no need to clamp.
+        int y = fast_uint_div(i, s); // Can not be negative, no need to clamp.
         int x = i - y * s;
         if (i >= (s*s))
         {
@@ -699,7 +709,7 @@ func entry_update_probe(
     }
 
     // Invalidate probes that are either too close to a surface or see backfaces
-    if (closest_backface_dist != SOME_LARGE_VALUE || closest_frontface_dist < PGI_ACCEPTABLE_SURFACE_DISTANCE)
+    if (closest_backface_dist != SOME_LARGE_VALUE)// || closest_frontface_dist < PGI_ACCEPTABLE_SURFACE_DISTANCE)
     {
         probe_info.validity = 0.0f;
     }
