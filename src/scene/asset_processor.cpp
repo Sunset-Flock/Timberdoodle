@@ -4,7 +4,7 @@
 #include <fastgltf/types.hpp>
 #include <fstream>
 #include <cstring>
-#include <FreeImage.h>
+#include <png.h>
 #include <variant>
 
 #include <ktx.h>
@@ -15,7 +15,7 @@ struct ImageFromRawInfo
     std::vector<std::byte> raw_data;
     std::filesystem::path image_path;
     fastgltf::MimeType mime_type;
-    int ktx_compression = KTX_TTF_BC7_RGBA;
+    int ktx_compression;
 };
 
 using RawDataRet = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ImageFromRawInfo>;
@@ -28,7 +28,7 @@ struct RawImageDataFromURIInfo
     std::filesystem::path const scene_dir_path;
 };
 
-static auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDataRet
+auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDataRet
 {
     std::ifstream ifs{image_path, std::ios::binary};
     if (!ifs)
@@ -150,77 +150,6 @@ struct ChannelInfo
 };
 using ParsedChannel = std::variant<std::monostate, AssetProcessor::AssetLoadResultCode, ChannelInfo>;
 
-constexpr static auto parse_channel_info(FREE_IMAGE_TYPE image_type) -> ParsedChannel
-{
-    ChannelInfo ret = {};
-    switch (image_type)
-    {
-        case FREE_IMAGE_TYPE::FIT_BITMAP:
-        {
-            ret.byte_size = 1u;
-            ret.data_type = ChannelDataType::UNSIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_UINT16:
-        {
-            ret.byte_size = 2u;
-            ret.data_type = ChannelDataType::UNSIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_INT16:
-        {
-            ret.byte_size = 2u;
-            ret.data_type = ChannelDataType::SIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_UINT32:
-        {
-            ret.byte_size = 4u;
-            ret.data_type = ChannelDataType::UNSIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_INT32:
-        {
-            ret.byte_size = 4u;
-            ret.data_type = ChannelDataType::SIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_FLOAT:
-        {
-            ret.byte_size = 4u;
-            ret.data_type = ChannelDataType::FLOATING_POINT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_RGB16:
-        {
-            ret.byte_size = 2u;
-            ret.data_type = ChannelDataType::UNSIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_RGBA16:
-        {
-            ret.byte_size = 2u;
-            ret.data_type = ChannelDataType::UNSIGNED_INT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_RGBF:
-        {
-            ret.byte_size = 4u;
-            ret.data_type = ChannelDataType::FLOATING_POINT;
-            break;
-        }
-        case FREE_IMAGE_TYPE::FIT_RGBAF:
-        {
-            ret.byte_size = 4u;
-            ret.data_type = ChannelDataType::FLOATING_POINT;
-            break;
-        }
-        default:
-            return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_TEXTURE_PIXEL_FORMAT;
-    }
-    return ret;
-};
-
 struct PixelInfo
 {
     u8 channel_count = {};
@@ -238,11 +167,10 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
             std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R8_UNORM, daxa::Format::R8_SINT, daxa::Format::UNDEFINED}},
             // CHANNEL COUNT 2
             std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R8G8_UNORM, daxa::Format::R8G8_SINT, daxa::Format::UNDEFINED}},
-            /// NOTE: Free image stores images in BGRA on little endians (Win,Linux) this will break on Mac
             // CHANNEL COUNT 3
-            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::B8G8R8A8_UNORM, daxa::Format::B8G8R8A8_SINT, daxa::Format::UNDEFINED}},
+            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R8G8B8A8_UNORM, daxa::Format::R8G8B8A8_SINT, daxa::Format::UNDEFINED}},
             // CHANNEL COUNT 4
-            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::B8G8R8A8_UNORM, daxa::Format::B8G8R8A8_SINT, daxa::Format::UNDEFINED}},
+            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R8G8B8A8_UNORM, daxa::Format::R8G8B8A8_SINT, daxa::Format::UNDEFINED}},
         },
         // BYTE SIZE 2
         std::array{
@@ -262,8 +190,7 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
             // CHANNEL COUNT 2
             std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R32G32_UINT, daxa::Format::R32G32_SINT, daxa::Format::R32G32_SFLOAT}},
             // CHANNEL COUNT 3
-            /// TODO: Channel count 3 might not be supported possible just replace with four channel alternatives
-            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R32G32B32_UINT, daxa::Format::R32G32B32_SINT, daxa::Format::R32G32B32_SFLOAT}},
+            std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R32G32B32A32_UINT, daxa::Format::R32G32B32A32_SINT, daxa::Format::R32G32B32A32_SFLOAT}},
             // CHANNEL COUNT 4
             std::array{/* CHANNEL FORMAT */ std::array{daxa::Format::R32G32B32A32_UINT, daxa::Format::R32G32B32A32_SINT, daxa::Format::R32G32B32A32_SFLOAT}},
         },
@@ -304,106 +231,101 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
     {
         format = format == daxa::Format::R8_UNORM ? daxa::Format::R8_SRGB : format;
         format = format == daxa::Format::R8G8_UNORM ? daxa::Format::R8G8_SRGB : format;
-        format = format == daxa::Format::B8G8R8A8_UNORM ? daxa::Format::B8G8R8A8_SRGB : format;
+        format = format == daxa::Format::R8G8B8A8_UNORM ? daxa::Format::R8G8B8A8_SRGB : format;
     }
     return format;
 };
 
-static auto free_image_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
+static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
 {
     bool load_as_srgb = type == TextureMaterialType::DIFFUSE && allow_srgb;
-    /// NOTE: Since we handle the image data loading ourselves we need to wrap the buffer with a FreeImage
-    //        wrapper so that it can internally process the data
-    FIMEMORY * fif_memory_wrapper = FreeImage_OpenMemory(r_cast<BYTE *>(raw_data.raw_data.data()), raw_data.raw_data.size());
-    defer
-    {
-        FreeImage_CloseMemory(fif_memory_wrapper);
-    };
-    FREE_IMAGE_FORMAT image_format = FreeImage_GetFileTypeFromMemory(fif_memory_wrapper, 0);
-    // could not deduce filetype from metadata in memory try to guess the format from the file extension
-    if (image_format == FIF_UNKNOWN)
-    {
-        image_format = FreeImage_GetFIFFromFilename(raw_data.image_path.string().c_str());
-    }
-    // could not deduce filetype at all
-    if (image_format == FIF_UNKNOWN)
+    bool alpha = type == TextureMaterialType::DIFFUSE_OPACITY;
+
+    if (png_sig_cmp((png_bytep)raw_data.raw_data.data(), 0, 8))
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_UNKNOWN_FILETYPE_FORMAT;
     }
-    if (!FreeImage_FIFSupportsReading(image_format))
+
+    auto png_alloc = [](png_structp, png_size_t size) -> png_voidp
     {
-        return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT;
-    }
-    FIBITMAP * image_bitmap = FreeImage_LoadFromMemory(image_format, fif_memory_wrapper);
-    defer
-    {
-        FreeImage_Unload(image_bitmap);
+        return (png_voidp *)malloc(size);
     };
-    if (!image_bitmap)
+    auto png_free = [](png_structp, png_voidp ptr)
     {
-        return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM;
-    }
-    u32 bits_per_pixel = FreeImage_GetBPP(image_bitmap);
-    if (bits_per_pixel != 32 && bits_per_pixel != 24)
+        free(ptr);
+    };
+    auto error_fn = [](png_structp png_ptr, png_const_charp error_msg)
     {
-        auto * temp = FreeImage_ConvertTo32Bits(image_bitmap);
-        FreeImage_Unload(image_bitmap);
-        image_bitmap = temp;
-        bits_per_pixel = 32;
-    }
-    FREE_IMAGE_TYPE const image_type = FreeImage_GetImageType(image_bitmap);
-    FREE_IMAGE_COLOR_TYPE const color_type = FreeImage_GetColorType(image_bitmap);
-    u32 const width = FreeImage_GetWidth(image_bitmap);
-    u32 const height = FreeImage_GetHeight(image_bitmap);
-    bool const has_red_channel = FreeImage_GetRedMask(image_bitmap) != 0;
-    bool const has_green_channel = FreeImage_GetGreenMask(image_bitmap) != 0;
-    bool const has_blue_channel = FreeImage_GetBlueMask(image_bitmap) != 0;
+        DBG_ASSERT_TRUE_M(false, error_msg);
+    };
 
-    bool const should_contain_all_color_channels =
-        (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGB) ||
-        (color_type == FREE_IMAGE_COLOR_TYPE::FIC_RGBALPHA);
-    bool const contains_all_color_channels = has_red_channel && has_green_channel && has_blue_channel;
-    DBG_ASSERT_TRUE_M(should_contain_all_color_channels == contains_all_color_channels,
-        std::string("[ERROR][free_image_parse_raw_image_data()] Image color type indicates color channels present") +
-            std::string(" but not all channels were present accoring to color masks"));
-
-    ParsedChannel parsed_channel = parse_channel_info(image_type);
-    if (auto const * err = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_channel))
+    auto data_fn = [](png_structp png_ptr, png_bytep data, png_size_t length)
     {
-        return *err;
-    }
+        std::byte *& raw_data_ptr = *(std::byte **)png_get_io_ptr(png_ptr);
+        memcpy(data, raw_data_ptr, length);
+        raw_data_ptr += length;
+    };
 
-    ChannelInfo const & channel_info = std::get<ChannelInfo>(parsed_channel);
-    u32 const channel_count = bits_per_pixel / (channel_info.byte_size * 8u);
+    auto png_ptr = png_create_read_struct_2(PNG_LIBPNG_VER_STRING, nullptr, error_fn, NULL, NULL, png_alloc, png_free);
+    DBG_ASSERT_TRUE_M(png_ptr != nullptr, "Failed to create PNG load context");
+    png_set_error_fn(png_ptr, nullptr, error_fn, NULL);
+    png_set_sig_bytes(png_ptr, 8);
+    png_infop info_ptr = png_create_info_struct(png_ptr);
+    auto raw_data_ptr = raw_data.raw_data.data() + 8;
+    png_set_read_fn(png_ptr, &raw_data_ptr, data_fn);
+    DBG_ASSERT_TRUE_M(info_ptr != nullptr, "Failed to create PNG info ptr");
+
+    png_uint_32 width, height;
+    int bit_depth, color_type, interlace_type;
+    png_read_info(png_ptr, info_ptr);
+    png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, &interlace_type, nullptr, nullptr);
+    int channel_count = png_get_channels(png_ptr, info_ptr);
+
+    if (color_type == PNG_COLOR_TYPE_PALETTE)
+        png_set_palette_to_rgb(png_ptr);
+    if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8)
+        png_set_expand_gray_1_2_4_to_8(png_ptr);
+    if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS))
+        png_set_tRNS_to_alpha(png_ptr);
+    if (color_type == PNG_COLOR_TYPE_GRAY || color_type == PNG_COLOR_TYPE_GRAY_ALPHA)
+        png_set_gray_to_rgb(png_ptr);
+    if (interlace_type != PNG_INTERLACE_NONE)
+        png_set_interlace_handling(png_ptr);
+
+    if (channel_count == 1)
+        png_set_gray_to_rgb(png_ptr);
+    if (channel_count < 4)
+        png_set_add_alpha(png_ptr, 255, PNG_FILLER_AFTER);
+
+    png_read_update_info(png_ptr, info_ptr);
+    png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, &interlace_type, nullptr, nullptr);
+    channel_count = png_get_channels(png_ptr, info_ptr);
+
+    DBG_ASSERT_TRUE_M(channel_count == 3 || channel_count == 4, "bruh");
+    DBG_ASSERT_TRUE_M(bit_depth == 16 || bit_depth == 8, "bruh");
 
     daxa::Format daxa_image_format = daxa_image_format_from_pixel_info({
         .channel_count = s_cast<u8>(channel_count),
-        .channel_byte_size = channel_info.byte_size,
-        .channel_data_type = channel_info.data_type,
+        .channel_byte_size = s_cast<u8>(bit_depth / 8),
+        .channel_data_type = ChannelDataType::UNSIGNED_INT,
         .load_as_srgb = load_as_srgb,
     });
 
-    /// TODO: Breaks for 32bit 3 channel images (or overallocates idk)
-    u32 const rounded_channel_count = channel_count == 3 ? 4 : channel_count;
-    FIBITMAP * modified_bitmap;
-    if (channel_count == 3)
-    {
-        modified_bitmap = FreeImage_ConvertTo32Bits(image_bitmap);
-    }
-    else
-    {
-        modified_bitmap = image_bitmap;
-    }
-    defer
-    {
-        if (channel_count == 3)
-            FreeImage_Unload(modified_bitmap);
-    };
-    FreeImage_FlipVertical(modified_bitmap);
     ParsedImageData ret = {};
-    u32 const total_image_byte_size = width * height * rounded_channel_count * channel_info.byte_size;
+    u32 const total_image_byte_size = width * height * channel_count * (bit_depth / 8);
     ret.src_data.resize(total_image_byte_size);
-    memcpy(ret.src_data.data(), r_cast<std::byte *>(FreeImage_GetBits(modified_bitmap)), total_image_byte_size);
+
+    std::vector<png_bytep> row_pointers;
+    row_pointers.resize(height);
+    for (u32 y = 0; y < height; y++)
+    {
+        // int realy = flip ? img_height - y - 1 : y;
+        u32 real_y = y;
+        png_bytep rowp = (png_bytep)(ret.src_data.data() + width * real_y * channel_count * bit_depth / 8);
+        row_pointers[y] = rowp;
+    }
+
+    png_read_image(png_ptr, row_pointers.data());
 
     ret.mips_to_copy = 1;
     ret.image_info = {
@@ -448,7 +370,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
-    defer
+    tido_defer
     {
         ktxTexture_Destroy(ktxTexture(texture));
     };
@@ -624,7 +546,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
             return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
         }
         ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-        ParsedImageRet parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE, info.load_as_srgb);
+        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE_OPACITY, info.load_as_srgb);
         if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
         {
             return *error;
@@ -702,9 +624,13 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
             opaque_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, TextureMaterialType::DIFFUSE_OPACITY);
         }
     }
+    else if (raw_image_data.mime_type == fastgltf::MimeType::PNG)
+    {
+        parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
+    }
     else
     {
-        parsed_data_ret = free_image_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
+        return AssetProcessor::AssetLoadResultCode::ERROR_UNSUPPORTED_READ_FOR_FILEFORMAT;
     }
     if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
     {
