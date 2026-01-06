@@ -103,8 +103,6 @@ struct Renderer
     daxa::TaskImage rtao_history = {};
     daxa::TaskImage rtgi_diffuse_history = {};
     daxa::TaskImage rtgi_diffuse2_history = {};
-    daxa::TaskImage rtgi_diffuse_stable_history = {};
-    daxa::TaskImage rtgi_diffuse2_stable_history = {};
     daxa::TaskImage rtgi_depth_history = {};
     daxa::TaskImage rtgi_face_normal_history = {};
     daxa::TaskImage rtgi_samplecnt_history = {};

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "rtgi_trace_diffuse.inl"
-#include "rtgi_reproject_diffuse.inl"
+#include "rtgi_reproject.inl"
 #include "rtgi_reconstruct_history.inl"
 #include "rtgi_adaptive_blur.inl"
 #include "rtgi_upscale.inl"
@@ -32,13 +32,13 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
     };
 }
 
-MAKE_COMPUTE_COMPILE_INFO(rtgi_reproject_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reproject_diffuse.hlsl", "entry_reproject")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_reproject_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reproject.hlsl", "entry_reproject")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_reconstruct_history_gen_mips_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reconstruct_history.hlsl", "entry_gen_mips_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_reconstruct_history_apply_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reconstruct_history.hlsl", "entry_apply_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_pre_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_diffuse_temporal_stabilization_compile_info, "./src/rendering/rtgi/rtgi_reproject_diffuse.hlsl", "entry_temporal_stabilization")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_diffuse_temporal_stabilization_compile_info, "./src/rendering/rtgi/rtgi_reproject.hlsl", "entry_temporal_stabilization")
 
 ///
 /// === Callbacks ===
@@ -87,19 +87,19 @@ inline void rtgi_common_task_callback(TaskPush push, daxa::TaskInterface ti, Ren
 inline void rtgi_denoise_diffuse_reproject_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiReprojectDiffuseH::Info::AT;
-    rtgi_common_task_callback(RtgiReprojectDiffusePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "REPROJECT_DIFFUSE">(), rtgi_reproject_diffuse_compile_info().name);
+    rtgi_common_task_callback(RtgiReprojectDiffusePush(), ti, render_context, AT.rtgi_diffuse_reprojected, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "REPROJECT_DIFFUSE">(), rtgi_reproject_diffuse_compile_info().name);
 }
 
 inline void rtgi_reconstruct_history_gen_mips_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiReconstructHistoryGenMipsDiffuseH::Info::AT;
-    rtgi_common_task_callback(RtgiReconstructHistoryGenMipsDiffusePush(), ti, render_context, AT.rtgi_diffuse_accumulated, RTGI_RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE_X, RenderTimes::index<"RTGI", "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE">(), rtgi_reconstruct_history_gen_mips_diffuse_compile_info().name);
+    rtgi_common_task_callback(RtgiReconstructHistoryGenMipsDiffusePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE_X, RenderTimes::index<"RTGI", "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE">(), rtgi_reconstruct_history_gen_mips_diffuse_compile_info().name);
 }
 
 inline void rtgi_reconstruct_history_apply_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiReconstructHistoryApplyDiffuseH::Info::AT;
-    rtgi_common_task_callback(RtgiReconstructHistoryApplyDiffusePush(), ti, render_context, AT.rtgi_diffuse_accumulated, RTGI_RECONSTRUCT_HISTORY_APPLY_DIFFUSE_X, RenderTimes::index<"RTGI", "RECONSTRUCT_HISTORY_APPLY_DIFFUSE">(), rtgi_reconstruct_history_apply_diffuse_compile_info().name);
+    rtgi_common_task_callback(RtgiReconstructHistoryApplyDiffusePush(), ti, render_context, AT.rtgi_diffuse_filtered, RTGI_RECONSTRUCT_HISTORY_APPLY_DIFFUSE_X, RenderTimes::index<"RTGI", "RECONSTRUCT_HISTORY_APPLY_DIFFUSE">(), rtgi_reconstruct_history_apply_diffuse_compile_info().name);
 }
 
 inline void rtgi_adaptive_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)

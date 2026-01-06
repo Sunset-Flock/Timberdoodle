@@ -99,8 +99,8 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
 
-    const float blur_radius_lerp = min(1.0f, pixel_samplecnt / RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES);
-    const float blur_radius = lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, RTGI_SPATIAL_FILTER_RADIUS_MIN, blur_radius_lerp);
+    const float validity = min(1.0f, pixel_samplecnt * rcp(RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES));
+    float blur_radius = lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, RTGI_SPATIAL_FILTER_RADIUS_MIN, validity);
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -112,6 +112,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         sin(acos(biased_vs_normal.y)),
     ) * inv_half_res_render_target_size;
 
+    float valid_sample_count = 0.0f;
     float weight_accum = 0.0f;
     float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
     float2 blurred_accum2 = float2( 0.0f, 0.0f );
@@ -144,14 +145,16 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
         // Calculate validity weights
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
-        const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
-        const float normal_weight = get_normal_weight(pixel_face_normal, sample_value_normal);
-        const float weight = depth_valid_weight * geometric_weight * normal_weight;
+        const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
+        const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
+        const float smplcnt_weight = sample_value_samplecnt >= pixel_samplecnt;
+        const float weight = depth_valid_weight * geometric_weight * normal_weight * smplcnt_weight;
 
         // Accumulate blurred diffuse
         weight_accum += weight;
         blurred_accum += weight * sample_sh_y;
         blurred_accum2 += weight * sample_cocg;
+        valid_sample_count += geometric_weight > 0.0f;
     }
 
     // Calculate blurred diffuse and fallback blending
@@ -256,8 +259,8 @@ func entry_pre_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 
         // Calculate validity weights
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
-        const float geometric_weight = get_geometry_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
-        const float normal_weight = get_normal_weight(pixel_face_normal, sample_value_normal);
+        const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_ws);
+        const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
         const float weight = sample_weighting * depth_valid_weight * geometric_weight * normal_weight;
 
         // Accumulate blurred diffuse

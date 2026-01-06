@@ -822,12 +822,12 @@ void entry_main_cs(
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(tri_point.world_normal, sun_direction), 0.1, 1.0);
+        const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.1, 1.0);
         float shadow = 1.0f;
         if((AT.globals->vsm_settings.enable != 0 && !skip_shadows))
         {
 #if RT
-            shadow = get_dir_shadow_rt(tri_point.world_position, tri_point.world_normal, primary_ray, screen_uv);
+            shadow = get_dir_shadow_rt(tri_point.world_position, tri_point.world_normal, primary_ray, screen_uv) * sun_norm_dot;
 #else 
             shadow = get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint, tri_point.face_normal, tri_point.world_tangent, tri_point.world_bitangent);
 #endif

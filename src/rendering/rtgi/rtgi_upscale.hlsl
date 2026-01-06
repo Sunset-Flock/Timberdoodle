@@ -117,7 +117,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 
             // Calculate weights
             const float tent_weight = tent_weights_x[row] * tent_weights_y[col];
-            const float geometry_weight = get_geometry_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, position_vs, pixel_face_normal_vs, sample_vs, 3.0f);
+            const float geometry_weight = planar_surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, position_vs, pixel_face_normal_vs, sample_vs, 3.0f);
             const float normal_weight = square(square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal)))));
             const float weight = tent_weight * geometry_weight * normal_weight;
 

@@ -11,7 +11,7 @@ void main(uint3 svdtid : SV_DispatchThreadID)
 {
     let push = get_debug_statistics_push;
 
-    if(svdtid.x == 0)
+    if(svdtid.x == 0 && svdtid.y == 0)
     {
         FindFreePagesHeader * header = push.vsm_find_free_pages_header;
         push.globals.readback.cached_pages = header.not_visited_buffer_counter;
@@ -50,9 +50,9 @@ void main(uint3 svdtid : SV_DispatchThreadID)
         }
     }
 
-    if(svdtid.x < push.vsm_allocation_requests.counter) 
+    if((svdtid.x * VSM_META_MEMORY_TABLE_RESOLUTION + svdtid.y) < push.vsm_allocation_requests.counter) 
     {
-        let allocation_request = push.vsm_allocation_requests.requests[svdtid.x];
+        let allocation_request = push.vsm_allocation_requests.requests[svdtid.x * VSM_META_MEMORY_TABLE_RESOLUTION + svdtid.y];
         const bool is_directional = (allocation_request.mip == -1);
         if(is_directional) { InterlockedAdd(push.globals.readback.drawn_directional_pages, 1); }
         else               { InterlockedAdd(push.globals.readback.drawn_point_spot_pages, 1);}

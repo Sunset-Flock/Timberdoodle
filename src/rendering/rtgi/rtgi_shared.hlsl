@@ -9,7 +9,7 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
-#define RTGI_SPATIAL_FILTER_RADIUS_MIN 4
+#define RTGI_SPATIAL_FILTER_RADIUS_MIN 12
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 64
 #define RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES 12
 
@@ -27,7 +27,7 @@
 #define RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD 32.0f
 #define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME 8.0f
 
-func get_geometry_weight_threshold(float2 inv_render_target_size, float near_plane, float depth) -> float
+func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
     // The further away the pixel is, the larger difference we allow.
     // The scale is proportional to the size the pixel takes up in world space.
@@ -37,18 +37,30 @@ func get_geometry_weight_threshold(float2 inv_render_target_size, float near_pla
     return pixel_ws_size;
 }
 
-// geometry weight is used as a hard cutoff to prevent ghosting
-func get_geometry_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
+// geometry weight is used as a hard cutoff for edge stopping when spatial blurring
+func planar_surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
     float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float
 {
     const float plane_distance = abs(dot(other_vs_position - vs_position, vs_normal));
-    const float threshold = get_geometry_weight_threshold(inv_render_target_size, near_plane, depth) * threshold_scale;
+    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
     const float validity = step( plane_distance, threshold );
     return validity;
 }
 
-func get_geometry_weight4(
+// geometry weight used as a hard cutoff when reprojecting temporal data
+func surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
+    float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
+) -> float
+{
+    const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
+    const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
+    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
+    const float validity = step( plane_distanceA, threshold ) * step(plane_distanceB, threshold);
+    return validity;
+}
+
+func planar_surface_weight4(
     float2 inv_render_target_size, 
     float near_plane, 
     float depth, 
@@ -65,13 +77,13 @@ func get_geometry_weight4(
         abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z) * vs_normal.z),
         abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z) * vs_normal.z),
     };
-    const float threshold = get_geometry_weight_threshold(inv_render_target_size, near_plane, depth) * threshold_scale;
+    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
     const float4 validity = step( plane_distances, threshold );
     return validity;
 }
 
 // Due to the low resolution the tracing and de-noising runs at we have to use normals only as a strong suggestion, not for cutoff.
-func get_normal_weight(float3 normal, float3 other_normal) -> float
+func normal_similarity_weight(float3 normal, float3 other_normal) -> float
 {
     const float validity = (max(0.0f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
     const float tight_validity = square(validity);

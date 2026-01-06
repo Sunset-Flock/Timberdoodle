@@ -8,6 +8,10 @@
 struct RtgiSettings
 {
     daxa_i32 enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 temporal_accumulation_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 spatial_filter_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 firefly_filter_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 disocclusion_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 history_frames TIDO_DEFAULT_VALUE(32);
     daxa_i32 temporal_stabilization_enabled TIDO_DEFAULT_VALUE(1);
     daxa_f32 temporal_stabilization_sensitivity TIDO_DEFAULT_VALUE(0.5f);

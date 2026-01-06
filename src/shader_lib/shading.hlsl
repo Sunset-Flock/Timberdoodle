@@ -194,7 +194,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
     }
 
     // Local Lights
-    if (false) {
+    {
         let light_settings = globals.light_settings;
         uint4 light_mask = lights_get_mask(light_settings, material_point.position, light_mask_volume);
         // Point Lights
@@ -215,6 +215,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 const float to_light_dist = length(light.position - material_point.position);
 
                 float attenuation = lights_attenuate_point(to_light_dist, light.cutoff);
+                diffuse_light += attenuation;
                 if (attenuation > 0.0f)
                 {
                     let light_visibility = light_visibility.point_light(material_point, incoming_ray, point_light_idx);
@@ -228,7 +229,6 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         {
             float3 total_contribution = float3(0.0);
             light_mask = light_mask & light_settings.spot_light_mask;
-            light_mask = WaveActiveBitOr(light_mask);
     #if LIGHTS_ENABLE_MASK_ITERATION
             while (any(light_mask != uint4(0)))
             {
@@ -241,6 +241,7 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 const float3 position_to_light = normalize(light.position - material_point.position);
                 const float to_light_dist = length(light.position - material_point.position);
                 const float attenuation = lights_attenuate_spot(position_to_light, to_light_dist, light);
+                diffuse_light += attenuation;
                 if (attenuation > 0.0f)
                 {
                     let light_visibility = light_visibility.spot_light(material_point, incoming_ray, spot_light_idx);

@@ -701,6 +701,10 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
                 }
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
+                ImGui::Checkbox("Spatial Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.spatial_filter_enabled));
+                ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
+                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                ImGui::Checkbox("Disocclusion Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_filter_enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::Checkbox("Temporal Stabilization Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_stabilization_enabled));
                 ImGui::InputFloat("Temporal Stabilization Sensitivity", &render_data.rtgi_settings.temporal_stabilization_sensitivity);

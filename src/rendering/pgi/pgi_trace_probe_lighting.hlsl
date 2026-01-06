@@ -102,7 +102,7 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
         float3 to_light_dir = normalize(to_light);
 
         //return 1.0f;
-        let RAYTRACED_POINT_SHADOWS = false;
+        let RAYTRACED_POINT_SHADOWS = true;
         if (RAYTRACED_POINT_SHADOWS)
         {        
             let light_visible = trace_shadow_ray(tlas, material_point.position, point_light.position, material_point.face_normal, incoming_ray);
@@ -130,7 +130,7 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
         GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
 
         //return 1.0f;
-        let RAYTRACED_POINT_SHADOWS = false;
+        let RAYTRACED_POINT_SHADOWS = true;
         if (RAYTRACED_POINT_SHADOWS)
         {        
             let light_visible = trace_shadow_ray(tlas, material_point.position, spot_light.position, material_point.face_normal, incoming_ray);

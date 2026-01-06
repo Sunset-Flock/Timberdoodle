@@ -71,15 +71,16 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     const uint2 clamped_index = min( half_res_index, push.size - 1u );
     const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
     gs_depth[gtid.x][gtid.y][0] = depth;
-    float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[clamped_index];
-    float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[clamped_index];
+    float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index];
+    float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index];
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
 
 #if RTGI_FIREFLY_FILTER
-    if (pixel_samplecnt == 0)
+    if (push.attach.globals.rtgi_settings.firefly_filter_enabled) 
     {
-        const float FIREFLY_AVERAGE_POWER = 4.0f;
+        const float FIREFLY_AVERAGE_POWER = 5.0f;
         float radiance_power_sum = 0.0f;
+        float radiance_power_sample_cnt = 0.0f;
         for (int x = -2; x <= 2; ++x)
         {
             for (int y = -2; y <= 2; ++y)
@@ -88,18 +89,28 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
                     continue;
 
                 const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
+                const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
                 const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
-                const float4 diffuse = push.attach.rtgi_diffuse_accumulated.get()[load_idx];
-                const float2 diffuse2 = push.attach.rtgi_diffuse2_accumulated.get()[load_idx];
-                radiance_power_sum += pow(y_co_cg_to_radiance(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER);
+                const float4 diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
+                const float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
+                if (sample_depth != 0)
+                {
+                    const float weight = 1.0f - min(1.0f, 100.0f * abs(depth - sample_depth));
+                    radiance_power_sum += pow(y_co_cg_to_radiance(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER) * weight;
+                    radiance_power_sample_cnt += weight;
+                }
             }
         }
 
-        const float average = pow(radiance_power_sum * rcp(5*5), FIREFLY_AVERAGE_POWER);
-        const float radiance_ratio = y_co_cg_to_radiance(float3(diffuse.w, diffuse2)) / (0.000000001f + average);
-        const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME / radiance_ratio );
-        diffuse *= supression_factor;
-        diffuse2 *= supression_factor;
+        if (radiance_power_sample_cnt > 0)
+        {
+            const float power_average = pow(radiance_power_sum * rcp(radiance_power_sample_cnt), FIREFLY_AVERAGE_POWER);
+            const float power_pixel_luma = y_co_cg_to_radiance(float3(diffuse.w, diffuse2));
+            const float power_ratio = power_pixel_luma / (0.00000001f + power_average);
+            const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME * FIREFLY_AVERAGE_POWER / power_ratio );
+            diffuse *= supression_factor;
+            diffuse2 *= supression_factor;
+        }
     }
 #endif
 
@@ -162,7 +173,8 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
-    int mip = clamp(4 - int(floor(pixel_samplecnt * 0.75f)), -1, 5);
+    const float validity = min(1.0f, pixel_samplecnt * rcp(RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES));
+    int mip = lerp(5,1, validity);
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;
     bool reconstruction_valid = false;
@@ -197,7 +209,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         const float depth11 = reconstruct11_2.z;
 
         const float4 depths = float4(depth00, depth10, depth01, depth11);
-        const float4 geometric_weight4 = get_geometry_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 0.5f);
+        const float4 geometric_weight4 = planar_surface_weight4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths, 2.5f);
 
         const float4 weights_reconstruct = get_bilinear_custom_weights( bilinear_filter_reconstruct, geometric_weight4 );
         reconstructed_diffuse = apply_bilinear_custom_weights( diffuse00, diffuse10, diffuse01, diffuse11, weights_reconstruct );
@@ -216,7 +228,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     float4 diffuse;
     float2 diffuse2;
-    if (reconstruction_valid)
+    if (reconstruction_valid && push.attach.globals.rtgi_settings.disocclusion_filter_enabled)
     {
         diffuse = reconstructed_diffuse;
         diffuse2 = reconstructed_diffuse2;
@@ -227,12 +239,6 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         diffuse2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(halfres_pixel_index, 0)).xy;
     }
     
-    push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index] = diffuse;
-    push.attach.rtgi_diffuse2_accumulated.get()[halfres_pixel_index] = diffuse2;
-}
-
-[shader("compute")]
-func entry_spatial_firefly_filter(uint3 dtid : SV_DispatchThreadID)
-{
-
+    push.attach.rtgi_diffuse_filtered.get()[halfres_pixel_index] = diffuse;
+    push.attach.rtgi_diffuse2_filtered.get()[halfres_pixel_index] = diffuse2;
 }
