@@ -5,6 +5,10 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
 
+if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
+    # /MT for Release, /MTd for Debug. Force static CRT
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 include(cmake/deps.cmake)
 
 set(DAXA_ENABLE_UTILS_IMGUI true)
@@ -53,10 +57,11 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     meshoptimizer
     fastgltf::fastgltf
     KTX::ktx
-    freeimage::FreeImage
+    png_static
     nlohmann_json::nlohmann_json
     implot::implot
     glm::glm
+    openvdb_static
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")

@@ -108,15 +108,16 @@ float3 agxDefaultContrastApproximation(float3 x)
 }
 void agxLook(inout float3 color)
 {
-    const float3 slope      = (1.0f).xxx;
-    const float3 power      = (1.1f).xxx;
-    const float saturation  = 1.1;
+	const float3 slope      = (1.1f).xxx;
+	const float3 power      = (1.2f).xxx;
+	const float saturation  = 1.3;
 	float luma = luminance_from_col(color);
 	color = pow(color * slope, power);
 	color = max(luma + saturation * (color - luma), float3(0.0));
 }
 float3 agx_tonemapping(float3 color)
 {
+	color *= 0.18;
 	// AgX constants
 	const float3x3 AgXInsetMatrix = transpose(float3x3(
 		float3(0.856627153315983, 0.137318972929847, 0.11189821299995),
@@ -152,8 +153,6 @@ float3 agx_tonemapping(float3 color)
 	// Apply AgX look
 	agxLook(color);
 	color = mul(AgXOutsetMatrix, color);
-	// Linearize
-	color = pow(max(float3(0.0), color), float3(2.2));
 	color = mul(LINEAR_REC2020_TO_LINEAR_SRGB, color);
 	// Gamut mapping. Simple clamp for now.
 	color = clamp(color, 0.0, 1.0);
