@@ -9,17 +9,15 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
-#define RTGI_SPATIAL_FILTER_RADIUS_MIN 12
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 64
 #define RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES 12
 
 #define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 16
-#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MIN 64
-#define RTGI_SPATIAL_FILTER_RADIUS_PRE_BLUR_MAX 64
 
 #define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 0
 
-#define RTGI_SPATIAL_PASSTHROUGH 0
+#define RTGI_DISOCCLUSION_SCALING 1
+#define RTGI_DISOCCLUSION_FLOOD_FILL 1
 
 // With a value of 32 AND a value of 32 accumulated frames,
 // Effectively, each pixel can AT MOST double its brightness every frame PRE blurring.
@@ -49,6 +47,7 @@ func planar_surface_weight(float2 inv_render_target_size, float near_plane, floa
 }
 
 // geometry weight used as a hard cutoff when reprojecting temporal data
+// returns 1 when the given points are likely to be the same geometry
 func surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
     float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float
@@ -85,7 +84,7 @@ func planar_surface_weight4(
 // Due to the low resolution the tracing and de-noising runs at we have to use normals only as a strong suggestion, not for cutoff.
 func normal_similarity_weight(float3 normal, float3 other_normal) -> float
 {
-    const float validity = (max(0.0f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
+    const float validity = (max(0.1f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
     const float tight_validity = square(validity);
     return tight_validity;
 }

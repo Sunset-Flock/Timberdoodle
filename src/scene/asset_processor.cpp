@@ -370,10 +370,6 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_FAILED_TO_PROCESS_KTX;
     }
-    tido_defer
-    {
-        ktxTexture_Destroy(ktxTexture(texture));
-    };
 
     ktx_transcode_flags flags = KTX_TF_HIGH_QUALITY;
     flags |= type == TextureMaterialType::DIFFUSE_OPACITY ? KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS : 0u;
@@ -425,7 +421,8 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
         std::memcpy(ret.src_data.data() + offset, image_ktx_data + offset, size);
         ret.mip_copy_offsets[mip] = offset;
     }
-
+    
+    ktxTexture_Destroy(ktxTexture(texture));
     return ret;
 }
 

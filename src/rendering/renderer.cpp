@@ -287,7 +287,6 @@ void Renderer::compile_pipelines()
         {rtgi_reconstruct_history_gen_mips_diffuse_compile_info()},
         {rtgi_reconstruct_history_apply_diffuse_compile_info()},
         {rtgi_adaptive_blur_diffuse_compile_info()},
-        {rtgi_pre_blur_diffuse_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {rtgi_diffuse_temporal_stabilization_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
@@ -1157,7 +1156,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             })
             .executes(rtgi_reconstruct_history_apply_diffuse_callback, render_context.get()));
 
-        daxa::TaskImageView rtgi_diffuse_filtered = rtgi_filtered_diffuse_image; 
+        daxa::TaskImageView rtgi_diffuse_filtered = rtgi_filtered_diffuse_image.mips(0); 
         daxa::TaskImageView rtgi_diffuse2_filtered = rtgi_filtered_diffuse2_image;
         if (render_context->render_data.rtgi_settings.spatial_filter_enabled)
         {
@@ -1204,6 +1203,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
         auto rtgi_diffuse_stable_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_diffuse_stable_image");
         auto rtgi_diffuse2_stable_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_diffuse2_stable_image");
+        auto rtgi_diffuse_accumulated_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_diffuse_accumulated_image");
+        auto rtgi_diffuse2_accumulated_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_diffuse2_accumulated_image");
         tg.add_task(daxa::HeadTask<RtgiDiffuseTemporalStabilizationH::Info>()
             .head_views({
                 .globals = render_context->tgpu_render_data.view(),
@@ -1216,6 +1217,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .rtgi_samplecnt = rtgi_samplecnt_image,
                 .rtgi_diffuse_stable = rtgi_diffuse_stable_image,
                 .rtgi_diffuse2_stable = rtgi_diffuse2_stable_image,
+                .rtgi_diffuse_accumulated = rtgi_diffuse_accumulated_image,
+                .rtgi_diffuse2_accumulated = rtgi_diffuse2_accumulated_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
                 .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
             })
@@ -1229,6 +1232,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .clocks_image = clocks_image,
                 .rtgi_diffuse_half_res = rtgi_diffuse_stable_image,
                 .rtgi_diffuse2_half_res = rtgi_diffuse2_stable_image,
+                .rtgi_samplecount_half_res = rtgi_samplecnt_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
                 .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
                 .view_cam_depth = view_camera_depth,
@@ -1240,8 +1244,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
         tg.copy_image_to_image({.src = view_camera_half_res_depth_image, .dst = rtgi_depth_history.view(), .name = "save rtgi depth history"});
         tg.copy_image_to_image({.src = rtgi_samplecnt_image, .dst = rtgi_samplecnt_history.view(), .name = "save rtgi samplecnt history"});
-        tg.copy_image_to_image({.src = rtgi_diffuse_stable_image, .dst = rtgi_diffuse_history.view(), .name = "save rtgi diffuse history"});
-        tg.copy_image_to_image({.src = rtgi_diffuse2_stable_image, .dst = rtgi_diffuse2_history.view(), .name = "save rtgi diffuse2 history"});
+        tg.copy_image_to_image({.src = rtgi_diffuse_accumulated_image, .dst = rtgi_diffuse_history.view(), .name = "save rtgi diffuse history"});
+        tg.copy_image_to_image({.src = rtgi_diffuse2_accumulated_image, .dst = rtgi_diffuse2_history.view(), .name = "save rtgi diffuse2 history"});
         tg.copy_image_to_image({.src = view_camera_half_res_face_normal_image, .dst = rtgi_face_normal_history.view(), .name = "save rtgi face normal history"});
     }
 

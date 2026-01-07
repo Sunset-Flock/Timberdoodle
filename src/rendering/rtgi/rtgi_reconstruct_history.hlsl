@@ -78,7 +78,7 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
 #if RTGI_FIREFLY_FILTER
     if (push.attach.globals.rtgi_settings.firefly_filter_enabled) 
     {
-        const float FIREFLY_AVERAGE_POWER = 5.0f;
+        const float FIREFLY_AVERAGE_POWER = 4.0f;
         float radiance_power_sum = 0.0f;
         float radiance_power_sample_cnt = 0.0f;
         for (int x = -2; x <= 2; ++x)
@@ -89,13 +89,14 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
                     continue;
 
                 const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
-                const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
-                const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+                // const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
+                // const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
                 const float4 diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
                 const float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
-                if (sample_depth != 0)
+                const bool is_sky = all(diffuse == 0.0f) && all(diffuse2 == 0.0f);
+                if (!is_sky)
                 {
-                    const float weight = 1.0f - min(1.0f, 100.0f * abs(depth - sample_depth));
+                    const float weight = 1;//1.0f - min(1.0f, 100.0f * abs(depth - sample_depth));
                     radiance_power_sum += pow(y_co_cg_to_radiance(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER) * weight;
                     radiance_power_sample_cnt += weight;
                 }
