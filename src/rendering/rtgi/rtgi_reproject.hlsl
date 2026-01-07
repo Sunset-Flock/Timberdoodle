@@ -141,10 +141,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
                 texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
             };
             surface_weights = {
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0]),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1]),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2]),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3]),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 2.0f),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 2.0f),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 2.0f),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 2.0f),
             };
             surface_weights[0] *= depth_reprojected4[0] != 0.0f;
             surface_weights[1] *= depth_reprojected4[1] != 0.0f;
@@ -367,7 +367,7 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
         luma_diff_history_scaling = pow(0.5f, luma_diff_relative * 0.01f + 0.00001f); // TODO: Add heavily firefly filtered fast history to clamp against!
     }
     const float temp_stabilization = 
-        (-1.0f + 0.025f) * 
+        (-1.0f + 0.05f) * 
         push.attach.globals.rtgi_settings.temporal_stabilization_enabled *
         (push.attach.rtgi_samplecnt.get()[dtid] == push.attach.globals.rtgi_settings.history_frames);
     const float temp_jitter = -square(rand()) * rcp(64);
@@ -376,13 +376,17 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
         boosted_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames + 1.0f + temp_stabilization) * 
         clamp(luma_diff_history_scaling, 0.0f, 1.0f) + 
         temp_jitter;
-    if (disocclusion || !push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
+    if (disocclusion)
     {
         history_blend = 0.0f;
     }
     if (flood_fill_similar)
     {
         history_blend = 1.0f;
+    }
+    if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
+    {
+        history_blend = 0.0f;
     }
     const float4 new_diffuse = lerp(diffuse_blurred, diffuse_history, history_blend);
     const float2 new_diffuse2 = lerp(diffuse2_blurred, diffuse2_history, history_blend);

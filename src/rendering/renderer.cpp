@@ -1123,8 +1123,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             })
             .executes(rtgi_denoise_diffuse_reproject_callback, render_context.get()));
         
-        auto rtgi_reconstructed_history_diffuse_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse_image").mips(0,4);
-        auto rtgi_reconstructed_history_diffuse2_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse2_image").mips(0,4);
+        auto rtgi_reconstructed_history_diffuse_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse_image").mips(0,5);
+        auto rtgi_reconstructed_history_diffuse2_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse2_image").mips(0,5);
         tg.add_task(daxa::HeadTask<RtgiReconstructHistoryGenMipsDiffuseH::Info>()
             .head_views({
                 .globals = render_context->tgpu_render_data.view(),
@@ -1139,8 +1139,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             })
             .executes(rtgi_reconstruct_history_gen_mips_diffuse_callback, render_context.get()));
 
-        auto rtgi_filtered_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_filtered_diffuse_image").mips(0,4);
-        auto rtgi_filtered_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_filtered_diffuse2_image").mips(0,4);
+        auto rtgi_filtered_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_filtered_diffuse_image");
+        auto rtgi_filtered_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_filtered_diffuse2_image");
         tg.add_task(daxa::HeadTask<RtgiReconstructHistoryApplyDiffuseH::Info>()
             .head_views({
                 .globals = render_context->tgpu_render_data.view(),

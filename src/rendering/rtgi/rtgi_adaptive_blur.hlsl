@@ -97,7 +97,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
 
-    const float validity = min(1.0f, pixel_samplecnt * rcp(RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES));
+    const float validity = min(1.0f, pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames));
     float blur_radius = lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.spatial_filter_width, validity);
 
     // We want the kernel to align with the surface, 
@@ -145,8 +145,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
         const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
         const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
-        const float smplcnt_weight = sample_value_samplecnt >= pixel_samplecnt;
-        const float weight = depth_valid_weight * geometric_weight * normal_weight * smplcnt_weight;
+        const float weight = depth_valid_weight * geometric_weight * normal_weight;
 
         // Accumulate blurred diffuse
         weight_accum += weight;

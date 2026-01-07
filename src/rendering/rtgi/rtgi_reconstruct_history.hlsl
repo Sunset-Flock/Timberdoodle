@@ -20,12 +20,21 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
     let remaining_block_size = RTGI_RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE_X/mip_factor;
     if (all(group_thread_index.xy < remaining_block_size))
     {
-        // ignore sky pixels
+        float4 depths = {
+            gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src],
+            gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src],
+            gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src],
+            gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src]
+        };
+        float max_depth = max(max(depths.x, depths.y), max(depths.z, depths.w));
+        float min_depth = min(min(depths.x, depths.y), min(depths.z, depths.w));
+        // Ignore sky pixels
+        // Prefer pixels further away as they are more likely to be disoccluded
         float4 weights = {
-            (gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src] != 0.0f ? 1.0f : 0.0f),
-            (gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src] != 0.0f ? 1.0f : 0.0f),
-            (gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src] != 0.0f ? 1.0f : 0.0f),
-            (gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src] != 0.0f ? 1.0f : 0.0f),
+            (depths[0] != 0.0f ? 1.0f : 0.0f) * ((depths[0] == max_depth && ((depths[0] - min_depth) > 0.001f)) ? 0 : 1),
+            (depths[1] != 0.0f ? 1.0f : 0.0f) * ((depths[1] == max_depth && ((depths[1] - min_depth) > 0.001f)) ? 0 : 1),
+            (depths[2] != 0.0f ? 1.0f : 0.0f) * ((depths[2] == max_depth && ((depths[2] - min_depth) > 0.001f)) ? 0 : 1),
+            (depths[3] != 0.0f ? 1.0f : 0.0f) * ((depths[3] == max_depth && ((depths[3] - min_depth) > 0.001f)) ? 0 : 1),
         };
         const float weight_sum = (weights.x + weights.y + weights.z + weights.w);
         weights *= rcp(weight_sum + 0.00000001f);
@@ -69,8 +78,7 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
 
     const uint2 half_res_index = dtid.xy;
     const uint2 clamped_index = min( half_res_index, push.size - 1u );
-    const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
-    gs_depth[gtid.x][gtid.y][0] = depth;
+    float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
     float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index];
     float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index];
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
@@ -115,7 +123,9 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     }
 #endif
 
-
+    //TODO: Try to build the mips only accepting samples that are similar to disoccluded pixels.
+    // depth = pixel_samplecnt == 16 ? 0.0f : depth;
+    gs_depth[gtid.x][gtid.y][0] = depth;
     push.attach.rtgi_reconstructed_diffuse_history[0].get()[dtid] = diffuse;
     push.attach.rtgi_reconstructed_diffuse2_history[0].get()[dtid] = float4(diffuse2, depth, 0.0f);
     gs_diffuse[gtid.x][gtid.y][0] = diffuse;
@@ -174,12 +184,12 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
-    const float validity = min(1.0f, pixel_samplecnt * rcp(RTGI_SPATIAL_FILTER_DISOCCLUSION_FIX_FRAMES));
-    int mip = lerp(5,1, validity);
+    const float validity = min(1.0f, pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames));
+    int mip = lerp(4,1, validity);
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;
     bool reconstruction_valid = false;
-    bool wants_reconstruction = mip >= 0;
+    bool wants_reconstruction = mip > 0;
     while (mip > 0)
     {
         // The mip chain base size is round up to 8 to ensure all texels have an exact 2x2 -> 1 match between mip levels.
