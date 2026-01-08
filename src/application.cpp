@@ -7,7 +7,7 @@
 
 auto load_stbn2D(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
 {
-    std::filesystem::path const STBN_BASE_PATH = "assets\\STBN\\";
+    std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
     std::filesystem::path const stbn_vec2_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_vec2_2Dx1D_128x128x64_0.png";
 
     AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
@@ -26,7 +26,7 @@ auto load_stbn2D(AssetProcessor & asset_processor, daxa::Device & device) -> dax
 
 auto load_stbnCosDir(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
 {
-    std::filesystem::path const STBN_BASE_PATH = "assets\\STBN\\";
+    std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
     std::filesystem::path const stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_unitvec3_cosine_2Dx1D_128x128x64_0.png";
 
     AssetProcessor::NonmanifestLoadRet ret = asset_processor.load_nonmanifest_texture({
