@@ -43,8 +43,8 @@ struct WriteSwapchainDebugPush
 
 #include "../../gpu_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(write_swapchain_pipeline_compile_info2, "./src/rendering/tasks/write_swapchain.hlsl", "entry_write_swapchain")
-inline MAKE_COMPUTE_COMPILE_INFO(write_swapchain_debug_pipeline_compile_info2, "./src/rendering/tasks/write_swapchain.hlsl", "entry_write_swapchain_debug")
+MAKE_COMPUTE_COMPILE_INFO(write_swapchain_pipeline_compile_info2, "./src/rendering/tasks/write_swapchain.hlsl", "entry_write_swapchain")
+MAKE_COMPUTE_COMPILE_INFO(write_swapchain_debug_pipeline_compile_info2, "./src/rendering/tasks/write_swapchain.hlsl", "entry_write_swapchain_debug")
 
 struct WriteSwapchainTask : WriteSwapchainH::Task
 {
@@ -65,10 +65,8 @@ struct WriteSwapchainTask : WriteSwapchainH::Task
 
 inline void write_swapchain_debug_callback(daxa::TaskInterface ti, RenderContext* render_context)
 {
-    using namespace WriteSwapchainDebugH;
-
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(write_swapchain_debug_pipeline_compile_info2().name));
-    auto size = ti.info(AT.swapchain).value().size;
+    auto size = ti.info(WriteSwapchainDebugH::Info::AT.swapchain).value().size;
     ti.recorder.push_constant(WriteSwapchainDebugPush{
         .attachments = ti.attachment_shader_blob,
         .size = { size.x, size.y },

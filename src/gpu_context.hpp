@@ -120,7 +120,7 @@ struct ShaderDebugDrawContext
         });
     }
 
-    void update(daxa::Device & device, daxa_u32vec2 render_target_size, i32vec2 window_size, u32 renderer_frame_index)
+    void update(daxa::Device & device, [[maybe_unused]]daxa_u32vec2 render_target_size, [[maybe_unused]]i32vec2 window_size, [[maybe_unused]]u32 renderer_frame_index)
     {
         frame_index = renderer_frame_index;
 
@@ -178,7 +178,7 @@ struct ShaderDebugDrawContext
             u32 const upload_size = sizeof(decltype(cpu_draws.cpu_draws[0])) * draws.draw_indirect.instance_count;
             if (upload_size > 0)
             {
-                u32 const buffer_offset = draws.draws - device.device_address(buffer).value();
+                u64 const buffer_offset = draws.draws - device.device_address(buffer).value();
                 auto stage_line_draws = allocator.allocate(upload_size).value();
                 std::memcpy(stage_line_draws.host_address, cpu_draws.cpu_draws.data(), upload_size);
                 recorder.copy_buffer_to_buffer({

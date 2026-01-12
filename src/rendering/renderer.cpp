@@ -255,7 +255,7 @@ void Renderer::compile_pipelines()
         }
     };
 
-    std::vector<daxa::RasterPipelineCompileInfo> rasters = {
+    std::vector<daxa::RasterPipelineCompileInfo2> rasters = {
         {draw_visbuffer_mesh_shader_pipelines[0]},
         {draw_visbuffer_mesh_shader_pipelines[1]},
         {draw_visbuffer_mesh_shader_pipelines[2]},
@@ -269,7 +269,7 @@ void Renderer::compile_pipelines()
     };
     for (auto info : rasters)
     {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_raster_pipeline(info);
+        auto compilation_result = this->gpu_context->pipeline_manager.add_raster_pipeline2(info);
         if (compilation_result.value()->is_valid())
         {
             std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
@@ -296,21 +296,21 @@ void Renderer::compile_pipelines()
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {pgi_upscale_screen_irradiance_compute_compile_info()},
         {cull_meshlets_compute_pipeline_compile_info()},
-        {tido::upgrade_compute_pipeline_compile_info(IndirectMemsetBufferTask::pipeline_compile_info)},
+        {IndirectMemsetBufferTask::pipeline_compile_info},
         {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},
         {write_swapchain_debug_pipeline_compile_info2()},
-        {tido::upgrade_compute_pipeline_compile_info(shade_opaque_pipeline_compile_info())},
+        {shade_opaque_pipeline_compile_info()},
         {expand_meshes_pipeline_compile_info()},
-        {tido::upgrade_compute_pipeline_compile_info(PrefixSumCommandWriteTask::pipeline_compile_info)},
-        {tido::upgrade_compute_pipeline_compile_info(prefix_sum_upsweep_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(prefix_sum_downsweep_pipeline_compile_info())},
+        {PrefixSumCommandWriteTask::pipeline_compile_info},
+        {prefix_sum_upsweep_pipeline_compile_info()},
+        {prefix_sum_downsweep_pipeline_compile_info()},
         {compute_transmittance_pipeline_compile_info()},
         {compute_multiscattering_pipeline_compile_info()},
         {compute_sky_pipeline_compile_info()},
-        {tido::upgrade_compute_pipeline_compile_info(sky_into_cubemap_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(gen_luminace_histogram_pipeline_compile_info())},
-        {tido::upgrade_compute_pipeline_compile_info(gen_luminace_average_pipeline_compile_info())},
+        {sky_into_cubemap_pipeline_compile_info()},
+        {gen_luminace_histogram_pipeline_compile_info()},
+        {gen_luminace_average_pipeline_compile_info()},
         {vsm_free_wrapped_pages_pipeline_compile_info()},
         {vsm_invalidate_directional_pages_pipeline_compile_info()},
         {vsm_force_always_resident_pages_pipeline_compile_info()},
@@ -326,7 +326,7 @@ void Renderer::compile_pipelines()
         {vsm_recreate_shadow_map_pipeline_compile_info()},
         {vsm_get_debug_statistics_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
-        {tido::upgrade_compute_pipeline_compile_info(DrawVisbuffer_WriteCommandTask2::pipeline_compile_info)},
+        {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
         {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},

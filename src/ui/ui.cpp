@@ -101,7 +101,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
       window{&window}
 {
     auto * imgui_context = ImGui::CreateContext();
-    auto * implot_context = ImPlot::CreateContext();
+    [[maybe_unused]] auto * implot_context = ImPlot::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO & io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -128,17 +128,17 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     setup_colors();
 }
 
-void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state, Window & window)
+void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
 
     // Clear Select Render Data
     render_context.render_data.cursor_uv = {
-        std::clamp(s_cast<f32>(window.get_cursor_x()) / s_cast<f32>(window.get_width()), 0.0f, 1.0f),
-        std::clamp(s_cast<f32>(window.get_cursor_y()) / s_cast<f32>(window.get_height()), 0.0f, 1.0f),
+        std::clamp(s_cast<f32>(window->get_cursor_x()) / s_cast<f32>(window->get_width()), 0.0f, 1.0f),
+        std::clamp(s_cast<f32>(window->get_cursor_y()) / s_cast<f32>(window->get_height()), 0.0f, 1.0f),
     };
-    if (window.is_cursor_captured())
+    if (window->is_cursor_captured())
     {
         render_context.render_data.cursor_uv = { 0.5f, 0.5f };
     }
@@ -205,7 +205,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (widget_renderer_statistics)
     {
-        ui_render_statistics(scene, render_context, app_state);
+        ui_render_statistics(render_context, app_state);
     }
     if (widget_scene_interface)
     {
@@ -213,11 +213,11 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
     }
     if (renderer_settings)
     {
-        ui_renderer_settings(scene, render_context, app_state);
+        ui_renderer_settings(render_context, app_state);
     }
     if (vsm_windows.view_meta_memory || vsm_windows.view_page_table || vsm_windows.view_reconstructed_shadow_map)
     {
-        ui_vsm_textures(render_context, app_state);
+        ui_vsm_textures(render_context);
     }
     if (widget_camera_path_editor)
     {
@@ -255,7 +255,7 @@ void UIEngine::main_update(GPUContext const & gpu_context, RenderContext & rende
                     ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
                     i32 current_keyframe = cinematic_camera.current_keyframe_index;
                     f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-                    ImGui::SliderInt("keyframe", &current_keyframe, 0, cinematic_camera.path_keyframes.size() - 1);
+                    ImGui::SliderInt("keyframe", &current_keyframe, 0, s_cast<i32>(cinematic_camera.path_keyframes.size()) - 1);
                     ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
                     if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
                     ImGui::EndDisabled();
@@ -349,7 +349,7 @@ void UIEngine::ui_scene_graph(Scene const & scene)
             if (should_remove_indentation)
             {
                 // Remove all the previous indentations that were accumulated as well as our own
-                for (u32 pop_count = 0; pop_count < top_stack_entry.accumulated_indent + 1; pop_count++)
+                for (u32 pop_count = 0; pop_count < s_cast<u32>(top_stack_entry.accumulated_indent + 1); pop_count++)
                 {
                     scene_graph.remove_level();
                 }
@@ -389,7 +389,7 @@ void UIEngine::ui_scene_graph(Scene const & scene)
     scene_graph.end(began);
 }
 
-void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationState & app_state)
 {
     RenderGlobalData & render_data = render_context.render_data;
     debug_visualization_index_override = 0;
@@ -405,7 +405,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                 "NONE",
                 "SUPER_SAMPLE",
             };
-            ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), aa_modes.size());
+            ImGui::Combo("anti_aliasing_mode", &render_data.settings.anti_aliasing_mode, aa_modes.data(), s_cast<i32>(aa_modes.size()));
             if (ImGui::CollapsingHeader("Lights Settings"))
             {
                 {
@@ -429,7 +429,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
                         DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
                     };
-                    ImGui::Combo("lights debug visualization", &lights_debug_visualization, modes.data(), modes.size());
+                    ImGui::Combo("lights debug visualization", &lights_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (lights_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[lights_debug_visualization];
@@ -488,13 +488,13 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "RTGI_TRACE_DIFFUSE_CLOCKS", // DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS
                     "RTGI_DEBUG_PRIMARY_TRACE", // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
                 };
-                ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), modes.size());
+                ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
                 auto debug_material_quality = std::array{
                     "NONE",           // SHADING_QUALITY_NONE
                     "LOW",            // SHADING_QUALITY_LOW
                     "HIGH",           // SHADING_QUALITY_HIGH
                 };
-                ImGui::Combo("debug material quality", &render_data.settings.debug_material_quality, debug_material_quality.data(), debug_material_quality.size());
+                ImGui::Combo("debug material quality", &render_data.settings.debug_material_quality, debug_material_quality.data(), s_cast<i32>(debug_material_quality.size()));
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
                 ImGui::InputInt("override_lod", &render_data.settings.lod_override);
                 ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
@@ -544,7 +544,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_SMOOTH_TANGENT,
                         DEBUG_DRAW_MODE_UV,
                     };
-                    ImGui::Combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), modes.size());
+                    ImGui::Combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (visbuffer_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[visbuffer_debug_visualization];
@@ -575,7 +575,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_ALL_DIFFUSE,
                         DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS,
                     };
-                    ImGui::Combo("rtao debug visualization", &rtao_debug_visualization, modes.data(), modes.size());
+                    ImGui::Combo("rtao debug visualization", &rtao_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (rtao_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[rtao_debug_visualization];
@@ -585,7 +585,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "NONE",                                         // AMBIENT_OCCLUSION_MODE_NONE
                     "RAY_TRACED_AMBIENT_OCCLUSION",                 // AMBIENT_OCCLUSION_MODE_RTAO
                 };
-                ImGui::Combo(      "Mode              ", &render_context.render_data.ao_settings.mode, modes.data(), modes.size());
+                ImGui::Combo(      "Mode              ", &render_context.render_data.ao_settings.mode, modes.data(), s_cast<i32>(modes.size()));
                 ImGui::InputInt(   "Sample count      ", &render_context.render_data.ao_settings.sample_count);
                 ImGui::SliderFloat("Worldspace Range  ", &render_context.render_data.ao_settings.ao_range, 0.01f, 10.0f);
                 ImGui::SliderFloat("Denoiser Epsilon  ", &render_context.render_data.ao_settings.denoiser_accumulation_max_epsi, 0.75f, 0.999f);
@@ -619,7 +619,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_PGI_IRRADIANCE,
                         DEBUG_DRAW_MODE_PGI_RADIANCE
                     };
-                    ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), modes.size());
+                    ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (pgi_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[pgi_debug_visualization];
@@ -638,7 +638,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "1_OF_32", // PGI_UPDATE_RATE_1_OF_32
                     "1_OF_64", // PGI_UPDATE_RATE_1_OF_64
                 };
-                ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), update_rates.size());
+                ImGui::Combo("Update Rate", &render_data.pgi_settings.update_rate, update_rates.data(), s_cast<i32>(update_rates.size()));
                 ImGui::InputInt("Probe Surface Resolution", &render_data.pgi_settings.probe_color_resolution);
                 ImGui::InputInt("Probe Trace Resolution  ", &render_data.pgi_settings.probe_trace_resolution);
                 ImGui::InputInt("Probe Visibility Resolution  ", &render_data.pgi_settings.probe_visibility_resolution);
@@ -663,7 +663,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     "NORMAL",               // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
                     "HYSTERESIS",           // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
-                ImGui::Combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), debug_daw_modes.size());
+                ImGui::Combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), s_cast<i32>(debug_daw_modes.size()));
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
             }
@@ -695,7 +695,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                     DEBUG_DRAW_MODE_PGI_IRRADIANCE,
                     DEBUG_DRAW_MODE_PGI_RADIANCE
                 };
-                ImGui::Combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), modes.size());
+                ImGui::Combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                 if (rtgi_debug_visualization != 0)
                 {
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
@@ -744,7 +744,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
                         DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
                         DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
                     };
-                    ImGui::Combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), modes.size());
+                    ImGui::Combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (vsm_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[vsm_debug_visualization];
@@ -858,7 +858,7 @@ void UIEngine::ui_renderer_settings(Scene const & scene, RenderContext & render_
     ImGui::End();
 }
 
-void UIEngine::ui_vsm_textures(RenderContext & render_context, ApplicationState & app_state)
+void UIEngine::ui_vsm_textures(RenderContext & render_context)
 {
     if(vsm_windows.view_page_table)
     {
@@ -897,7 +897,7 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context, ApplicationState 
     }
 }
 
-void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)
 {
     // Calculate Statistics:
     u32 mesh_instance_count = render_context.mesh_instance_counts.mesh_instance_count;
@@ -964,7 +964,7 @@ void UIEngine::ui_visbuffer_pipeline_statistics(Scene const & scene, RenderConte
     }
 }
 
-void UIEngine::ui_pgi_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+void UIEngine::ui_pgi_statistics(RenderContext & render_context)
 {
     if (ImGui::CollapsingHeader("Probe Global Illumination Statistics"))
     {
@@ -1001,7 +1001,7 @@ void UIEngine::ui_pgi_statistics(Scene const & scene, RenderContext & render_con
     }
 }
 
-void ui_light_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+void ui_light_statistics(RenderContext & render_context)
 {
     if (ImGui::CollapsingHeader("Lights Statistics"))
     {
@@ -1013,7 +1013,7 @@ void ui_light_statistics(Scene const & scene, RenderContext & render_context, Ap
     }
 }
 
-void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state)
+void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationState & app_state)
 {
     static float t = 0;
     t += gather_perm_measurements ? render_context.render_data.delta_time : 0.0f;
@@ -1139,7 +1139,7 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                         std::string(RenderTimes::group_name(i)).c_str(),
                         &measurements_scrolling_selected->at(i).data[0].x,
                         &measurements_scrolling_selected->at(i).data[0].y,
-                        measurements_scrolling_selected->at(i).data.size(),
+                        s_cast<i32>(measurements_scrolling_selected->at(i).data.size()),
                         0,
                         measurements_scrolling_selected->at(i).offset,
                         2 * sizeof(f32));
@@ -1161,7 +1161,7 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                         ImGui::TableSetupColumn("Std Dev", {});
                         ImGui::TableSetupColumn("Raw", {});
                         ImGui::TableHeadersRow();
-                        for (auto in_group_i = 0; in_group_i < RenderTimes::group_size(group_i); ++in_group_i)
+                        for (u32 in_group_i = 0; in_group_i < RenderTimes::group_size(group_i); ++in_group_i)
                         {
                             u32 timing_index = RenderTimes::group_first_flat_index(group_i) + in_group_i;
                             std::string_view name = RenderTimes::group_names(group_i)[in_group_i];
@@ -1195,16 +1195,16 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                     std::sort(sorted_values.begin(), sorted_values.end(),
                         [](auto const & a, auto const & b) -> bool
                         { return a.y < b.y; });
-                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(sorted_values.size() * 0.95f).y).c_str());
-                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(sorted_values.size() * 0.99f).y).c_str());
+                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 95th percentile: ", sorted_values.at(s_cast<u64>(sorted_values.size() * 0.95f)).y).c_str());
+                    ImGui::TextUnformatted(fmt::format("{:<30} {:>10.2f} us", "\t 99th percentile: ", sorted_values.at(s_cast<u64>(sorted_values.size() * 0.99f)).y).c_str());
                 }
             }
         }
         ImGui::SeparatorText("Render Systems Utilization");
         {
-            ui_visbuffer_pipeline_statistics(scene, render_context, app_state);
-            ui_pgi_statistics(scene, render_context, app_state);
-            ui_light_statistics(scene, render_context, app_state);
+            ui_visbuffer_pipeline_statistics(render_context);
+            ui_pgi_statistics(render_context);
+            ui_light_statistics(render_context);
         }
         ImGui::SeparatorText("Device Memory Use");
         {
@@ -1334,8 +1334,8 @@ void UIEngine::ui_render_statistics(Scene const & scene, RenderContext & render_
                     ImGui::EndTable();
                 }
             }
-            if (ImGui::CollapsingHeader(fmt::format("Total  Block VRAM Use:        {:>10.2f} mb", s_cast<f32>(mem_report.total_memory_block_device_memory_use) / 1024.0f / 1024.0f ).c_str()));
-            if (ImGui::CollapsingHeader(fmt::format("Total  VRAM Use:              {:>10.2f} mb", s_cast<f32>(mem_report.total_device_memory_use) / 1024.0f / 1024.0f ).c_str()));
+            ImGui::CollapsingHeader(fmt::format("Total  Block VRAM Use:        {:>10.2f} mb", s_cast<f32>(mem_report.total_memory_block_device_memory_use) / 1024.0f / 1024.0f ).c_str());
+            ImGui::CollapsingHeader(fmt::format("Total  VRAM Use:              {:>10.2f} mb", s_cast<f32>(mem_report.total_device_memory_use) / 1024.0f / 1024.0f ).c_str());
         }
     }
     ImGui::End();

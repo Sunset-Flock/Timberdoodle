@@ -73,19 +73,14 @@ struct ShadeOpaquePush
 #include "../scene_renderer_context.hpp"
 #include "shader_debug_draws.inl"
 
-inline daxa::ComputePipelineCompileInfo shade_opaque_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 shade_opaque_pipeline_compile_info()
 {
     return {
-        // .shader_info = daxa::ShaderCompileInfo{daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.glsl"}},
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.hlsl"},
-            .compile_options = {
-                .entry_point = "entry_main_cs",
-                .language = daxa::ShaderLanguage::SLANG,
-            },
-        },
+        .source = daxa::ShaderFile{"./src/rendering/tasks/shade_opaque.hlsl"},
+        .entry_point = "entry_main_cs",
+        .language = daxa::ShaderLanguage::SLANG,
         .push_constant_size = s_cast<u32>(sizeof(ShadeOpaquePush)),
-        .name = std::string{ShadeOpaqueH::NAME},
+        .name = std::string{ShadeOpaqueH::Info::NAME},
     };
 };
 struct ShadeOpaqueTask : ShadeOpaqueH::Task

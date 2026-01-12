@@ -58,18 +58,12 @@ namespace tido
 
                         CameraAnimationKeyframe & current_keyframe = camera.path_keyframes.at(i);
                         f32vec3 & keyframe_pos = current_keyframe.position;
-                        glm::fquat const & keyframe_rot = current_keyframe.rotation;
 
                         auto pos_format_text = fmt::format("x : {}, y : {}, z : {}", keyframe_pos.x, keyframe_pos.y, keyframe_pos.z);
                         ImGui::PushID(i);
                         ImGui::Text("Position");
                         ImGui::SameLine();
                         ImGui::DragFloat3("##", &keyframe_pos.x);
-                        //ImGui::Text("%s", pos_format_text.c_str());
-
-                        // auto rot_format_text = fmt::format("x : {}, y : {}, z : {}, w : {}",
-                        //     keyframe_rot.w, keyframe_rot.x, keyframe_rot.y, keyframe_rot.z);
-                        // ImGui::Text("%s", rot_format_text.c_str());
 
                         ImGui::Text("Keyframe time");
                         ImGui::SameLine();
@@ -159,11 +153,11 @@ namespace tido
                     {
 
                         auto t = float(i) / DEBUG_DRAW_LINE_COUNT;
-                        f32vec3 position;
+                        f32vec3 line_position;
                         f32vec3 velocity;
 
                         catmull_rom(
-                            position,
+                            line_position,
                             velocity,
                             t,
                             camera.path_keyframes.at(keyframe_indices[0]).position,
@@ -179,7 +173,7 @@ namespace tido
                                 .color = daxa_f32vec3(0.0, 0.0, 1.0),
                                 .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE,
                             });
-                        last_position = position;
+                        last_position = line_position;
                     }
                 }
             }

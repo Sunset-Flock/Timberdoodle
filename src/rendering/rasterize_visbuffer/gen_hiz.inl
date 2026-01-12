@@ -69,7 +69,7 @@ struct GenHizPush2
 
 #include "../scene_renderer_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(gen_hiz_pipeline_compile_info2, "./src/rendering/rasterize_visbuffer/gen_hiz.hlsl", "entry_gen_hiz")
+MAKE_COMPUTE_COMPILE_INFO(gen_hiz_pipeline_compile_info2, "./src/rendering/rasterize_visbuffer/gen_hiz.hlsl", "entry_gen_hiz")
 
 inline auto fill_cull_data(RenderContext const & render_context) -> CullData
 {
@@ -118,7 +118,7 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         })
         .executes([=, render_context = info.render_context](daxa::TaskInterface ti)
         {
-            auto const& AT = GenHizH2::AT;
+            auto const& AT = GenHizH2::Info::AT;
             ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_hiz_pipeline_compile_info2().name));
             auto const dispatch_x = round_up_div(hiz_size.x * 2, GEN_HIZ_WINDOW_X);
             auto const dispatch_y = round_up_div(hiz_size.y * 2, GEN_HIZ_WINDOW_Y);

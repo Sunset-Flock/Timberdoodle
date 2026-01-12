@@ -77,16 +77,13 @@ using PrefixSumCommandWriteTask =
     SimpleComputeTask< PrefixSumCommandWriteH::Task, PrefixSumWriteCommandPush, PREFIX_SUM_SHADER_PATH, "main">;
 
 // Sums n <= 1024 values up. Always writes 1024 values out (for simplicity in multi pass).
-inline daxa::ComputePipelineCompileInfo prefix_sum_upsweep_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 prefix_sum_upsweep_pipeline_compile_info()
 {
     return {
-        .shader_info =
-            daxa::ShaderCompileInfo{
-                .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-                .compile_options = {.defines = {{"UPSWEEP", "1"}}},
-            },
+        .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
+        .defines = {{"UPSWEEP", "1"}},
         .push_constant_size = s_cast<u32>(sizeof(PrefixSumUpsweepPush)),
-        .name = std::string{PrefixSumUpsweepH::NAME},
+        .name = std::string{PrefixSumUpsweepH::Info::NAME},
     };
 }
 struct PrefixSumUpsweepTask : PrefixSumUpsweepH::Task
@@ -105,16 +102,13 @@ struct PrefixSumUpsweepTask : PrefixSumUpsweepH::Task
     }
 };
 
-inline daxa::ComputePipelineCompileInfo prefix_sum_downsweep_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 prefix_sum_downsweep_pipeline_compile_info()
 {
     return {
-        .shader_info =
-            daxa::ShaderCompileInfo{
-                .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
-                .compile_options = {.defines = {{"DOWNSWEEP", "1"}}},
-            },
+        .source = daxa::ShaderFile{PREFIX_SUM_SHADER_PATH},
+        .defines = {{"DOWNSWEEP", "1"}},
         .push_constant_size = s_cast<u32>(sizeof(PrefixSumDownsweepPush)),
-        .name = std::string{PrefixSumDownsweepH::NAME},
+        .name = std::string{PrefixSumDownsweepH::Info::NAME},
     };
 }
 struct PrefixSumDownsweepTask : PrefixSumDownsweepH::Task

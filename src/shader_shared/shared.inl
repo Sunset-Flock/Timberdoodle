@@ -263,7 +263,7 @@ struct Settings
           observer_draw_second_pass{1},
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
-          debug_visualization_scale{0.1},
+          debug_visualization_scale{0.1f},
           debug_material_quality{0},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},

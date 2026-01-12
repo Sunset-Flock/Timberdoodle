@@ -5,7 +5,7 @@
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(cull_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_compute_meshlet_cull")
+MAKE_COMPUTE_COMPILE_INFO(cull_meshlets_compute_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl", "entry_compute_meshlet_cull")
 
 static constexpr inline char const SLANG_DRAW_VISBUFFER_SHADER_PATH[] = "./src/rendering/rasterize_visbuffer/draw_visbuffer.hlsl";
 
@@ -35,9 +35,9 @@ struct DrawVisbufferPipelineConfig
         return 8;
     }
 };
-static inline auto create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig config) -> daxa::RasterPipelineCompileInfo
+static inline auto create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig config) -> daxa::RasterPipelineCompileInfo2
 {
-    auto ret = daxa::RasterPipelineCompileInfo{};
+    auto ret = daxa::RasterPipelineCompileInfo2{};
     ret.depth_test = {
         .depth_attachment_format = daxa::Format::D32_SFLOAT,
         .enable_depth_write = true,
@@ -55,34 +55,28 @@ static inline auto create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfi
     ret.name = std::string("DrawVisbuffer") + task_cull_suffix + geo_suffix;
     ret.raster.static_state_sample_count = daxa::None; // Set to use dynamic state for msaa.
     ret.push_constant_size = config.task_shader_cull ? s_cast<u32>(sizeof(CullMeshletsDrawVisbufferPush)) : s_cast<u32>(sizeof(DrawVisbufferPush));
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = std::string("entry_fragment") + task_cull_suffix + geo_suffix,
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = std::string("entry_fragment") + task_cull_suffix + geo_suffix,
+        .language = daxa::ShaderLanguage::SLANG,
     };
-    ret.mesh_shader_info = daxa::ShaderCompileInfo{
+    ret.mesh_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-        .compile_options = {
-            .entry_point = std::string("entry_mesh") + task_cull_suffix + geo_suffix,
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = std::string("entry_mesh") + task_cull_suffix + geo_suffix,
+        .language = daxa::ShaderLanguage::SLANG,
     };
     if (config.task_shader_cull)
     {
-        ret.task_shader_info = daxa::ShaderCompileInfo{
+        ret.task_shader_info = daxa::ShaderCompileInfo2{
             .source = daxa::ShaderFile{SLANG_DRAW_VISBUFFER_SHADER_PATH},
-            .compile_options = {
-                .entry_point = std::string("entry_task") + task_cull_suffix,
-                .language = daxa::ShaderLanguage::SLANG,
-            },
+            .entry_point = std::string("entry_task") + task_cull_suffix,
+            .language = daxa::ShaderLanguage::SLANG,
         };
     }
     return ret;
 }
 
-inline static std::array<daxa::RasterPipelineCompileInfo, DrawVisbufferPipelineConfig::index_count()> draw_visbuffer_mesh_shader_pipelines = {
+inline static std::array<daxa::RasterPipelineCompileInfo2, DrawVisbufferPipelineConfig::index_count()> draw_visbuffer_mesh_shader_pipelines = {
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(0)),
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(1)),
     create_draw_visbuffer_compile_info(DrawVisbufferPipelineConfig::from_index(2)),

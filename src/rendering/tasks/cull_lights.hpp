@@ -6,7 +6,7 @@
 #include "../scene_renderer_context.hpp"
 #include "../../daxa_helper.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(cull_lights_compile_info, "./src/rendering/tasks/cull_lights.hlsl", "entry_cull_lights")
+MAKE_COMPUTE_COMPILE_INFO(cull_lights_compile_info, "./src/rendering/tasks/cull_lights.hlsl", "entry_cull_lights")
 
 inline auto create_light_mask_volume(daxa::TaskGraph& tg, RenderContext& render_context)
 {
@@ -37,7 +37,6 @@ inline void lights_resolve_settings(RenderGlobalData & render_data)
     settings.point_light_mask = {};
     for (u32 i = 0; i < settings.point_light_count; ++i)
     {
-        u32 l = i + 0;
         u32 uint_idx = i / 32;
         u32 bit_idx = i - 32 * uint_idx;
         (&settings.point_light_mask.x)[uint_idx] |= (1u << bit_idx);
@@ -70,7 +69,7 @@ inline auto lights_significant_settings_change(LightSettings const & prev, Light
 
 void cull_lights_task(daxa::TaskInterface ti, RenderContext* render_context)
 {
-    auto const & AT = CullLightsH::AT;
+    auto const & AT = CullLightsH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","CULL_LIGHTS">());
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(cull_lights_compile_info().name));
 

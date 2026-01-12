@@ -26,16 +26,16 @@ MAKE_COMPUTE_COMPILE_INFO(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info, "./
 
 static constexpr inline char const CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_directional_pages.hlsl";
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_base_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_directional_pages_base_pipeline_compile_info()
 {
     return {
-        .mesh_shader_info = daxa::ShaderCompileInfo{
+        .mesh_shader_info = daxa::ShaderCompileInfo2{
             .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+            .language = daxa::ShaderLanguage::SLANG,
         },
-        .task_shader_info = daxa::ShaderCompileInfo{
+        .task_shader_info = daxa::ShaderCompileInfo2{
             .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+            .language = daxa::ShaderLanguage::SLANG,
         },
         .raster = {
             .depth_clamp_enable = true,
@@ -47,54 +47,50 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_base_
     };
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_opaque_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_directional_pages_opaque_pipeline_compile_info()
 {
     auto ret = vsm_cull_and_draw_directional_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "directional_vsm_entry_mesh_opaque";
-    ret.task_shader_info.value().compile_options.entry_point = "directional_vsm_entry_task";
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.mesh_shader_info.value().entry_point = "directional_vsm_entry_mesh_opaque";
+    ret.task_shader_info.value().entry_point = "directional_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "directional_vsm_entry_fragment_opaque",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "directional_vsm_entry_fragment_opaque",
+        .language = daxa::ShaderLanguage::SLANG,
     };
     ret.name = "VsmCullAndDrawDirectionalPagesOpaque";
     return ret;
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_directional_pages_masked_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_directional_pages_masked_pipeline_compile_info()
 {
     auto ret = vsm_cull_and_draw_directional_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "directional_vsm_entry_mesh_masked";
-    ret.task_shader_info.value().compile_options.entry_point = "directional_vsm_entry_task";
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.mesh_shader_info.value().entry_point = "directional_vsm_entry_mesh_masked";
+    ret.task_shader_info.value().entry_point = "directional_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{CULL_AND_DRAW_DIRECTIONAL_PAGES_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "directional_vsm_entry_fragment_masked",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "directional_vsm_entry_fragment_masked",
+        .language = daxa::ShaderLanguage::SLANG,
     };
     ret.name = "VsmCullAndDrawDirectionalPagesMasked";
     return ret;
 }
 
-inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_directional_pages_pipelines = {
+inline std::array<daxa::RasterPipelineCompileInfo2, 2> cull_and_draw_directional_pages_pipelines = {
     vsm_cull_and_draw_directional_pages_opaque_pipeline_compile_info(),
     vsm_cull_and_draw_directional_pages_masked_pipeline_compile_info()};
 
 static constexpr inline char const CULL_AND_DRAW_POINT_PAGES_SHADER_PATH[] = "./src/rendering/virtual_shadow_maps/cull_and_draw_point_pages.hlsl";
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_base_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_point_pages_base_pipeline_compile_info()
 {
     return {
-        .mesh_shader_info = daxa::ShaderCompileInfo{
+        .mesh_shader_info = daxa::ShaderCompileInfo2{
             .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+            .language = daxa::ShaderLanguage::SLANG,
         },
-        .task_shader_info = daxa::ShaderCompileInfo{
+        .task_shader_info = daxa::ShaderCompileInfo2{
             .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
-            .compile_options = {.language = daxa::ShaderLanguage::SLANG},
+            .language = daxa::ShaderLanguage::SLANG,
         },
         .raster = {
             // .depth_clamp_enable = true,
@@ -106,39 +102,35 @@ inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_base_pipeli
     };
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_opaque_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_point_pages_opaque_pipeline_compile_info()
 {
     auto ret = vsm_cull_and_draw_point_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "point_vsm_entry_mesh_opaque";
-    ret.task_shader_info.value().compile_options.entry_point = "point_vsm_entry_task";
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.mesh_shader_info.value().entry_point = "point_vsm_entry_mesh_opaque";
+    ret.task_shader_info.value().entry_point = "point_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "point_vsm_entry_fragment_opaque",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "point_vsm_entry_fragment_opaque",
+        .language = daxa::ShaderLanguage::SLANG,
     };
     ret.name = "VsmCullAndDrawPointPagesOpaque";
     return ret;
 }
 
-inline daxa::RasterPipelineCompileInfo vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()
 {
     auto ret = vsm_cull_and_draw_point_pages_base_pipeline_compile_info();
-    ret.mesh_shader_info.value().compile_options.entry_point = "point_vsm_entry_mesh_masked";
-    ret.task_shader_info.value().compile_options.entry_point = "point_vsm_entry_task";
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.mesh_shader_info.value().entry_point = "point_vsm_entry_mesh_masked";
+    ret.task_shader_info.value().entry_point = "point_vsm_entry_task";
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{CULL_AND_DRAW_POINT_PAGES_SHADER_PATH},
-        .compile_options = {
-            .entry_point = "point_vsm_entry_fragment_masked",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "point_vsm_entry_fragment_masked",
+        .language = daxa::ShaderLanguage::SLANG,
     };
     ret.name = "VsmCullAndDrawPointPagesMasked";
     return ret;
 }
 
-inline std::array<daxa::RasterPipelineCompileInfo, 2> cull_and_draw_point_pages_pipelines = {
+inline std::array<daxa::RasterPipelineCompileInfo2, 2> cull_and_draw_point_pages_pipelines = {
     vsm_cull_and_draw_point_pages_opaque_pipeline_compile_info(),
     vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()};
 struct InvalidatePagesTask : InvalidatePagesH::Task

@@ -50,22 +50,18 @@ DAXA_DECL_TASK_HEAD_END
 
 inline static constexpr char const SKY_SHADER_PATH[] = "./src/rendering/tasks/sky.hlsl";
 
-inline MAKE_COMPUTE_COMPILE_INFO(compute_transmittance_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_transmittance_lut")
-inline MAKE_COMPUTE_COMPILE_INFO(compute_multiscattering_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_multiscattering_lut")
-inline MAKE_COMPUTE_COMPILE_INFO(compute_sky_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_sky_lut")
+MAKE_COMPUTE_COMPILE_INFO(compute_transmittance_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_transmittance_lut")
+MAKE_COMPUTE_COMPILE_INFO(compute_multiscattering_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_multiscattering_lut")
+MAKE_COMPUTE_COMPILE_INFO(compute_sky_pipeline_compile_info, "./src/rendering/tasks/sky.hlsl", "compute_sky_lut")
 
-inline daxa::ComputePipelineCompileInfo sky_into_cubemap_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 sky_into_cubemap_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/tasks/sky.glsl"},
-            .compile_options = {
-                .defines = {{"CUBEMAP", "1"}},
-                .required_subgroup_size = 32,
-            },
-        },
+        .source = daxa::ShaderFile{"./src/rendering/tasks/sky.glsl"},
+        .defines = {{"CUBEMAP", "1"}},
+        .required_subgroup_size = 32,
         .push_constant_size = static_cast<u32>(sizeof(SkyIntoCubemapH::AttachmentShaderBlob)),
-        .name = std::string{SkyIntoCubemapH::NAME},
+        .name = std::string{SkyIntoCubemapH::Info::NAME},
     };
 }
 
@@ -106,7 +102,7 @@ struct ComputeMultiscatteringTask : ComputeMultiscatteringH::Task
 
 void compute_sky_task(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = ComputeSkyH::AT;
+    auto const & AT = ComputeSkyH::Info::AT;
     auto const sky_size = ti.info(AT.sky).value().size;
     auto const dispatch_size = u32vec2{
         (sky_size.x + SKY_X - 1) / SKY_X,

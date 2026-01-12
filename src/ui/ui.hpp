@@ -117,7 +117,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(GPUContext const & gpu_context, RenderContext & render_context, Scene & scene, ApplicationState & app_state, Window & window);
+        void main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state);
 
     private:
         struct DebugCloneUiState
@@ -151,10 +151,10 @@ struct UIEngine
 
         std::vector<daxa::ImageId> icons = {};
         void ui_scene_graph(Scene const & scene);
-        void ui_renderer_settings(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
-        void ui_vsm_textures(RenderContext & render_context, ApplicationState & app_state);
+        void ui_renderer_settings(RenderContext & render_context, ApplicationState & app_state);
+        void ui_vsm_textures(RenderContext & render_context);
 
-        void ui_render_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
-        void ui_visbuffer_pipeline_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
-        void ui_pgi_statistics(Scene const & scene, RenderContext & render_context, ApplicationState & app_state);
+        void ui_render_statistics(RenderContext & render_context, ApplicationState & app_state);
+        void ui_visbuffer_pipeline_statistics(RenderContext & render_context);
+        void ui_pgi_statistics(RenderContext & render_context);
 };

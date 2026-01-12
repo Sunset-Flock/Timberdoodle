@@ -53,21 +53,16 @@ struct WriteIndirectDispatchArgsPushBaseTask : T_USES_BASE
 };
 
 template <typename HeadTaskT, typename PushT, daxa::StringLiteral shader_path, daxa::StringLiteral entry_point>
-auto make_simple_compile_info() -> daxa::ComputePipelineCompileInfo
+auto make_simple_compile_info() -> daxa::ComputePipelineCompileInfo2
 {
     auto const shader_path_sv = std::string_view(shader_path.value, shader_path.SIZE);
     auto const entry_point_sv = std::string_view(entry_point.value, entry_point.SIZE);
     auto const lang = shader_path_sv.ends_with(".glsl") ? daxa::ShaderLanguage::GLSL : daxa::ShaderLanguage::SLANG;
-    auto const shader_comp_info = daxa::ShaderCompileInfo{
+    auto const value = daxa::ComputePipelineCompileInfo2{
         .source = daxa::ShaderFile{std::filesystem::path(shader_path_sv)},
-        .compile_options = {
-            .entry_point = std::string(entry_point_sv),
-            .language = lang,
-            .defines = {{std::string(HeadTaskT::Info::NAME) + "_SHADER", "1"}},
-        },
-    };
-    auto const value = daxa::ComputePipelineCompileInfo{
-        .shader_info = shader_comp_info,
+        .entry_point = std::string(entry_point_sv),
+        .language = lang,
+        .defines = {{std::string(HeadTaskT::Info::NAME) + "_SHADER", "1"}},
         .push_constant_size = s_cast<u32>(sizeof(PushT)),
         .name = std::string(HeadTaskT::Info::NAME),
     };
@@ -80,7 +75,7 @@ struct SimpleIndirectComputeTask : HeadTaskT
     HeadTaskT::AttachmentViews views = {};
     GPUContext * gpu_context = {};
     PushT push = {};
-    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<typename HeadTaskT::Info, PushT, shader_path, entry_point>();
+    static inline daxa::ComputePipelineCompileInfo2 const pipeline_compile_info = make_simple_compile_info<typename HeadTaskT::Info, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::name()}));
@@ -99,7 +94,7 @@ struct SimpleComputeTask : HeadTaskT
     GPUContext * gpu_context = {};
     PushT push = {};
 
-    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
+    static inline daxa::ComputePipelineCompileInfo2 const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::Info::NAME}));
@@ -118,7 +113,7 @@ struct SimpleComputeTaskPushless : HeadTaskT
     {
         return daxa::DispatchInfo{1, 1, 1};
     };
-    static inline daxa::ComputePipelineCompileInfo const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
+    static inline daxa::ComputePipelineCompileInfo2 const pipeline_compile_info = make_simple_compile_info<HeadTaskT, PushT, shader_path, entry_point>();
     void callback(daxa::TaskInterface ti)
     {
         ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(std::string{HeadTaskT::Info::NAME}));

@@ -46,7 +46,7 @@ auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineC
 
 auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
-auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo;
+auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo2;
 
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo2;
 

@@ -190,7 +190,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
     return load_ctx;
 }
 
-static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_texture_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     auto gltf_texture_to_image_index = [&](u32 const texture_index) -> std::optional<u32>
     {
@@ -240,12 +240,12 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
     }
 }
 
-static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_material_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     for (u32 material_index = 0; material_index < s_cast<u32>(load_ctx.asset.materials.size()); material_index++)
     {
         auto const & material = load_ctx.asset.materials.at(material_index);
-        u32 const material_manifest_index = scene._material_manifest.size();
+        u32 const material_manifest_index = s_cast<u32>(scene._material_manifest.size());
         bool const has_normal_texture = material.normalTexture.has_value();
         bool const has_diffuse_texture = material.pbrData.baseColorTexture.has_value();
         bool const has_roughness_metalness_texture = material.pbrData.metallicRoughnessTexture.has_value();
@@ -327,7 +327,7 @@ static void update_material_manifest_from_gltf(Scene & scene, Scene::LoadManifes
     }
 }
 
-static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup
     // std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
@@ -342,7 +342,7 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::L
         /// NOTE: fastgltf::Primitive is Mesh
         for (u32 in_group_index = 0; in_group_index < s_cast<u32>(gltf_mesh.primitives.size()); in_group_index++)
         {
-            u32 const mesh_manifest_entry = scene._mesh_lod_group_manifest.size();
+            u32 const mesh_manifest_entry = s_cast<u32>(scene._mesh_lod_group_manifest.size());
             auto const & gltf_primitive = gltf_mesh.primitives.at(in_group_index);
             scene._mesh_lod_group_manifest_indices.at(mesh_lod_group_manifest_indices_array_offset + in_group_index) = mesh_manifest_entry;
             std::optional<u32> material_manifest_index =
@@ -415,12 +415,12 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
         case fastgltf::LightType::Point:
         {
             handle_point_light(light);
-            return scene._point_lights.size() - 1;
+            return s_cast<u32>(scene._point_lights.size() - 1);
         }
         case fastgltf::LightType::Spot:
         {
             handle_spot_light(light);
-            return scene._spot_lights.size() - 1;
+            return s_cast<u32>(scene._spot_lights.size() - 1);
         }
         case fastgltf::LightType::Directional:
         {
@@ -429,6 +429,7 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
             break;
         }
     }
+    return s_cast<u32>(-1);
 }
 
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx) -> RenderEntityId
@@ -458,10 +459,10 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
                 /// NOTE: As the last row is always (0,0,0,1) we dont store it.
                 ret_trans = glm::mat4x3(translated_rotated_scaled);
             }
-            else if (auto const * trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
+            else if (auto const * mat_trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
             {
                 // Gltf and glm matrices are column major.
-                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(trs->data()));
+                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(mat_trs->data()));
             }
             return ret_trans;
         };
@@ -506,7 +507,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 
         for (u32 curr_child_vec_idx = 0; curr_child_vec_idx < node.children.size(); curr_child_vec_idx++)
         {
-            u32 const curr_child_node_idx = node.children[curr_child_vec_idx];
+            u64 const curr_child_node_idx = node.children[curr_child_vec_idx];
             RenderEntityId const curr_child_r_ent_id = node_index_to_entity_id[curr_child_node_idx];
             RenderEntity & curr_child_r_ent = *scene._render_entities.slot(curr_child_r_ent_id);
             curr_child_r_ent.parent = parent_r_ent_id;
@@ -559,7 +560,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
 {
-    struct LoadMeshTask : Task
+    struct LoadMeshTask final : Task
     {
         struct TaskInfo
         {
@@ -575,18 +576,13 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
             chunk_count = 1;
         }
 
-        virtual void callback(u32 chunk_index, u32 thread_index) override
+        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
         {
             auto const ret_status = info.asset_processor->load_mesh(info.load_info);
             if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
             {
                 DEBUG_MSG(fmt::format("[ERROR]Failed to load mesh group {} mesh {} - error {}",
                     info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index, AssetProcessor::to_string(ret_status)));
-            }
-            else
-            {
-                // DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded mesh group {} mesh {}",
-                //     info.load_info.gltf_mesh_index, info.load_info.gltf_primitive_index));
             }
         };
     };
@@ -617,7 +613,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
 
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info)
 {
-    struct LoadTextureTask : Task
+    struct LoadTextureTask final : Task
     {
         struct TaskInfo
         {
@@ -633,7 +629,7 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
             chunk_count = 1;
         }
 
-        virtual void callback(u32 chunk_index, u32 thread_index) override
+        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
         {
             auto const ret_status = info.asset_processor->load_texture(info.load_info);
             auto const texture_name = info.load_info.asset->images.at(info.load_info.gltf_image_index).name;
@@ -641,11 +637,6 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to load texture index {} name {} - error {}",
                     info.load_info.gltf_texture_index, texture_name, AssetProcessor::to_string(ret_status)));
-            }
-            else
-            {
-                // DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded texture index {} name {}",
-                //     info.load_info.gltf_texture_index, texture_name));
             }
         };
     };
@@ -672,7 +663,6 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
         auto const & curr_asset = scene._gltf_asset_manifest.back();
         auto const texture_manifest_index = curr_asset.texture_manifest_offset + gltf_texture_index;
         auto const & texture_manifest_entry = scene._material_texture_manifest.at(texture_manifest_index);
-        auto gpu_compression_format = KTX_TTF_BC7_RGBA;
         auto gltf_image_idx_opt = gltf_texture_to_image_index(texture_manifest_index);
         DBG_ASSERT_TRUE_M(
             gltf_image_idx_opt.has_value(),
@@ -853,10 +843,10 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         });
         recorder.destroy_buffer_deferred(mesh_group_staging_buffer);
         GPUMeshGroup * staging_ptr = _device.buffer_host_address_as<GPUMeshGroup>(mesh_group_staging_buffer).value();
-        u32 const mesh_group_manifest_offset = _mesh_group_manifest.size() - _new_mesh_group_manifest_entries;
+        u64 const mesh_group_manifest_offset = _mesh_group_manifest.size() - _new_mesh_group_manifest_entries;
         for (u32 new_mesh_group_idx = 0; new_mesh_group_idx < _new_mesh_group_manifest_entries; new_mesh_group_idx++)
         {
-            u32 const mesh_group_manifest_idx = mesh_group_manifest_offset + new_mesh_group_idx;
+            u64 const mesh_group_manifest_idx = mesh_group_manifest_offset + new_mesh_group_idx;
             staging_ptr[new_mesh_group_idx].mesh_lod_group_indices =
                 mesh_group_indices_array_addr +
                 sizeof(daxa_u32) * _mesh_group_manifest.at(mesh_group_manifest_idx).mesh_lod_group_manifest_indices_array_offset;
@@ -876,7 +866,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     if (_new_mesh_lod_group_manifest_entries > 0)
     {
         u32 const mesh_lod_group_update_staging_buffer_size = sizeof(GPUMeshLodGroup) * _new_mesh_lod_group_manifest_entries;
-        u32 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
+        u64 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
         daxa::BufferId mesh_lod_group_staging_buffer = _device.create_buffer({
             .size = mesh_lod_group_update_staging_buffer_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -900,7 +890,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     if (_new_mesh_lod_group_manifest_entries > 0)
     {
         u32 const mesh_update_staging_buffer_size = sizeof(GPUMesh) * _new_mesh_lod_group_manifest_entries * MAX_MESHES_PER_LOD_GROUP;
-        u32 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
+        u64 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
         daxa::BufferId mesh_staging_buffer = _device.create_buffer({
             .size = mesh_update_staging_buffer_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -923,7 +913,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
     if (_new_material_manifest_entries > 0)
     {
         u32 const material_update_staging_buffer_size = sizeof(GPUMaterial) * _new_material_manifest_entries;
-        u32 const material_manifest_offset = _material_manifest.size() - _new_material_manifest_entries;
+        u64 const material_manifest_offset = _material_manifest.size() - _new_material_manifest_entries;
         daxa::BufferId material_staging_buffer = _device.create_buffer({
             .size = material_update_staging_buffer_size,
             .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -932,7 +922,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         recorder.destroy_buffer_deferred(material_staging_buffer);
         GPUMaterial * staging_ptr = _device.buffer_host_address_as<GPUMaterial>(material_staging_buffer).value();
         std::vector<GPUMaterial> tmp_materials(_new_material_manifest_entries);
-        for (i32 i = 0; i < _new_material_manifest_entries; i++)
+        for (u32 i = 0; i < _new_material_manifest_entries; ++i)
         {
             auto const & cpu_material = _material_manifest.at(i + material_manifest_offset);
             tmp_materials.at(i).base_color = std::bit_cast<daxa_f32vec3>(cpu_material.base_color);
@@ -1198,10 +1188,10 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
 
 auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 {
-    auto const scratch_buffer_offset_alignment =
+    u64 const scratch_buffer_offset_alignment =
         _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
 
-    u32 current_scratch_buffer_offset = 0;
+    u64 current_scratch_buffer_offset = 0;
     auto const scratch_device_address = _device.buffer_device_address(_gpu_mesh_acceleration_structure_build_scratch_buffer.get_state().buffers[0]).value();
     std::vector<daxa::BlasTriangleGeometryInfo> build_geometries = {};
     // Reserve is nessecary to avoid memory resising.
@@ -1240,7 +1230,9 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         };
 
         auto const build_size_info = _device.blas_build_sizes(blas_build_info);
-        u64 aligned_scratch_size = round_up_to_multiple(build_size_info.build_scratch_size, scratch_buffer_offset_alignment);
+        DBG_ASSERT_TRUE_M(build_size_info.build_scratch_size < std::numeric_limits<u32>::max, "Round up to multiple only handles 32bit values");
+        DBG_ASSERT_TRUE_M(scratch_buffer_offset_alignment < std::numeric_limits<u32>::max, "Round up to multiple only handles 32 bit values");
+        u64 aligned_scratch_size = round_up_to_multiple(s_cast<u32>(build_size_info.build_scratch_size), s_cast<u32>(scratch_buffer_offset_alignment));
         DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_mesh_acceleration_structure_build_scratch_buffer_size,
             "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
  
@@ -1249,7 +1241,8 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 
         blas_build_info.scratch_data = scratch_device_address + current_scratch_buffer_offset;
         current_scratch_buffer_offset += aligned_scratch_size;
-        auto const aligned_accel_structure_size = round_up_to_multiple(build_size_info.acceleration_structure_size, 256);
+        DBG_ASSERT_TRUE_M(build_size_info.acceleration_structure_size < std::numeric_limits<u32>::max, "Round up to multiple only handles 32 bit values");
+        auto const aligned_accel_structure_size = round_up_to_multiple(s_cast<u32>(build_size_info.acceleration_structure_size), 256u);
         auto blas = _device.create_blas({
             .size = aligned_accel_structure_size,
             .name = mesh_lod_group.name.empty() ? "mesh_lod_group blas" : mesh_lod_group.name.c_str(),
@@ -1363,7 +1356,6 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
     auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.get_state().buffers[0]).value();
     auto * const gpu_spot_lights_write_ptr = _device.buffer_host_address_as<GPUSpotLight>(_gpu_spot_lights.get_state().buffers[0]).value();
 
-    u32 active_entity_offset = 0;
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
     {
         RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
@@ -1506,7 +1498,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
     std::memcpy(host_address + buffer_head.instances, cpu_mesh_instances.mesh_instances.data(), mesh_instances_size);
 
     buffer_head.instances += device_address;
-    cpu_mesh_instance_counts.mesh_instance_count = cpu_mesh_instances.mesh_instances.size();
+    cpu_mesh_instance_counts.mesh_instance_count = s_cast<u32>(cpu_mesh_instances.mesh_instances.size());
     for (int draw_list_type = 0; draw_list_type < PREPASS_DRAW_LIST_TYPE_COUNT; ++draw_list_type)
     {
         std::memcpy(
@@ -1514,7 +1506,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
             cpu_mesh_instances.prepass_draw_lists[draw_list_type].data(),
             sizeof(u32) * cpu_mesh_instances.prepass_draw_lists[draw_list_type].size());
         buffer_head.prepass_draw_lists[draw_list_type].instances += device_address;
-        cpu_mesh_instance_counts.prepass_instance_counts[draw_list_type] = cpu_mesh_instances.prepass_draw_lists[draw_list_type].size();
+        cpu_mesh_instance_counts.prepass_instance_counts[draw_list_type] = s_cast<u32>(cpu_mesh_instances.prepass_draw_lists[draw_list_type].size());
     }
     std::memcpy(
         host_address + buffer_head.vsm_invalidate_draw_list.instances,
@@ -1524,10 +1516,10 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
 
     std::memcpy(host_address, &buffer_head, sizeof(MeshInstancesBufferHead));
 
-    cpu_mesh_instance_counts.vsm_invalidate_instance_count = cpu_mesh_instances.vsm_invalidate_draw_list.size();
+    cpu_mesh_instance_counts.vsm_invalidate_instance_count = s_cast<u32>(cpu_mesh_instances.vsm_invalidate_draw_list.size());
 }
 
-void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
+void Scene::clear([[maybe_unused]]std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
 {
     // for (auto &task : scene_load_tasks)
     // {

@@ -19,7 +19,7 @@ void close_callback(GLFWwindow *window)
     self->b_close_requested = true;
 }
 
-void key_callback(GLFWwindow *window, int key, int scancode, int action, int mods)
+void key_callback(GLFWwindow *window, int key, [[maybe_unused]]int scancode, int action, [[maybe_unused]]int mods)
 {
     if (key == -1)
         return;
@@ -34,7 +34,7 @@ void key_callback(GLFWwindow *window, int key, int scancode, int action, int mod
     }
 }
 
-void mouse_button_callback(GLFWwindow *window, int button, int action, int mods)
+void mouse_button_callback(GLFWwindow *window, int button, int action, [[maybe_unused]]int mods)
 {
     WindowState *self = reinterpret_cast<WindowState *>(glfwGetWindowUserPointer(window));
     if (action == GLFW_PRESS)
@@ -211,7 +211,7 @@ bool Window::is_cursor_captured() const
     return glfwGetInputMode(this->glfw_handle, GLFW_CURSOR) == GLFW_CURSOR_DISABLED;
 }
 
-bool Window::update(f32 deltaTime)
+bool Window::update([[maybe_unused]]f32 deltaTime)
 {
     this->window_state->key_down_old = this->window_state->key_down;
     this->window_state->mouse_button_down_old = this->window_state->mouse_button_down;

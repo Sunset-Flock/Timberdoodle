@@ -24,7 +24,6 @@ namespace tido
             auto flags = ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
             // Left Icon menu
             ImGui::BeginChild("property selector", ImVec2(26, 0), false, flags);
-            auto * window = ImGui::GetCurrentWindow();
             {
                 ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, {2, 2});
                 ImGui::PushID("Selector Icons");
@@ -303,8 +302,6 @@ namespace tido
                         ImGui::SeparatorText("Picked Geometry");
                         {
                             ImGui::Indent(12);
-                            auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
-                            auto & post = render_context.render_data.postprocess_settings;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
 
                             auto modes = std::array{
@@ -313,7 +310,7 @@ namespace tido
                                 "MESHLET", // MARK_SELECTED_MODE_MESHLET
                                 "TRIANGLE", // MARK_SELECTED_MODE_TRIANGLE
                             };
-                            ImGui::Combo("Selected Mark Mode", &render_context.render_data.selected_mark_mode, modes.data(), modes.size());
+                            ImGui::Combo("Selected Mark Mode", &render_context.render_data.selected_mark_mode, modes.data(), s_cast<i32>(modes.size()));
 
                             ImGui::Text(">>>Left Click + Left Shift< To Select<<<");
                             ImGui::Text("Entity: idx:           %i", scene_interface.picked_entity);
@@ -330,7 +327,6 @@ namespace tido
                                 MaterialManifestEntry const & material_manifest = scene._material_manifest.at(material_idx);
                                 ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
 
-                                auto const & mesh = scene._mesh_lod_group_manifest[scene_interface.picked_mesh/MAX_MESHES_PER_LOD_GROUP];
                                 ImGui::Text(fmt::format("Entiy Position:     X: {}\n"
                                                         "                    Y: {}\n"
                                                         "                    Z: {}", ent_slot->combined_transform[3][0], ent_slot->combined_transform[3][1], ent_slot->combined_transform[3][2]).c_str());

@@ -36,27 +36,23 @@ DAXA_DECL_TASK_HEAD_END
 #if __cplusplus
 #include "../../gpu_context.hpp"
 
-inline daxa::ComputePipelineCompileInfo gen_luminace_histogram_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 gen_luminace_histogram_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
-            .compile_options = {.defines = {{"GEN_HISTOGRAM", "1"}}},
-        },
+        .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
+        .defines = {{"GEN_HISTOGRAM", "1"}},
         .push_constant_size = sizeof(GenLuminanceHistogramH::AttachmentShaderBlob),
-        .name = std::string{GenLuminanceHistogramH::NAME},
+        .name = std::string{GenLuminanceHistogramH::Info::NAME},
     };
 };
 
-inline daxa::ComputePipelineCompileInfo gen_luminace_average_pipeline_compile_info()
+inline daxa::ComputePipelineCompileInfo2 gen_luminace_average_pipeline_compile_info()
 {
     return {
-        .shader_info = daxa::ShaderCompileInfo{
-            .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
-            .compile_options = {.defines = {{"GEN_AVERAGE", "1"}}},
-        },
+        .source = daxa::ShaderFile{"./src/rendering/tasks/autoexposure.glsl"},
+        .defines = {{"GEN_AVERAGE", "1"}},
         .push_constant_size = sizeof(GenLuminanceAverageH::AttachmentShaderBlob),
-        .name = std::string{GenLuminanceAverageH::NAME},
+        .name = std::string{GenLuminanceAverageH::Info::NAME},
     };
 };
 

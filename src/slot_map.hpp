@@ -29,7 +29,7 @@ namespace tido
             {
                 if (_free_list.size() > 0)
                 {
-                    u32 const index = _free_list.back();
+                    u32 const index = s_cast<u32>(_free_list.back());
                     _free_list.pop_back();
                     _slots[index] = std::move(v);
                     return Id{index, _versions[index]};

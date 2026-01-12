@@ -38,7 +38,7 @@ namespace tido
             ImGui::Text("%s", info.text.c_str());
             ImGui::EndChild();
             ImGui::SameLine();
-            ImGui::SetNextItemWidth(info.left_offset);
+            ImGui::SetNextItemWidth(s_cast<f32>(info.left_offset));
             ImGuiSliderFlags flags = info.clip ? ImGuiSliderFlags_AlwaysClamp : ImGuiSliderFlags_None;
             ImGui::DragFloat("##", info.value, info.speed, info.min, info.max, info.format.c_str(), flags);
             ImGui::PopID();
@@ -54,7 +54,6 @@ namespace tido
         inline void draw_with_bg_rect(std::function<void()> draw_func, int right_pad = 0, ImVec4 col = bg_1)
         {
             auto const absolute_start_pos = ImGui::GetCurrentWindow()->DC.CursorPos;
-            auto const relative_start_pos_x = ImGui::GetCursorPosX();
 
             auto * draw_list = ImGui::GetWindowDrawList();
             // The number of indices that were recorded before we begin the drawing of the current element

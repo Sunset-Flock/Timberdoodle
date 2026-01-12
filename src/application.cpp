@@ -5,7 +5,7 @@
 
 #include <intrin.h>
 
-auto load_stbn2D(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
+auto load_stbn2D(AssetProcessor & asset_processor) -> daxa::ImageId
 {
     std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
     std::filesystem::path const stbn_vec2_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_vec2_2Dx1D_128x128x64_0.png";
@@ -24,7 +24,7 @@ auto load_stbn2D(AssetProcessor & asset_processor, daxa::Device & device) -> dax
     return std::get<daxa::ImageId>(ret);
 }
 
-auto load_stbnCosDir(AssetProcessor & asset_processor, daxa::Device & device) -> daxa::ImageId
+auto load_stbnCosDir(AssetProcessor & asset_processor) -> daxa::ImageId
 {
     std::filesystem::path const STBN_BASE_PATH = "deps\\timberdoodle_assets\\STBN\\";
     std::filesystem::path const stbn_unitvec3_cosine_2Dx1D_128x128x64_base_path = STBN_BASE_PATH / "stbn_unitvec3_cosine_2Dx1D_128x128x64_0.png";
@@ -61,21 +61,21 @@ Application::Application()
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\keypoints.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\exported_path.json";
 
-    _renderer->stbn2d = load_stbn2D(*_asset_manager, _gpu_context->device);
+    _renderer->stbn2d = load_stbn2D(*_asset_manager);
     _renderer->render_context->render_data.stbn2d = std::bit_cast<daxa_ImageViewId>(_renderer->stbn2d.default_view());
-    _renderer->stbnCosDir = load_stbnCosDir(*_asset_manager, _gpu_context->device);
+    _renderer->stbnCosDir = load_stbnCosDir(*_asset_manager);
     _renderer->render_context->render_data.stbnCosDir = std::bit_cast<daxa_ImageViewId>(_renderer->stbnCosDir.default_view());
 
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    struct CompPipelinesTask : Task
+    struct CompPipelinesTask final : Task
     {
         Renderer * renderer = {};
         CompPipelinesTask(Renderer * renderer)
             : renderer{renderer} { chunk_count = 1; }
 
-        virtual void callback(u32 chunk_index, u32 thread_index) override
+        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
         {
             // TODO: hook up parameters.
             renderer->compile_pipelines();
@@ -118,7 +118,6 @@ void Application::load_scene(std::filesystem::path const & path)
     {
         auto const r_id = std::get<RenderEntityId>(result);
         app_state.root_id = r_id;
-        RenderEntity & r_ent = *_scene->_render_entities.slot(r_id);
 
         for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
         {
@@ -141,7 +140,7 @@ auto Application::run() -> i32
         auto new_time_point = std::chrono::steady_clock::now();
         app_state.delta_time = std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.last_time_point).count() / 1'000'000.0f;
         app_state.last_time_point = new_time_point;
-        app_state.total_elapsed_us = std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.startup_time_point).count();
+        app_state.total_elapsed_us = s_cast<u64>(std::chrono::duration_cast<FpMicroSeconds>(new_time_point - app_state.startup_time_point).count());
 
         {
             auto start_time_taken_cpu_windowing = std::chrono::steady_clock::now();
@@ -304,7 +303,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_gpu_context, *_renderer->render_context, *_scene, app_state, *_window);
+    _ui_engine->main_update(*_renderer->render_context, *_scene, app_state);
     if (app_state.use_preset_camera)
     {
         app_state.cinematic_camera.process_input(*_window, app_state.delta_time);

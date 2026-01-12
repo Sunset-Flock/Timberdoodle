@@ -87,7 +87,7 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
         glm::vec3 const aabb_center = r_ent->combined_transform * glm::vec4(std::bit_cast<glm::vec3>(mesh_lod0.aabb.center), 1.0f);
         f32 const aabb_rough_camera_distance = std::max(0.0f, glm::length(aabb_center - std::bit_cast<glm::vec3>(render_data.main_camera.position)) - 0.5f * aabb_rough_extent);
 
-        f32 const rough_resolution = std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y);
+        f32 const rough_resolution = s_cast<f32>(std::max(render_data.settings.render_target_size.x, render_data.settings.render_target_size.y));
 
         // Assumes a 90 fov camera for simplicity
         f32 const fov90_distance_to_screen_ratio = 2.0f;
@@ -115,6 +115,6 @@ auto select_lod(RenderGlobalData const& render_data, MeshLodGroupManifestEntry c
             // });
         }
     }
-    u32 mesh_index = mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + selected_lod_lod;
+    u32 mesh_index = s_cast<u32>(mesh_lod_group_index * MAX_MESHES_PER_LOD_GROUP + selected_lod_lod);
     return mesh_index;
 }

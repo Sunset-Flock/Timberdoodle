@@ -5,7 +5,7 @@
 #include <daxa/utils/pipeline_manager.hpp>
 #include "../scene_renderer_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(copy_depth_pipeline_compile_info, "./src/rendering/tasks/copy_depth.hlsl", "entry_copy_depth")
+MAKE_COMPUTE_COMPILE_INFO(copy_depth_pipeline_compile_info, "./src/rendering/tasks/copy_depth.hlsl", "entry_copy_depth")
 
 struct CopyDepthTask : CopyDepthH::Task
 {

@@ -92,7 +92,6 @@ inline void fill_draw_list_buffer_head(daxa::DeviceAddress address, uint8_t* hos
         for (uint32_t element = 0; element < prepass_draw_lists[draw_list].size(); ++element)
         {
             uint32_t mesh_instance_index = ret.count++;
-            uint32_t draw_list_element_index = ret.prepass_draw_lists[draw_list].count++;
             MeshInstance mesh_instance = (prepass_draw_lists[draw_list])[element];
             mesh_instance.flags = mesh_instance.flags | (draw_list == PREPASS_DRAW_LIST_OPAQUE ? MESH_INSTANCE_FLAG_OPAQUE : 0);
             reinterpret_cast<MeshInstance*>(host_address + sizeof(MeshInstancesBufferHead))[mesh_instance_index] = mesh_instance;

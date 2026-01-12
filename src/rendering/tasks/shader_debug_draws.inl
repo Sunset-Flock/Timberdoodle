@@ -43,9 +43,9 @@ struct DebugDrawPush
 
 static constexpr inline char const DRAW_SHADER_DEBUG_PATH[] = "./src/rendering/tasks/shader_debug_draws.hlsl";
 
-inline daxa::RasterPipelineCompileInfo draw_shader_debug_lines_pipeline_compile_info()
+inline daxa::RasterPipelineCompileInfo2 draw_shader_debug_lines_pipeline_compile_info()
 {
-    auto ret = daxa::RasterPipelineCompileInfo{};
+    auto ret = daxa::RasterPipelineCompileInfo2{};
     ret.depth_test = {
         .depth_attachment_format = daxa::Format::D32_SFLOAT,
         .enable_depth_write = false,
@@ -72,19 +72,15 @@ inline daxa::RasterPipelineCompileInfo draw_shader_debug_lines_pipeline_compile_
         .depth_bias_slope_factor = 0.0f,
         .line_width = 1.7f,
     };
-    ret.fragment_shader_info = daxa::ShaderCompileInfo{
+    ret.fragment_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {
-            .entry_point = "entry_fragment",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "entry_fragment",
+        .language = daxa::ShaderLanguage::SLANG,
     };
-    ret.vertex_shader_info = daxa::ShaderCompileInfo{
+    ret.vertex_shader_info = daxa::ShaderCompileInfo2{
         .source = daxa::ShaderFile{DRAW_SHADER_DEBUG_PATH},
-        .compile_options = {
-            .entry_point = "entry_vertex_line",
-            .language = daxa::ShaderLanguage::SLANG,
-        },
+        .entry_point = "entry_vertex_line",
+        .language = daxa::ShaderLanguage::SLANG,
     };
     ret.name = "DrawShaderDebugLines";
     ret.push_constant_size = sizeof(DebugDrawPush);
@@ -100,6 +96,15 @@ struct DebugDrawTask : DebugDrawH::Task
     {
         auto const colorImageSize = ti.info(AT.color_image).value().size;
         daxa::RenderPassBeginInfo render_pass_begin_info{
+            .color_attachments = {
+                daxa::RenderAttachmentInfo{
+                    .image_view = ti.get(AT.color_image).view_ids[0],
+                    .layout = daxa::ImageLayout::GENERAL,
+                    .load_op = daxa::AttachmentLoadOp::LOAD,
+                    .store_op = daxa::AttachmentStoreOp::STORE,
+                    .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
+                },
+            },
             .depth_attachment =
                 daxa::RenderAttachmentInfo{
                     .image_view = ti.get(AT.depth_image).view_ids[0],
@@ -110,15 +115,7 @@ struct DebugDrawTask : DebugDrawH::Task
                 },
             .render_area = daxa::Rect2D{.width = colorImageSize.x, .height = colorImageSize.y},
         };
-        render_pass_begin_info.color_attachments = {
-            daxa::RenderAttachmentInfo{
-                .image_view = ti.get(AT.color_image).view_ids[0],
-                .layout = daxa::ImageLayout::GENERAL,
-                .load_op = daxa::AttachmentLoadOp::LOAD,
-                .store_op = daxa::AttachmentStoreOp::STORE,
-                .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
-            },
-        };
+
         auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
 
         DebugDrawPush push{

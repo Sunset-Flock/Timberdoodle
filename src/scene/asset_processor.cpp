@@ -36,7 +36,7 @@ auto raw_image_data_from_path(std::filesystem::path image_path) -> RawDataRet
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE;
     }
     ifs.seekg(0, ifs.end);
-    i32 const filesize = ifs.tellg();
+    i64 const filesize = ifs.tellg();
     ifs.seekg(0, ifs.beg);
     std::vector<std::byte> raw(filesize);
     if (!ifs.read(r_cast<char *>(raw.data()), filesize))
@@ -130,7 +130,7 @@ struct ParsedImageData
     std::vector<std::byte> src_data = {};
     daxa::ImageInfo image_info = {};
     u32 mips_to_copy = {};
-    std::array<u32, 16> mip_copy_offsets = {};
+    std::array<u64, 16> mip_copy_offsets = {};
     bool compressed_bc5_rg = {};
 };
 
@@ -236,10 +236,9 @@ constexpr static auto daxa_image_format_from_pixel_info(PixelInfo const & info) 
     return format;
 };
 
-static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Device & device, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
+static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, TextureMaterialType type, bool allow_srgb = true) -> ParsedImageRet
 {
     bool load_as_srgb = type == TextureMaterialType::DIFFUSE && allow_srgb;
-    bool alpha = type == TextureMaterialType::DIFFUSE_OPACITY;
 
     if (png_sig_cmp((png_bytep)raw_data.raw_data.data(), 0, 8))
     {
@@ -254,7 +253,7 @@ static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Devi
     {
         free(ptr);
     };
-    auto error_fn = [](png_structp png_ptr, png_const_charp error_msg)
+    auto error_fn = []([[maybe_unused]]png_structp png_ptr, [[maybe_unused]]png_const_charp error_msg)
     {
         DBG_ASSERT_TRUE_M(false, error_msg);
     };
@@ -346,9 +345,8 @@ static auto libpng_parse_raw_image_data(ImageFromRawInfo && raw_data, daxa::Devi
     return ret;
 }
 
-static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device & device, TextureMaterialType type) -> ParsedImageRet
+static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, TextureMaterialType type) -> ParsedImageRet
 {
-    bool const load_as_srgb = (type == TextureMaterialType::DIFFUSE) || (type == TextureMaterialType::DIFFUSE_OPACITY);
     ktx_transcode_fmt_e transcode_format;
     switch (type)
     {
@@ -359,7 +357,6 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
 
     ktxTexture2 * texture;
     KTX_error_code result;
-    ktx_size_t offset;
 
     result = ktxTexture2_CreateFromMemory(
         r_cast<ktx_uint8_t *>(raw_data.raw_data.data()),
@@ -384,8 +381,6 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, daxa::Device &
     u32 const baseWidth = texture->baseWidth;
     u32 const baseHeight = texture->baseHeight;
     u32 const baseDepth = texture->baseDepth;
-    u32 const mips = static_cast<u32>(floor(std::log2(std::min(baseWidth, baseHeight)))) + 1;
-    bool const isArray = texture->isArray;
 
     ParsedImageData ret = {};
     ret.src_data.resize(texture->dataSize);
@@ -543,7 +538,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
             return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
         }
         ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), _device, TextureMaterialType::DIFFUSE_OPACITY, info.load_as_srgb);
+        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), TextureMaterialType::DIFFUSE_OPACITY, info.load_as_srgb);
         if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
         {
             return *error;
@@ -552,14 +547,14 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
 
         if (l > 0)
         {
-            auto const & info = parsed_images.back().image_info;
+            auto const & image_info = parsed_images.back().image_info;
             auto const & prev_info = parsed_images.at(parsed_images.size() - 2).image_info;
 
-            if (info.size != prev_info.size)
+            if (image_info.size != prev_info.size)
             {
                 return AssetLoadResultCode::ERROR_LAYER_IMAGES_NOT_IDENTICAL_SIZE;
             }
-            if (info.format != prev_info.format)
+            if (image_info.format != prev_info.format)
             {
                 return AssetLoadResultCode::ERROR_LAYER_IMAGES_NOT_IDENTICAL_FORMAT;
             }
@@ -615,15 +610,15 @@ auto AssetProcessor::load_texture(LoadTextureInfo const & info) -> AssetLoadResu
     ParsedImageRet opaque_data_ret = {std::monostate{}};
     if (raw_image_data.mime_type == fastgltf::MimeType::KTX2)
     {
-        parsed_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, info.texture_material_type);
+        parsed_data_ret = ktx_parse_raw_image_data(raw_image_data, info.texture_material_type);
         if (info.texture_material_type == TextureMaterialType::DIFFUSE)
         {
-            opaque_data_ret = ktx_parse_raw_image_data(raw_image_data, _device, TextureMaterialType::DIFFUSE_OPACITY);
+            opaque_data_ret = ktx_parse_raw_image_data(raw_image_data, TextureMaterialType::DIFFUSE_OPACITY);
         }
     }
     else if (raw_image_data.mime_type == fastgltf::MimeType::PNG)
     {
-        parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_image_data), _device, info.texture_material_type);
+        parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_image_data), info.texture_material_type);
     }
     else
     {
@@ -715,12 +710,12 @@ auto load_accessor_data_from_file(
     {
         return AssetProcessor::AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF;
     }
-    auto buffer_adapter = [&](fastgltf::Asset const & asset, u32 asset_index) -> fastgltf::span<std::byte const>
+    auto buffer_adapter = [&]([[maybe_unused]]fastgltf::Asset const & asset, [[maybe_unused]]u32 asset_index) -> fastgltf::span<std::byte const>
     {
         /// NOTE:   We only have a ptr to the loaded data to the accessors section of the buffer.
         ///         Fastgltf expects a ptr to the begin of the buffer VIEW, so we just subtract the offsets.
         ///         Fastgltf adds these on in the accessor tool, so in the end it gets the right ptr.
-        auto const fastgltf_reverse_byte_offset = -accesor.byteOffset;
+        auto const fastgltf_reverse_byte_offset = -s_cast<i64>(accesor.byteOffset);
         return fastgltf::span<std::byte const>(reinterpret_cast<std::byte const *>(raw.data()) - accesor.byteOffset, accesor.count * elem_byte_size);
     };
 
@@ -874,7 +869,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         return *err;
     }
     std::vector<glm::vec3> vert_positions = std::get<std::vector<glm::vec3>>(std::move(vertex_pos_result));
-    u32 vertex_count = s_cast<u32>(vert_positions.size());
+    u64 vertex_count = vert_positions.size();
 #pragma endregion
 
 /// NOTE: Load vertex UVs
@@ -1082,7 +1077,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         else
         {
 #pragma region LOD_GENERATION
-            const u32 lod_index_count = round_up_div(prev_lod_index_buffer.size(), 3 * 2) * 3u;
+            const u32 lod_index_count = round_up_div(s_cast<u32>(prev_lod_index_buffer.size()), 3 * 2) * 3u;
             simplified_indices.resize(prev_lod_index_buffer.size(), 0u); // Mesh optimizer needs them to be this large for some reason....
             index_buffer = &simplified_indices;
             f32 target_error = std::numeric_limits<f32>::max();
@@ -1109,7 +1104,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             // |    len: 1     |                 |    len: 1     |
             // In this case the two longest edges before simplification are len sqrt(2)
             // The longest edge of the simplified triangle is len 2.
-            f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * std::pow(sqrt(2.0f), lod);
+            [[maybe_unused]] f32 const lod_average_normalized_vertex_distance = lod0_average_vertex_distance * s_cast<f32>(std::pow(sqrt(2.0f), lod));
             // - We bias the weight towards the normal a little here with a factor of 2
             // - Typically normals are a little more important for visual error than position as they effect the shading more.
             f32 const MESH_LOD_GEN_NORMAL_IMPORTANCE_FACTOR = 3.0f;
@@ -1127,7 +1122,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             f32 const TEXCOORD_WEIGHT = 1.0f;
 
             f32 attribute_weights[] = {lod_normal_weight, lod_normal_weight, lod_normal_weight, TEXCOORD_WEIGHT, TEXCOORD_WEIGHT};
-            i32 result_index_count = meshopt_simplifyWithAttributes(
+            u64 result_index_count = meshopt_simplifyWithAttributes(
                 index_buffer->data(), prev_lod_index_buffer.data(), prev_lod_index_buffer.size(),
                 &vert_positions.data()->x, vert_positions.size(), sizeof(glm::vec3),
                 attributes_normals_uvs.data(), sizeof(f32) * 5, attribute_weights, 5, nullptr,
@@ -1171,7 +1166,6 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         std::vector<glm::vec3> & optimized_vert_positions = remapped_vert_positions;
         std::vector<glm::vec3> & optimized_vert_normals = remapped_vert_normals;
         std::vector<glm::vec2> & optimized_vert_texcoord0 = remapped_vert_texcoord0;
-        u32 vertex_count = unique_vertices;
 #pragma endregion
 
 #pragma region MESHLET GENERATION
@@ -1186,7 +1180,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
             index_buffer->data(),
             index_buffer->size(),
             r_cast<float *>(optimized_vert_positions.data()),
-            s_cast<usize>(vertex_count),
+            s_cast<usize>(unique_vertices),
             sizeof(glm::vec3),
             MAX_VERTICES,
             MAX_TRIANGLES,
@@ -1203,7 +1197,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
                 &meshlet_micro_indices[meshlets[meshlet_i].triangle_offset],
                 meshlets[meshlet_i].triangle_count,
                 r_cast<float *>(optimized_vert_positions.data()),
-                s_cast<usize>(vertex_count),
+                s_cast<usize>(unique_vertices),
                 sizeof(glm::vec3));
             meshlet_bounds[meshlet_i].center.x = raw_bounds.center[0];
             meshlet_bounds[meshlet_i].center.y = raw_bounds.center[1];
@@ -1219,7 +1213,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
                 mesh_max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
             }
 
-            for (int vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
+            for (u32 vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
             {
                 glm::vec3 pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
                 min_pos = glm::min(min_pos, pos);
@@ -1243,7 +1237,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
 
 #pragma endregion
 
-        u32 total_mesh_buffer_size =
+        u64 total_mesh_buffer_size =
             sizeof(Meshlet) * meshlet_count +
             sizeof(BoundingSphere) * meshlet_count +
             sizeof(AABB) * meshlet_count +
@@ -1274,7 +1268,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         }
         auto mesh_gpu_mem_ptr = _device.buffer_host_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
-        u32 accumulated_offset = 0;
+        u64 accumulated_offset = 0;
         // ---
         mesh.meshlets = mesh_bda + accumulated_offset;
         std::memcpy(
@@ -1348,9 +1342,9 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         accumulated_offset += sizeof(daxa_f32vec3) * optimized_vert_normals.size();
         // ---
         mesh.material_index = info.material_manifest_index;
-        mesh.meshlet_count = meshlet_count;
-        mesh.vertex_count = vertex_count;
-        mesh.primitive_count = index_buffer->size() / 3;
+        mesh.meshlet_count = s_cast<u32>(meshlet_count);
+        mesh.vertex_count = s_cast<u32>(unique_vertices);
+        mesh.primitive_count = s_cast<u32>(index_buffer->size() / 3);
 
         lods[lod] = mesh;
         lod_count += 1;

@@ -398,10 +398,10 @@ namespace RenderTimes
                 // [1] start timestamp readyness
                 // [2] end timestamp value
                 // [3] end timestamp readyness
-                f64 start = results[i * 4 + 0];
-                f64 start_ready = results[i * 4 + 1];
-                f64 end = results[i * 4 + 2];
-                f64 end_ready = results[i * 4 + 3];
+                f64 start = s_cast<f64>(results[i * 4 + 0]);
+                f64 start_ready = s_cast<f64>(results[i * 4 + 1]);
+                f64 end = s_cast<f64>(results[i * 4 + 2]);
+                f64 end_ready = s_cast<f64>(results[i * 4 + 3]);
                 if (start_ready && end_ready)
                 {
                     current_times[i] = (end - start) * time_scale;
@@ -424,7 +424,7 @@ namespace RenderTimes
                 u32 const group_size = GROUP_SIZES[group_i];
                 u32 const group_first_index = group_first_flat_index(group_i);
 
-                u64 raw_sum = 0;
+                f64 raw_sum = 0;
                 f64 smooth_sum = 0.0;
                 for (u32 timer_i = 0; timer_i < group_size; ++timer_i)
                 {
@@ -495,7 +495,7 @@ namespace RenderTimes
         }
         auto get(u32 render_time_index) -> u64
         {
-            return current_times[render_time_index];
+            return static_cast<u64>(current_times[render_time_index]);
         }
         auto get_average(u32 render_time_index) -> u64
         {
@@ -507,7 +507,7 @@ namespace RenderTimes
         }
         auto get_group(u32 group_index) -> u64
         {
-            return current_group_times[group_index];
+            return static_cast<u64>(current_group_times[group_index]);
         }
         auto get_group_average(u32 group_index) -> u64
         {
@@ -610,7 +610,7 @@ struct RenderContext
             }),
         };
         render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
-        render_times.init(gpu_context->device, gpu_context->swapchain.info().max_allowed_frames_in_flight);
+        render_times.init(gpu_context->device, s_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight));
     }
     ~RenderContext()
     {

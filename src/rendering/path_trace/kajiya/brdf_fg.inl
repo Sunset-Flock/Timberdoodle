@@ -17,7 +17,7 @@ DAXA_DECL_TASK_HEAD_END
 
 #include "../../scene_renderer_context.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(brdf_fg_compute_pipeline_info, "./src/rendering/path_trace/kajiya/brdf_fg.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(brdf_fg_compute_pipeline_info, "./src/rendering/path_trace/kajiya/brdf_fg.hlsl", "main")
 
 struct BrdfFgTask : BrdfFgH::Task
 {

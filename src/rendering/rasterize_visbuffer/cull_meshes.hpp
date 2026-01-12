@@ -5,7 +5,7 @@
 #include "../scene_renderer_context.hpp"
 #include "../tasks/misc.hpp"
 
-inline MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
+MAKE_COMPUTE_COMPILE_INFO(expand_meshes_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/cull_meshes.hlsl", "main")
 
 struct TaskExpandMeshesToMeshletsInfo
 {

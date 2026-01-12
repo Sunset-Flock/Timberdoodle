@@ -74,7 +74,7 @@ struct Po2BucketWorkExpansionBufferHead
                 out->bucket_thread_counts[first_bucket] = 0u;
                 out->bucket_thread_counts[second_bucket] = 0u;
                 u32 first_bucket_max_entries = po2_expansion_max_bucket_entries(expansions_max, first_bucket);
-                u32 second_bucket_max_entries = po2_expansion_max_bucket_entries(expansions_max, second_bucket);
+                [[maybe_unused]] u32 second_bucket_max_entries = po2_expansion_max_bucket_entries(expansions_max, second_bucket);
                 u32 bucket_pair_size = first_bucket_max_entries * sizeof(daxa_u32);                                                                    // lower index buckets can always have >= elements.
                 out->bucket_arg_array_ptrs[first_bucket] = reinterpret_cast<u32*>(device_address + total_size);                                        // points to first element in bucket pair array
                 out->bucket_arg_array_ptrs[second_bucket] = reinterpret_cast<u32*>(device_address + total_size + bucket_pair_size - sizeof(daxa_u32)); // points to last element in bucket pair array
