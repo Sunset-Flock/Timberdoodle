@@ -628,7 +628,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .device = this->gpu_context->device,
         .swapchain = this->gpu_context->swapchain,
         .reorder_tasks = true,
-        .alias_transients = false,
+        .alias_transients = true,
         .use_split_barriers = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
