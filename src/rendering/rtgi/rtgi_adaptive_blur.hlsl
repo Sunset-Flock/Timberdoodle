@@ -74,26 +74,6 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     // Load pixels diffuse before value, used for width estimation and fallback diffuse
     const float4 pixel_value = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
 
-    // Determine if the blur radius has to be increased for the post blur
-    float post_blur_min_radius_scale = 0.0f;
-    const bool is_post_blur = !push.attach.rtgi_diffuse_accumulated.id.is_empty();
-    #if RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE
-        if (is_post_blur)
-        {
-            // Calculate relative absolute luma difference
-            // Scale the blur radius up when the luma difference is large
-            // At a relative luma difference of 5%, the radius is scaled to RTGI_SPATIAL_FILTER_RADIUS_MAX
-            // Practically a poor mans version of variance estimation :)
-            const float4 reprojected_diffuse = push.attach.rtgi_diffuse_accumulated.get()[halfres_pixel_index].rgba;
-            const float luma_pixel = pixel_value.w;
-            const float luma_reprojected = reprojected_diffuse.w;
-            const float min_luma = min(luma_pixel, luma_reprojected);
-            const float relative_luma_difference = 0.5f * (luma_pixel + luma_reprojected) * rcp(min_luma) - 1.0f;
-            const float relative_luma_difference_scaling = 0.1f;
-            post_blur_min_radius_scale = saturate(relative_luma_difference * rcp(relative_luma_difference_scaling));
-        }
-    #endif
-
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
 

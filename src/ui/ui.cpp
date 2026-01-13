@@ -55,7 +55,7 @@ void setup_colors()
     colors[ImGuiCol_PlotLinesHovered]       = select_blue_1;
     colors[ImGuiCol_PlotHistogram]          = select_blue_1;
     colors[ImGuiCol_PlotHistogramHovered]   = select_blue_1;
-    colors[ImGuiCol_TableHeaderBg]          = bg_0;
+    colors[ImGuiCol_TableHeaderBg]          = bg_2;
     colors[ImGuiCol_TableBorderStrong]      = {alt_1.x, alt_1.y, alt_1.z, 0.5};
     colors[ImGuiCol_TableBorderLight]       = {alt_2.x, alt_2.y, alt_2.z, 0.5};
     colors[ImGuiCol_TableRowBg]             = bg_0;
@@ -704,7 +704,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
                 ImGui::Checkbox("Disocclusion Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_filter_enabled));
                 ImGui::Checkbox("Spatial Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.spatial_filter_enabled));
-                ImGui::Checkbox("Disocclusion threshold scale Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_threshold_scale_enabled));
                 ImGui::Checkbox("Disocclusion flood fill Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_flood_fill_enabled));
                 ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                 ImGui::Checkbox("Temporal Stabilization Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_stabilization_enabled));

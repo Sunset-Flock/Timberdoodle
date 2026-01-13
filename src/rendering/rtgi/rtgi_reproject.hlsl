@@ -51,41 +51,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     const float3 view_position_prev_frame = -view_position_prev_frame_pre_div.xyz / view_position_prev_frame_pre_div.w;
     const float4 ndc_prev_frame_pre_div = mul(camera_prev_frame.view_proj, float4(world_position_prev_frame, 1.0f));
     const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
-    const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
+    const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;// - inv_half_res_render_target_size * 0.75;
     const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * half_res_render_target_size;
     const float3 sv_pos_prev_frame = float3( sv_xy_prev_frame, ndc_prev_frame.z );
     const float3 primary_ray_prev_frame = normalize(world_position - camera_prev_frame.position);
-
-    #if RTGI_DISOCCLUSION_SCALING
-    // Determine how many neighbors the pixel has to determine the tightness of the disocclusion detection.
-    // Effectively this find out if the pixel is on thin geometry and makes the reprojection allow more ghosting on them. 
-    const float POOR_NEIGHBOR_COUNT = 3.0f;
-    const float GOOD_NEIGHBOR_COUNT = 7.0f;
-    const float NEIGHBORHOOD_COUNT = 8.0f;
-    float pixel_neighbors = 0.0f;
-    for (int x = -1; x <= 1; ++x)
-    {
-        for (int y = -1; y <= 1; ++y)
-        {
-            if (x == 0 && y == 0)
-                continue;
-
-            const int2 neighbor_pixel_idx = clamp(dtid.xy + int2(x,y)*2, int2(0,0), half_res_render_target_size - 1);
-            const float neighbor_depth = push.attach.view_cam_half_res_depth.get()[neighbor_pixel_idx];
-            const float3 neighbor_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[neighbor_pixel_idx]);
-            
-            const float3 neighbor_ndc = float3(ndc.xy + float2(inv_half_res_render_target_size * 2.0f * float2(x,y)*2), neighbor_depth);
-            const float4 neighbor_ws_pre_div = mul(camera.inv_view_proj, float4(neighbor_ndc, 1.0f));
-            const float3 neighbor_ws = neighbor_ws_pre_div.xyz / neighbor_ws_pre_div.w;
-
-            pixel_neighbors += 
-                max(0.0f, dot(neighbor_normal, pixel_face_normal)) *
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, neighbor_ws, neighbor_normal);
-        }
-    }
-    const float neighborhood_strength = (clamp(pixel_neighbors, POOR_NEIGHBOR_COUNT, GOOD_NEIGHBOR_COUNT) - POOR_NEIGHBOR_COUNT) * rcp(GOOD_NEIGHBOR_COUNT - POOR_NEIGHBOR_COUNT);
-    push.attach.debug_image.get()[dtid] = float4((neighborhood_strength).xxx, 1);
-    #endif
 
     // Load previous frame half res depth
     const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), half_res_render_target_size );
@@ -111,13 +80,13 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         };
 
         float4 normal_weights = {
-            normal_similarity_weight(other_face_normals[0], pixel_face_normal),
-            normal_similarity_weight(other_face_normals[1], pixel_face_normal),
-            normal_similarity_weight(other_face_normals[2], pixel_face_normal),
-            normal_similarity_weight(other_face_normals[3], pixel_face_normal),
+            dot(other_face_normals[0], pixel_face_normal) > 0.5f,
+            dot(other_face_normals[1], pixel_face_normal) > 0.5f,
+            dot(other_face_normals[2], pixel_face_normal) > 0.5f,
+            dot(other_face_normals[3], pixel_face_normal) > 0.5f,
         };
         // normalize normal weights so it does not interact with SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD.
-        normal_weights *= rcp(normal_weights.x + normal_weights.y + normal_weights.z + normal_weights.w) * 4;
+        normal_weights;// *= rcp(normal_weights.x + normal_weights.y + normal_weights.z + normal_weights.w + 0.001f);
 
         // high quality geometric weights
         float4 surface_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -141,10 +110,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
                 texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
             };
             surface_weights = {
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 2.0f),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 2.0f),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 2.0f),
-                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 2.0f),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 8),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 8),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 8),
+                surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 8),
             };
             surface_weights[0] *= depth_reprojected4[0] != 0.0f;
             surface_weights[1] *= depth_reprojected4[1] != 0.0f;
@@ -161,27 +130,29 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     // But for thin geometry its very hard or impossible to get 4 valid prev frame samples.
     // So we count the neighbiorhood pixels and scale the disocclusion threshold based on how easy it is to reproject.
     // So easy to reproject pixels have tight disocclusion, while thin things are allowed to have blurry ghosty reprojection.
-    float disocclusion_threshold = 0.6f;
-    if (push.attach.globals.rtgi_settings.disocclusion_threshold_scale_enabled)
-    {
-        disocclusion_threshold = lerp(0.001f, 0.8f, neighborhood_strength);
-    }
-    const float total_sample_weight = dot(1.0f, sample_weights);
-    bool disocclusion = total_sample_weight < disocclusion_threshold;
+    const float disocclusion_threshold = 0.025f;
+    const float total_sample_weights = dot(1.0f, sample_weights);
+    const bool disocclusion = total_sample_weights < disocclusion_threshold;
 
     // Calc new sample count
-    float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights ).x;
+    // MUST NOT NORMALIZE SAMPLECOUNT
+    // WHEN SAMPLECOUNT IS NORMALIZED, PARTIAL DISOCCLUSIONS WILL GET FULL SAMPLECOUNT FROM THE VALID SAMPLES
+    // THIS CAUSES THE PARTIALLY DISOCCLUDED SAMPLES TO IMMEDIATELY TAKE ON A FULL SAMPLECOUNT
+    // THEY GET STUCK IN THEIR FIRST FRAME HISTORY IMMEDIATELY
+    const bool NORMALIZE_SAMPLE_COUNT = false;
+    float samplecnt = apply_bilinear_custom_weights( samplecnt_reprojected4.x, samplecnt_reprojected4.y, samplecnt_reprojected4.z, samplecnt_reprojected4.w, sample_weights, NORMALIZE_SAMPLE_COUNT ).x;
+    float blend_s = samplecnt;
     samplecnt = min( samplecnt + 1.0f, push.attach.globals.rtgi_settings.history_frames );
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
     
     // Read in diffuse history
-    const float4 history_Y0 = push.attach.rtgi_diffuse_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-    const float4 history_Y1 = push.attach.rtgi_diffuse_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-    const float4 history_Y2 = push.attach.rtgi_diffuse_history.get().GatherBlue( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-    const float4 history_Y3 = push.attach.rtgi_diffuse_history.get().GatherAlpha( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-    const float4 history_Co = push.attach.rtgi_diffuse2_history.get().GatherRed( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
-    const float4 history_Cg = push.attach.rtgi_diffuse2_history.get().GatherGreen( push.attach.globals.samplers.nearest_clamp.get(), reproject_gather_uv ).wzxy;
+    const float4 history_Y0 = push.attach.rtgi_diffuse_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+    const float4 history_Y1 = push.attach.rtgi_diffuse_history.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
+    const float4 history_Y2 = push.attach.rtgi_diffuse_history.get().GatherBlue( nearest_clamp_s, reproject_gather_uv ).wzxy;
+    const float4 history_Y3 = push.attach.rtgi_diffuse_history.get().GatherAlpha( nearest_clamp_s, reproject_gather_uv ).wzxy;
+    const float4 history_Co = push.attach.rtgi_diffuse2_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+    const float4 history_Cg = push.attach.rtgi_diffuse2_history.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
     const float4 y00 = float4(history_Y0.x, history_Y1.x, history_Y2.x, history_Y3.x);
     const float4 y10 = float4(history_Y0.y, history_Y1.y, history_Y2.y, history_Y3.y);
     const float4 y01 = float4(history_Y0.z, history_Y1.z, history_Y2.z, history_Y3.z);
@@ -291,40 +262,35 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
     // A lot of times, there will be a single pixel shimmer that does not resolve under movement.
     // These shimmers are completely replaced with their valid neighbor history.
     bool flood_fill_similar = false;
-    bool flood_fill_fallback_stable = false;
-    float4 converged_neighbor_diffuse = float4(0,0,0,0);
-    float2 converged_neighbor_diffuse2 = float2(0,0);
+    float4 similar_converged_neighbor_diffuse = float4(0,0,0,0);
+    float2 similar_converged_neighbor_diffuse2 = float2(0,0);
     if (push.attach.globals.rtgi_settings.disocclusion_flood_fill_enabled)
     {
         // The threshold prevents floodfilled pixels to be the src for other floodfills.
         // If this were not prevented, the floodfills would cascade bejond one pixel.
         const float SRC_DST_SAMPLECOUNT_FLOODFILL_THRESHOLD = push.attach.globals.rtgi_settings.history_frames * 0.75f;
         float similar_converged_pixel_neighbors = 0.0f;
-        float4 similar_converged_neighbor_diffuse = float4(0,0,0,0);
-        float2 similar_converged_neighbor_diffuse2 = float2(0,0);
         float converged_pixel_neighbors = 0.0f;
-        converged_neighbor_diffuse = float4(0,0,0,0);
-        converged_neighbor_diffuse2 = float2(0,0);
 
-        const float NEIGHBORHOOD_SCALE = 2.0f;
-        for (int x = -1; x <= 1; ++x)
+        const float NEIGHBORHOOD_SCALE = 1.0f;
+        for (int x = -2; x <= 2; ++x)
         {
-            for (int y = -1; y <= 1; ++y)
+            for (int y = -2; y <= 2; ++y)
             {
                 if (x == 0 && y == 0)
                     continue;
 
-                const int2 neighbor_pixel_idx = clamp(dtid.xy + int2(x,y) * NEIGHBORHOOD_SCALE, int2(0,0), half_res_render_target_size - 1);
+                const int2 neighbor_pixel_idx = clamp(dtid.xy + int2(x,y), int2(0,0), half_res_render_target_size - 1);
                 const float neighbor_depth = push.attach.view_cam_half_res_depth.get()[neighbor_pixel_idx];
                 const float3 neighbor_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[neighbor_pixel_idx]);
                 
-                const float3 neighbor_ndc = float3(ndc.xy + float2(inv_half_res_render_target_size * 2.0f * float2(x,y) * NEIGHBORHOOD_SCALE), neighbor_depth);
+                const float3 neighbor_ndc = float3(ndc.xy + float2(inv_half_res_render_target_size * 2.0f * float2(x,y)), neighbor_depth);
                 const float4 neighbor_ws_pre_div = mul(camera.inv_view_proj, float4(neighbor_ndc, 1.0f));
                 const float3 neighbor_ws = neighbor_ws_pre_div.xyz / neighbor_ws_pre_div.w;
 
                 const float neighbor_samplecnt = push.attach.rtgi_samplecnt.get()[neighbor_pixel_idx];
 
-                const float neighbor_converged = (neighbor_samplecnt == push.attach.globals.rtgi_settings.history_frames);
+                const float neighbor_converged = (neighbor_samplecnt > SRC_DST_SAMPLECOUNT_FLOODFILL_THRESHOLD);
                 const float neighbor_similar_converged = 
                     neighbor_converged *
                     max(0.0f, dot(neighbor_normal, pixel_face_normal)) *
@@ -334,74 +300,72 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
                 
                 const float4 diffuse_sample = push.attach.rtgi_diffuse_reprojected.get()[neighbor_pixel_idx];
                 const float2 diffuse2_sample = push.attach.rtgi_diffuse2_reprojected.get()[neighbor_pixel_idx];
-                converged_neighbor_diffuse += neighbor_converged * diffuse_sample;
-                converged_neighbor_diffuse2 += neighbor_converged * diffuse2_sample;
                 similar_converged_neighbor_diffuse += neighbor_similar_converged * diffuse_sample;
                 similar_converged_neighbor_diffuse2 += neighbor_similar_converged * diffuse2_sample;
             }
         }
         similar_converged_neighbor_diffuse *= rcp(similar_converged_pixel_neighbors);
         similar_converged_neighbor_diffuse2 *= rcp(similar_converged_pixel_neighbors);
-        converged_neighbor_diffuse *= rcp(converged_pixel_neighbors);
-        converged_neighbor_diffuse2 *= rcp(converged_pixel_neighbors);
 
         flood_fill_similar = similar_converged_pixel_neighbors >= 1.0f && push.attach.rtgi_samplecnt.get()[dtid] < SRC_DST_SAMPLECOUNT_FLOODFILL_THRESHOLD;
-        flood_fill_fallback_stable = !flood_fill_similar && converged_pixel_neighbors >= 6.0f && push.attach.rtgi_samplecnt.get()[dtid] < SRC_DST_SAMPLECOUNT_FLOODFILL_THRESHOLD;
-        if (flood_fill_similar)
-        {
-            // Flood fill with similar neighbors if possible
-            diffuse_history = similar_converged_neighbor_diffuse;
-            diffuse2_history = similar_converged_neighbor_diffuse2;
-        }
     }
 
     bool disocclusion = push.attach.rtgi_samplecnt.get()[dtid] == 0;
     float history_luma = diffuse_history.w;
 
-    const float4 diffuse_blurred = push.attach.rtgi_diffuse_blurred.get()[dtid];
-    const float2 diffuse2_blurred = push.attach.rtgi_diffuse2_blurred.get()[dtid];
+    float4 diffuse_blurred = push.attach.rtgi_diffuse_blurred.get()[dtid];
+    float2 diffuse2_blurred = push.attach.rtgi_diffuse2_blurred.get()[dtid];
     const float luma_diff_relative = (history_luma + avg_luma) / (min(history_luma, avg_luma)) * 0.5f - 1.0f;
     float luma_diff_history_scaling = 1.0f;
     if (push.attach.globals.rtgi_settings.temporal_reactivity_heuristic_enabled)
     {
-        luma_diff_history_scaling = pow(0.5f, luma_diff_relative * 0.01f + 0.00001f); // TODO: Add heavily firefly filtered fast history to clamp against!
+        luma_diff_history_scaling = clamp(pow(0.5f, luma_diff_relative * 0.01f + 0.00001f) + 0.01f, 0.0f, 1.0f); // TODO: Add heavily firefly filtered fast history to clamp against!
     }
-    const float temp_stabilization = 
-        (-1.0f + 0.05f) * 
-        push.attach.globals.rtgi_settings.temporal_stabilization_enabled *
+    
+    const bool temp_stabilization =     // Prevents bubbling on converged pixels
+        push.attach.globals.rtgi_settings.temporal_stabilization_enabled * 
         (push.attach.rtgi_samplecnt.get()[dtid] == push.attach.globals.rtgi_settings.history_frames);
-    const float temp_jitter = -square(rand()) * rcp(64);
-    const float boosted_samplecnt = min(push.attach.rtgi_samplecnt.get()[dtid] * 3.0f, push.attach.globals.rtgi_settings.history_frames);
+    const float temp_jitter =           // Quantization artifacts over time are avoided by temporal jitter
+        rand();
+    const float samplecnt =             // Accumulated samples
+        min(push.attach.rtgi_samplecnt.get()[dtid], push.attach.globals.rtgi_settings.history_frames);
+    const float boosted_samplecount =   // When we hit max samplecount we artificially boost it to prevent bubbling
+        samplecnt * (temp_stabilization ? lerp(1.0f, 16.0f, temp_jitter) : 1.0f);
     float history_blend = 
-        boosted_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames + 1.0f + temp_stabilization) * 
-        clamp(luma_diff_history_scaling, 0.0f, 1.0f) + 
-        temp_jitter;
+        (1.0f - 1.0f / (1.0f + boosted_samplecount))
+        * clamp(luma_diff_history_scaling, 0.0f, 1.0f);
     if (disocclusion)
     {
         history_blend = 0.0f;
-    }
-    if (flood_fill_similar)
-    {
-        history_blend = 1.0f;
     }
     if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
     {
         history_blend = 0.0f;
     }
+    //diffuse_blurred = pixel_depth.xxxx;
+    //diffuse2_blurred = pixel_depth.xx;
     const float4 new_diffuse = lerp(diffuse_blurred, diffuse_history, history_blend);
     const float2 new_diffuse2 = lerp(diffuse2_blurred, diffuse2_history, history_blend);
 
     push.attach.rtgi_diffuse_accumulated.get()[dtid] = new_diffuse;
     push.attach.rtgi_diffuse2_accumulated.get()[dtid] = new_diffuse2;
 
-    if (flood_fill_fallback_stable)
+    if (flood_fill_similar)
     {
-        push.attach.rtgi_diffuse_stable.get()[dtid] = converged_neighbor_diffuse;
-        push.attach.rtgi_diffuse2_stable.get()[dtid] = converged_neighbor_diffuse2;
+        push.attach.rtgi_diffuse_stable.get()[dtid] = similar_converged_neighbor_diffuse;
+        push.attach.rtgi_diffuse2_stable.get()[dtid] = similar_converged_neighbor_diffuse2;
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(1,1,0,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(1,1,0,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(1,1,0,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(1,1,0,1);
     }
     else
     {
         push.attach.rtgi_diffuse_stable.get()[dtid] = new_diffuse;
         push.attach.rtgi_diffuse2_stable.get()[dtid] = new_diffuse2;
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4((samplecnt > 0.5 * push.attach.globals.rtgi_settings.history_frames).xxx,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4((samplecnt > 0.5 * push.attach.globals.rtgi_settings.history_frames).xxx,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4((samplecnt > 0.5 * push.attach.globals.rtgi_settings.history_frames).xxx,1);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4((samplecnt > 0.5 * push.attach.globals.rtgi_settings.history_frames).xxx,1);
     }
 }

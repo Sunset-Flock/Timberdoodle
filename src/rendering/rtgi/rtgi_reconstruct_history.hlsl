@@ -184,7 +184,7 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
 
     // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
-    const float validity = min(1.0f, pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames));
+    const float validity = min(1.0f, pixel_samplecnt * rcp(3));
     int mip = lerp(4,1, validity);
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;

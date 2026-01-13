@@ -11,10 +11,6 @@
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 48
 
-#define RTGI_SPATIAL_FILTER_SAMPLES_PRE_BLUR 16
-
-#define RTGI_POST_BLUR_LUMA_DIFF_RADIUS_SCALE 0
-
 #define RTGI_DISOCCLUSION_SCALING 1
 #define RTGI_DISOCCLUSION_FLOOD_FILL 1
 
@@ -51,10 +47,18 @@ func surface_weight(float2 inv_render_target_size, float near_plane, float depth
     float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
 ) -> float
 {
+    const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
     const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
     const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
-    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
-    const float validity = step( plane_distanceA, threshold ) * step(plane_distanceB, threshold);
+    const float distance = abs(distance(vs_position, other_vs_position));
+    const float plane_distance_threshold = pixel_size * threshold_scale;
+    // In rare cases, two pixels will accidentally lie on the same plane but are actually far away from each other.
+    // The distance test rejects those cases.
+    const float dist_threshold = pixel_size * 32.0f; 
+    const float validity = 
+        step(distance, dist_threshold) *
+        step(plane_distanceA, plane_distance_threshold) * 
+        step(plane_distanceB, plane_distance_threshold);
     return validity;
 }
 
@@ -84,7 +88,7 @@ func planar_surface_weight4(
 func normal_similarity_weight(float3 normal, float3 other_normal) -> float
 {
     const float validity = (max(0.1f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
-    const float tight_validity = square(validity);
+    const float tight_validity = square(square(validity));
     return tight_validity;
 }
 
