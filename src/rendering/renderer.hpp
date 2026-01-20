@@ -101,11 +101,14 @@ struct Renderer
     daxa::TaskImage path_trace_history = {};
     daxa::TaskImage normal_history = {};
     daxa::TaskImage rtao_history = {};
-    daxa::TaskImage rtgi_diffuse_history = {};
-    daxa::TaskImage rtgi_diffuse2_history = {};
     daxa::TaskImage rtgi_depth_history = {};
     daxa::TaskImage rtgi_face_normal_history = {};
     daxa::TaskImage rtgi_samplecnt_history = {};
+
+    daxa::TaskImage rtgi_full_samplecount_history = {};
+    daxa::TaskImage rtgi_full_face_normal_history = {};
+    daxa::TaskImage rtgi_full_color_history = {};
+    daxa::TaskImage rtgi_full_statistics_history = {};
 
     std::vector<daxa::TaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::TaskImage>> frame_buffer_images = {};

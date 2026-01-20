@@ -87,36 +87,55 @@ func entry_gen_mips_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Gr
     if (push.attach.globals.rtgi_settings.firefly_filter_enabled) 
     {
         const float FIREFLY_AVERAGE_POWER = 4.0f;
+        const int NEIGHBORHOOD_RANGE = 2;
         float radiance_power_sum = 0.0f;
         float radiance_power_sample_cnt = 0.0f;
-        for (int x = -2; x <= 2; ++x)
+        float acc_similar_neighbors = 0.0f;
+
+        for (int x = -NEIGHBORHOOD_RANGE; x <= NEIGHBORHOOD_RANGE; ++x)
         {
-            for (int y = -2; y <= 2; ++y)
+            for (int y = -NEIGHBORHOOD_RANGE; y <= NEIGHBORHOOD_RANGE; ++y)
             {
                 if (x == 0 && y == 0)
                     continue;
 
-                const int2 load_idx = clamp(int2(x,y) * 2 + int2(clamped_index), int2(0,0), int2(push.size) - int2(1,1));
-                // const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
-                // const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+                const int2 max_index = push.size - 1;
+                int2 load_idx = int2(x,y) * 4 + int2(clamped_index);
+                load_idx = flip_oob_index(load_idx, max_index);
+
+                const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
+                const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
                 const float4 diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
                 const float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
                 const bool is_sky = all(diffuse == 0.0f) && all(diffuse2 == 0.0f);
                 if (!is_sky)
                 {
                     const float weight = 1;//1.0f - min(1.0f, 100.0f * abs(depth - sample_depth));
-                    radiance_power_sum += pow(y_co_cg_to_radiance(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER) * weight;
+                    radiance_power_sum += pow(y_co_cg_to_brightness(float3(diffuse.w, diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER) * weight;
                     radiance_power_sample_cnt += weight;
                 }
+                // Accumulate neighbors that are close to or behind current pixel.
+                acc_similar_neighbors += 1.0f - clamp(1000.0f * (sample_depth - depth), 0.0f, 1.0f);
             }
         }
+
+        #if RTGI_FIREFLY_FILTER_TIGHT_AGRESSIVE
+            const float NEIGHBORHOOD_TOTAL_COUNT = square(NEIGHBORHOOD_RANGE * 2 + 1) - 1;
+            const float NEIGHBORHOOD_TIGHT_MIN_CONSIDERED = 0.3f;
+            const float NEIGHBORHOOD_TIGHT_MAX_CONSIDERED = 0.5f;
+            float tight_neighborgood_factor = (clamp(acc_similar_neighbors * rcp(NEIGHBORHOOD_TOTAL_COUNT), NEIGHBORHOOD_TIGHT_MIN_CONSIDERED, NEIGHBORHOOD_TIGHT_MAX_CONSIDERED) - NEIGHBORHOOD_TIGHT_MIN_CONSIDERED) * rcp(NEIGHBORHOOD_TIGHT_MAX_CONSIDERED - NEIGHBORHOOD_TIGHT_MIN_CONSIDERED);
+        #else
+            const tight_neighborgood_factor = 1.0f;
+        #endif
+
+        const float filter_threshold = max(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME * FIREFLY_AVERAGE_POWER * tight_neighborgood_factor);
 
         if (radiance_power_sample_cnt > 0)
         {
             const float power_average = pow(radiance_power_sum * rcp(radiance_power_sample_cnt), FIREFLY_AVERAGE_POWER);
-            const float power_pixel_luma = y_co_cg_to_radiance(float3(diffuse.w, diffuse2));
+            const float power_pixel_luma = y_co_cg_to_brightness(float3(diffuse.w, diffuse2));
             const float power_ratio = power_pixel_luma / (0.00000001f + power_average);
-            const float supression_factor = min(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME * FIREFLY_AVERAGE_POWER / power_ratio );
+            const float supression_factor = min(1.0f, filter_threshold / power_ratio );
             diffuse *= supression_factor;
             diffuse2 *= supression_factor;
         }
@@ -182,9 +201,8 @@ func entry_apply_diffuse(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_Group
         return;
     }
 
-    // Freshly disoccluded areas (pixel_samplecnt < 5) are replaced with reconstructed history
     // Loop and re try reconstruction on a lower mip if the reconstruction fails on the higher mips
-    const float validity = min(1.0f, pixel_samplecnt * rcp(3));
+    const float validity = min(1.0f, pixel_samplecnt * rcp(12));
     int mip = lerp(4,1, validity);
     float4 reconstructed_diffuse;
     float2 reconstructed_diffuse2;

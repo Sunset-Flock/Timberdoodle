@@ -214,7 +214,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_PGI_IRRADIANCE 32
 #define DEBUG_DRAW_MODE_PGI_RADIANCE 33
 #define DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME 34
-#define DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS 35
+#define DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS 35
 #define DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE 36
 
 struct Settings
@@ -241,7 +241,10 @@ struct Settings
     daxa_i32 lod_override;
     daxa_f32 lod_acceptable_pixel_error;
     daxa_i32 enable_async_compute;
+    daxa_i32 enable_memory_aliasing;
+    daxa_i32 enable_task_reordering;
     daxa_i32 enable_vsync;
+    daxa_i32 optimize_transient_lifetimes;
 #if defined(__cplusplus)
     auto operator==(Settings const & other) const -> bool
     {
@@ -273,7 +276,10 @@ struct Settings
           lod_override{ -1 },
           lod_acceptable_pixel_error{ 2.0f },
           enable_async_compute{ 1 },
-          enable_vsync{ 1 }
+          enable_memory_aliasing{ 1 },
+          enable_task_reordering{ 1 },
+          enable_vsync{ 1 },
+          optimize_transient_lifetimes{ 1 }
 
     {
     }

@@ -1239,7 +1239,7 @@ void entry_main_cs(
         }
         case DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS:
         case DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS:
-        case DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS:
+        case DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS:
         {
             clocks = push.attachments.attachments.clocks_image.get()[index];
             break;

@@ -30,7 +30,7 @@ func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, flo
     payload.skip_sky_shader = true;
     TraceRay(tlas, RAY_FLAG_SKIP_CLOSEST_HIT_SHADER, ~0, 0, 0, 0, ray, payload);
 
-    return payload.t == TMAX;
+    return payload.t == ray.TMax;
 }
 
 
@@ -193,10 +193,10 @@ void miss(inout RayPayload payload)
     {
         #if RTGI_USE_PGI_RADIANCE_ON_MISS
             const float3 sample_direction = WorldRayDirection();
-            const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
+            const float3 sample_position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
 
             PGISampleInfo info = PGISampleInfo();
-            info.request_mode = PGI_REQUEST_MODE_INDIRECT;
+            info.request_mode = PGI_REQUEST_MODE_DIRECT;
             info.cascade_mode = PGI_CASCADE_MODE_NEAREST;
             info.probe_blend_nearest = false;
             info.color_filter_nearest = true;
@@ -216,5 +216,5 @@ void miss(inout RayPayload payload)
         payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
         #endif
     }
-    payload.t = TMAX;
+    payload.t = 1000000000000.0f;
 }

@@ -301,4 +301,31 @@ float4 apply_bilinear_custom_weights( float4 s00, float4 s10, float4 s01, float4
     return wsum * ( normalize ? rcp( dot( w, 1.0f ) ) : 1.0f );
 }
 
+float3 apply_bilinear_custom_weights( float3 s00, float3 s10, float3 s01, float3 s11, float4 w, bool normalize = true )
+{
+    float3 wsum = s00 * w.x + s10 * w.y + s01 * w.z + s11 * w.w;
+    return wsum * ( normalize ? rcp( dot( w, 1.0f ) ) : 1.0f );
+}
+
+float2 apply_bilinear_custom_weights( float2 s00, float2 s10, float2 s01, float2 s11, float4 w, bool normalize = true )
+{
+    float2 wsum = s00 * w.x + s10 * w.y + s01 * w.z + s11 * w.w;
+    return wsum * ( normalize ? rcp( dot( w, 1.0f ) ) : 1.0f );
+}
+
+float apply_bilinear_custom_weights( float s00, float s10, float s01, float s11, float4 w, bool normalize = true )
+{
+    float wsum = s00 * w.x + s10 * w.y + s01 * w.z + s11 * w.w;
+    return wsum * ( normalize ? rcp( dot( w, 1.0f ) ) : 1.0f );
+}
+
+int2 flip_oob_index(int2 index, int2 max_index)
+{
+    index.x = index.x < 0 ? (abs(index.x)) * 2 : index.x;
+    index.y = index.y < 0 ? (abs(index.y)) * 2 : index.y;
+    index.x = index.x > max_index.x ? (max_index.x - (index.x - max_index.x)) * 2 : index.x;
+    index.y = index.y > max_index.y ? (max_index.y - (index.y - max_index.y)) * 2 : index.y;
+    return index;
+}
+
 /// ===== =====

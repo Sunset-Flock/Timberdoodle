@@ -9,7 +9,7 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
-#define RTGI_SPATIAL_FILTER_RADIUS_MAX 48
+#define RTGI_SPATIAL_FILTER_RADIUS_MAX 32
 
 #define RTGI_DISOCCLUSION_SCALING 1
 #define RTGI_DISOCCLUSION_FLOOD_FILL 1
@@ -17,8 +17,11 @@
 // With a value of 32 AND a value of 32 accumulated frames,
 // Effectively, each pixel can AT MOST double its brightness every frame PRE blurring.
 #define RTGI_FIREFLY_FILTER 1
+#define RTGI_FIREFLY_FILTER_TIGHT_AGRESSIVE 1
 #define RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD 32.0f
 #define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME 8.0f
+
+#define VALUE_MULTIPLIER (1e3f)
 
 func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
@@ -88,7 +91,7 @@ func planar_surface_weight4(
 func normal_similarity_weight(float3 normal, float3 other_normal) -> float
 {
     const float validity = (max(0.1f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
-    const float tight_validity = square(square(validity));
+    const float tight_validity = (square(validity));
     return tight_validity;
 }
 
@@ -130,9 +133,14 @@ float3 y_co_cg_to_linear( float3 color )
     return max( r, 0.0 );
 }
 
-float y_co_cg_to_radiance(float3 yCoCg)
+float y_co_cg_to_brightness(float3 yCoCg)
 {
     const float3 linear = y_co_cg_to_linear(yCoCg);
+    return linear.r + linear.g * 2.0f + linear.b * 0.5f;
+}
+
+float rgb_brightness(float3 linear)
+{
     return linear.r + linear.g * 2.0f + linear.b * 0.5f;
 }
 

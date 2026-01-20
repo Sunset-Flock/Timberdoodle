@@ -10,6 +10,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/raytracing.hlsl"
 #include "shader_lib/transform.hlsl"
+#include "shader_lib/pgi.hlsl"
 
 #include "rtgi_shared.hlsl"
 
@@ -94,15 +95,6 @@ void ray_gen()
     float2 rr_stbn = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), dtid.xy, push.attach.globals.frame_index);
     float2 rr = float2(rand(), rand());
 
-    if (dtid.x > (push.attach.globals.settings.render_target_size.x/4))
-    {
-        // push.attach.debug_image.get()[dtid] = float4(rr_stbn, 0,1);
-    }
-    else
-    {
-        // push.attach.debug_image.get()[dtid] = float4(rr, 0,1);
-    }
-
     if(depth > 0.0f)
     {
         static const uint SAMPLES = 1;
@@ -131,27 +123,40 @@ void ray_gen()
             RayPayload payload = {};
             payload.dtid = dtid;
 
+            #if RTGI_USE_PGI_RADIANCE_ON_MISS
+            float pgi_cascade = pgi_select_cascade_smooth_spherical(push.attach.globals.pgi_settings, sample_pos - push.attach.globals.view_camera.position);
+            float t_max = float(1u << uint(ceil(pgi_cascade))) * push.attach.globals.pgi_settings.cascades[0].probe_spacing.x * RTGI_USE_PGI_RADIANCE_ON_MISS_TMAX_SCALE;
+            #else
+            float t_max = 100000000000.0f;
+            #endif
+
             RayDesc ray = {};
             ray.Origin = sample_pos;
-            ray.TMax = TMAX;
+            ray.TMax = t_max;
             ray.TMin = 0.0f;
 
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
-            TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), RAY_FLAG_FORCE_OPAQUE, ~0, 0, 0, 0, ray, payload);
+            const uint flags = RAY_FLAG_FORCE_OPAQUE; 
+            TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 
             float4 sh_y_new;
             float2 cocg_new;
-            radiance_to_y_co_cg_sh(payload.color, sample_dir, sh_y_new, cocg_new);
+            radiance_to_y_co_cg_sh(payload.color * VALUE_MULTIPLIER, sample_dir, sh_y_new, cocg_new);
             acc += sh_y_new * rcp(SAMPLES);
             acc2 += cocg_new * rcp(SAMPLES);
         }
 
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc * 1e+3f;
-        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2 * 1e+4f;
+        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc;
+        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2;
+    }
+    else
+    {
+        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = float2(0.0f, 0.0f);
     }
 
-    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS)
+    if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)
     {
         let clk_end = clockARB();
         push.attach.clocks_image.get()[dtid] = uint(clk_end - clk_start);

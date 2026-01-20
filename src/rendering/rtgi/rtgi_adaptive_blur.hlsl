@@ -68,7 +68,7 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
     const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
-    const uint thread_seed = (dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y) * push.attach.globals.frame_index;
+    const uint thread_seed = push.pass * 71 + push.attach.globals.frame_index;//((dtid.x & 0x1) * 2 + (dtid.y & 0x1)) * push.attach.globals.frame_index;
     rand_seed(thread_seed);
 
     // Load pixels diffuse before value, used for width estimation and fallback diffuse

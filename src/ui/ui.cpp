@@ -60,7 +60,7 @@ void setup_colors()
     colors[ImGuiCol_TableBorderLight]       = {alt_2.x, alt_2.y, alt_2.z, 0.5};
     colors[ImGuiCol_TableRowBg]             = bg_0;
     colors[ImGuiCol_TableRowBgAlt]          = bg_1;
-    colors[ImGuiCol_TextSelectedBg]         = bg_3;
+    colors[ImGuiCol_TextSelectedBg]         = bg_5;
     colors[ImGuiCol_DragDropTarget]         = ImVec4(0.33f, 0.67f, 0.86f, 1.00f);
     colors[ImGuiCol_NavHighlight]           = ImVec4(1.00f, 0.00f, 0.00f, 1.00f);
     colors[ImGuiCol_NavWindowingHighlight]  = ImVec4(1.00f, 0.00f, 0.00f, 0.70f);
@@ -400,7 +400,10 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
+            ImGui::Checkbox("enable memory aliasing", r_cast<bool *>(&render_data.settings.enable_memory_aliasing));
+            ImGui::Checkbox("enable task reordering", r_cast<bool *>(&render_data.settings.enable_task_reordering));
             ImGui::Checkbox("enable vsync", r_cast<bool *>(&render_data.settings.enable_vsync));
+            ImGui::Checkbox("max sheduling enabled", r_cast<bool *>(&render_data.settings.optimize_transient_lifetimes));
             std::array<char const * const, 2> aa_modes = {
                 "NONE",
                 "SUPER_SAMPLE",
@@ -485,7 +488,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "PGI_IRRADIANCE", // DEBUG_DRAW_MODE_PGI_IRRADIANCE
                     "PGI_RADIANCE", // DEBUG_DRAW_MODE_PGI_RADIANCE
                     "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-                    "RTGI_TRACE_DIFFUSE_CLOCKS", // DEBUG_DRAW_MODE_RTGI_TRACE_DIFFUSE_CLOCKS
+                    "RTGI_TRACE_CLOCKS", // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
                     "RTGI_DEBUG_PRIMARY_TRACE", // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
                 };
                 ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
@@ -704,11 +707,11 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
                 ImGui::Checkbox("Disocclusion Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_filter_enabled));
                 ImGui::Checkbox("Spatial Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.spatial_filter_enabled));
-                ImGui::Checkbox("Disocclusion flood fill Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_flood_fill_enabled));
+                ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
+                ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
+                ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
                 ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                 ImGui::Checkbox("Temporal Stabilization Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_stabilization_enabled));
-                ImGui::Checkbox("Temporal Reactivity Scaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_reactivity_heuristic_enabled));
-                ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscaling_enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::SliderFloat("Spatial Filter Width", &render_data.rtgi_settings.spatial_filter_width, 1, 256);
             }

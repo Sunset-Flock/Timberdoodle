@@ -250,27 +250,33 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         push.attach.probe_requests.get_formatted(),
         payload.probe_index);
     request_mode += 1; // direct(0) becomes indirect(1), indirect(1) becomes none(2) 
+    
+    const float indirect_ao_range = reg_cascade.max_visibility_distance * 0.15f;
+    const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
+    const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range);
+
+    MeshInstance* mi = push.attach.mesh_instances.instances;
+    TriangleGeometry tri_geo = rt_get_triangle_geo(
+        attr.barycentrics,
+        InstanceID(),
+        GeometryIndex(),
+        PrimitiveIndex(),
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.entity_to_meshgroup,
+        push.attach.globals.scene.mesh_groups,
+        mi
+    );
+    TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
+        tri_geo,
+        push.attach.globals.scene.meshes,
+        push.attach.globals.scene.entity_to_meshgroup,
+        push.attach.globals.scene.mesh_groups,
+        push.attach.globals.scene.entity_combined_transforms
+    );
+
+    const float relative_t = RayTCurrent() * rcp(length(reg_cascade.probe_spacing));
+    if (relative_t < 1.5f)
     {
-        MeshInstance* mi = push.attach.mesh_instances.instances;
-        TriangleGeometry tri_geo = rt_get_triangle_geo(
-            attr.barycentrics,
-            InstanceID(),
-            GeometryIndex(),
-            PrimitiveIndex(),
-            push.attach.globals.scene.meshes,
-            push.attach.globals.scene.entity_to_meshgroup,
-            push.attach.globals.scene.mesh_groups,
-            mi
-        );
-        TriangleGeometryPoint tri_point = rt_get_triangle_geo_point(
-            tri_geo,
-            push.attach.globals.scene.meshes,
-            push.attach.globals.scene.entity_to_meshgroup,
-            push.attach.globals.scene.mesh_groups,
-            push.attach.globals.scene.entity_combined_transforms
-        );
-
-
         MaterialPointData material_point = evaluate_material<SHADING_QUALITY_LOW>(
             push.attach.globals,
             tri_geo,
@@ -289,10 +295,6 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
 
         if (!backface)
         {
-            // ambient occlusion term helps greatly with lighting "getting stuck" in small enclosed spaces such as the picapica caves.
-            const float indirect_ao_range = reg_cascade.max_visibility_distance * 0.15f;
-            const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
-            const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
 
             PGILightVisibilityTester light_vis_tester = PGILightVisibilityTester(RaytracingAccelerationStructure::get(push.attach.tlas), push.attach.globals);
             payload.color_depth.rgb = shade_material<SHADING_QUALITY_LOW>(
@@ -326,6 +328,26 @@ void entry_closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionA
         // line.start = WorldRayDirection() * RayTCurrent() + WorldRayOrigin();
         // line.end = WorldRayDirection() * RayTCurrent() + WorldRayOrigin() + tri_point.face_normal * 0.1f;
         // debug_draw_line(push.attach.globals.debug, line);
+    }
+    else // Far hits are not shaded fully, instead resample projected probe radiance 
+    {
+        // TODO: Early out and shade these coherently in a followup pass.
+
+        const float3 sample_offset_direction = tri_point.face_normal;
+        const float3 sample_direction = float3(0,0,0); // ignored with probe_relative_sample_dir
+        const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
+
+        PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
+        
+        payload.color_depth.rgb = pgi_sample_probe_volume(
+            push.attach.globals, &push.attach.globals.pgi_settings, info,
+            sample_position, push.attach.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
+            push.attach.probe_color.get(),
+            push.attach.probe_visibility.get(),
+            push.attach.probe_info.get(),
+            push.attach.probe_requests.get()
+        ) * ambient_occlusion;
+        payload.color_depth.a = RayTCurrent();
     }
 
     

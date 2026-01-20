@@ -1230,8 +1230,8 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         };
 
         auto const build_size_info = _device.blas_build_sizes(blas_build_info);
-        DBG_ASSERT_TRUE_M(build_size_info.build_scratch_size < std::numeric_limits<u32>::max, "Round up to multiple only handles 32bit values");
-        DBG_ASSERT_TRUE_M(scratch_buffer_offset_alignment < std::numeric_limits<u32>::max, "Round up to multiple only handles 32 bit values");
+        DBG_ASSERT_TRUE_M(build_size_info.build_scratch_size < std::numeric_limits<u32>::max(), "Round up to multiple only handles 32bit values");
+        DBG_ASSERT_TRUE_M(scratch_buffer_offset_alignment < std::numeric_limits<u32>::max(), "Round up to multiple only handles 32 bit values");
         u64 aligned_scratch_size = round_up_to_multiple(s_cast<u32>(build_size_info.build_scratch_size), s_cast<u32>(scratch_buffer_offset_alignment));
         DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_mesh_acceleration_structure_build_scratch_buffer_size,
             "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
@@ -1241,7 +1241,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 
         blas_build_info.scratch_data = scratch_device_address + current_scratch_buffer_offset;
         current_scratch_buffer_offset += aligned_scratch_size;
-        DBG_ASSERT_TRUE_M(build_size_info.acceleration_structure_size < std::numeric_limits<u32>::max, "Round up to multiple only handles 32 bit values");
+        DBG_ASSERT_TRUE_M(build_size_info.acceleration_structure_size < std::numeric_limits<u32>::max(), "Round up to multiple only handles 32 bit values");
         auto const aligned_accel_structure_size = round_up_to_multiple(s_cast<u32>(build_size_info.acceleration_structure_size), 256u);
         auto blas = _device.create_blas({
             .size = aligned_accel_structure_size,

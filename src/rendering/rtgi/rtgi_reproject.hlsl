@@ -11,7 +11,7 @@
 
 [shader("compute")]
 [numthreads(RTGI_DENOISE_DIFFUSE_X,RTGI_DENOISE_DIFFUSE_Y,1)]
-func entry_reproject(uint2 dtid : SV_DispatchThreadID)
+func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
 {
     let push = rtgi_denoise_diffuse_reproject_push;
     if (any(dtid.xy >= push.size))
@@ -35,8 +35,6 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     if (pixel_depth == 0.0f)
     {
         push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = 0;
-        push.attach.rtgi_diffuse_reprojected.get()[dtid] = float4(0,0,0,0);
-        push.attach.rtgi_diffuse2_reprojected.get()[dtid] = float2(0,0);
         return;
     }
 
@@ -80,10 +78,10 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
         };
 
         float4 normal_weights = {
-            dot(other_face_normals[0], pixel_face_normal) > 0.5f,
-            dot(other_face_normals[1], pixel_face_normal) > 0.5f,
-            dot(other_face_normals[2], pixel_face_normal) > 0.5f,
-            dot(other_face_normals[3], pixel_face_normal) > 0.5f,
+            1,//dot(other_face_normals[0], pixel_face_normal) > 0.5f,
+            1,//dot(other_face_normals[1], pixel_face_normal) > 0.5f,
+            1,//dot(other_face_normals[2], pixel_face_normal) > 0.5f,
+            1,//dot(other_face_normals[3], pixel_face_normal) > 0.5f,
         };
         // normalize normal weights so it does not interact with SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD.
         normal_weights;// *= rcp(normal_weights.x + normal_weights.y + normal_weights.z + normal_weights.w + 0.001f);
@@ -146,6 +144,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
     samplecnt = disocclusion ? 0u : samplecnt;
     push.attach.rtgi_samplecnt.get()[halfres_pixel_index] = samplecnt;
     
+    #if 0
     // Read in diffuse history
     const float4 history_Y0 = push.attach.rtgi_diffuse_history.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
     const float4 history_Y1 = push.attach.rtgi_diffuse_history.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
@@ -172,6 +171,7 @@ func entry_reproject(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.rtgi_diffuse_reprojected.get()[dtid] = y_history;
     push.attach.rtgi_diffuse2_reprojected.get()[dtid] = cocg_history;
+    #endif
 }
 
 #define RTGI_TS_BORDER 2
@@ -264,7 +264,7 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
     bool flood_fill_similar = false;
     float4 similar_converged_neighbor_diffuse = float4(0,0,0,0);
     float2 similar_converged_neighbor_diffuse2 = float2(0,0);
-    if (push.attach.globals.rtgi_settings.disocclusion_flood_fill_enabled)
+    if (false)
     {
         // The threshold prevents floodfilled pixels to be the src for other floodfills.
         // If this were not prevented, the floodfills would cascade bejond one pixel.
@@ -317,7 +317,7 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
     float2 diffuse2_blurred = push.attach.rtgi_diffuse2_blurred.get()[dtid];
     const float luma_diff_relative = (history_luma + avg_luma) / (min(history_luma, avg_luma)) * 0.5f - 1.0f;
     float luma_diff_history_scaling = 1.0f;
-    if (push.attach.globals.rtgi_settings.temporal_reactivity_heuristic_enabled)
+    if (false)
     {
         luma_diff_history_scaling = clamp(pow(0.5f, luma_diff_relative * 0.01f + 0.00001f) + 0.01f, 0.0f, 1.0f); // TODO: Add heavily firefly filtered fast history to clamp against!
     }
@@ -329,8 +329,9 @@ func entry_temporal_stabilization(uint2 dtid : SV_DispatchThreadID, uint in_grou
         rand();
     const float samplecnt =             // Accumulated samples
         min(push.attach.rtgi_samplecnt.get()[dtid], push.attach.globals.rtgi_settings.history_frames);
-    const float boosted_samplecount =   // When we hit max samplecount we artificially boost it to prevent bubbling
+    float boosted_samplecount =   // When we hit max samplecount we artificially boost it to prevent bubbling
         samplecnt * (temp_stabilization ? lerp(1.0f, 16.0f, temp_jitter) : 1.0f);
+    //boosted_samplecount = min(4.0f, boosted_samplecount);
     float history_blend = 
         (1.0f - 1.0f / (1.0f + boosted_samplecount))
         * clamp(luma_diff_history_scaling, 0.0f, 1.0f);

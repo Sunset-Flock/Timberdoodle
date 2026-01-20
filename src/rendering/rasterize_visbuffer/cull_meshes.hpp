@@ -48,7 +48,7 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
         .size = expansion_size,
         .name = std::string(info.buffer_name_prefix) + "masked_meshlet_expansion_buffer" + std::to_string(rand()),
     });
-    info.tg.add_task(daxa::InlineTask{std::string("clear work expansion buffer") + std::to_string(rand())}
+    info.tg.add_task(daxa::TransferTask(std::string("clear work expansion buffer") + std::to_string(rand()))
         .transfer.writes(opaque_expansion, masked_expansion)
         .executes( [=](daxa::TaskInterface ti)
         {

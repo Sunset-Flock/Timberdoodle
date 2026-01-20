@@ -100,9 +100,8 @@ namespace RenderTimes
         GroupNames{
             "RTGI",
             {
-                "TRACE_DIFFUSE",
-                "PRE_BLUR_DIFFUSE",
-                "REPROJECT_DIFFUSE",
+                "TRACE",
+                "HALFRES_REPROJECT",
                 "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE",
                 "RECONSTRUCT_HISTORY_APPLY_DIFFUSE",
                 "BLUR_DIFFUSE_0",
