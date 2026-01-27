@@ -876,7 +876,7 @@ void entry_main_cs(
         const bool ao_enabled = (AT.globals.ao_settings.mode != AMBIENT_OCCLUSION_MODE_NONE) && !AT.ao_image.id.is_empty();
         if (ao_enabled)
         {
-            ambient_occlusion = lerp(sqrt(AT.ao_image.get().Load(index).r), 1.0f, 0.1f);
+            ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.001f);
         }
 
         const bool rtgi_enabled = AT.globals.rtgi_settings.enabled;

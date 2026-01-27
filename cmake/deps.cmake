@@ -208,5 +208,6 @@ FetchContent_Declare(
     libpng
     GIT_REPOSITORY https://github.com/pnggroup/libpng.git
     GIT_TAG        v1.6.53
+    EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(libpng)

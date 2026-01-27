@@ -28,28 +28,29 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 {
     let push = rtgi_upscale_diffuse_push;
 
+    // Precalculate constants
+    CameraInfo* camera = &push.attach.globals->view_camera;
+    const uint2 full_res_pixel_index = min(dtid.xy, push.size-1);
+    const float2 full_res_render_target_size = push.attach.globals.settings.render_target_size.xy;
+    const float2 inv_half_res_render_target_size = rcp(float2(full_res_render_target_size / 2));
+    const float2 inv_full_res_render_target_size = rcp(full_res_render_target_size);
+    const float2 sv_xy = float2(full_res_pixel_index) + 0.5f;
+    const float2 uv = sv_xy * inv_full_res_render_target_size;
+    
+    // Load pixel depth and face normal
+    const float pixel_depth = push.attach.view_cam_depth.get()[full_res_pixel_index];
+    const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_face_normals.get()[full_res_pixel_index]);
+    const float3 pixel_detail_normal = uncompress_normal_octahedral_32(push.attach.view_camera_detail_normal_image.get()[full_res_pixel_index]);
+
+    // Calc pixel view attributes
+    const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
+    const float4 position_vs_pre_div = mul(camera.inv_proj, float4(ndc, 1.0f));
+    const float3 position_vs = -position_vs_pre_div.xyz / position_vs_pre_div.w;
+    const float3 pixel_face_normal_vs = mul(camera.view, float4(pixel_face_normal,0.0f)).xyz;
+
     // Upscale Spatial Result
     float3 upscaled_diffuse = (float3)0;
     {
-        // Precalculate constants
-        const CameraInfo camera = push.attach.globals->view_camera;
-        const uint2 full_res_pixel_index = min(dtid.xy, push.size-1);
-        const float2 full_res_render_target_size = push.attach.globals.settings.render_target_size.xy;
-        const float2 inv_half_res_render_target_size = rcp(float2(full_res_render_target_size / 2));
-        const float2 inv_full_res_render_target_size = rcp(full_res_render_target_size);
-        const float2 sv_xy = float2(full_res_pixel_index) + 0.5f;
-        const float2 uv = sv_xy * inv_full_res_render_target_size;
-        
-        // Load pixel depth and face normal
-        const float pixel_depth = push.attach.view_cam_depth.get()[full_res_pixel_index];
-        const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_face_normals.get()[full_res_pixel_index]);
-        const float3 pixel_detail_normal = uncompress_normal_octahedral_32(push.attach.view_camera_detail_normal_image.get()[full_res_pixel_index]);
-
-        // Calc pixel view attributes
-        const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
-        const float4 position_vs_pre_div = mul(camera.inv_proj, float4(ndc, 1.0f));
-        const float3 position_vs = -position_vs_pre_div.xyz / position_vs_pre_div.w;
-        const float3 pixel_face_normal_vs = mul(camera.view, float4(pixel_face_normal,0.0f)).xyz;
 
         // Preload Surrounding half res rtgi values
         // Each Group works on a 8x8 full res tile.
@@ -146,7 +147,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 acc_geo_weight += geometry_weight;
 
                 // Fallback calculation:
-                const float vs_dst_weight = exp(-abs(length(position_vs - sample_vs)));
+                const float vs_dst_weight = 1.0f * rcp( 1.0f + square(dot(position_vs - sample_vs, position_vs - sample_vs)));
                 const float fallback_weight = tent_weight * vs_dst_weight * (0.1f + max(0.0f, dot(sample_face_normal, pixel_face_normal)));
                 fallback_acc_diffuse += fallback_weight * sample_sh_y;
                 fallback_acc_diffuse2 += fallback_weight * sample_cocg;
@@ -157,15 +158,15 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Write upscaled diffuse:
         float4 upscaled_sh_y = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 upscaled_cocg = float2( 0.0f, 0.0f );
-        if (acc_weight > 0.1f)
+        if (acc_weight > 1.0f)
         {
             upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
             upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);
         }
         else
         {
-            upscaled_sh_y = fallback_acc_diffuse * rcp(fallback_acc_weight);
-            upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight);
+            upscaled_sh_y = fallback_acc_diffuse * rcp(fallback_acc_weight + 0.0000001f);
+            upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
         }
 
         if (!push.attach.globals.rtgi_settings.upscale_enabled)
@@ -193,22 +194,11 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     float2 reprojected_statistics_history = float2(0.0f, 0.0f);
     {
         // Load relevant global data
-        const CameraInfo current_camera = push.attach.globals->view_camera;
-        const CameraInfo previous_camera = push.attach.globals->view_camera_prev_frame;
-        const float2 render_target_size = push.attach.globals.settings.render_target_size.xy;
-        const float2 inv_render_target_size = 1.0f / render_target_size;
-        const float2 sv_xy = float2(dtid.xy) + 0.5f;
-
-        // Load relevant per pixel data
-        const float pixel_depth = push.attach.view_cam_depth.get()[dtid];
-        const float pixel_vs_depth = linearise_depth(pixel_depth, current_camera.near_plane);
-        const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_face_normals.get()[dtid.xy]);
+        CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
 
         // Calculate pixel positions in cur and prev frame
-        const float3 sv_pos = float3(sv_xy, pixel_depth);
-        const float2 uv = sv_xy * inv_render_target_size;
         const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
-        const float4 world_position_pre_div = mul(current_camera.inv_view_proj, float4(ndc, 1.0f));
+        const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
         const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
         const float3 expected_world_position_prev_frame = world_position; // No support for dynamic object motion vectors yet.
         const float4 view_position_prev_frame_pre_div = mul(previous_camera.view, float4(expected_world_position_prev_frame, 1.0f));
@@ -216,13 +206,13 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         const float4 ndc_prev_frame_pre_div = mul(previous_camera.view_proj, float4(expected_world_position_prev_frame, 1.0f));
         const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
         const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
-        const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * inv_render_target_size;
+        const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * inv_full_res_render_target_size;
         const float3 sv_pos_prev_frame = float3( sv_xy_prev_frame, ndc_prev_frame.z );
         const float3 primary_ray_prev_frame = normalize(world_position - previous_camera.position);
 
         // Load previous frame half res depth
-        const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), render_target_size );
-        const float2 reproject_gather_uv = ( float2( bilinear_filter_at_prev_pos.origin ) + 1.0 ) * inv_render_target_size;
+        const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), full_res_render_target_size );
+        const float2 reproject_gather_uv = ( float2( bilinear_filter_at_prev_pos.origin ) + 1.0 ) * inv_full_res_render_target_size;
         SamplerState nearest_clamp_s = push.attach.globals.samplers.nearest_clamp.get();
         const float4 depth_reprojected4 = push.attach.rtgi_depth_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
         const uint4 face_normals_packed_reprojected4 = push.attach.rtgi_face_normal_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
@@ -239,12 +229,12 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z),
                 uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w),
             };
-
+            // Normal weights cause too much disocclusion on fine detailed geometry!
             float4 normal_weights = {
-                dot(other_face_normals[0], pixel_face_normal) > 0.1f,
-                dot(other_face_normals[1], pixel_face_normal) > 0.1f,
-                dot(other_face_normals[2], pixel_face_normal) > 0.1f,
-                dot(other_face_normals[3], pixel_face_normal) > 0.1f,
+                1,//dot(other_face_normals[0], pixel_face_normal) > -0.3f,
+                1,//dot(other_face_normals[1], pixel_face_normal) > -0.3f,
+                1,//dot(other_face_normals[2], pixel_face_normal) > -0.3f,
+                1,//dot(other_face_normals[3], pixel_face_normal) > -0.3f,
             };
             normal_similarity = {
                 normal_similarity_weight(other_face_normals[0], pixel_face_normal),
@@ -259,10 +249,10 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             float4 surface_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
             {
                 const float3 texel_ndc_prev_frame[4] = {
-                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,0)) * inv_render_target_size * 2.0f - 1.0f, depth_reprojected4[0]),
-                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,0)) * inv_render_target_size * 2.0f - 1.0f, depth_reprojected4[1]),
-                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,1)) * inv_render_target_size * 2.0f - 1.0f, depth_reprojected4[2]),
-                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,1)) * inv_render_target_size * 2.0f - 1.0f, depth_reprojected4[3]),
+                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,0)) * inv_full_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[0]),
+                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,0)) * inv_full_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[1]),
+                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(0,1)) * inv_full_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[2]),
+                    float3(float2(bilinear_filter_at_prev_pos.origin + 0.5f + float2(1,1)) * inv_full_res_render_target_size * 2.0f - 1.0f, depth_reprojected4[3]),
                 };
                 const float4 texel_ws_prev_frame_pre_div[4] = {
                     mul(previous_camera.inv_view_proj, float4(texel_ndc_prev_frame[0], 1.0f)),
@@ -277,10 +267,10 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                     texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
                 };
                 surface_weights = {
-                    surface_weight(inv_render_target_size, current_camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 8),
-                    surface_weight(inv_render_target_size, current_camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 8),
-                    surface_weight(inv_render_target_size, current_camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 8),
-                    surface_weight(inv_render_target_size, current_camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 8),
+                    surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 8),
+                    surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 8),
+                    surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 8),
+                    surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 8),
                 };
                 surface_weights[0] *= depth_reprojected4[0] != 0.0f;
                 surface_weights[1] *= depth_reprojected4[1] != 0.0f;
@@ -360,11 +350,21 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         }
     }
 
+    const float FAST_HISTORY_FRAMES = 4.0f;
+
+    // e5r9g9b9 banding fix:
     const float max_channel = max(upscaled_diffuse.x, max(upscaled_diffuse.y, upscaled_diffuse.z));
     upscaled_diffuse = max(upscaled_diffuse, max_channel * (1.0f / 7.0f));
 
+    // Temporal firefly filter:
+    if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled && reprojected_samplecount > FAST_HISTORY_FRAMES) 
+    {
+        const float fast_mean = reprojected_statistics_history[0];
+        const float fast_relative_std_dev = sqrt(reprojected_statistics_history[1]);
+        upscaled_diffuse = min(upscaled_diffuse, fast_mean.xxx * (1.0f + fast_relative_std_dev));
+    }
+
     // Accumulate statistics
-    const float FAST_HISTORY_FRAMES = 4.0f;
     float fast_mean_diff_scaling = 1.0f;
     float fast_variance_scaling = 1.0f;
     float fast_mean = 0.0f;
@@ -423,7 +423,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const bool at_max_samples = reprojected_samplecount > (push.attach.globals.rtgi_settings.history_frames - 1.0f);
     if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled && at_max_samples)
     {
-        stable_history = clamp(lerp(reprojected_color_history1, accumulated_color, 1.0f / 16.0f), accumulated_color * 0.95f, accumulated_color * 1.05f);
+        stable_history = clamp(lerp(reprojected_color_history1, accumulated_color, min(blend_factor, 0.25f)), accumulated_color * 0.9f, accumulated_color * 1.1f);
     }
 
     push.attach.rtgi_accumulated_color_full_res.get()[dtid] = uint2(

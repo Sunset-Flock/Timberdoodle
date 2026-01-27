@@ -319,8 +319,8 @@ void Renderer::compile_pipelines()
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {rtgi_reproject_diffuse_compile_info()},
-        {rtgi_reconstruct_history_gen_mips_diffuse_compile_info()},
-        {rtgi_reconstruct_history_apply_diffuse_compile_info()},
+        {rtgi_pre_blur_prepare_compile_info()},
+        {rtgi_pre_blur_apply_compile_info()},
         {rtgi_adaptive_blur_diffuse_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {rtgi_diffuse_temporal_stabilization_compile_info()},
@@ -1154,9 +1154,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         //     })
         //     .executes(rtgi_reproject_full_callback, render_context.get()));
         
-        auto rtgi_reconstructed_history_diffuse_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse_image").mips(0,5);
-        auto rtgi_reconstructed_history_diffuse2_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_reconstructed_history_diffuse2_image").mips(0,5);
-        tg.add_task(daxa::HeadTask<RtgiReconstructHistoryGenMipsDiffuseH::Info>()
+        auto rtgi_pre_blur_mips_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_pre_blur_mips_image").mips(0,5);
+        auto rtgi_pre_blur_mips2_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_pre_blur_mips2_image").mips(0,5);
+        tg.add_task(daxa::HeadTask<RtgiPreblurPrepareH::Info>()
             .head_views({
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
@@ -1164,42 +1164,43 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .rtgi_diffuse_raw = rtgi_trace_diffuse_image,
                 .rtgi_diffuse2_raw = rtgi_trace_diffuse2_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
-                .rtgi_reconstructed_diffuse_history = rtgi_reconstructed_history_diffuse_image,
-                .rtgi_reconstructed_diffuse2_history = rtgi_reconstructed_history_diffuse2_image,
+                .view_cam_half_res_normals = view_camera_half_res_face_normal_image,
+                .rtgi_reconstructed_diffuse_history = rtgi_pre_blur_mips_image,
+                .rtgi_reconstructed_diffuse2_history = rtgi_pre_blur_mips2_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
             })
-            .executes(rtgi_reconstruct_history_gen_mips_diffuse_callback, render_context.get()));
+            .executes(rtgi_pre_blur_prepare_callback, render_context.get()));
 
-        auto rtgi_filtered_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_filtered_diffuse_image");
-        auto rtgi_filtered_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_filtered_diffuse2_image");
-        tg.add_task(daxa::HeadTask<RtgiReconstructHistoryApplyDiffuseH::Info>()
+        auto rtgi_pre_blurred_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_pre_blurred_diffuse_image");
+        auto rtgi_pre_blurred_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_pre_blurred_diffuse2_image");
+        tg.add_task(daxa::HeadTask<RtgiPreBlurApply::Info>()
             .head_views({
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
-                .rtgi_reconstructed_diffuse_history = rtgi_reconstructed_history_diffuse_image,
-                .rtgi_reconstructed_diffuse2_history = rtgi_reconstructed_history_diffuse2_image,
+                .rtgi_reconstructed_diffuse_history = rtgi_pre_blur_mips_image,
+                .rtgi_reconstructed_diffuse2_history = rtgi_pre_blur_mips2_image,
                 .view_cam_half_res_depth = view_camera_half_res_depth_image,
                 .view_cam_half_res_normals = view_camera_half_res_face_normal_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
-                .rtgi_diffuse_filtered = rtgi_filtered_diffuse_image,
-                .rtgi_diffuse2_filtered = rtgi_filtered_diffuse2_image,
+                .rtgi_diffuse_filtered = rtgi_pre_blurred_diffuse_image,
+                .rtgi_diffuse2_filtered = rtgi_pre_blurred_diffuse2_image,
             })
-            .executes(rtgi_reconstruct_history_apply_diffuse_callback, render_context.get()));
+            .executes(rtgi_pre_blur_apply_callback, render_context.get()));
 
-        daxa::TaskImageView rtgi_diffuse_filtered = rtgi_filtered_diffuse_image.mips(0); 
-        daxa::TaskImageView rtgi_diffuse2_filtered = rtgi_filtered_diffuse2_image;
+        daxa::TaskImageView rtgi_diffuse_filtered = rtgi_pre_blurred_diffuse_image.mips(0); 
+        daxa::TaskImageView rtgi_diffuse2_filtered = rtgi_pre_blurred_diffuse2_image;
         if (render_context->render_data.rtgi_settings.spatial_filter_enabled)
         {
-            auto rtgi_blurred0_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_blurred0_diffuse_image").mips(0,4);
-            auto rtgi_blurred0_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred0_diffuse2_image").mips(0,4);
+            auto rtgi_blurred0_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_blurred0_diffuse_image");
+            auto rtgi_blurred0_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred0_diffuse2_image");
             tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur1")
                 .head_views({
                     .globals = render_context->tgpu_render_data.view(),
                     .debug_image = debug_image,
                     .clocks_image = clocks_image,
-                    .rtgi_diffuse_before = rtgi_filtered_diffuse_image,
-                    .rtgi_diffuse2_before = rtgi_filtered_diffuse2_image,
+                    .rtgi_diffuse_before = rtgi_pre_blurred_diffuse_image,
+                    .rtgi_diffuse2_before = rtgi_pre_blurred_diffuse2_image,
                     .rtgi_samplecnt = rtgi_samplecnt_image,
                     .view_cam_half_res_depth = view_camera_half_res_depth_image,
                     .view_cam_half_res_face_normals = view_camera_half_res_face_normal_image,
@@ -1208,8 +1209,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 })
                 .executes(rtgi_adaptive_blur_diffuse_callback, render_context.get(), 0u));
 
-            auto rtgi_blurred1_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_blurred1_diffuse_image").mips(0,4);
-            auto rtgi_blurred1_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred1_diffuse2_image").mips(0,4);
+            auto rtgi_blurred1_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_blurred1_diffuse_image");
+            auto rtgi_blurred1_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_blurred1_diffuse2_image");
             tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
                 .head_views({
                     .globals = render_context->tgpu_render_data.view(),
@@ -1256,7 +1257,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         auto rtgi_full_diffuse2_accumulated_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_full_diffuse2_accumulated_image", 1);
         auto rtgi_full_samplecount_image = rtgi_create_samplecnt_image(tg, render_context.get(), "rtgi_full_samplecount_image", 1);
         rtgi_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(tg, render_context.get(), "rtgi_per_pixel_diffuse");
-
 
         auto rtgi_accumualted_color_image = tg.create_transient_image({
             .format = daxa::Format::R32G32_UINT,
@@ -1675,7 +1675,6 @@ auto Renderer::prepare_frame(
         recreate_framebuffer();
         clear_select_buffers();
     }
-    main_task_graph.imgui_ui();
     {
         // std::chrono::time_point<std::chrono::steady_clock> start = std::chrono::steady_clock::now();
         // main_task_graph = create_main_task_graph();

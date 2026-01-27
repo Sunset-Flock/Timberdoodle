@@ -35,10 +35,11 @@ func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth)
 
 // geometry weight is used as a hard cutoff for edge stopping when spatial blurring
 func planar_surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
-    float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
+    float threshold_scale = 2.0f,                   // a larger factor leads to more bleeding across edges but also less noise on small details
+    bool only_consider_negative_distance = false    // when calculating the valid sample footprint we want to ignore "enclosed" pixels as we handle those separately.
 ) -> float
 {
-    const float plane_distance = abs(dot(other_vs_position - vs_position, vs_normal));
+    const float plane_distance = only_consider_negative_distance ? abs(min(0.0f, dot(other_vs_position - vs_position, vs_normal))) : abs(dot(other_vs_position - vs_position, vs_normal));
     const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
     const float validity = step( plane_distance, threshold );
     return validity;
@@ -57,12 +58,30 @@ func surface_weight(float2 inv_render_target_size, float near_plane, float depth
     const float plane_distance_threshold = pixel_size * threshold_scale;
     // In rare cases, two pixels will accidentally lie on the same plane but are actually far away from each other.
     // The distance test rejects those cases.
-    const float dist_threshold = pixel_size * 32.0f; 
+    const float dist_threshold = pixel_size * 32.0f * threshold_scale; 
     const float validity = 
         step(distance, dist_threshold) *
         step(plane_distanceA, plane_distance_threshold) * 
         step(plane_distanceB, plane_distance_threshold);
     return validity;
+}
+func planar_surface_distances4(
+    float2 inv_render_target_size, 
+    float near_plane, 
+    float depth, 
+    float3 vs_position, 
+    float3 vs_normal, 
+    float4 other_quad_depths
+) -> float4
+{
+    // We assume 0 positional difference in view space xy. Good enough approximation.
+    const float4 plane_distances = {
+        abs((linearise_depth(other_quad_depths.x, near_plane) - vs_position.z) * vs_normal.z),
+        abs((linearise_depth(other_quad_depths.y, near_plane) - vs_position.z) * vs_normal.z),
+        abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z) * vs_normal.z),
+        abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z) * vs_normal.z),
+    };
+    return plane_distances * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
 }
 
 func planar_surface_weight4(
@@ -155,8 +174,7 @@ float3 y_co_cg_to_linear_corrected( float y, float sh_y_0, float2 co_cg )
 
 float3 sh_resolve_diffuse( float4 sh_y, float2 co_cg, float3 normal )
 {
-    float y = dot( normal, sh_y.xyz ) + 0.5 * sh_y.w;
-
+    float y = max(dot( normal, sh_y.xyz ) + 0.5f * sh_y.w, sh_y.w * 0.1f);
     return y_co_cg_to_linear_corrected( y, sh_y.w, co_cg );
 }
 

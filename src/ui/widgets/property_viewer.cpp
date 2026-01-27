@@ -142,6 +142,7 @@ namespace tido
 
                         auto plot_layer = [](DensityProfileLayer * layers)
                         {
+                            #if 0
                             ImPlot::PushStyleColor(ImPlotCol_FrameBg, bg_4);
                             if (ImPlot::BeginPlot("##lines", {ImGui::GetContentRegionAvail().x - 20, 0}))
                             {
@@ -166,6 +167,7 @@ namespace tido
                                 ImPlot::EndPlot();
                             }
                             ImPlot::PopStyleColor();
+                            #endif
                         };
                         if (ImGui::CollapsingHeader("Atmosphere Settings"))
                         {

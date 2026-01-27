@@ -92,7 +92,7 @@ struct UIEngine
         bool widget_scene_interface = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
-        bool tg_debug_ui = false;
+        bool tg_debug_ui = true;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 fixed_camera_x_rotation_speed = 0.0f;
@@ -104,6 +104,9 @@ struct UIEngine
         RenderTimesHistory render_times_history = {};
         Window *window = {};
         SceneInterfaceState scene_interface = {};
+        #if DAXA_ENABLE_TASK_GRAPH_MK2
+        daxa::TaskGraphDebugUi main_task_graph_debug_ui = {};
+        #endif
 
         i32 debug_visualization_index = {};
         i32 debug_visualization_index_override = {};

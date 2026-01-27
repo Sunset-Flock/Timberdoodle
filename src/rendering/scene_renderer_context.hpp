@@ -102,8 +102,8 @@ namespace RenderTimes
             {
                 "TRACE",
                 "HALFRES_REPROJECT",
-                "RECONSTRUCT_HISTORY_GEN_MIPS_DIFFUSE",
-                "RECONSTRUCT_HISTORY_APPLY_DIFFUSE",
+                "PRE_BLUR_PREPARE",
+                "PRE_BLUR_APPLY",
                 "BLUR_DIFFUSE_0",
                 "BLUR_DIFFUSE_1",
                 "TEMPORAL_STABILIZATION",

@@ -1,7 +1,7 @@
 #include "ui.hpp"
 #include <filesystem>
 #include <imgui.h>
-#include <implot.h>
+// #include <implot.h>
 #include <algorithm>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
@@ -101,7 +101,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
       window{&window}
 {
     auto * imgui_context = ImGui::CreateContext();
-    [[maybe_unused]] auto * implot_context = ImPlot::CreateContext();
+    //auto * implot_context = ImPlot::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO & io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -124,8 +124,15 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
         io.Fonts->AddFontFromFileTTF(text_font_path.data(), text_font_size, nullptr, io.Fonts->GetGlyphRangesDefault());
     }
     /// NOTE: Needs to after all the init functions
-    imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, false});
+    imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, nullptr, false});
     setup_colors();
+    
+    #if DAXA_ENABLE_TASK_GRAPH_MK2
+    main_task_graph_debug_ui = daxa::TaskGraphDebugUi({
+        .device = gpu_context->device,
+        .imgui_renderer = imgui_renderer,
+    });
+    #endif
 }
 
 void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state)
@@ -293,14 +300,14 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
         }
         ImGui::End();
     }
-    tg_resource_debug_ui(
-        imgui_renderer, 
-        render_context.gpu_context->device, 
-        render_context.gpu_context->lin_clamp_sampler, 
-        render_context.gpu_context->nearest_clamp_sampler, 
-        render_context.tg_debug, 
-        app_state.frame_index, 
-        tg_debug_ui);
+    // tg_resource_debug_ui(
+    //     imgui_renderer, 
+    //     render_context.gpu_context->device, 
+    //     render_context.gpu_context->lin_clamp_sampler, 
+    //     render_context.gpu_context->nearest_clamp_sampler, 
+    //     render_context.tg_debug, 
+    //     app_state.frame_index, 
+    //     tg_debug_ui);
 }
 
 void UIEngine::ui_scene_graph(Scene const & scene)
@@ -1117,6 +1124,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
             }
 
             static float history = 20.0f;
+            #if 0
             if (ImPlot::BeginPlot("##Scrolling"))
             {
                 decltype(render_times_history.scrolling_ewa) * measurements_scrolling_selected = {};
@@ -1148,6 +1156,8 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                 }
                 ImPlot::EndPlot();
             }
+
+            #endif
 
             for (i32 group_i = 0; group_i < RenderTimes::GROUP_COUNT; group_i++)
             {
@@ -1352,5 +1362,5 @@ UIEngine::~UIEngine()
             gpu_context->device.destroy_image(icons.at(icon_idx));
         }
     }
-    ImPlot::DestroyContext();
+    //ImPlot::DestroyContext();
 }

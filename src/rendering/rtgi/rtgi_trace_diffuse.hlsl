@@ -137,7 +137,7 @@ void ray_gen()
 
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
-            const uint flags = RAY_FLAG_FORCE_OPAQUE; 
+            const uint flags = {};//RAY_FLAG_FORCE_OPAQUE; 
             TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 
             float4 sh_y_new;

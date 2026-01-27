@@ -130,7 +130,8 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     {
         if (!payload.miss)
         {
-            payload.power *= sqrt((push.attach.globals.ao_settings.ao_range - RayTCurrent())/push.attach.globals.ao_settings.ao_range);
+            const float relative_t = (push.attach.globals.ao_settings.ao_range - RayTCurrent()) / push.attach.globals.ao_settings.ao_range;
+            payload.power *= pow(lerp(relative_t, 1.0f, 0.01f), 0.2f);
         }
     }
 }

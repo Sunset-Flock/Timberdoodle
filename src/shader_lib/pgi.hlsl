@@ -348,7 +348,7 @@ func pgi_sample_probe_volume(
     PGISampleInfo info,
     float3 sample_position,
     float3 camera_position,
-    float3 sample_direction, 
+    float3 sample_normal, 
     float3 offset_direction, // usually best to use face or geometry normal here.
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -375,7 +375,7 @@ func pgi_sample_probe_volume(
     const int lower_cascade             = int(floor(cascade));
     const float4 lower_cascade_result   = pgi_sample_probe_volume_cascade(
         globals, settings, info,
-        sample_position, camera_position, sample_direction, offset_direction,
+        sample_position, camera_position, sample_normal, offset_direction,
         probes, probe_visibility, probe_infos, probe_requests,
         lower_cascade
     );
@@ -392,7 +392,7 @@ func pgi_sample_probe_volume(
     {
         const float4 higher_cascade_result      = pgi_sample_probe_volume_cascade(
             globals, settings, info,
-            sample_position, camera_position, sample_direction, offset_direction,
+            sample_position, camera_position, sample_normal, offset_direction,
             probes, probe_visibility, probe_infos, probe_requests,
             higher_cascade
         );
@@ -418,7 +418,7 @@ func pgi_sample_probe_volume_cascade(
     PGISampleInfo info,
     float3 sample_position,
     float3 camera_position,
-    float3 sample_direction, 
+    float3 sample_normal, 
     float3 offset_direction,
     Texture2DArray<float4> probes,
     Texture2DArray<float2> probe_visibility,
@@ -480,7 +480,7 @@ func pgi_sample_probe_volume_cascade(
             // Backface influence
             // - smooth backface used to ensure smooth transition between probes
             // - normal cosine influence causes hash cutoffs
-            const float smooth_backface_term = (1.0f + dot(sample_direction, shading_to_probe_direction)) * 0.5f;
+            const float smooth_backface_term = (1.0f + dot(sample_normal, shading_to_probe_direction)) * 0.5f;
             probe_weight *= square(smooth_backface_term);
 
             // visibility (Chebyshev)
@@ -584,7 +584,7 @@ func pgi_sample_probe_volume_cascade(
                 color_sample_stable_index.z += reg_settings.cascade_count * reg_settings.probe_count.z;
             }
 
-            float3 color_sample_direction = sample_direction;
+            float3 color_sample_direction = sample_normal;
             if (info.probe_relative_sample_dir)
             {
                 color_sample_direction = -shading_to_probe_direction;

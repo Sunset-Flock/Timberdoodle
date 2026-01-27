@@ -133,9 +133,13 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             const float3 sample_direction = float3(0,0,0); // ignored with probe_relative_sample_dir
             const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
 
-            const float indirect_ao_range = 1.5f;
             const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
-            const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
+
+            // PGI can not be trusted at short hit ranges as its very leaky for fine details.
+            // Apply strong range based AO to the PGI radiance.
+            const float indirect_ao_range = 1.0f;
+            const float relative_ao_t = min(indirect_ao_range, RayTCurrent()) / indirect_ao_range;
+            const float ambient_occlusion = square(relative_ao_t) * pgi_enabled;
 
             PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
             

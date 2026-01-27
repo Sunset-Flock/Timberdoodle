@@ -188,7 +188,11 @@ auto Application::run() -> i32
             if (execute_frame)
             {
                 auto start_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
-                _renderer->main_task_graph.execute({});
+                _renderer->main_task_graph.execute({ 
+                    #if DAXA_ENABLE_TASK_GRAPH_MK2
+                    .debug_ui = &_ui_engine->main_task_graph_debug_ui,
+                    #endif
+                 });
                 auto end_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
                 app_state.time_taken_cpu_renderer_record = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_record - start_time_taken_cpu_renderer_record).count() / 1'000'000.0f;
             }
@@ -304,6 +308,12 @@ void Application::update()
         return;
     }
     _ui_engine->main_update(*_renderer->render_context, *_scene, app_state);
+    if (_renderer->main_task_graph.get() && _ui_engine->tg_debug_ui)
+    {
+        #if DAXA_ENABLE_TASK_GRAPH_MK2
+        _ui_engine->tg_debug_ui = _ui_engine->main_task_graph_debug_ui.update(_renderer->main_task_graph);
+        #endif
+    }
     if (app_state.use_preset_camera)
     {
         app_state.cinematic_camera.process_input(*_window, app_state.delta_time);
