@@ -772,11 +772,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
 
                 ImGui::Checkbox("Enable VSM", &enable);
 
-                if (!enable)
-                {
-                    printf("SAKY FIX THIS!!!!! VSM DISABLED DOES NOT WORK!!!!!\n");
-                    exit(-1);
-                }
                 ImGui::Checkbox("Shadow everything", &shadow_everything);
                 ImGui::Checkbox("Force clip level", &force_clip_level);
                 ImGui::SliderInt("Force mesh Lod", &render_context.render_data.vsm_settings.force_mesh_lod, -1, 15);

@@ -781,7 +781,7 @@ void entry_main_cs(
 
         // TODO(msakmary) refactor into a separate function.
         // ====================================================================================================================================
-        bool skip_shadows = false;
+        bool skip_shadows = AT.globals->vsm_settings.enable == 0;
 
         const float2 uv_offset = 0.5f * AT.globals->settings.render_target_size_inv.xy;
         float2 real_screen_space_uv = (float2(svdtid.xy) + float2(0.5f)) * AT.globals.settings.render_target_size_inv;
@@ -824,7 +824,7 @@ void entry_main_cs(
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
         const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.1, 1.0);
         float shadow = 1.0f;
-        if((AT.globals->vsm_settings.enable != 0 && !skip_shadows))
+        if(!skip_shadows)
         {
 #if RT
             shadow = get_dir_shadow_rt(tri_point.world_position, tri_point.world_normal, primary_ray, screen_uv) * sun_norm_dot;

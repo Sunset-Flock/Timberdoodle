@@ -130,6 +130,7 @@ float get_vsm_point_shadow_coarse(
     int point_light_idx,
     float point_norm_dot)
 {
+    if(globals.vsm_settings.enable == 0) { return 1.0f; }
     const float3 point_ws = vsm_point_lights[point_light_idx].light.position;
     const float3 point_to_frag_norm = normalize(world_position - point_ws);
 
@@ -231,11 +232,12 @@ float get_vsm_spot_shadow(
     int spot_light_idx, 
     ScreenSpacePixelWorldFootprint pixel_footprint)
 {
+    if(globals.vsm_settings.enable == 0) { return 1.0f; }
+
     SpotMipInfo info = project_into_spot_light(spot_light_idx, pixel_footprint, globals, vsm_spot_lights, vsm_globals);
-    if(info.page_texel_coords.x == -1) 
-    {
-        return float(1.0f);
-    }
+
+    if(info.page_texel_coords.x == -1) { return float(1.0f); }
+
     info.mip_level = clamp(info.mip_level, 0, 6);
 
     const float filter_radius = 0.2;
