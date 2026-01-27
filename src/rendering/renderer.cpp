@@ -1409,41 +1409,44 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(DebugVirtualPageTableTask{
-            .views = DebugVirtualPageTableTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_globals = vsm_state.globals.view(),
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table.view(),
-            },
-            .render_context = render_context.get(),
-        });
+        if(render_context->render_data.vsm_settings.enable)
+        {
+            tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.add_task(DebugVirtualPageTableTask{
+                .views = DebugVirtualPageTableTask::Views{
+                    .globals = render_context->tgpu_render_data.view(),
+                    .vsm_globals = vsm_state.globals.view(),
+                    .vsm_page_table = vsm_page_table_view,
+                    .vsm_debug_page_table = render_context->gpu_context->shader_debug_context.vsm_debug_page_table.view(),
+                },
+                .render_context = render_context.get(),
+            });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(RecreateShadowMapTask{
-            .views = RecreateShadowMapTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_clip_projections = vsm_state.clip_projections,
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_memory_block = vsm_state.memory_block.view(),
-                .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
-                .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
-            },
-            .render_context = render_context.get(),
-        });
+            tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.add_task(RecreateShadowMapTask{
+                .views = RecreateShadowMapTask::Views{
+                    .globals = render_context->tgpu_render_data.view(),
+                    .vsm_clip_projections = vsm_state.clip_projections,
+                    .vsm_page_table = vsm_page_table_view,
+                    .vsm_memory_block = vsm_state.memory_block.view(),
+                    .vsm_overdraw_debug = vsm_state.overdraw_debug_image,
+                    .vsm_recreated_shadow_map = render_context->gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.view(),
+                },
+                .render_context = render_context.get(),
+            });
 
-        tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
-        tg.add_task(DebugMetaMemoryTableTask{
-            .views = DebugMetaMemoryTableTask::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .vsm_page_table = vsm_page_table_view,
-                .vsm_meta_memory_table = vsm_state.meta_memory_table.view(),
-                .vsm_debug_meta_memory_table = render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table.view(),
-                .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
-            },
-            .render_context = render_context.get(),
-        });
+            tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
+            tg.add_task(DebugMetaMemoryTableTask{
+                .views = DebugMetaMemoryTableTask::Views{
+                    .globals = render_context->tgpu_render_data.view(),
+                    .vsm_page_table = vsm_page_table_view,
+                    .vsm_meta_memory_table = vsm_state.meta_memory_table.view(),
+                    .vsm_debug_meta_memory_table = render_context->gpu_context->shader_debug_context.vsm_debug_meta_memory_table.view(),
+                    .vsm_point_spot_page_table = vsm_point_spot_page_table_view,
+                },
+                .render_context = render_context.get(),
+            });
+        }
     }
 
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
