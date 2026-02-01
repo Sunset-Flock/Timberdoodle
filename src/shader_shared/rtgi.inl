@@ -9,11 +9,13 @@ struct RtgiSettings
 {
     daxa_i32 enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 firefly_filter_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 super_agressive_firefly_filter_enabled TIDO_DEFAULT_VALUE(0);
     daxa_i32 disocclusion_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 spatial_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 upscale_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 sh_resolve_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_fast_history_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 temporal_firefly_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_accumulation_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_stabilization_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 history_frames TIDO_DEFAULT_VALUE(32);

@@ -362,20 +362,12 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float max_channel = max(upscaled_diffuse.x, max(upscaled_diffuse.y, upscaled_diffuse.z));
     upscaled_diffuse = max(upscaled_diffuse, max_channel * (1.0f / 7.0f));
 
-    // Temporal firefly filter:
-    const bool temporal_firefly_filter = true;
-    if (temporal_firefly_filter && reprojected_samplecount > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled)//push.attach.globals.rtgi_settings.temporal_stabilization_enabled && ) 
-    {
-        const float fast_relative_std_dev = sqrt(reprojected_fast_temporal_variance);
-        upscaled_diffuse = min(upscaled_diffuse, reprojected_fast_temporal_mean.xxx * (1.0f + fast_relative_std_dev));
-    }
-
-    push.attach.debug_image.get()[dtid] = reprojected_fast_temporal_variance.xxxx;
 
     // Accumulate statistics
     float fast_mean_diff_scaling = 1.0f;
     float fast_variance_scaling = 1.0f;
     float fast_mean = 0.0f;
+    float fast_std_dev_relative = 0.0f;
     if (push.attach.globals.rtgi_settings.temporal_fast_history_enabled)
     {
         const float reprojected_fast_std_dev = sqrt(reprojected_fast_temporal_variance);
@@ -398,6 +390,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // This makes its much more usable than raw radiance variance as fp16 is not precise enough for small values otherwise.
         const float new_fast_relative_variance = square(abs(accumulated_fast_mean - new_fast_brightness) / accumulated_fast_mean);
         const float accumulated_fast_relative_variance = perceptual_lerp(reprojected_fast_temporal_variance, new_fast_relative_variance, fast_variance_blend_factor);
+        fast_std_dev_relative = sqrt(accumulated_fast_relative_variance);
         const float accumulated_relative_std_dev = sqrt(accumulated_fast_relative_variance);
         fast_variance_scaling = square(1.0f + accumulated_relative_std_dev * 2);
 
@@ -407,6 +400,17 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         fast_mean_diff_scaling = square(1.0f / relevant_fast_to_slow_mean_ratio);
 
         push.attach.rtgi_accumulated_statistics_full_res.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
+    }
+
+    // Temporal firefly filter:
+    const bool temporal_firefly_filter = true;
+    if (temporal_firefly_filter && reprojected_samplecount > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled) 
+    {
+        const float fast_relative_std_dev = sqrt(reprojected_fast_temporal_variance);
+        const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + fast_relative_std_dev * 0.5f) / rgb_brightness(upscaled_diffuse);
+        const float clamp_factor = min(1.0f, brightness_ratio);
+        upscaled_diffuse = clamp_factor * upscaled_diffuse;
+        push.attach.debug_image.get()[dtid.xy] = float4(reprojected_fast_temporal_mean, reprojected_fast_temporal_mean * fast_relative_std_dev, reprojected_fast_temporal_mean * reprojected_fast_temporal_variance, 0);
     }
 
     // Accumulate Color
@@ -422,7 +426,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     }
 
     const float blend_factor = (1.0f / (1.0f + history_confidence));
-    float3 accumulated_color = lerp(reprojected_color_history0, upscaled_diffuse, blend_factor);
+    float3 accumulated_color = perceptual_lerp(reprojected_color_history0, upscaled_diffuse, blend_factor);
     
     float3 stable_history = accumulated_color;
     const bool at_max_samples = reprojected_samplecount > (push.attach.globals.rtgi_settings.history_frames - 1.0f);
@@ -433,7 +437,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // In these cases we need to widen the clamp temporarily to keep the image stable.
         // One the blend becomes small again, we reduce the clamp to not get stuck on bad stable history.
         float clamp_range = lerp(0.1f, 1.0f, blend_factor); 
-        stable_history = clamp(lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (1.0f / 32.0f)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
+
+        stable_history = clamp(lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
 
     push.attach.rtgi_accumulated_color_full_res.get()[dtid] = uint2(

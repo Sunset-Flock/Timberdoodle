@@ -60,7 +60,7 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
 
         const uint gs_dst = (gs_src + 1u) & 0x1u;
 
-        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = min_depth;
+        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = max_depth;
         gs_diffuse[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse;
 
         gs_diffuse2[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse2;
@@ -100,45 +100,56 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
     float weight_acc = 0.0f;
-    const float base_weight = 8.0f;
+    const float base_weight = 1.0f;
+    const float closest_weight = 1.0f / 8.0f;
+    const float furthest_weight = 1.0f / (8.0f * 8.0f);
     float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index] * base_weight;
     float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index] * base_weight;
     weight_acc += base_weight;
-    const uint FLATTEN_NEIGHBOR_SAMPLES = 8;
+    const uint FLATTEN_NEIGHBOR_SAMPLES = push.attach.globals.rtgi_settings.super_agressive_firefly_filter_enabled ? 0 : 8;
     for (uint i = 0; i < FLATTEN_NEIGHBOR_SAMPLES; ++i)
     {
         int2 offset = int2(0,0);
+        float weight = 1.0f;
         if (i == 0)
         {
             offset = int2(-1,0);
+            weight = closest_weight;
         }
         if (i == 1)
         {
-            offset = int2(0,-1);
+            offset = int2(1,0);
+            weight = closest_weight;
         }
         if (i == 2)
         {
-            offset = int2(1,0);
+            offset = int2(0,-1);
+            weight = closest_weight;
         }
         if (i == 3)
         {
             offset = int2(0,1);
+            weight = closest_weight;
         }
         if (i == 4)
         {
             offset = int2(2,2);
+            weight = furthest_weight;
         }
         if (i == 5)
         {
-            offset = int2(-2,2);
+            offset = int2(-2,-2);
+            weight = furthest_weight;
         }
         if (i == 6)
         {
             offset = int2(2,-2);
+            weight = furthest_weight;
         }
         if (i == 7)
         {
-            offset = int2(-2,-2);
+            offset = int2(-2,2);
+            weight = furthest_weight;
         }
         const int2 max_index = push.size - 1;
         int2 load_idx = int2(dtid.xy) + int2(offset);
@@ -153,9 +164,9 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
         const float geometric_weight_real = abs(plane_distance) < 2.0f ? 1.0f : 0.0f;
 
-        diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * geometric_weight_real;
-        diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * geometric_weight_real;
-        weight_acc += geometric_weight_real;
+        diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * geometric_weight_real * weight;
+        diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * geometric_weight_real * weight;
+        weight_acc += geometric_weight_real * weight;
     }
 
     push.attach.rtgi_flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
@@ -198,7 +209,6 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const int FILTER_WIDTH = 2;
     const int FILTER_STRIDE = 2;
     const int FILTER_TAPS_TOTAL = square(FILTER_WIDTH * 2 + 1) - 1;
-    const float FIREFLY_THRESHOLD_RELATIVE = 32.0f;
 
     // Sums samples that are either closer or similar to the pixel
     // When low, indicates that the pixel is on a hard to de-noise thin geometry.
