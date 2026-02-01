@@ -6,18 +6,19 @@
 #include "shader_lib/misc.hlsl"
 #include "rtgi_shared.hlsl"
 
+[[vk::push_constant]] RtgiPreBlurFlattenPush rtgi_pre_blur_flatten_push;
 [[vk::push_constant]] RtgiPreblurPreparePush rtgi_pre_blur_prepare_push;
 [[vk::push_constant]] RtgiPreBlurApplyPush rtgi_reconstruct_history_apply_diffuse_push;
 
-groupshared float4 gs_diffuse[RTGI_PRE_BLUR_PREPARE_DIFFUSE_X][RTGI_PRE_BLUR_PREPARE_DIFFUSE_Y][2];
-groupshared float gs_depth[RTGI_PRE_BLUR_PREPARE_DIFFUSE_X][RTGI_PRE_BLUR_PREPARE_DIFFUSE_Y][2];
-groupshared float2 gs_diffuse2[RTGI_PRE_BLUR_PREPARE_DIFFUSE_X][RTGI_PRE_BLUR_PREPARE_DIFFUSE_Y][2];
+groupshared float4 gs_diffuse[RTGI_PRE_BLUR_PREPARE_X][RTGI_PRE_BLUR_PREPARE_Y][2];
+groupshared float gs_depth[RTGI_PRE_BLUR_PREPARE_X][RTGI_PRE_BLUR_PREPARE_Y][2];
+groupshared float2 gs_diffuse2[RTGI_PRE_BLUR_PREPARE_X][RTGI_PRE_BLUR_PREPARE_Y][2];
 
 func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mip, uint gs_src)
 {
     let mip_factor = 1u << mip;
     let push = rtgi_pre_blur_prepare_push;
-    let remaining_block_size = RTGI_PRE_BLUR_PREPARE_DIFFUSE_X/mip_factor;
+    let remaining_block_size = RTGI_PRE_BLUR_PREPARE_X/mip_factor;
     if (all(group_thread_index.xy < remaining_block_size))
     {
         float4 depths = {
@@ -38,28 +39,28 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
         };
         const float weight_sum = (weights.x + weights.y + weights.z + weights.w);
         weights *= rcp(weight_sum + 0.00000001f);
-        const float4 diffuse = 
-            weights.x * gs_diffuse[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src] +
-            weights.y * gs_diffuse[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src] +
-            weights.z * gs_diffuse[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src] +
-            weights.w * gs_diffuse[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src];
         const float depth = 
             weights.x * gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src] +
             weights.y * gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src] +
             weights.z * gs_depth[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src] +
             weights.w * gs_depth[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src];
+        const float4 diffuse = 
+            weights.x * gs_diffuse[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src] +
+            weights.y * gs_diffuse[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src] +
+            weights.z * gs_diffuse[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src] +
+            weights.w * gs_diffuse[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src];
         const float2 diffuse2 = 
             weights.x * gs_diffuse2[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 0][gs_src] +
             weights.y * gs_diffuse2[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 0][gs_src] +
             weights.z * gs_diffuse2[group_thread_index.x * 2 + 0][group_thread_index.y * 2 + 1][gs_src] +
             weights.w * gs_diffuse2[group_thread_index.x * 2 + 1][group_thread_index.y * 2 + 1][gs_src];
             
-        const uint2 group_index = thread_index / RTGI_PRE_BLUR_PREPARE_DIFFUSE_X;
+        const uint2 group_index = thread_index / RTGI_PRE_BLUR_PREPARE_X;
         const uint2 mip_group_base_index = group_index * remaining_block_size;
 
         const uint gs_dst = (gs_src + 1u) & 0x1u;
 
-        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = depth;
+        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = min_depth;
         gs_diffuse[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse;
 
         gs_diffuse2[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse2;
@@ -69,13 +70,106 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
 }
 
 [shader("compute")]
-[numthreads(RTGI_PRE_BLUR_PREPARE_DIFFUSE_X,RTGI_PRE_BLUR_PREPARE_DIFFUSE_Y,1)]
+[numthreads(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y,1)]
+func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID)
+{
+    let push = rtgi_pre_blur_flatten_push;
+
+    // Load and precalculate constants
+    CameraInfo *camera = &push.attach.globals->view_camera;
+    const float2 inv_half_res_render_target_size = rcp(float2(push.size));
+    const uint2 half_res_index = dtid.xy;
+    const uint2 clamped_index = min( half_res_index, push.size - 1u );      // Can not early out because we perform group shared memory barriers later!
+
+    // Load Pixel Data
+    const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
+    const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_normals.get()[clamped_index]);
+
+    if (any(dtid.xy >= push.size) || depth == 0.0f)
+    {
+        return;
+    }
+
+    // Reconstruct pixel positions based on depth
+    const float pixel_vs_depth = linearise_depth(depth, camera.near_plane);
+    const float2 uv = (float2(clamped_index.xy) + 0.5f) * inv_half_res_render_target_size;
+    const float3 ndc = float3(uv * 2.0f - 1.0f, depth);
+    const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
+    const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
+    const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
+    const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
+
+    float weight_acc = 0.0f;
+    const float base_weight = 8.0f;
+    float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index] * base_weight;
+    float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index] * base_weight;
+    weight_acc += base_weight;
+    const uint FLATTEN_NEIGHBOR_SAMPLES = 8;
+    for (uint i = 0; i < FLATTEN_NEIGHBOR_SAMPLES; ++i)
+    {
+        int2 offset = int2(0,0);
+        if (i == 0)
+        {
+            offset = int2(-1,0);
+        }
+        if (i == 1)
+        {
+            offset = int2(0,-1);
+        }
+        if (i == 2)
+        {
+            offset = int2(1,0);
+        }
+        if (i == 3)
+        {
+            offset = int2(0,1);
+        }
+        if (i == 4)
+        {
+            offset = int2(2,2);
+        }
+        if (i == 5)
+        {
+            offset = int2(-2,2);
+        }
+        if (i == 6)
+        {
+            offset = int2(2,-2);
+        }
+        if (i == 7)
+        {
+            offset = int2(-2,-2);
+        }
+        const int2 max_index = push.size - 1;
+        int2 load_idx = int2(dtid.xy) + int2(offset);
+        load_idx = flip_oob_index(load_idx, max_index);
+
+        const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
+        
+        const float2 sample_ndc_xy = ndc.xy + float2(offset) * inv_half_res_render_target_size * 2;
+        const float3 sample_value_ndc = float3(sample_ndc_xy, sample_depth);
+        const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));
+        const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
+        const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
+        const float geometric_weight_real = abs(plane_distance) < 2.0f ? 1.0f : 0.0f;
+
+        diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * geometric_weight_real;
+        diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * geometric_weight_real;
+        weight_acc += geometric_weight_real;
+    }
+
+    push.attach.rtgi_flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
+    push.attach.rtgi_flattened_diffuse2.get()[dtid.xy] = diffuse2 * rcp(weight_acc);
+}
+
+[shader("compute")]
+[numthreads(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y,1)]
 func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID)
 {
     let push = rtgi_pre_blur_prepare_push;
 
     // Load and precalculate constants
-    const CameraInfo camera = push.attach.globals->view_camera;
+    CameraInfo *camera = &push.attach.globals->view_camera;
     const float2 inv_half_res_render_target_size = rcp(float2(push.size));
     const uint2 half_res_index = dtid.xy;
     const uint2 clamped_index = min( half_res_index, push.size - 1u );      // Can not early out because we perform group shared memory barriers later!
@@ -101,12 +195,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float2 filtered_diffuse2 = diffuse2;
     float foreground_footprint_quality = 1.0f;
 
-    const float FIREFLY_AVERAGE_POWER = 4.0f;
     const int FILTER_WIDTH = 2;
-    const int FILTER_STRIDE = 1;
+    const int FILTER_STRIDE = 2;
     const int FILTER_TAPS_TOTAL = square(FILTER_WIDTH * 2 + 1) - 1;
-    float radiance_power_sum = 0.0f;
-    float radiance_power_sample_cnt = 0.0f;
+    const float FIREFLY_THRESHOLD_RELATIVE = 32.0f;
 
     // Sums samples that are either closer or similar to the pixel
     // When low, indicates that the pixel is on a hard to de-noise thin geometry.
@@ -116,27 +208,40 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // When low, indicates the pixel is in a hole with very small size, hard to de-noise.
     float background_sample_weight = 0.0f;  
 
+    // Calculating outlier-resiliant geometric mean
+    float y_mean_geometric_acc = 0.0f;
+    float y_mean_acc = 0.0f;
+    float y_geometric_variance_acc = 0.0f;
+    float y_variance_acc = 0.0f;
+    float y_max = 0.0f;
+    float valid_neightborhood_samples = 0.0f;
+
+    float4 blurred_diffuse = float4(0,0,0,0);
+    float2 blurred_diffuse2 = float2(0,0);
+    float blurred_weight_acc = 0.0f;
+
     for (int x = -FILTER_WIDTH; x <= FILTER_WIDTH; ++x)
     {
         for (int y = -FILTER_WIDTH; y <= FILTER_WIDTH; ++y)
         {
-            if (x == 0 && y == 0)
-                continue;
-
             const int2 max_index = push.size - 1;
             int2 load_idx = int2(x,y) * FILTER_STRIDE + int2(clamped_index);
             load_idx = flip_oob_index(load_idx, max_index);
 
-            const float4 sample_diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
-            const float2 sample_diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
+            float4 sample_diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
+            float2 sample_diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
             const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
             const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
             const bool is_sky = sample_depth == 0.0f;
-            if (!is_sky)
+            if (!is_sky && !(x == 0 && y == 0))
             {
-                const float weight = 1;
-                radiance_power_sum += pow(y_co_cg_to_brightness(float3(sample_diffuse.w, sample_diffuse2)), 1.0f / FIREFLY_AVERAGE_POWER) * weight;
-                radiance_power_sample_cnt += weight;
+                float geometric_mean_acc_value = log(max(sample_diffuse.w, 0.000001f) + 1.0f);
+                y_mean_geometric_acc += geometric_mean_acc_value;
+                valid_neightborhood_samples += 1.0f;
+                y_geometric_variance_acc += square(geometric_mean_acc_value);
+                y_mean_acc += sample_diffuse.w;
+                y_variance_acc += square(sample_diffuse.w);
+                y_max = max(y_max, sample_diffuse.w);
             }
 
             {
@@ -156,6 +261,14 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 const float weight = geometric_weight * (is_sky ? 0.0f : 1.0f);
 
                 foreground_sample_weight += weight;
+
+                {
+                    const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
+                    const float geometric_weight_real = abs(plane_distance) < 2.0f ? 1.0f : 0.0f;
+                    blurred_weight_acc += geometric_weight_real;
+                    blurred_diffuse += geometric_weight_real * sample_diffuse;
+                    blurred_diffuse2 += geometric_weight_real * sample_diffuse2;
+                }
             }
 
             // Accumulate neighbors that are close to or behind current pixel.
@@ -164,7 +277,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     }
 
     // Firefly Filter + Background Pixel Suppression
-    if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0 && radiance_power_sample_cnt > 0)
+    if (valid_neightborhood_samples > 1.0f)
     {
         const float BACKGROUND_WEIGHT_MIN = 0.3f;
         const float BACKGROUND_WEIGHT_MAX = 0.5f;
@@ -174,19 +287,34 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const float tight_neighborgood_factor = 1.0f;
         #endif
 
-        const float filter_threshold = max(1.0f, RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME * FIREFLY_AVERAGE_POWER * tight_neighborgood_factor);
+        const float EPSILON = 0.00000001f;
 
-        const float power_average = pow(radiance_power_sum * rcp(radiance_power_sample_cnt), FIREFLY_AVERAGE_POWER);
-        const float power_pixel_luma = y_co_cg_to_brightness(float3(diffuse.w, diffuse2));
-        const float power_ratio = power_pixel_luma / (0.00000001f + power_average);
-        const float supression_factor = min(1.0f, filter_threshold / power_ratio );
-        filtered_diffuse *= supression_factor;
-        filtered_diffuse2 *= supression_factor;
+        const float y_mean = y_mean_acc * rcp(valid_neightborhood_samples);
+        const float y_variance = (y_variance_acc * rcp(valid_neightborhood_samples)) - square(y_mean);
+        const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
 
-        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(power_pixel_luma,power_average,0,0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(power_pixel_luma,power_average,0,0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(power_pixel_luma,power_average,0,0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(power_pixel_luma,power_average,0,0);
+        const float y_mean_geometric = exp(y_mean_geometric_acc * rcp(valid_neightborhood_samples)) - 1.0f;
+        const float y_variance_geometric = max(EPSILON, (exp(y_geometric_variance_acc * rcp(valid_neightborhood_samples)) - 1.0f) - square(y_mean_geometric));
+        const float y_variance_geometric_relative = (y_variance_geometric) / (y_mean_geometric + EPSILON);
+
+        const float CEILING_FACTOR = 1.0f;
+        const float y_center_pixel = filtered_diffuse.w;
+        const float y_ratio = (y_mean * CEILING_FACTOR) / (EPSILON + y_center_pixel);
+        const float y_geometric_ratio = (y_mean_geometric * CEILING_FACTOR) / (EPSILON + y_center_pixel);
+        const float linear_y_clamp_factor = min(y_ratio, 1.0f);
+        const float geometric_y_clamp_factor = min(y_geometric_ratio, 1.0f);
+
+        const float adjustment_factor = geometric_y_clamp_factor;
+        if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)
+        {
+            filtered_diffuse *= adjustment_factor;
+            filtered_diffuse2 *= adjustment_factor;
+        }
+
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(y_mean, y_mean_geometric, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(y_mean, y_mean_geometric, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(y_mean, y_mean_geometric, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(y_mean, y_mean_geometric, 0, 0);
     }
 
     // Foreground footprint quality estimation
@@ -263,12 +391,12 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
 
         // A plane pixel dist of 1 is provides good acceptance and sharp edge rejection for usual surfaces.
         // For pixels with poor spatial footprint quality, we drastically increase the threshold to allow a lot more blurring across edges.
-        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 32.0f;
-        const float MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 1.0f; 
+        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 8.0f;
+        const float MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 0.5f; 
 
         const float CONSIDERED_SPATIAL_FOOTPRINT_QUALITY_RANGE = 1.0f; // sample footprints greater than this value are considered full quality
         
-        const float MIN_DISOCCLUSION_FIX_FRAMES = push.attach.globals.rtgi_settings.history_frames * 0.25f;
+        const float MIN_DISOCCLUSION_FIX_FRAMES = push.attach.globals.rtgi_settings.history_frames * 0.5f;
         const float max_disocclusion_fix_frames = push.attach.globals.rtgi_settings.history_frames;
 
         const float raw_foreground_footprint_quality = fetch1.a;
@@ -280,7 +408,9 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
 
         const float max_samplecount = push.attach.globals.rtgi_settings.history_frames;
         const float disocclusion_blur_frames = lerp(max_disocclusion_fix_frames, MIN_DISOCCLUSION_FIX_FRAMES, foreground_footprint_quality);
-        const float disocclusion_blur_mip = lerp(MAX_MIP, MIN_MIP, min(1.0f, pixel_samplecnt * (1.0f / disocclusion_blur_frames)));
+        const float disocclusion_fix_value = min(1.0f, pixel_samplecnt * (1.0f / disocclusion_blur_frames));
+        const float disocclusion_fix_strength = pow(disocclusion_fix_value, 1.0f);
+        const float disocclusion_blur_mip = lerp(MAX_MIP, MIN_MIP, disocclusion_fix_strength);
 
         mip = int(ceil(max(disocclusion_blur_mip, foreground_footprint_quality_mip)) + 0.001f);
 

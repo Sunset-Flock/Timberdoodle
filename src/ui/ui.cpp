@@ -131,6 +131,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     main_task_graph_debug_ui = daxa::TaskGraphDebugUi({
         .device = gpu_context->device,
         .imgui_renderer = imgui_renderer,
+        .buffer_layout_cache_folder = "./tg_dbg_cache",
     });
     #endif
 }

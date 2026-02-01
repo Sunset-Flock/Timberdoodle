@@ -102,6 +102,7 @@ namespace RenderTimes
             {
                 "TRACE",
                 "HALFRES_REPROJECT",
+                "PRE_BLUR_FLATTEN",
                 "PRE_BLUR_PREPARE",
                 "PRE_BLUR_APPLY",
                 "BLUR_DIFFUSE_0",

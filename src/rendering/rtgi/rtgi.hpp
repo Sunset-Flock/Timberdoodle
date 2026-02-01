@@ -33,6 +33,7 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
 }
 
 MAKE_COMPUTE_COMPILE_INFO(rtgi_reproject_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reproject.hlsl", "entry_reproject_halfres")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_flatten_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_flatten")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_prepare")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_apply")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
@@ -92,7 +93,13 @@ inline void rtgi_denoise_diffuse_reproject_callback(daxa::TaskInterface ti, Rend
 inline void rtgi_pre_blur_prepare_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreblurPrepareH::Info::AT;
-    rtgi_common_task_callback(RtgiPreblurPreparePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_PREPARE_DIFFUSE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
+    rtgi_common_task_callback(RtgiPreblurPreparePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
+}
+
+inline void rtgi_pre_blur_flatten_callback(daxa::TaskInterface ti, RenderContext * render_context)
+{
+    auto const & AT = RtgiPreBlurFlattenH::Info::AT;
+    rtgi_common_task_callback(RtgiPreBlurFlattenPush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_FLATTEN_X, RenderTimes::index<"RTGI", "PRE_BLUR_FLATTEN">(), rtgi_pre_blur_flatten_compile_info().name);
 }
 
 inline void rtgi_pre_blur_apply_callback(daxa::TaskInterface ti, RenderContext * render_context)

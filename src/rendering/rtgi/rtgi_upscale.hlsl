@@ -16,8 +16,12 @@ groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 
-#define RTGI_PERCEPTUAL_EXPONENT 2.0f
+#define RTGI_PERCEPTUAL_EXPONENT 4.0f
 func perceptual_lerp(float a, float b, float v) -> float
+{
+    return pow(lerp(pow(a + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
+}
+func perceptual_lerp(float3 a, float3 b, float v) -> float3
 {
     return pow(lerp(pow(a + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
 }
@@ -83,7 +87,6 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 gs_half_vs_positions[preload_index.x][preload_index.y] = float4(sample_vs, 0.0f);
 
                 gs_half_samplecount[preload_index.x][preload_index.y] = push.attach.rtgi_samplecount_half_res.get()[load_index];
-                // push.attach.debug_image.get()[dtid] = float4(preload_index, 0.0f, 1.0f);
             }
             GroupMemoryBarrierWithGroupSync();
         }
@@ -190,8 +193,9 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     // reproject history data
     float reprojected_samplecount = 0;
     float3 reprojected_color_history0 = float3(0.0f, 0.0f, 0.0f);
-    float3 reprojected_color_history1 = float3(0.0f, 0.0f, 0.0f);
-    float2 reprojected_statistics_history = float2(0.0f, 0.0f);
+    float3 reprojected_stable_history = float3(0.0f, 0.0f, 0.0f);
+    float reprojected_fast_temporal_mean = 0.0f;
+    float reprojected_fast_temporal_variance = 0.0f;
     {
         // Load relevant global data
         CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
@@ -329,10 +333,10 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             rgb9e5_to_float3(color_history1[2]),
             rgb9e5_to_float3(color_history1[3]),
         };
-        reprojected_color_history1 = apply_bilinear_custom_weights( decoded_color_history1[0], decoded_color_history1[1], decoded_color_history1[2], decoded_color_history1[3], sample_weights );
-        if (any(isnan(reprojected_color_history1)))
+        reprojected_stable_history = apply_bilinear_custom_weights( decoded_color_history1[0], decoded_color_history1[1], decoded_color_history1[2], decoded_color_history1[3], sample_weights );
+        if (any(isnan(reprojected_stable_history)))
         {
-            reprojected_color_history1 = {};
+            reprojected_stable_history = {};
         }
 
         // Fast Mean Fast Varaince History
@@ -343,11 +347,13 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             unpack_2x16f_uint(statistics_history[2]),
             unpack_2x16f_uint(statistics_history[3]),
         };
-        reprojected_statistics_history = apply_bilinear_custom_weights( decoded_statistics_history[0], decoded_statistics_history[1], decoded_statistics_history[2], decoded_statistics_history[3], sample_weights );
+        float2 reprojected_statistics_history = apply_bilinear_custom_weights( decoded_statistics_history[0], decoded_statistics_history[1], decoded_statistics_history[2], decoded_statistics_history[3], sample_weights );
         if (any(isnan(reprojected_statistics_history)))
         {
             reprojected_statistics_history = {};
         }
+        reprojected_fast_temporal_mean = reprojected_statistics_history[0];
+        reprojected_fast_temporal_variance = reprojected_statistics_history[1];
     }
 
     const float FAST_HISTORY_FRAMES = 4.0f;
@@ -357,12 +363,14 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     upscaled_diffuse = max(upscaled_diffuse, max_channel * (1.0f / 7.0f));
 
     // Temporal firefly filter:
-    if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled && reprojected_samplecount > FAST_HISTORY_FRAMES) 
+    const bool temporal_firefly_filter = true;
+    if (temporal_firefly_filter && reprojected_samplecount > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled)//push.attach.globals.rtgi_settings.temporal_stabilization_enabled && ) 
     {
-        const float fast_mean = reprojected_statistics_history[0];
-        const float fast_relative_std_dev = sqrt(reprojected_statistics_history[1]);
-        upscaled_diffuse = min(upscaled_diffuse, fast_mean.xxx * (1.0f + fast_relative_std_dev));
+        const float fast_relative_std_dev = sqrt(reprojected_fast_temporal_variance);
+        upscaled_diffuse = min(upscaled_diffuse, reprojected_fast_temporal_mean.xxx * (1.0f + fast_relative_std_dev));
     }
+
+    push.attach.debug_image.get()[dtid] = reprojected_fast_temporal_variance.xxxx;
 
     // Accumulate statistics
     float fast_mean_diff_scaling = 1.0f;
@@ -370,14 +378,12 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     float fast_mean = 0.0f;
     if (push.attach.globals.rtgi_settings.temporal_fast_history_enabled)
     {
-        const float reprojected_fast_variance = reprojected_statistics_history[1];
-        const float reprojected_fast_std_dev = sqrt(reprojected_fast_variance);
-        const float reprojected_fast_mean = reprojected_statistics_history[0];
+        const float reprojected_fast_std_dev = sqrt(reprojected_fast_temporal_variance);
 
         // Temporal Fast History inspired by [DD2018: Tomasz Stachowiak - Stochastic all the things](https://www.youtube.com/watch?v=MyTOGHqyquU)
         const float fast_mean_blend_factor = (1.0f / (1.0f + min(reprojected_samplecount, FAST_HISTORY_FRAMES)));
 
-        const float fast_variance_history_frames = 8.0f;
+        const float fast_variance_history_frames = 4.0f;
         const float fast_variance_blend_factor = (1.0f / (1.0f + min(reprojected_samplecount, fast_variance_history_frames)));
         
         // Fast History only stores brightness to save space.
@@ -385,13 +391,13 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Perceptual lerp uses power scaling to give lower values more weight.
         // For normal accumulation this causes too much variance.
         // But for the fast mean we want high reactivity to changes to dark.
-        const float accumulated_fast_mean = perceptual_lerp(reprojected_fast_mean, new_fast_brightness, fast_mean_blend_factor);
+        const float accumulated_fast_mean = perceptual_lerp(reprojected_fast_temporal_mean, new_fast_brightness, fast_mean_blend_factor);
         fast_mean = accumulated_fast_mean;
 
         // Variance is stored in relative units.
         // This makes its much more usable than raw radiance variance as fp16 is not precise enough for small values otherwise.
         const float new_fast_relative_variance = square(abs(accumulated_fast_mean - new_fast_brightness) / accumulated_fast_mean);
-        const float accumulated_fast_relative_variance = perceptual_lerp(reprojected_fast_variance, new_fast_relative_variance, fast_variance_blend_factor);
+        const float accumulated_fast_relative_variance = perceptual_lerp(reprojected_fast_temporal_variance, new_fast_relative_variance, fast_variance_blend_factor);
         const float accumulated_relative_std_dev = sqrt(accumulated_fast_relative_variance);
         fast_variance_scaling = square(1.0f + accumulated_relative_std_dev * 2);
 
@@ -415,15 +421,19 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         history_confidence = 0.0f;
     }
 
-
     const float blend_factor = (1.0f / (1.0f + history_confidence));
     float3 accumulated_color = lerp(reprojected_color_history0, upscaled_diffuse, blend_factor);
     
     float3 stable_history = accumulated_color;
     const bool at_max_samples = reprojected_samplecount > (push.attach.globals.rtgi_settings.history_frames - 1.0f);
-    if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled && at_max_samples)
+    if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled)
     {
-        stable_history = clamp(lerp(reprojected_color_history1, accumulated_color, min(blend_factor, 0.25f)), accumulated_color * 0.9f, accumulated_color * 1.1f);
+        // With a high blend value, we take on MORE new values, and take LESS of the history.
+        // We cannot trust history in this case because we could not accumulate for long OR there is a large difference between history and fast history.
+        // In these cases we need to widen the clamp temporarily to keep the image stable.
+        // One the blend becomes small again, we reduce the clamp to not get stuck on bad stable history.
+        float clamp_range = lerp(0.1f, 1.0f, blend_factor); 
+        stable_history = clamp(lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (1.0f / 32.0f)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
 
     push.attach.rtgi_accumulated_color_full_res.get()[dtid] = uint2(

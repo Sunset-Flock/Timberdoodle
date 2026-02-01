@@ -319,6 +319,7 @@ void Renderer::compile_pipelines()
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {rtgi_reproject_diffuse_compile_info()},
+        {rtgi_pre_blur_flatten_compile_info()},
         {rtgi_pre_blur_prepare_compile_info()},
         {rtgi_pre_blur_apply_compile_info()},
         {rtgi_adaptive_blur_diffuse_compile_info()},
@@ -1153,6 +1154,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         //         .view_cam_face_normals = view_camera_face_normal_image,
         //     })
         //     .executes(rtgi_reproject_full_callback, render_context.get()));
+        auto rtgi_flattened_diffuse_image = rtgi_create_diffuse_image(tg, render_context.get(), "rtgi_flattened_diffuse_image");
+        auto rtgi_flattened_diffuse2_image = rtgi_create_diffuse2_image(tg, render_context.get(), "rtgi_flattened_diffuse2_image");
+        tg.add_task(daxa::HeadTask<RtgiPreBlurFlattenH::Info>()
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .debug_image = debug_image,
+                .clocks_image = clocks_image,
+                .rtgi_diffuse_raw = rtgi_trace_diffuse_image,
+                .rtgi_diffuse2_raw = rtgi_trace_diffuse2_image,
+                .view_cam_half_res_normals = view_camera_half_res_face_normal_image,
+                .rtgi_flattened_diffuse = rtgi_flattened_diffuse_image,
+                .rtgi_flattened_diffuse2 = rtgi_flattened_diffuse2_image,
+                .view_cam_half_res_depth = view_camera_half_res_depth_image,
+            })
+            .executes(rtgi_pre_blur_flatten_callback, render_context.get()));
         
         auto rtgi_pre_blur_mips_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_pre_blur_mips_image").mips(0,5);
         auto rtgi_pre_blur_mips2_image = rtgi_create_reconstructed_history_image(tg, render_context.get(), "rtgi_pre_blur_mips2_image").mips(0,5);
@@ -1161,8 +1177,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .globals = render_context->tgpu_render_data.view(),
                 .debug_image = debug_image,
                 .clocks_image = clocks_image,
-                .rtgi_diffuse_raw = rtgi_trace_diffuse_image,
-                .rtgi_diffuse2_raw = rtgi_trace_diffuse2_image,
+                .rtgi_diffuse_raw = rtgi_flattened_diffuse_image,
+                .rtgi_diffuse2_raw = rtgi_flattened_diffuse2_image,
                 .rtgi_samplecnt = rtgi_samplecnt_image,
                 .view_cam_half_res_normals = view_camera_half_res_face_normal_image,
                 .rtgi_reconstructed_diffuse_history = rtgi_pre_blur_mips_image,

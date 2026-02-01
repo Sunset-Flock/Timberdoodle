@@ -9,7 +9,7 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
-#define RTGI_SPATIAL_FILTER_RADIUS_MAX 32
+#define RTGI_SPATIAL_FILTER_RADIUS_MAX 36
 
 #define RTGI_DISOCCLUSION_SCALING 1
 #define RTGI_DISOCCLUSION_FLOOD_FILL 1
@@ -31,6 +31,12 @@ func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth)
     const float near_plane_ws_size = near_plane * 2;
     const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
     return pixel_ws_size;
+}
+
+func planar_surface_distance(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
+{
+    const float plane_distance = dot(other_vs_position - vs_position, vs_normal);
+    return plane_distance * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
 }
 
 // geometry weight is used as a hard cutoff for edge stopping when spatial blurring
