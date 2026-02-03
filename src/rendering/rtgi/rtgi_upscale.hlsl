@@ -362,7 +362,6 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float max_channel = max(upscaled_diffuse.x, max(upscaled_diffuse.y, upscaled_diffuse.z));
     upscaled_diffuse = max(upscaled_diffuse, max_channel * (1.0f / 7.0f));
 
-
     // Accumulate statistics
     float fast_mean_diff_scaling = 1.0f;
     float fast_variance_scaling = 1.0f;
@@ -403,14 +402,13 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     }
 
     // Temporal firefly filter:
-    const bool temporal_firefly_filter = true;
-    if (temporal_firefly_filter && reprojected_samplecount > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled) 
+    if (reprojected_samplecount > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled) 
     {
         const float fast_relative_std_dev = sqrt(reprojected_fast_temporal_variance);
         const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + fast_relative_std_dev * 0.5f) / rgb_brightness(upscaled_diffuse);
         const float clamp_factor = min(1.0f, brightness_ratio);
         upscaled_diffuse = clamp_factor * upscaled_diffuse;
-        push.attach.debug_image.get()[dtid.xy] = float4(reprojected_fast_temporal_mean, reprojected_fast_temporal_mean * fast_relative_std_dev, reprojected_fast_temporal_mean * reprojected_fast_temporal_variance, 0);
+        // push.attach.debug_image.get()[dtid.xy] = float4(reprojected_fast_temporal_mean, reprojected_fast_temporal_mean * fast_relative_std_dev, reprojected_fast_temporal_mean * reprojected_fast_temporal_variance, 0);
     }
 
     // Accumulate Color

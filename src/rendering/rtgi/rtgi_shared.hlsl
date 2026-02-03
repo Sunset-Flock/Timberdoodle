@@ -71,7 +71,7 @@ func surface_weight(float2 inv_render_target_size, float near_plane, float depth
         step(plane_distanceB, plane_distance_threshold);
     return validity;
 }
-func planar_surface_distances4(
+func depth_distances4(
     float2 inv_render_target_size, 
     float near_plane, 
     float depth, 
@@ -82,10 +82,10 @@ func planar_surface_distances4(
 {
     // We assume 0 positional difference in view space xy. Good enough approximation.
     const float4 plane_distances = {
-        abs((linearise_depth(other_quad_depths.x, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.y, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z) * vs_normal.z),
+        abs((linearise_depth(other_quad_depths.x, near_plane) - vs_position.z)),
+        abs((linearise_depth(other_quad_depths.y, near_plane) - vs_position.z)),
+        abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z)),
+        abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z)),
     };
     return plane_distances * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
 }

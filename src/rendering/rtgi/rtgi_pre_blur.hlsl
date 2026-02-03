@@ -60,7 +60,7 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
 
         const uint gs_dst = (gs_src + 1u) & 0x1u;
 
-        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = max_depth;
+        gs_depth[group_thread_index.x][group_thread_index.y][gs_dst] = depth;
         gs_diffuse[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse;
 
         gs_diffuse2[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse2;
@@ -207,7 +207,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float foreground_footprint_quality = 1.0f;
 
     const int FILTER_WIDTH = 2;
-    const int FILTER_STRIDE = 2;
+    const int FILTER_STRIDE = 1;
     const int FILTER_TAPS_TOTAL = square(FILTER_WIDTH * 2 + 1) - 1;
 
     // Sums samples that are either closer or similar to the pixel
@@ -254,15 +254,14 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 y_max = max(y_max, sample_diffuse.w);
             }
 
+            // if (abs(x) < 2 && abs(y) < 2)
             {
                 const float2 sample_ndc_xy = ndc.xy + float2(x,y) * FILTER_STRIDE * inv_half_res_render_target_size * 2;
                 const float3 sample_value_ndc = float3(sample_ndc_xy, sample_depth);
                 const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));
                 const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
                 
-                // This threshold here must be VERY LOW.
-                // Thin things with poor sampling footprint are much more likely to have fail the geo test when the threshold is lower.
-                const float GEO_WEIGHT_THRESHOLD = 1.0f;
+                const float GEO_WEIGHT_THRESHOLD = 1.0f * FILTER_STRIDE;
                 // MUST IGNORE POSITIVE PLANE DISTANCE!
                 // When ignoring positive plane distance, the sample footprint remains high for enclosed pixels.
                 // This MUST happen, because enclosed pixels have no valid mips to sample!
@@ -401,18 +400,18 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
 
         // A plane pixel dist of 1 is provides good acceptance and sharp edge rejection for usual surfaces.
         // For pixels with poor spatial footprint quality, we drastically increase the threshold to allow a lot more blurring across edges.
-        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 8.0f;
-        const float MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 0.5f; 
+        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 4.0f;
+        const float MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 0.75f; 
 
         const float CONSIDERED_SPATIAL_FOOTPRINT_QUALITY_RANGE = 1.0f; // sample footprints greater than this value are considered full quality
         
         const float MIN_DISOCCLUSION_FIX_FRAMES = push.attach.globals.rtgi_settings.history_frames * 0.5f;
         const float max_disocclusion_fix_frames = push.attach.globals.rtgi_settings.history_frames;
 
-        const float raw_foreground_footprint_quality = fetch1.a;
+        const float min_relevant_footprint_quality = 0.8f;
+        const float foreground_footprint_quality = min(1.0f, square(fetch1.a * rcp(min_relevant_footprint_quality)));
 
         // Square footprint quality to exaggerate the effect of poor footprints in the mid range of quality.
-        const float foreground_footprint_quality = square(min(1.0f, raw_foreground_footprint_quality * (1.0f / CONSIDERED_SPATIAL_FOOTPRINT_QUALITY_RANGE)));
         const float foreground_footprint_quality_mip = lerp(MAX_MIP, MIN_MIP, foreground_footprint_quality);
         plane_pixel_dist_acceptance_threshold = lerp(MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD, MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD, foreground_footprint_quality);
 
@@ -424,10 +423,10 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
 
         mip = int(ceil(max(disocclusion_blur_mip, foreground_footprint_quality_mip)) + 0.001f);
 
-        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(0,1)] = float4(raw_foreground_footprint_quality,mip,0,0);
-        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(0,0)] = float4(raw_foreground_footprint_quality,mip,0,0);
-        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(1,1)] = float4(raw_foreground_footprint_quality,mip,0,0);
-        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(1,0)] = float4(raw_foreground_footprint_quality,mip,0,0);
+        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(0,1)] = float4(foreground_footprint_quality,mip,0,0);
+        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(0,0)] = float4(foreground_footprint_quality,mip,0,0);
+        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(1,1)] = float4(foreground_footprint_quality,mip,0,0);
+        // push.attach.debug_image.get()[halfres_pixel_index * 2 + uint2(1,0)] = float4(foreground_footprint_quality,mip,0,0);
     }
 
     float4 reconstructed_diffuse;
@@ -469,7 +468,7 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
         // We want to keep as much as possible so we do NOT use a hard cutoff geometric weighting here.
         // Instead we always take all samples and agressively weigh them by the plane distance.
         // Later, if the sum of weights turns out to be too low, we reject the interpolation.
-        const float4 plane_distances_in_pixel_size = planar_surface_distances4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths);
+        const float4 plane_distances_in_pixel_size = depth_distances4(inv_mip_size, camera.near_plane, pixel_depth, vs_position, vs_pixel_normal, depths);
         float4 plane_distance_weights = square(square(1.0f / (1.0f + plane_distances_in_pixel_size)));
         plane_distance_weights *= plane_distances_in_pixel_size < plane_pixel_dist_acceptance_threshold ? 1.0f : 0.0f;
 
