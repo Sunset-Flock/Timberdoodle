@@ -52,8 +52,7 @@ GPUContext::GPUContext(Window const & window)
               return this->instance.create_device_2(device_info);
           }()},
       swapchain{this->device.create_swapchain({
-          .native_window = glfwGetWin32Window(window.glfw_handle),
-          .native_window_platform = daxa::NativeWindowPlatform::WIN32_API,
+          .native_window_info = daxa::NativeWindowInfoWin32{ .hwnd = glfwGetWin32Window(window.glfw_handle) },
           .surface_format_selector = [](daxa::Format format, daxa::ColorSpace) -> i32
           {
               switch (format)
