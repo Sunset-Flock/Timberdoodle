@@ -200,7 +200,6 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         // Point Lights
         {
             uint4 point_light_mask = light_mask & light_settings.point_light_mask;
-            //point_light_mask = WaveActiveBitOr(point_light_mask); // Way faster to be divergent in rt
     #if LIGHTS_ENABLE_MASK_ITERATION
             while (any(point_light_mask != uint4(0)))
             {
@@ -215,7 +214,6 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 const float to_light_dist = length(light.position - material_point.position);
 
                 float attenuation = lights_attenuate_point(to_light_dist, light.cutoff);
-                diffuse_light += attenuation;
                 if (attenuation > 0.0f)
                 {
                     let light_visibility = light_visibility.point_light(material_point, incoming_ray, point_light_idx);
@@ -227,12 +225,11 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
 
         // Spot Lights
         {
-            float3 total_contribution = float3(0.0);
-            light_mask = light_mask & light_settings.spot_light_mask;
+            uint4 spot_light_mask = light_mask & light_settings.spot_light_mask;
     #if LIGHTS_ENABLE_MASK_ITERATION
-            while (any(light_mask != uint4(0)))
+            while (any(spot_light_mask != uint4(0)))
             {
-                uint spot_light_idx = lights_iterate_mask(light_settings, light_mask) - light_settings.first_spot_light_instance;
+                uint spot_light_idx = lights_iterate_mask(light_settings, spot_light_mask) - light_settings.first_spot_light_instance;
     #else
             for(int spot_light_idx = 0; spot_light_idx < light_settings.spot_light_count; ++spot_light_idx)
             {
@@ -241,7 +238,6 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
                 const float3 position_to_light = normalize(light.position - material_point.position);
                 const float to_light_dist = length(light.position - material_point.position);
                 const float attenuation = lights_attenuate_spot(position_to_light, to_light_dist, light);
-                diffuse_light += attenuation;
                 if (attenuation > 0.0f)
                 {
                     let light_visibility = light_visibility.spot_light(material_point, incoming_ray, spot_light_idx);

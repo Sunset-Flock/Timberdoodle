@@ -47,9 +47,15 @@ func lights_iterate_mask(LightSettings settings, inout uint4 mask) -> uint
     let first_set_bit = firstbitlow(uint_mask);
 
     uint_mask = uint_mask & (~(1u << first_set_bit));
-    mask[first_filled_uint] = uint_mask;
+    // DO NOT USE RUNTIME VARIABLE INDEXING INTO INOUT VECTORS!
+    // THE COMBINATION OF "AMD + RAYTRACING-SHADER + INOUT + UINT4 + RUNTIME-VARIABLE-INDEX" CAN GENERATE GARBAGE CODE CRASHING SHADERS BADLY OR DIRECTLY CRASH THE DRIVER.
+    mask[0] = first_filled_uint == 0 ? uint_mask : mask[0];
+    mask[1] = first_filled_uint == 1 ? uint_mask : mask[1];
+    mask[2] = first_filled_uint == 2 ? uint_mask : mask[2];
+    mask[3] = first_filled_uint == 3 ? uint_mask : mask[3];
 
-    return first_filled_uint * 32 + first_set_bit;
+    const uint light_index = first_filled_uint * 32 + first_set_bit;
+    return light_index;
 }
 
 #define LIGHTS_ENABLE_MASK_ITERATION 1

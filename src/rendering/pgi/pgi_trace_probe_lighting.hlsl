@@ -72,7 +72,8 @@ func trace_shadow_ray(RaytracingAccelerationStructure tlas, float3 position, flo
     RayDesc ray = {};
     ray.Direction = normalize(light_position - position);
     ray.Origin = start;
-    ray.TMax = length(light_position - position) * 1.01f; 
+    const float LENGTH_BIAS = 0.05f;
+    ray.TMax = length(light_position - position) - LENGTH_BIAS; 
     ray.TMin = 0.0f;
 
     RayPayload payload;
@@ -101,7 +102,6 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
         float3 to_light = point_light.position - material_point.position;
         float3 to_light_dir = normalize(to_light);
 
-        //return 1.0f;
         let RAYTRACED_POINT_SHADOWS = false;
         if (RAYTRACED_POINT_SHADOWS)
         {        
@@ -129,8 +129,7 @@ struct PGILightVisibilityTester : LightVisibilityTesterI
 
         GPUSpotLight spot_light = globals.scene.spot_lights[light_index];
 
-        //return 1.0f;
-        let RAYTRACED_POINT_SHADOWS = true;
+        let RAYTRACED_POINT_SHADOWS = false;
         if (RAYTRACED_POINT_SHADOWS)
         {        
             let light_visible = trace_shadow_ray(tlas, material_point.position, spot_light.position, material_point.face_normal, incoming_ray);
