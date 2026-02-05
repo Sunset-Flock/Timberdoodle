@@ -19,11 +19,11 @@ groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 #define RTGI_PERCEPTUAL_EXPONENT 4.0f
 func perceptual_lerp(float a, float b, float v) -> float
 {
-    return pow(lerp(pow(a + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
+    return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
 }
 func perceptual_lerp(float3 a, float3 b, float v) -> float3
 {
-    return pow(lerp(pow(a + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.0000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
+    return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
 }
 
 [shader("compute")]
@@ -436,7 +436,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // One the blend becomes small again, we reduce the clamp to not get stuck on bad stable history.
         float clamp_range = lerp(0.1f, 1.0f, blend_factor); 
 
-        stable_history = clamp(lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
+        stable_history = clamp(perceptual_lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
 
     push.attach.rtgi_accumulated_color_full_res.get()[dtid] = uint2(

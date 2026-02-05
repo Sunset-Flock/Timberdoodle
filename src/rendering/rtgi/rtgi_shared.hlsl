@@ -9,7 +9,11 @@
 #define RTGI_USE_POISSON_DISC 0
 
 #define RTGI_SPATIAL_FILTER_SAMPLES 8
+
+// This casues dark areas to be too dark often.
+// Consider to find a way to get rid of this and have constant filter size
 #define RTGI_SPATIAL_FILTER_RADIUS_MAX 36
+#define RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION 0
 
 #define RTGI_DISOCCLUSION_SCALING 1
 #define RTGI_DISOCCLUSION_FLOOD_FILL 1
@@ -21,7 +25,7 @@
 #define RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD 32.0f
 #define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME 8.0f
 
-#define VALUE_MULTIPLIER (1e3f)
+#define VALUE_MULTIPLIER (1e4f)
 
 func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
