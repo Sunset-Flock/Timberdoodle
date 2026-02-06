@@ -2026,7 +2026,7 @@ auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & 
     });
 }
 
-auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
+auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
 {
     daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});

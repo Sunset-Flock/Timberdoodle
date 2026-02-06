@@ -147,7 +147,7 @@ struct TaskPGIUpdateOut
     daxa::TaskImageView pgi_info = {};
     daxa::TaskImageView pgi_requests = {};
 };
-auto task_pgi_update(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut;
+auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut;
 
 struct TaskPGIEvalScreenIrradianceInfo
 {
