@@ -8,8 +8,9 @@
 struct RtgiSettings
 {
     daxa_i32 enabled TIDO_DEFAULT_VALUE(1);
+    daxa_f32 ao_range TIDO_DEFAULT_VALUE(1.0f);
+    daxa_i32 firefly_flatten_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 firefly_filter_enabled TIDO_DEFAULT_VALUE(1);
-    daxa_i32 super_agressive_firefly_filter_enabled TIDO_DEFAULT_VALUE(0);
     daxa_i32 disocclusion_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 spatial_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 upscale_enabled TIDO_DEFAULT_VALUE(1);

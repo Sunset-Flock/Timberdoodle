@@ -69,7 +69,7 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
 }
 
 template <typename TaskPush>
-inline void rtgi_common_task_callback(TaskPush push, daxa::TaskInterface ti, RenderContext * render_context, daxa::TaskImageAttachmentIndex dst_image, u32 block_size, u32 render_time, std::string const & compute_pipeline_name)
+inline void dispatch_image_relative(TaskPush push, daxa::TaskInterface ti, RenderContext * render_context, daxa::TaskImageAttachmentIndex dst_image, u32 block_size, u32 render_time, std::string const & compute_pipeline_name)
 {
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time);
     auto const dst_image_size = ti.info(dst_image).value().size;
@@ -87,44 +87,44 @@ inline void rtgi_common_task_callback(TaskPush push, daxa::TaskInterface ti, Ren
 inline void rtgi_denoise_diffuse_reproject_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiReprojectDiffuseH::Info::AT;
-    rtgi_common_task_callback(RtgiReprojectDiffusePush(), ti, render_context, AT.rtgi_samplecnt, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "HALFRES_REPROJECT">(), rtgi_reproject_diffuse_compile_info().name);
+    dispatch_image_relative(RtgiReprojectDiffusePush(), ti, render_context, AT.rtgi_samplecnt, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "HALFRES_REPROJECT">(), rtgi_reproject_diffuse_compile_info().name);
 }
 
 inline void rtgi_pre_blur_prepare_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreblurPrepareH::Info::AT;
-    rtgi_common_task_callback(RtgiPreblurPreparePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
+    dispatch_image_relative(RtgiPreblurPreparePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
 }
 
 inline void rtgi_pre_blur_flatten_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreBlurFlattenH::Info::AT;
-    rtgi_common_task_callback(RtgiPreBlurFlattenPush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_FLATTEN_X, RenderTimes::index<"RTGI", "PRE_BLUR_FLATTEN">(), rtgi_pre_blur_flatten_compile_info().name);
+    dispatch_image_relative(RtgiPreBlurFlattenPush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_FLATTEN_X, RenderTimes::index<"RTGI", "PRE_BLUR_FLATTEN">(), rtgi_pre_blur_flatten_compile_info().name);
 }
 
 inline void rtgi_pre_blur_apply_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreBlurApply::Info::AT;
-    rtgi_common_task_callback(RtgiPreBlurApplyPush(), ti, render_context, AT.rtgi_diffuse_filtered, RTGI_PRE_BLUR_APPLY_X, RenderTimes::index<"RTGI", "PRE_BLUR_APPLY">(), rtgi_pre_blur_apply_compile_info().name);
+    dispatch_image_relative(RtgiPreBlurApplyPush(), ti, render_context, AT.rtgi_diffuse_filtered, RTGI_PRE_BLUR_APPLY_X, RenderTimes::index<"RTGI", "PRE_BLUR_APPLY">(), rtgi_pre_blur_apply_compile_info().name);
 }
 
 inline void rtgi_adaptive_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
     auto const & AT = RtgiAdaptiveBlurH::Info::AT;
     u32 const render_time = pass == 0 ? RenderTimes::index<"RTGI", "BLUR_DIFFUSE_0">() : RenderTimes::index<"RTGI", "BLUR_DIFFUSE_1">();
-    rtgi_common_task_callback(RtgiAdaptiveBlurPush{.pass = pass}, ti, render_context, AT.view_cam_half_res_depth, RTGI_ADAPTIVE_BLUR_DIFFUSE_X, render_time, rtgi_adaptive_blur_diffuse_compile_info().name);
+    dispatch_image_relative(RtgiAdaptiveBlurPush{.pass = pass}, ti, render_context, AT.view_cam_half_res_depth, RTGI_ADAPTIVE_BLUR_DIFFUSE_X, render_time, rtgi_adaptive_blur_diffuse_compile_info().name);
 }
 
 inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiUpscaleDiffuseH::Info::AT;
-    rtgi_common_task_callback(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE_DIFFUSE">(), rtgi_upscale_diffuse_compile_info().name);
+    dispatch_image_relative(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE_DIFFUSE">(), rtgi_upscale_diffuse_compile_info().name);
 }
 
 inline void rtgi_diffuse_temporal_stabilization_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiDiffuseTemporalStabilizationH::Info::AT;
-    rtgi_common_task_callback(RtgiDiffuseTemporalStabilizationPush(), ti, render_context, AT.view_cam_half_res_depth, RTGI_DIFFUSE_TEMPORAL_STABILIZATION_X, RenderTimes::index<"RTGI", "TEMPORAL_STABILIZATION">(), rtgi_diffuse_temporal_stabilization_compile_info().name);
+    dispatch_image_relative(RtgiDiffuseTemporalStabilizationPush(), ti, render_context, AT.view_cam_half_res_depth, RTGI_DIFFUSE_TEMPORAL_STABILIZATION_X, RenderTimes::index<"RTGI", "TEMPORAL_STABILIZATION">(), rtgi_diffuse_temporal_stabilization_compile_info().name);
 }
 
 ///

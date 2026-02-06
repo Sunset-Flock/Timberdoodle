@@ -100,74 +100,42 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
     const float base_weight = 1.0f;
-    const float closest_weight = 1.0f / 16.0f;
-    const float furthest_weight = closest_weight;
+    const float outer_sample_weight = 1.0f / 16.0f;
     float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index] * base_weight;
     float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index] * base_weight;
     float weight_acc = base_weight;
-    const uint FLATTEN_NEIGHBOR_SAMPLES = push.attach.globals.rtgi_settings.super_agressive_firefly_filter_enabled ? 0 : 8;
-    int spread = 4;
-    for (uint i = 0; i < FLATTEN_NEIGHBOR_SAMPLES; ++i)
+    int spread = 1;
+    if (push.attach.globals.rtgi_settings.firefly_flatten_filter_enabled)
     {
-        int2 offset = int2(0,0);
-        float weight = 1.0f;
-        if (i == 0)
+        [unroll]
+        for (int x = -1; x <= 1; ++x)
         {
-            offset = int2(-spread,0);
-            weight = closest_weight;
-        }
-        if (i == 1)
-        {
-            offset = int2(spread,0);
-            weight = closest_weight;
-        }
-        if (i == 2)
-        {
-            offset = int2(0,-spread);
-            weight = closest_weight;
-        }
-        if (i == 3)
-        {
-            offset = int2(0,spread);
-            weight = closest_weight;
-        }
-        if (i == 4)
-        {
-            offset = int2(spread,spread);
-            weight = furthest_weight;
-        }
-        if (i == 5)
-        {
-            offset = int2(-spread,-spread);
-            weight = furthest_weight;
-        }
-        if (i == 6)
-        {
-            offset = int2(spread,-spread);
-            weight = furthest_weight;
-        }
-        if (i == 7)
-        {
-            offset = int2(-spread,spread);
-            weight = furthest_weight;
-        }
-        const int2 max_index = push.size - 1;
-        int2 load_idx = int2(dtid.xy) + int2(offset);
-        load_idx = flip_oob_index(load_idx, max_index);
+            [unroll]
+            for (int y = -1; y <= 1; ++y)
+            {
+                if (x == 0 && y == 0) { continue; }
 
-        const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
-        
-        const float2 sample_ndc_xy = ndc.xy + float2(offset) * inv_half_res_render_target_size * 2;
-        const float3 sample_value_ndc = float3(sample_ndc_xy, sample_depth);
-        const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));
-        const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
-        const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
-        const float geometric_weight_real = abs(plane_distance) < float(spread) ? 1.0f : 0.0f;
-        const float sample_weight = geometric_weight_real * weight;
+                int2 offset = int2(x,y);
+                float weight = 1.0f;
+                const int2 max_index = push.size - 1;
+                int2 load_idx = int2(dtid.xy) + int2(offset);
+                load_idx = flip_oob_index(load_idx, max_index);
 
-        diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * sample_weight;
-        diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * sample_weight;
-        weight_acc += sample_weight;
+                const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
+                
+                const float2 sample_ndc_xy = ndc.xy + float2(offset) * inv_half_res_render_target_size * 2;
+                const float3 sample_value_ndc = float3(sample_ndc_xy, sample_depth);
+                const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));
+                const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
+                const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
+                const float geometric_weight_real = abs(plane_distance) < float(spread) ? 1.0f : 0.0f;
+                const float sample_weight = geometric_weight_real * outer_sample_weight;
+
+                diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * sample_weight;
+                diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * sample_weight;
+                weight_acc += sample_weight;
+            }
+        } 
     }
 
     push.attach.rtgi_flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
@@ -207,7 +175,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float2 filtered_diffuse2 = diffuse2;
     float foreground_footprint_quality = 1.0f;
 
-    const int FILTER_WIDTH = 1;
+    // Generally, a wider filter is more stable but also kills more light.
+    // Bistro interior lit by only emissives for example suffers A LOT when the filter is smaller than 3.
+    // Most other locations do not really care for a wide filter, 1 is fine for most situations.
+    const int FILTER_WIDTH = 2;
     const int FILTER_STRIDE = 1;
     const int FILTER_TAPS_TOTAL = square(FILTER_WIDTH * 2 + 1) - 1;
 

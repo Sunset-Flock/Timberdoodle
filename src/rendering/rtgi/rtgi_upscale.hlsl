@@ -52,6 +52,9 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     const float3 position_vs = -position_vs_pre_div.xyz / position_vs_pre_div.w;
     const float3 pixel_face_normal_vs = mul(camera.view, float4(pixel_face_normal,0.0f)).xyz;
 
+    const float4 position_ws_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
+    const float3 position_ws = -position_ws_pre_div.xyz / position_ws_pre_div.w;
+
     // Upscale Spatial Result
     float3 upscaled_diffuse = (float3)0;
     {
@@ -411,6 +414,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // push.attach.debug_image.get()[dtid.xy] = float4(reprojected_fast_temporal_mean, reprojected_fast_temporal_mean * fast_relative_std_dev, reprojected_fast_temporal_mean * reprojected_fast_temporal_variance, 0);
     }
 
+    const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
     // Accumulate Color
     float history_confidence = reprojected_samplecount;
     if (reprojected_samplecount > FAST_HISTORY_FRAMES)
@@ -435,6 +439,11 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // In these cases we need to widen the clamp temporarily to keep the image stable.
         // One the blend becomes small again, we reduce the clamp to not get stuck on bad stable history.
         float clamp_range = lerp(0.1f, 1.0f, blend_factor); 
+
+        if (reprojected_samplecount < max_sample_count)
+        {
+            clamp_range = 0.0001f;
+        }
 
         stable_history = clamp(perceptual_lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
