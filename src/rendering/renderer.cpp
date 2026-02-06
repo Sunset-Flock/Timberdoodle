@@ -363,7 +363,6 @@ void Renderer::compile_pipelines()
         {vsm_get_debug_statistics_pipeline_compile_info()},
         {decode_visbuffer_test_pipeline_info2()},
         {DrawVisbuffer_WriteCommandTask2::pipeline_compile_info},
-        {debug_task_draw_display_image_pipeline_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
         {brdf_fg_compute_pipeline_info()},
@@ -508,10 +507,6 @@ void Renderer::clear_select_buffers()
     TaskGraph tg{{
         .device = this->gpu_context->device,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "clear task list",
     }};
     tg.use_persistent_buffer(meshlet_instances);
@@ -560,10 +555,6 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     daxa::TaskGraph tg{{
         .device = gpu_context->device,
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Calculate sky luts task graph",
     }};
     // TODO:    Do not use globals here, make a new buffer.
@@ -616,10 +607,6 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Timberdoodle main TaskGraph",
     }};
     tg.use_persistent_image(swapchain_image);
@@ -656,10 +643,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
-        .pre_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), true); },
-        .post_task_callback = [=, this](daxa::TaskInterface ti)
-        { debug_task(ti, render_context->tg_debug, *render_context->gpu_context->compute_pipelines.at(debug_task_draw_display_image_pipeline_info().name), false); },
         .name = "Timberdoodle main TaskGraph",
     }};
     tg.use_persistent_image(swapchain_image);

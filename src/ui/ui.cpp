@@ -6,7 +6,6 @@
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
-#include "../rendering/daxa_tg_debugger/daxa_tg_debugger.hpp"
 
 void setup_colors()
 {

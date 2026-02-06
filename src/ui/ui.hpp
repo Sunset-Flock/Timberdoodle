@@ -92,7 +92,7 @@ struct UIEngine
         bool widget_scene_interface = true;
         bool widget_property_viewer = true;
         bool demo_window = false;
-        bool tg_debug_ui = true;
+        bool tg_debug_ui = false;
         u32 magnify_pixels = 7;
         bool shader_debug_menu = false;
         f32 fixed_camera_x_rotation_speed = 0.0f;

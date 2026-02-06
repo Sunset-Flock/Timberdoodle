@@ -37,7 +37,6 @@ add_executable(${PROJECT_NAME}
     "src/scene/asset_processor.cpp"
     "src/json_handler.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
-    "src/rendering/daxa_tg_debugger/daxa_tg_debugger.cpp"
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")

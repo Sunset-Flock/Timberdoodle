@@ -13,8 +13,6 @@
 
 #include "../gpu_context.hpp"
 
-#include "daxa_tg_debugger/daxa_tg_debugger.hpp"
-
 struct DynamicMesh
 {
     glm::mat4x4 prev_transform = {};
@@ -614,7 +612,6 @@ struct RenderContext
     }
     ~RenderContext()
     {
-        tg_debug.cleanup(gpu_context->device);
         gpu_context->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
@@ -633,7 +630,6 @@ struct RenderContext
     daxa::TaskBuffer tgpu_render_data = {};
 
     // Data
-    DaxaTgDebugContext tg_debug = {};
     ReadbackValues general_readback;
 
     // Prev Settings
