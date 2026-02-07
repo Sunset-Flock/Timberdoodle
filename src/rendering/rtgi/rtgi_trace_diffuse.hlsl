@@ -83,7 +83,7 @@ void ray_gen()
         TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0, ~0, 0, 0, 0, ray, payload);
 
         float4 value = float4(payload.color, 1.0f);
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
+        push.attach.diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
         return;
     }
 
@@ -147,13 +147,13 @@ void ray_gen()
             acc2 += cocg_new * rcp(SAMPLES);
         }
 
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = acc;
-        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = acc2;
+        push.attach.diffuse_raw.get()[dtid.xy] = acc;
+        push.attach.diffuse2_raw.get()[dtid.xy] = acc2;
     }
     else
     {
-        push.attach.rtgi_diffuse_raw.get()[dtid.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
-        push.attach.rtgi_diffuse2_raw.get()[dtid.xy] = float2(0.0f, 0.0f);
+        push.attach.diffuse_raw.get()[dtid.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
+        push.attach.diffuse2_raw.get()[dtid.xy] = float2(0.0f, 0.0f);
     }
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)

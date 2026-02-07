@@ -63,8 +63,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Each Group works on a 8x8 full res tile.
         // To full reconstruct the full res tile we need a (8/2 + 2)^2 section of the half res diffuse.
         {
-            Texture2D<float4> half_res_diffuse_tex = push.attach.rtgi_diffuse_half_res.get();
-            Texture2D<float2> half_res_diffuse2_tex = push.attach.rtgi_diffuse2_half_res.get();
+            Texture2D<float4> half_res_diffuse_tex = push.attach.diffuse_half_res.get();
+            Texture2D<float2> half_res_diffuse2_tex = push.attach.diffuse2_half_res.get();
             Texture2D<float> half_res_depth_tex = push.attach.view_cam_half_res_depth.get();
             Texture2D<uint> half_res_face_normal_tex = push.attach.view_cam_half_res_face_normals.get();
 
@@ -89,7 +89,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
                 gs_half_vs_positions[preload_index.x][preload_index.y] = float4(sample_vs, 0.0f);
 
-                gs_half_samplecount[preload_index.x][preload_index.y] = push.attach.rtgi_samplecount_half_res.get()[load_index];
+                gs_half_samplecount[preload_index.x][preload_index.y] = push.attach.samplecount_half_res.get()[load_index];
             }
             GroupMemoryBarrierWithGroupSync();
         }
@@ -101,7 +101,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
 
         if (pixel_depth == 0.0f)
         {
-            push.attach.rtgi_samplecount_full_res.get()[dtid] = 0.0f;
+            push.attach.samplecount_full_res.get()[dtid] = 0.0f;
             return;
         }
 
@@ -221,9 +221,9 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), full_res_render_target_size );
         const float2 reproject_gather_uv = ( float2( bilinear_filter_at_prev_pos.origin ) + 1.0 ) * inv_full_res_render_target_size;
         SamplerState nearest_clamp_s = push.attach.globals.samplers.nearest_clamp.get();
-        const float4 depth_reprojected4 = push.attach.rtgi_depth_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
-        const uint4 face_normals_packed_reprojected4 = push.attach.rtgi_face_normal_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
-        const float4 samplecnt_reprojected4 = push.attach.rtgi_samplecount_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const float4 depth_reprojected4 = push.attach.depth_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const uint4 face_normals_packed_reprojected4 = push.attach.face_normal_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const float4 samplecnt_reprojected4 = push.attach.samplecount_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
 
         // Calculate plane distance based occlusion and normal similarity
         float4 occlusion = float4(1.0f, 1.0f, 1.0f, 1.0f);
@@ -315,7 +315,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         }
         
         // Stable Color History
-        const uint4 color_history0 = push.attach.rtgi_color_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const uint4 color_history0 = push.attach.color_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
         float3 decoded_color_history0[4] = {
             rgb9e5_to_float3(color_history0[0]),
             rgb9e5_to_float3(color_history0[1]),
@@ -329,7 +329,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         }
 
         // Real Color History
-        const uint4 color_history1 = push.attach.rtgi_color_history_full_res.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const uint4 color_history1 = push.attach.color_history_full_res.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
         float3 decoded_color_history1[4] = {
             rgb9e5_to_float3(color_history1[0]),
             rgb9e5_to_float3(color_history1[1]),
@@ -343,7 +343,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         }
 
         // Fast Mean Fast Varaince History
-        const uint4 statistics_history = push.attach.rtgi_statistics_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
+        const uint4 statistics_history = push.attach.statistics_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
         float2 decoded_statistics_history[4] = {
             unpack_2x16f_uint(statistics_history[0]),
             unpack_2x16f_uint(statistics_history[1]),
@@ -401,7 +401,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         const float relevant_fast_to_slow_mean_ratio = max(1.0f, slow_to_fast_mean_ratio);
         fast_mean_diff_scaling = square(1.0f / relevant_fast_to_slow_mean_ratio);
 
-        push.attach.rtgi_accumulated_statistics_full_res.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
+        push.attach.accumulated_statistics_full_res.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
     }
 
     // Temporal firefly filter:
@@ -448,10 +448,10 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         stable_history = clamp(perceptual_lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
 
-    push.attach.rtgi_accumulated_color_full_res.get()[dtid] = uint2(
+    push.attach.accumulated_color_full_res.get()[dtid] = uint2(
         float3_to_rgb9e5(accumulated_color),
         float3_to_rgb9e5(stable_history),
     );
-    push.attach.rtgi_samplecount_full_res.get()[dtid] = reprojected_samplecount;
-    push.attach.rtgi_diffuse_resolved.get()[dtid] = float4(stable_history / VALUE_MULTIPLIER, 1.0f);
+    push.attach.samplecount_full_res.get()[dtid] = reprojected_samplecount;
+    push.attach.diffuse_resolved.get()[dtid] = float4(stable_history / VALUE_MULTIPLIER, 1.0f);
 }

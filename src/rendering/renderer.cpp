@@ -324,7 +324,6 @@ void Renderer::compile_pipelines()
         {rtgi_pre_blur_apply_compile_info()},
         {rtgi_adaptive_blur_diffuse_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
-        {rtgi_diffuse_temporal_stabilization_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
         {pgi_update_probes_compile_info()},
@@ -1066,13 +1065,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.vsm_spot_lights = vsm_state.vsm_spot_lights;
         info.vsm_memory_block = vsm_state.memory_block.view();
         info.vsm_point_spot_page_table = vsm_point_spot_page_table_view;
-        info.rtgi_depth_history = rtgi_depth_history;
-        info.rtgi_samplecnt_history = rtgi_samplecnt_history;
-        info.rtgi_face_normal_history = rtgi_face_normal_history;
-        info.rtgi_full_color_history = rtgi_full_color_history;
-        info.rtgi_full_statistics_history = rtgi_full_statistics_history;
-        info.rtgi_full_face_normal_history = rtgi_full_face_normal_history;
-        info.rtgi_full_samplecount_history = rtgi_full_samplecount_history;
+        info.half_res_depth_history = rtgi_depth_history;
+        info.half_res_samplecnt_history = rtgi_samplecnt_history;
+        info.half_res_face_normal_history = rtgi_face_normal_history;
+        info.color_history = rtgi_full_color_history;
+        info.statistics_history = rtgi_full_statistics_history;
+        info.face_normal_history = rtgi_full_face_normal_history;
+        info.samplecount_history = rtgi_full_samplecount_history;
 
         auto rtgi_result = tasks_rtgi_main(info);
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;

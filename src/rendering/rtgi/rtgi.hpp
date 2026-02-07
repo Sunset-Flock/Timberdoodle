@@ -37,7 +37,6 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_prepare_compile_info, "./src/rendering/r
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_apply")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_diffuse_temporal_stabilization_compile_info, "./src/rendering/rtgi/rtgi_reproject.hlsl", "entry_temporal_stabilization")
 
 ///
 /// === Persistent Images ===
@@ -142,13 +141,13 @@ struct TasksRtgiInfo
     daxa::TaskBufferView vsm_spot_lights = {};
     daxa::TaskImageView vsm_memory_block = {};
     daxa::TaskImageView vsm_point_spot_page_table = {};
-    daxa::TaskImageView rtgi_depth_history = {};
-    daxa::TaskImageView rtgi_samplecnt_history = {};
-    daxa::TaskImageView rtgi_face_normal_history = {};
-    daxa::TaskImageView rtgi_full_color_history = {};
-    daxa::TaskImageView rtgi_full_statistics_history = {};
-    daxa::TaskImageView rtgi_full_face_normal_history = {};
-    daxa::TaskImageView rtgi_full_samplecount_history = {};
+    daxa::TaskImageView half_res_depth_history = {};
+    daxa::TaskImageView half_res_samplecnt_history = {};
+    daxa::TaskImageView half_res_face_normal_history = {};
+    daxa::TaskImageView color_history = {};
+    daxa::TaskImageView statistics_history = {};
+    daxa::TaskImageView face_normal_history = {};
+    daxa::TaskImageView samplecount_history = {};
 };
 struct TasksRtgiMainResult
 {

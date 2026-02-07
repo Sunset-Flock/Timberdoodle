@@ -22,7 +22,7 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
         .debug_primary_trace = static_cast<daxa::b32>(info.debug_primary_trace),
     };
     push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-    auto const & diffuse_raw = ti.info(AT.rtgi_diffuse_raw).value();
+    auto const & diffuse_raw = ti.info(AT.diffuse_raw).value();
     auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
     ti.recorder.set_pipeline(*rt_pipeline.pipeline);
     ti.recorder.push_constant(push);
@@ -53,25 +53,25 @@ inline void dispatch_image_relative(TaskPush push, daxa::TaskInterface ti, Rende
 inline void rtgi_denoise_diffuse_reproject_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiReprojectDiffuseH::Info::AT;
-    dispatch_image_relative(RtgiReprojectDiffusePush(), ti, render_context, AT.rtgi_samplecnt, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "HALFRES_REPROJECT">(), rtgi_reproject_diffuse_compile_info().name);
+    dispatch_image_relative(RtgiReprojectDiffusePush(), ti, render_context, AT.half_res_samplecnt, RTGI_DENOISE_DIFFUSE_X, RenderTimes::index<"RTGI", "HALFRES_REPROJECT">(), rtgi_reproject_diffuse_compile_info().name);
 }
 
 inline void rtgi_pre_blur_prepare_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreblurPrepareH::Info::AT;
-    dispatch_image_relative(RtgiPreblurPreparePush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
+    dispatch_image_relative(RtgiPreblurPreparePush(), ti, render_context, AT.diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_BLUR_PREPARE">(), rtgi_pre_blur_prepare_compile_info().name);
 }
 
 inline void rtgi_pre_blur_flatten_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreBlurFlattenH::Info::AT;
-    dispatch_image_relative(RtgiPreBlurFlattenPush(), ti, render_context, AT.rtgi_diffuse_raw, RTGI_PRE_BLUR_FLATTEN_X, RenderTimes::index<"RTGI", "PRE_BLUR_FLATTEN">(), rtgi_pre_blur_flatten_compile_info().name);
+    dispatch_image_relative(RtgiPreBlurFlattenPush(), ti, render_context, AT.diffuse_raw, RTGI_PRE_BLUR_FLATTEN_X, RenderTimes::index<"RTGI", "PRE_BLUR_FLATTEN">(), rtgi_pre_blur_flatten_compile_info().name);
 }
 
 inline void rtgi_pre_blur_apply_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreBlurApply::Info::AT;
-    dispatch_image_relative(RtgiPreBlurApplyPush(), ti, render_context, AT.rtgi_diffuse_filtered, RTGI_PRE_BLUR_APPLY_X, RenderTimes::index<"RTGI", "PRE_BLUR_APPLY">(), rtgi_pre_blur_apply_compile_info().name);
+    dispatch_image_relative(RtgiPreBlurApplyPush(), ti, render_context, AT.diffuse_filtered, RTGI_PRE_BLUR_APPLY_X, RenderTimes::index<"RTGI", "PRE_BLUR_APPLY">(), rtgi_pre_blur_apply_compile_info().name);
 }
 
 inline void rtgi_adaptive_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
@@ -85,12 +85,6 @@ inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext 
 {
     auto const & AT = RtgiUpscaleDiffuseH::Info::AT;
     dispatch_image_relative(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE_DIFFUSE">(), rtgi_upscale_diffuse_compile_info().name);
-}
-
-inline void rtgi_diffuse_temporal_stabilization_callback(daxa::TaskInterface ti, RenderContext * render_context)
-{
-    auto const & AT = RtgiDiffuseTemporalStabilizationH::Info::AT;
-    dispatch_image_relative(RtgiDiffuseTemporalStabilizationPush(), ti, render_context, AT.view_cam_half_res_depth, RTGI_DIFFUSE_TEMPORAL_STABILIZATION_X, RenderTimes::index<"RTGI", "TEMPORAL_STABILIZATION">(), rtgi_diffuse_temporal_stabilization_compile_info().name);
 }
 
 ///
@@ -149,15 +143,15 @@ auto create_mip_blur_image(daxa::TaskGraph & tg, RenderContext * render_context,
 
 auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 {
-    auto rtgi_trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
-    auto rtgi_trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
+    auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
+    auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
     info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
             .head_views(RtgiTraceDiffuseH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .rtgi_diffuse_raw = rtgi_trace_diffuse_image,
-                .rtgi_diffuse2_raw = rtgi_trace_diffuse2_image,
+                .diffuse_raw = trace_diffuse_image,
+                .diffuse2_raw = trace_diffuse2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                 .meshlet_instances = info.meshlet_instances,
@@ -178,73 +172,73 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             })
             .executes(rtgi_trace_diffuse_callback, &info.render_context, RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
 
-    auto rtgi_samplecnt_image = rtgi_create_samplecnt_image(info.tg, &info.render_context, "rtgi_samplecnt_image");
+    auto half_res_samplecnt_image = rtgi_create_samplecnt_image(info.tg, &info.render_context, "half_res_samplecnt_image");
     info.tg.add_task(daxa::HeadTask<RtgiReprojectDiffuseH::Info>()
             .head_views(RtgiReprojectDiffuseH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .rtgi_depth_history = info.rtgi_depth_history,
-                .rtgi_samplecnt_history = info.rtgi_samplecnt_history,
-                .rtgi_face_normal_history = info.rtgi_face_normal_history,
-                .rtgi_samplecnt = rtgi_samplecnt_image,
+                .half_res_depth_history = info.half_res_depth_history,
+                .half_res_samplecnt_history = info.half_res_samplecnt_history,
+                .half_res_face_normal_history = info.half_res_face_normal_history,
+                .half_res_samplecnt = half_res_samplecnt_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
             })
             .executes(rtgi_denoise_diffuse_reproject_callback, &info.render_context));
 
-    auto rtgi_flattened_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_flattened_diffuse_image");
-    auto rtgi_flattened_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_flattened_diffuse2_image");
+    auto flattened_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "flattened_diffuse_image");
+    auto flattened_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "flattened_diffuse2_image");
     info.tg.add_task(daxa::HeadTask<RtgiPreBlurFlattenH::Info>()
             .head_views(RtgiPreBlurFlattenH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .rtgi_diffuse_raw = rtgi_trace_diffuse_image,
-                .rtgi_diffuse2_raw = rtgi_trace_diffuse2_image,
+                .diffuse_raw = trace_diffuse_image,
+                .diffuse2_raw = trace_diffuse2_image,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
-                .rtgi_flattened_diffuse = rtgi_flattened_diffuse_image,
-                .rtgi_flattened_diffuse2 = rtgi_flattened_diffuse2_image,
+                .flattened_diffuse = flattened_diffuse_image,
+                .flattened_diffuse2 = flattened_diffuse2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
             })
             .executes(rtgi_pre_blur_flatten_callback, &info.render_context));
 
-    auto rtgi_pre_blur_mips_image = create_mip_blur_image(info.tg, &info.render_context, "rtgi_pre_blur_mips_image").mips(0, 5);
-    auto rtgi_pre_blur_mips2_image = create_mip_blur_image(info.tg, &info.render_context, "rtgi_pre_blur_mips2_image").mips(0, 5);
+    auto pre_blur_mips_image = create_mip_blur_image(info.tg, &info.render_context, "pre_blur_mips_image").mips(0, 5);
+    auto pre_blur_mips2_image = create_mip_blur_image(info.tg, &info.render_context, "pre_blur_mips2_image").mips(0, 5);
     info.tg.add_task(daxa::HeadTask<RtgiPreblurPrepareH::Info>()
             .head_views(RtgiPreblurPrepareH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .rtgi_diffuse_raw = rtgi_flattened_diffuse_image,
-                .rtgi_diffuse2_raw = rtgi_flattened_diffuse2_image,
-                .rtgi_samplecnt = rtgi_samplecnt_image,
+                .diffuse_raw = flattened_diffuse_image,
+                .diffuse2_raw = flattened_diffuse2_image,
+                .half_res_samplecnt = half_res_samplecnt_image,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
-                .rtgi_reconstructed_diffuse_history = rtgi_pre_blur_mips_image,
-                .rtgi_reconstructed_diffuse2_history = rtgi_pre_blur_mips2_image,
+                .reconstructed_diffuse_history = pre_blur_mips_image,
+                .reconstructed_diffuse2_history = pre_blur_mips2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
             })
             .executes(rtgi_pre_blur_prepare_callback, &info.render_context));
 
-    auto rtgi_pre_blurred_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_pre_blurred_diffuse_image");
-    auto rtgi_pre_blurred_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_pre_blurred_diffuse2_image");
+    auto pre_blurred_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_blurred_diffuse_image");
+    auto pre_blurred_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_blurred_diffuse2_image");
     info.tg.add_task(daxa::HeadTask<RtgiPreBlurApply::Info>()
             .head_views(RtgiPreBlurApply::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .rtgi_reconstructed_diffuse_history = rtgi_pre_blur_mips_image,
-                .rtgi_reconstructed_diffuse2_history = rtgi_pre_blur_mips2_image,
+                .reconstructed_diffuse_history = pre_blur_mips_image,
+                .reconstructed_diffuse2_history = pre_blur_mips2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
-                .rtgi_samplecnt = rtgi_samplecnt_image,
-                .rtgi_diffuse_filtered = rtgi_pre_blurred_diffuse_image,
-                .rtgi_diffuse2_filtered = rtgi_pre_blurred_diffuse2_image,
+                .rtgi_samplecnt = half_res_samplecnt_image,
+                .diffuse_filtered = pre_blurred_diffuse_image,
+                .diffuse2_filtered = pre_blurred_diffuse2_image,
             })
             .executes(rtgi_pre_blur_apply_callback, &info.render_context));
 
-    daxa::TaskImageView rtgi_diffuse_filtered = rtgi_pre_blurred_diffuse_image.mips(0);
-    daxa::TaskImageView rtgi_diffuse2_filtered = rtgi_pre_blurred_diffuse2_image;
+    daxa::TaskImageView diffuse_filtered = pre_blurred_diffuse_image.mips(0);
+    daxa::TaskImageView diffuse2_filtered = pre_blurred_diffuse2_image;
     if (info.render_context.render_data.rtgi_settings.spatial_filter_enabled)
     {
         auto rtgi_blurred0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_blurred0_diffuse_image");
@@ -254,9 +248,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
                     .clocks_image = info.clocks_image,
-                    .rtgi_diffuse_before = rtgi_pre_blurred_diffuse_image,
-                    .rtgi_diffuse2_before = rtgi_pre_blurred_diffuse2_image,
-                    .rtgi_samplecnt = rtgi_samplecnt_image,
+                    .rtgi_diffuse_before = pre_blurred_diffuse_image,
+                    .rtgi_diffuse2_before = pre_blurred_diffuse2_image,
+                    .rtgi_samplecnt = half_res_samplecnt_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth,
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = rtgi_blurred0_diffuse_image,
@@ -264,8 +258,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 })
                 .executes(rtgi_adaptive_blur_diffuse_callback, &info.render_context, 0u));
 
-        auto rtgi_blurred1_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_blurred1_diffuse_image");
-        auto rtgi_blurred1_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_blurred1_diffuse2_image");
+        auto blurred1_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "blurred1_diffuse_image");
+        auto blurred1_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "blurred1_diffuse2_image");
         info.tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
                 .head_views(RtgiAdaptiveBlurH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
@@ -273,39 +267,39 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .clocks_image = info.clocks_image,
                     .rtgi_diffuse_before = rtgi_blurred0_diffuse_image,
                     .rtgi_diffuse2_before = rtgi_blurred0_diffuse2_image,
-                    .rtgi_samplecnt = rtgi_samplecnt_image,
+                    .rtgi_samplecnt = half_res_samplecnt_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth,
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
-                    .rtgi_diffuse_blurred = rtgi_blurred1_diffuse_image,
-                    .rtgi_diffuse2_blurred = rtgi_blurred1_diffuse2_image,
+                    .rtgi_diffuse_blurred = blurred1_diffuse_image,
+                    .rtgi_diffuse2_blurred = blurred1_diffuse2_image,
                 })
                 .executes(rtgi_adaptive_blur_diffuse_callback, &info.render_context, 1u));
-        rtgi_diffuse_filtered = rtgi_blurred1_diffuse_image;
-        rtgi_diffuse2_filtered = rtgi_blurred1_diffuse2_image;
+        diffuse_filtered = blurred1_diffuse_image;
+        diffuse2_filtered = blurred1_diffuse2_image;
     }
 
-    auto rtgi_full_diffuse_accumulated_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_full_diffuse_accumulated_image", 1);
-    auto rtgi_full_diffuse2_accumulated_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_full_diffuse2_accumulated_image", 1);
-    auto rtgi_full_samplecount_image = rtgi_create_samplecnt_image(info.tg, &info.render_context, "rtgi_full_samplecount_image", 1);
-    auto rtgi_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "rtgi_per_pixel_diffuse");
+    auto full_diffuse_accumulated_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "full_diffuse_accumulated_image", 1);
+    auto full_diffuse2_accumulated_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "full_diffuse2_accumulated_image", 1);
+    auto full_samplecount_image = rtgi_create_samplecnt_image(info.tg, &info.render_context, "full_samplecount_image", 1);
+    auto resolved_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_diffuse");
 
-    auto rtgi_accumualted_color_image = info.tg.create_transient_image({
+    auto accumualted_color_image = info.tg.create_transient_image({
         .format = daxa::Format::R32G32_UINT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x,
             info.render_context.render_data.settings.render_target_size.y,
             1,
         },
-        .name = "rtgi_accumualted_color_image",
+        .name = "accumualted_color_image",
     });
-    auto rtgi_accumulated_statistics_image = info.tg.create_transient_image({
+    auto accumulated_statistics_image = info.tg.create_transient_image({
         .format = daxa::Format::R32_UINT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x,
             info.render_context.render_data.settings.render_target_size.y,
             1,
         },
-        .name = "rtgi_accumulated_statistics_image",
+        .name = "accumulated_statistics_image",
     });
 
     info.tg.add_task(daxa::HeadTask<RtgiUpscaleDiffuseH::Info>()
@@ -314,41 +308,41 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
 
-                .rtgi_color_history_full_res = info.rtgi_full_color_history,
-                .rtgi_statistics_history_full_res = info.rtgi_full_statistics_history,
-                .rtgi_accumulated_color_full_res = rtgi_accumualted_color_image,
-                .rtgi_accumulated_statistics_full_res = rtgi_accumulated_statistics_image,
+                .color_history_full_res = info.color_history,
+                .statistics_history_full_res = info.statistics_history,
+                .accumulated_color_full_res = accumualted_color_image,
+                .accumulated_statistics_full_res = accumulated_statistics_image,
 
-                .rtgi_depth_history_full_res = info.depth_history,
-                .rtgi_face_normal_history_full_res = info.rtgi_full_face_normal_history,
-                .rtgi_samplecount_history_full_res = info.rtgi_full_samplecount_history,
+                .depth_history_full_res = info.depth_history,
+                .face_normal_history_full_res = info.face_normal_history,
+                .samplecount_history_full_res = info.samplecount_history,
 
-                .rtgi_diffuse_full_res = rtgi_full_diffuse_accumulated_image,
-                .rtgi_diffuse2_full_res = rtgi_full_diffuse2_accumulated_image,
-                .rtgi_samplecount_full_res = rtgi_full_samplecount_image,
+                .diffuse_full_res = full_diffuse_accumulated_image,
+                .diffuse2_full_res = full_diffuse2_accumulated_image,
+                .samplecount_full_res = full_samplecount_image,
 
-                .rtgi_diffuse_half_res = rtgi_diffuse_filtered,
-                .rtgi_diffuse2_half_res = rtgi_diffuse2_filtered,
+                .diffuse_half_res = diffuse_filtered,
+                .diffuse2_half_res = diffuse2_filtered,
 
-                .rtgi_samplecount_half_res = rtgi_samplecnt_image,
+                .samplecount_half_res = half_res_samplecnt_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                 .view_cam_depth = info.view_cam_depth,
                 .view_cam_face_normals = info.view_cam_face_normals,
                 .view_camera_detail_normal_image = info.view_camera_detail_normal_image,
-                .rtgi_diffuse_resolved = rtgi_per_pixel_diffuse,
+                .diffuse_resolved = resolved_per_pixel_diffuse,
             })
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 
-    info.tg.copy_image_to_image({.src = info.view_cam_half_res_depth, .dst = info.rtgi_depth_history, .name = "save rtgi depth history"});
-    info.tg.copy_image_to_image({.src = rtgi_samplecnt_image, .dst = info.rtgi_samplecnt_history, .name = "save rtgi samplecnt history"});
-    info.tg.copy_image_to_image({.src = info.view_cam_half_res_face_normals, .dst = info.rtgi_face_normal_history, .name = "save rtgi face normal history"});
-    info.tg.copy_image_to_image({.src = rtgi_full_samplecount_image, .dst = info.rtgi_full_samplecount_history, .name = "save rtgi_full_samplecount_history"});
-    info.tg.copy_image_to_image({.src = info.view_cam_face_normals, .dst = info.rtgi_full_face_normal_history, .name = "save rtgi_full_face_normal_history"});
-    info.tg.copy_image_to_image({.src = rtgi_accumualted_color_image, .dst = info.rtgi_full_color_history, .name = "save rtgi_full_color_history"});
-    info.tg.copy_image_to_image({.src = rtgi_accumulated_statistics_image, .dst = info.rtgi_full_statistics_history, .name = "save rtgi_full_statistics_history"});
+    info.tg.copy_image_to_image({.src = info.view_cam_half_res_depth, .dst = info.half_res_depth_history, .name = "save rtgi depth history"});
+    info.tg.copy_image_to_image({.src = half_res_samplecnt_image, .dst = info.half_res_samplecnt_history, .name = "save rtgi samplecnt history"});
+    info.tg.copy_image_to_image({.src = info.view_cam_half_res_face_normals, .dst = info.half_res_face_normal_history, .name = "save rtgi face normal history"});
+    info.tg.copy_image_to_image({.src = full_samplecount_image, .dst = info.samplecount_history, .name = "save full_samplecount_history"});
+    info.tg.copy_image_to_image({.src = info.view_cam_face_normals, .dst = info.face_normal_history, .name = "save full_face_normal_history"});
+    info.tg.copy_image_to_image({.src = accumualted_color_image, .dst = info.color_history, .name = "save full_color_history"});
+    info.tg.copy_image_to_image({.src = accumulated_statistics_image, .dst = info.statistics_history, .name = "save full_statistics_history"});
 
     return TasksRtgiMainResult{
-        .opaque_diffuse = rtgi_per_pixel_diffuse,
+        .opaque_diffuse = resolved_per_pixel_diffuse,
     };
 }

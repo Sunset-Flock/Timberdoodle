@@ -64,8 +64,8 @@ func downsample_mip_linear(uint2 thread_index, uint2 group_thread_index, uint mi
         gs_diffuse[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse;
 
         gs_diffuse2[group_thread_index.x][group_thread_index.y][gs_dst] = diffuse2;
-        push.attach.rtgi_reconstructed_diffuse_history[mip].get()[mip_group_base_index + group_thread_index] = diffuse;
-        push.attach.rtgi_reconstructed_diffuse2_history[mip].get()[mip_group_base_index + group_thread_index] = float4(diffuse2, depth, 0.0f);
+        push.attach.reconstructed_diffuse_history[mip].get()[mip_group_base_index + group_thread_index] = diffuse;
+        push.attach.reconstructed_diffuse2_history[mip].get()[mip_group_base_index + group_thread_index] = float4(diffuse2, depth, 0.0f);
     }
 }
 
@@ -101,8 +101,8 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
     const float base_weight = 1.0f;
     const float outer_sample_weight = 1.0f / 16.0f;
-    float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index] * base_weight;
-    float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index] * base_weight;
+    float4 diffuse = push.attach.diffuse_raw.get()[clamped_index] * base_weight;
+    float2 diffuse2 = push.attach.diffuse2_raw.get()[clamped_index] * base_weight;
     float weight_acc = base_weight;
     int spread = 1;
     if (push.attach.globals.rtgi_settings.firefly_flatten_filter_enabled)
@@ -131,15 +131,15 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 const float geometric_weight_real = abs(plane_distance) < float(spread) ? 1.0f : 0.0f;
                 const float sample_weight = geometric_weight_real * outer_sample_weight;
 
-                diffuse += push.attach.rtgi_diffuse_raw.get()[load_idx] * sample_weight;
-                diffuse2 += push.attach.rtgi_diffuse2_raw.get()[load_idx] * sample_weight;
+                diffuse += push.attach.diffuse_raw.get()[load_idx] * sample_weight;
+                diffuse2 += push.attach.diffuse2_raw.get()[load_idx] * sample_weight;
                 weight_acc += sample_weight;
             }
         } 
     }
 
-    push.attach.rtgi_flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
-    push.attach.rtgi_flattened_diffuse2.get()[dtid.xy] = diffuse2 * rcp(weight_acc);
+    push.attach.flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
+    push.attach.flattened_diffuse2.get()[dtid.xy] = diffuse2 * rcp(weight_acc);
 }
 
 [shader("compute")]
@@ -156,9 +156,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
     // Load Pixel Data
     const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
-    const float4 diffuse = push.attach.rtgi_diffuse_raw.get()[clamped_index];
-    const float2 diffuse2 = push.attach.rtgi_diffuse2_raw.get()[clamped_index];
-    const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[clamped_index];
+    const float4 diffuse = push.attach.diffuse_raw.get()[clamped_index];
+    const float2 diffuse2 = push.attach.diffuse2_raw.get()[clamped_index];
+    const float pixel_samplecnt = push.attach.half_res_samplecnt.get()[clamped_index];
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_normals.get()[clamped_index]);
 
     // Reconstruct pixel positions based on depth
@@ -210,10 +210,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             int2 load_idx = int2(x,y) * FILTER_STRIDE + int2(clamped_index);
             load_idx = flip_oob_index(load_idx, max_index);
 
-            float4 sample_diffuse = push.attach.rtgi_diffuse_raw.get()[load_idx];
-            float2 sample_diffuse2 = push.attach.rtgi_diffuse2_raw.get()[load_idx];
+            float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];
+            float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];
             const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
-            const float sample_validity = push.attach.rtgi_samplecnt.get()[load_idx];
+            const float sample_validity = push.attach.half_res_samplecnt.get()[load_idx];
             const bool is_sky = sample_depth == 0.0f;
 
             if (is_sky || (x == 0 && y == 0))
@@ -309,8 +309,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     }
 
     gs_depth[gtid.x][gtid.y][0] = depth;
-    push.attach.rtgi_reconstructed_diffuse_history[0].get()[dtid] = filtered_diffuse;
-    push.attach.rtgi_reconstructed_diffuse2_history[0].get()[dtid] = float4(filtered_diffuse2, depth, foreground_footprint_quality);
+    push.attach.reconstructed_diffuse_history[0].get()[dtid] = filtered_diffuse;
+    push.attach.reconstructed_diffuse2_history[0].get()[dtid] = float4(filtered_diffuse2, depth, foreground_footprint_quality);
     gs_diffuse[gtid.x][gtid.y][0] = filtered_diffuse;
     gs_diffuse2[gtid.x][gtid.y][0] = filtered_diffuse2;
 
@@ -350,8 +350,8 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
     const float2 uv = sv_xy * inv_half_res_render_target_size;
     
     // Load pixel Data
-    const float4 fetch0 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(halfres_pixel_index, 0));
-    const float4 fetch1 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(halfres_pixel_index, 0));
+    const float4 fetch0 = push.attach.reconstructed_diffuse_history.get().Load(int3(halfres_pixel_index, 0));
+    const float4 fetch1 = push.attach.reconstructed_diffuse2_history.get().Load(int3(halfres_pixel_index, 0));
     const float pixel_depth = fetch1.b;
     const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[halfres_pixel_index];
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_normals.get()[halfres_pixel_index]);
@@ -422,14 +422,14 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
         const float2 inv_mip_size = rcp(mip_size);
         const Bilinear bilinear_filter_reconstruct = get_bilinear_filter( saturate( corrected_uv ), mip_size );
         
-        const float4 diffuse00 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
-        const float4 diffuse10 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,0), mip));
-        const float4 diffuse01 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,1), mip));
-        const float4 diffuse11 = push.attach.rtgi_reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
-        const float4 reconstruct00_2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
-        const float4 reconstruct10_2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,0), mip));
-        const float4 reconstruct01_2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,1), mip));
-        const float4 reconstruct11_2 = push.attach.rtgi_reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
+        const float4 diffuse00 = push.attach.reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
+        const float4 diffuse10 = push.attach.reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,0), mip));
+        const float4 diffuse01 = push.attach.reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,1), mip));
+        const float4 diffuse11 = push.attach.reconstructed_diffuse_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
+        const float4 reconstruct00_2 = push.attach.reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,0), mip));
+        const float4 reconstruct10_2 = push.attach.reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,0), mip));
+        const float4 reconstruct01_2 = push.attach.reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(0,1), mip));
+        const float4 reconstruct11_2 = push.attach.reconstructed_diffuse2_history.get().Load(int3(int2(bilinear_filter_reconstruct.origin) + int2(1,1), mip));
         const float4 diffuse00_2 = float4(reconstruct00_2.xy, 0.0f, 0.0f);
         const float4 diffuse10_2 = float4(reconstruct10_2.xy, 0.0f, 0.0f);
         const float4 diffuse01_2 = float4(reconstruct01_2.xy, 0.0f, 0.0f);
@@ -470,6 +470,6 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
         diffuse2 = reconstructed_diffuse2;
     }
 
-    push.attach.rtgi_diffuse_filtered.get()[halfres_pixel_index] = diffuse;
-    push.attach.rtgi_diffuse2_filtered.get()[halfres_pixel_index] = diffuse2;
+    push.attach.diffuse_filtered.get()[halfres_pixel_index] = diffuse;
+    push.attach.diffuse2_filtered.get()[halfres_pixel_index] = diffuse2;
 }
