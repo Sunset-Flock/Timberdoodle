@@ -100,7 +100,7 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
     const float base_weight = 1.0f;
-    const float outer_sample_weight = 1.0f / 16.0f;
+    const float outer_sample_weight = 1.0f / 128.0f;
     float4 diffuse = push.attach.diffuse_raw.get()[clamped_index] * base_weight;
     float2 diffuse2 = push.attach.diffuse2_raw.get()[clamped_index] * base_weight;
     float weight_acc = base_weight;
@@ -140,6 +140,18 @@ func entry_flatten(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
     push.attach.flattened_diffuse.get()[dtid.xy] = diffuse * rcp(weight_acc);
     push.attach.flattened_diffuse2.get()[dtid.xy] = diffuse2 * rcp(weight_acc);
+}
+
+__generic<uint N>
+func linear_to_perceptual(vector<float, N> v) -> vector<float, N> 
+{
+    return log(max(v, 0.01f) + 1.0f);
+}
+
+__generic<uint N>
+func perceptual_to_linear(vector<float, N> v) -> vector<float, N> 
+{
+    return exp(v) - 1.0f;
 }
 
 [shader("compute")]
@@ -222,7 +234,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             }
 
             {
-                float geometric_mean_acc_value = log(max(sample_diffuse.w, 0.1f) + 1.0f);
+                float geometric_mean_acc_value = linear_to_perceptual(sample_diffuse.w);
                 y_mean_geometric_acc += geometric_mean_acc_value;
                 valid_neightborhood_samples += 1.0f;
                 y_geometric_variance_acc += square(geometric_mean_acc_value);
@@ -279,16 +291,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float y_variance = (y_variance_acc * rcp(valid_neightborhood_samples)) - square(y_mean);
         const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
 
-        const float y_mean_geometric = exp(y_mean_geometric_acc * rcp(valid_neightborhood_samples)) - 1.0f;
-        const float y_variance_geometric = max(EPSILON, (exp(y_geometric_variance_acc * rcp(valid_neightborhood_samples)) - 1.0f) - square(y_mean_geometric));
+        const float y_mean_perceptual = y_mean_geometric_acc * rcp(valid_neightborhood_samples);
+        const float y_mean_geometric = perceptual_to_linear(y_mean_perceptual);
+        const float y_variance_geometric = max(EPSILON, (perceptual_to_linear(y_geometric_variance_acc * rcp(valid_neightborhood_samples))) - square(y_mean_geometric));
         const float y_variance_geometric_relative = (y_variance_geometric) / (y_mean_geometric + EPSILON);
 
-        const float CEILING_FACTOR = 1.0f;
+        const float CEILING_FACTOR = push.attach.globals.rtgi_settings.firefly_filter_ceiling;
+        const float y_center_pixel_perceptual = linear_to_perceptual(filtered_diffuse.w);
         const float y_center_pixel = filtered_diffuse.w;
         const float y_ratio = (y_mean * CEILING_FACTOR) / (EPSILON + y_center_pixel);
         const float y_geometric_ratio = (y_mean_geometric * CEILING_FACTOR) / (EPSILON + y_center_pixel);
+        const float y_geometric_perceptual_ratio = (y_mean_perceptual * CEILING_FACTOR) / (EPSILON + y_center_pixel_perceptual);
         const float linear_y_clamp_factor = min(y_ratio, 1.0f);
-        const float geometric_y_clamp_factor = min(y_geometric_ratio, 2);
+        const float geometric_y_clamp_factor = min(y_geometric_ratio, 1);
 
         const float adjustment_factor = geometric_y_clamp_factor;
         if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)

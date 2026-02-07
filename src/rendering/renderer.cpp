@@ -1415,7 +1415,8 @@ auto Renderer::prepare_frame(
     bool const ao_settings_changed = render_context->render_data.ao_settings.mode != render_context->prev_ao_settings.mode;
     bool const rtgi_settings_changed = 
         render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled || 
-        render_context->render_data.rtgi_settings.spatial_filter_enabled != render_context->prev_rtgi_settings.spatial_filter_enabled;
+        render_context->render_data.rtgi_settings.spatial_filter_enabled != render_context->prev_rtgi_settings.spatial_filter_enabled ||
+        render_context->render_data.rtgi_settings.firefly_flatten_filter_enabled != render_context->prev_rtgi_settings.firefly_flatten_filter_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;

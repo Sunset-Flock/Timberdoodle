@@ -187,21 +187,26 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             })
             .executes(rtgi_denoise_diffuse_reproject_callback, &info.render_context));
 
-    auto flattened_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "flattened_diffuse_image");
-    auto flattened_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "flattened_diffuse2_image");
-    info.tg.add_task(daxa::HeadTask<RtgiPreBlurFlattenH::Info>()
-            .head_views(RtgiPreBlurFlattenH::Info::Views{
-                .globals = info.render_context.tgpu_render_data.view(),
-                .debug_image = info.debug_image,
-                .clocks_image = info.clocks_image,
-                .diffuse_raw = trace_diffuse_image,
-                .diffuse2_raw = trace_diffuse2_image,
-                .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
-                .flattened_diffuse = flattened_diffuse_image,
-                .flattened_diffuse2 = flattened_diffuse2_image,
-                .view_cam_half_res_depth = info.view_cam_half_res_depth,
-            })
-            .executes(rtgi_pre_blur_flatten_callback, &info.render_context));
+    auto post_flatten_diffuse_image = trace_diffuse_image;
+    auto post_flatten_diffuse2_image = trace_diffuse2_image;
+    if (info.render_context.render_data.rtgi_settings.firefly_flatten_filter_enabled)
+    {
+        post_flatten_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "post_flatten_diffuse_image");
+        post_flatten_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "post_flatten_diffuse2_image");
+        info.tg.add_task(daxa::HeadTask<RtgiPreBlurFlattenH::Info>()
+                .head_views(RtgiPreBlurFlattenH::Info::Views{
+                    .globals = info.render_context.tgpu_render_data.view(),
+                    .debug_image = info.debug_image,
+                    .clocks_image = info.clocks_image,
+                    .diffuse_raw = trace_diffuse_image,
+                    .diffuse2_raw = trace_diffuse2_image,
+                    .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
+                    .flattened_diffuse = post_flatten_diffuse_image,
+                    .flattened_diffuse2 = post_flatten_diffuse2_image,
+                    .view_cam_half_res_depth = info.view_cam_half_res_depth,
+                })
+                .executes(rtgi_pre_blur_flatten_callback, &info.render_context));
+    }
 
     auto pre_blur_mips_image = create_mip_blur_image(info.tg, &info.render_context, "pre_blur_mips_image").mips(0, 5);
     auto pre_blur_mips2_image = create_mip_blur_image(info.tg, &info.render_context, "pre_blur_mips2_image").mips(0, 5);
@@ -210,8 +215,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
-                .diffuse_raw = flattened_diffuse_image,
-                .diffuse2_raw = flattened_diffuse2_image,
+                .diffuse_raw = post_flatten_diffuse_image,
+                .diffuse2_raw = post_flatten_diffuse2_image,
                 .half_res_samplecnt = half_res_samplecnt_image,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
                 .reconstructed_diffuse_history = pre_blur_mips_image,

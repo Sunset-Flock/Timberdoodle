@@ -714,6 +714,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderFloat("AO Range", &render_data.rtgi_settings.ao_range, 0.0f, 4.0f);
                 ImGui::Checkbox("Firefly Flatten Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_flatten_filter_enabled));
                 ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
                 ImGui::Checkbox("Disocclusion Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.disocclusion_filter_enabled));
                 ImGui::Checkbox("Spatial Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.spatial_filter_enabled));
                 ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
