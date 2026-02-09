@@ -210,10 +210,13 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float y_max = 0.0f;
     float valid_neightborhood_samples = 0.0f;
 
-    float4 blurred_diffuse = float4(0,0,0,0);
-    float2 blurred_diffuse2 = float2(0,0);
+    float4 blurred_diffuse_acc = float4(0,0,0,0);
+    float2 blurred_diffuse2_acc = float2(0,0);
     float blurred_weight_acc = 0.0f;
 
+    // 24 geometric mean samples are very good and relatively performant
+    // 8 geometric samples really let some uglier fireflies in, try to stick to 24.
+    //  
     for (int x = -FILTER_WIDTH; x <= FILTER_WIDTH; ++x)
     {
         for (int y = -FILTER_WIDTH; y <= FILTER_WIDTH; ++y)
@@ -264,14 +267,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                     const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
                     const float geometric_weight_real = abs(plane_distance) < 2.0f ? 1.0f : 0.0f;
                     blurred_weight_acc += geometric_weight_real;
-                    blurred_diffuse += geometric_weight_real * sample_diffuse;
-                    blurred_diffuse2 += geometric_weight_real * sample_diffuse2;
+                    blurred_diffuse_acc += geometric_weight_real * sample_diffuse;
+                    blurred_diffuse2_acc += geometric_weight_real * sample_diffuse2;
                 }
             }
 
             // Accumulate neighbors that are close to or behind current pixel.
             background_sample_weight += (1.0f - clamp(1000.0f * (sample_depth - depth), 0.0f, 1.0f));
         }
+    }
+
+    // Foreground footprint quality estimation
+    {
+        foreground_footprint_quality = foreground_sample_weight * rcp(FILTER_TAPS_TOTAL);
     }
 
     // Firefly Filter + Background Pixel Suppression
@@ -287,16 +295,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
         const float EPSILON = 0.00000001f;
 
+        const float4 blurred_diffuse = blurred_diffuse_acc * rcp(blurred_weight_acc + EPSILON);
+        const float2 blurred_diffuse2 = blurred_diffuse2_acc * rcp(blurred_weight_acc + EPSILON);
+
         const float y_mean = y_mean_acc * rcp(valid_neightborhood_samples);
         const float y_variance = (y_variance_acc * rcp(valid_neightborhood_samples)) - square(y_mean);
         const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
 
         const float y_mean_perceptual = y_mean_geometric_acc * rcp(valid_neightborhood_samples);
         const float y_mean_geometric = perceptual_to_linear(y_mean_perceptual);
-        const float y_variance_geometric = max(EPSILON, (perceptual_to_linear(y_geometric_variance_acc * rcp(valid_neightborhood_samples))) - square(y_mean_geometric));
-        const float y_variance_geometric_relative = (y_variance_geometric) / (y_mean_geometric + EPSILON);
+        const float y_variance_geometric_relative = (y_variance) / (y_mean_geometric + EPSILON);
 
-        const float CEILING_FACTOR = push.attach.globals.rtgi_settings.firefly_filter_ceiling;
+        const float CEILING_TEMPORAL_FACTOR = lerp(0.25f, 1.0f, sqrt(pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames)));
+        const float CEILING_FACTOR = max(1.0f, push.attach.globals.rtgi_settings.firefly_filter_ceiling * tight_neighborgood_factor * foreground_footprint_quality * CEILING_TEMPORAL_FACTOR);
         const float y_center_pixel_perceptual = linear_to_perceptual(filtered_diffuse.w);
         const float y_center_pixel = filtered_diffuse.w;
         const float y_ratio = (y_mean * CEILING_FACTOR) / (EPSILON + y_center_pixel);
@@ -305,6 +316,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float linear_y_clamp_factor = min(y_ratio, 1.0f);
         const float geometric_y_clamp_factor = min(y_geometric_ratio, 1);
 
+        const float linear_to_geometric_factor = (max(1.0f, y_mean / y_mean_geometric) - 1.0f);
+
         const float adjustment_factor = geometric_y_clamp_factor;
         if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)
         {
@@ -312,15 +325,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             filtered_diffuse2 *= adjustment_factor;
         }
 
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(y_mean, y_mean_geometric, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(y_mean, y_mean_geometric, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(y_mean, y_mean_geometric, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(y_mean, y_mean_geometric, 0, 0);
-    }
-
-    // Foreground footprint quality estimation
-    {
-        foreground_footprint_quality = foreground_sample_weight * rcp(FILTER_TAPS_TOTAL);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(spatial_filter_radius_factor, linear_to_geometric_factor, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(spatial_filter_radius_factor, linear_to_geometric_factor, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(spatial_filter_radius_factor, linear_to_geometric_factor, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(spatial_filter_radius_factor, linear_to_geometric_factor, 0, 0);
     }
 
     gs_depth[gtid.x][gtid.y][0] = depth;
@@ -387,12 +395,13 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
     int mip = 0;
     float plane_pixel_dist_acceptance_threshold = 1.0f;
     {
-        const float MIN_MIP = 0.0f;
-        const float MAX_MIP = 4.0f;
+        const float MIN_MIP = 1.0f;               // Base 2x2 blur helps the stochastic spatial filtering later. 
+        const float MAX_FOOTPRINT_MIP = 4.0f;     // Pixels with poor spatial footprint need VERY high mips to become stable.
+        const float MAX_MIP_DISOCCLUSIONS = 3.0f; // Disocclusions mips above 3 cause too much blur. mip 3 ~= 8-16px blur, must be roughly same size as spatial filter kernel.
 
         // A plane pixel dist of 1 is provides good acceptance and sharp edge rejection for usual surfaces.
         // For pixels with poor spatial footprint quality, we drastically increase the threshold to allow a lot more blurring across edges.
-        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 4.0f;
+        const float MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 8.0f;
         const float MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD = 0.75f; 
 
         const float CONSIDERED_SPATIAL_FOOTPRINT_QUALITY_RANGE = 1.0f; // sample footprints greater than this value are considered full quality
@@ -404,14 +413,14 @@ func entry_apply(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID
         const float foreground_footprint_quality = min(1.0f, square(fetch1.a * rcp(min_relevant_footprint_quality)));
 
         // Square footprint quality to exaggerate the effect of poor footprints in the mid range of quality.
-        const float foreground_footprint_quality_mip = lerp(MAX_MIP, MIN_MIP, foreground_footprint_quality);
+        const float foreground_footprint_quality_mip = lerp(MAX_FOOTPRINT_MIP, MIN_MIP, foreground_footprint_quality);
         plane_pixel_dist_acceptance_threshold = lerp(MAX_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD, MIN_PLANE_PIXEL_DIST_ACCEPTANCE_THRESHOLD, foreground_footprint_quality);
 
         const float max_samplecount = push.attach.globals.rtgi_settings.history_frames;
         const float disocclusion_blur_frames = lerp(max_disocclusion_fix_frames, MIN_DISOCCLUSION_FIX_FRAMES, foreground_footprint_quality);
         const float disocclusion_fix_value = min(1.0f, pixel_samplecnt * (1.0f / disocclusion_blur_frames));
         const float disocclusion_fix_strength = pow(disocclusion_fix_value, 1.0f);
-        const float disocclusion_blur_mip = lerp(MAX_MIP, MIN_MIP, disocclusion_fix_strength);
+        const float disocclusion_blur_mip = lerp(MAX_MIP_DISOCCLUSIONS, MIN_MIP, disocclusion_fix_strength);
 
         mip = int(ceil(max(disocclusion_blur_mip, foreground_footprint_quality_mip)) + 0.001f);
 

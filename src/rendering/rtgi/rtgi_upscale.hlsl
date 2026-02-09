@@ -16,14 +16,31 @@ groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 
+
+__generic<uint N>
+func linear_to_perceptual(vector<float, N> v) -> vector<float, N> 
+{
+    return log(max(v, 0.01f) + 1.0f);
+}
+
+__generic<uint N>
+func perceptual_to_linear(vector<float, N> v) -> vector<float, N> 
+{
+    return exp(v) - 1.0f;
+}
+
 #define RTGI_PERCEPTUAL_EXPONENT 4.0f
 func perceptual_lerp(float a, float b, float v) -> float
 {
-    return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
+    // return lerp(a, b, v);
+    return perceptual_to_linear(lerp(linear_to_perceptual(a), linear_to_perceptual(b), v));
+    // return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
 }
 func perceptual_lerp(float3 a, float3 b, float v) -> float3
 {
-    return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
+    // return lerp(a, b, v);
+    return perceptual_to_linear(lerp(linear_to_perceptual(a), linear_to_perceptual(b), v));
+    //return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
 }
 
 [shader("compute")]
@@ -419,7 +436,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     float history_confidence = reprojected_samplecount;
     if (reprojected_samplecount > FAST_HISTORY_FRAMES)
     {
-        history_confidence *= fast_mean_diff_scaling;                                                // decreased confidence based on relative difference
+        history_confidence *= fast_mean_diff_scaling;                                                        // decreased confidence based on relative difference
         history_confidence = min(reprojected_samplecount * 2, history_confidence * fast_variance_scaling);   // increases conficende based on temporal variance
     }
     if (push.attach.globals.rtgi_settings.temporal_accumulation_enabled == 0)
@@ -428,24 +445,15 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     }
 
     const float blend_factor = (1.0f / (1.0f + history_confidence));
-    float3 accumulated_color = perceptual_lerp(reprojected_color_history0, upscaled_diffuse, blend_factor);
+    float3 accumulated_color = lerp(reprojected_color_history0, upscaled_diffuse, blend_factor);
     
     float3 stable_history = accumulated_color;
     const bool at_max_samples = reprojected_samplecount > (push.attach.globals.rtgi_settings.history_frames - 1.0f);
     if (push.attach.globals.rtgi_settings.temporal_stabilization_enabled)
     {
-        // With a high blend value, we take on MORE new values, and take LESS of the history.
-        // We cannot trust history in this case because we could not accumulate for long OR there is a large difference between history and fast history.
-        // In these cases we need to widen the clamp temporarily to keep the image stable.
-        // One the blend becomes small again, we reduce the clamp to not get stuck on bad stable history.
-        float clamp_range = lerp(0.1f, 1.0f, blend_factor); 
-
-        if (reprojected_samplecount < max_sample_count)
-        {
-            clamp_range = 0.0001f;
-        }
-
-        stable_history = clamp(perceptual_lerp(reprojected_stable_history, accumulated_color, reprojected_samplecount == 0.0f ? 1.0f : (blend_factor)), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
+        float clamp_range = 0.1f;
+        float stable_blend = reprojected_samplecount == max_sample_count ? blend_factor : 1.0f;  
+        stable_history = clamp(lerp(reprojected_stable_history, accumulated_color, stable_blend), accumulated_color * rcp(1.0f + clamp_range), accumulated_color * (1.0f + clamp_range));
     }
 
     push.attach.accumulated_color_full_res.get()[dtid] = uint2(
@@ -453,5 +461,5 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         float3_to_rgb9e5(stable_history),
     );
     push.attach.samplecount_full_res.get()[dtid] = reprojected_samplecount;
-    push.attach.diffuse_resolved.get()[dtid] = float4(stable_history / VALUE_MULTIPLIER, 1.0f);
+    push.attach.diffuse_resolved.get()[dtid] = float4((stable_history) / VALUE_MULTIPLIER, 1.0f);
 }

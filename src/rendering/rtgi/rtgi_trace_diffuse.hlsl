@@ -55,6 +55,18 @@ float3 rand_cosine_sample_hemi_stbn(uint2 pixel_frame)
     return float3(d.x, d.y, z);
 }
 
+__generic<uint N>
+func linear_to_perceptual(vector<float, N> v) -> vector<float, N> 
+{
+    return log(max(v, 0.01f) + 1.0f);
+}
+
+__generic<uint N>
+func perceptual_to_linear(vector<float, N> v) -> vector<float, N> 
+{
+    return exp(v) - 1.0f;
+}
+
 [shader("raygeneration")]
 void ray_gen()
 {
@@ -142,7 +154,7 @@ void ray_gen()
 
             float4 sh_y_new;
             float2 cocg_new;
-            radiance_to_y_co_cg_sh(payload.color * VALUE_MULTIPLIER, sample_dir, sh_y_new, cocg_new);
+            radiance_to_y_co_cg_sh((payload.color * VALUE_MULTIPLIER), sample_dir, sh_y_new, cocg_new);
             acc += sh_y_new * rcp(SAMPLES);
             acc2 += cocg_new * rcp(SAMPLES);
         }

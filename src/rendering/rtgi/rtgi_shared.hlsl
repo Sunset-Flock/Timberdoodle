@@ -12,8 +12,8 @@
 
 // This casues dark areas to be too dark often.
 // Consider to find a way to get rid of this and have constant filter size
-#define RTGI_SPATIAL_FILTER_RADIUS_MAX 22
-#define RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION 1
+#define RTGI_SPATIAL_FILTER_RADIUS_MAX 36
+#define RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION 0
 
 #define RTGI_DISOCCLUSION_SCALING 1
 #define RTGI_DISOCCLUSION_FLOOD_FILL 1

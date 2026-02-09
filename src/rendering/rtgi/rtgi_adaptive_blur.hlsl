@@ -82,7 +82,9 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
 #else
     const float validity = 1.0f;
 #endif
-    float blur_radius = lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.spatial_filter_width, validity);
+    float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
+    float px_size_radius_scale = 1.0f / (px_size * 25.0f);
+    float blur_radius = max(6.0f, lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.spatial_filter_width * px_size_radius_scale, validity));
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -126,16 +128,20 @@ func entry_blur_diffuse(uint2 dtid : SV_DispatchThreadID)
         const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
 
         // Calculate validity weights
-        const float depth_valid_weight = sample_value_depth != 0.0f ? 1.0f : 0.0f;
         const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
         const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
-        const float weight = depth_valid_weight * geometric_weight * normal_weight;
-
-        // Accumulate blurred diffuse
-        weight_accum += weight;
-        blurred_accum += weight * sample_sh_y;
-        blurred_accum2 += weight * sample_cocg;
-        valid_sample_count += geometric_weight > 0.0f;
+        const float weight = geometric_weight * normal_weight;
+        
+        // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
+        const bool is_sky = sample_value_depth == 0.0f;
+        if (!is_sky)
+        {
+            // Accumulate blurred diffuse
+            weight_accum += weight;
+            blurred_accum += weight * sample_sh_y;
+            blurred_accum2 += weight * sample_cocg;
+            valid_sample_count += geometric_weight > 0.0f;
+        }
     }
 
     // Calculate blurred diffuse and fallback blending
