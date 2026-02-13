@@ -16,48 +16,6 @@
 #include "virtual_shadow_maps/vsm_state.hpp"
 #include "pgi/pgi.hpp"
 
-template<typename T, u32 MAX_SIZE>
-struct InlineArray
-{
-    std::array<T, MAX_SIZE> values = {};
-    u32 count = {};
-    auto add(T const& v) -> u32
-    {
-        values[count] = v;
-        return v++;
-    }
-};
-
-
-enum RasterPipelineIds
-{
-    RPID_NONE = 0,
-    RPID_DRAW_VISBUFFER_0,
-    RPID_DRAW_VISBUFFER_1,
-    RPID_DRAW_VISBUFFER_2,
-    RPID_DRAW_VISBUFFER_3,
-    RPID_DRAW_VISBUFFER_4,
-    RPID_DRAW_VISBUFFER_5,
-    RPID_DRAW_VISBUFFER_6,
-    RPID_DRAW_VISBUFFER_7,
-    RPID_CULL_DRAW_PAGES_0,
-    RPID_CULL_DRAW_PAGES_1,
-    RPID_DRAW_SHADER_DEBUG_LINES,
-    RPID_DRAW_SHADER_DEBUG_CIRCLES,
-    RPID_DRAW_SHADER_DEBUG_RECTANGLES,
-    RPID_DRAW_SHADER_DEBUG_AABBS,
-    RPID_DRAW_SHADER_DEBUG_BOXES,
-    RPID_PGI_DRAW_DEBUG_PROBES,
-    RPID_COUNT,
-};
-struct PipelineSet
-{
-    std::array<daxa::RasterPipelineCompileInfo2, RPID_COUNT> raster_compile_infos = {};
-    std::array<std::shared_ptr<daxa::RasterPipeline>, RPID_COUNT> raster_pipelines = {};
-};
-
-// Renderer struct.
-// This should idealy handle all rendering related information and functionality.
 struct Renderer
 {
     Renderer(Window *window, GPUContext *gpu_context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
@@ -104,6 +62,9 @@ struct Renderer
     daxa::TaskImage rtgi_depth_history = {};
     daxa::TaskImage rtgi_face_normal_history = {};
     daxa::TaskImage rtgi_samplecnt_history = {};
+    daxa::TaskImage rtgi_diffuse_history = {};
+    daxa::TaskImage rtgi_diffuse2_history = {};
+    daxa::TaskImage rtgi_statistics_history = {};
 
     daxa::TaskImage rtgi_full_samplecount_history = {};
     daxa::TaskImage rtgi_full_face_normal_history = {};

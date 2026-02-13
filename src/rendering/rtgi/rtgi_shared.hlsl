@@ -5,6 +5,7 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
+#define RTGI_MAX_FIREFLY_FACTOR (32.0f)
 
 #define RTGI_USE_POISSON_DISC 0
 
@@ -138,7 +139,7 @@ static const float3 g_Poisson8[8] =
 
 float get_gaussian_weight( float r )
 {
-    return exp( -0.66 * r * r ); // assuming r is normalized to 1
+    return exp( -0.66f * square(r * 2.71828182846f * 0.5f) ); // assuming r is normalized to 1
 }
 
 float3 linear_to_y_co_cg( float3 color )

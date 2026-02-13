@@ -109,7 +109,7 @@ void ray_gen()
 
     if(depth > 0.0f)
     {
-        static const uint SAMPLES = 1;
+        const int SAMPLES = push.attach.globals.rtgi_settings.ray_samples;
         for (uint i = 0; i < SAMPLES; ++i)
         {
             const float3 sample_pos = rt_calc_ray_start(world_position, face_normal, primary_ray);

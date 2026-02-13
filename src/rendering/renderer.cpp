@@ -100,6 +100,9 @@ Renderer::Renderer(
     rtgi_depth_history = daxa::TaskImage{{.name = "rtgi_depth_history"}};
     rtgi_samplecnt_history = daxa::TaskImage{{.name = "rtgi_samplecnt_history"}};
     rtgi_face_normal_history = daxa::TaskImage{{.name = "rtgi_face_normal_history"}};
+    rtgi_diffuse_history = daxa::TaskImage{{.name = "rtgi_diffuse_history"}};
+    rtgi_diffuse2_history = daxa::TaskImage{{.name = "rtgi_diffuse2_history"}};
+    rtgi_statistics_history = daxa::TaskImage{{.name = "rtgi_statistics_history"}};
 
     rtgi_full_samplecount_history = daxa::TaskImage{{.name = "rtgi_full_samplecount_history"}};
     rtgi_full_face_normal_history = daxa::TaskImage{{.name = "rtgi_full_face_normal_history"}};
@@ -240,6 +243,18 @@ Renderer::~Renderer()
     {
         gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
     }
+    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+    }
+    if (!rtgi_diffuse2_history.get_state().images.empty() && !rtgi_diffuse2_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse2_history.get_state().images[0]);
+    }
+    if (!rtgi_statistics_history.get_state().images.empty() && !rtgi_statistics_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_statistics_history.get_state().images[0]);
+    }
     if (!rtgi_face_normal_history.get_state().images.empty() && !rtgi_face_normal_history.get_state().images[0].is_empty())
     {
         gpu_context->device.destroy_image(rtgi_face_normal_history.get_state().images[0]);
@@ -257,28 +272,6 @@ Renderer::~Renderer()
     this->gpu_context->device.wait_idle();
     this->gpu_context->device.collect_garbage();
 }
-
-// struct PipelineCompileInfos
-// {
-//     InlineArray<daxa::RasterPipelineCompileInfo, 64> rasters = {};
-//     u32 const RPID_DRAW_VISBUFFER_0 = rasters.add(draw_visbuffer_mesh_shader_pipelines[0]);
-//     u32 const RPID_DRAW_VISBUFFER_1 = rasters.add(draw_visbuffer_mesh_shader_pipelines[1]);
-//     u32 const RPID_DRAW_VISBUFFER_2 = rasters.add(draw_visbuffer_mesh_shader_pipelines[2]);
-//     u32 const RPID_DRAW_VISBUFFER_3 = rasters.add(draw_visbuffer_mesh_shader_pipelines[3]);
-//     u32 const RPID_DRAW_VISBUFFER_4 = rasters.add(draw_visbuffer_mesh_shader_pipelines[4]);
-//     u32 const RPID_DRAW_VISBUFFER_5 = rasters.add(draw_visbuffer_mesh_shader_pipelines[5]);
-//     u32 const RPID_DRAW_VISBUFFER_6 = rasters.add(draw_visbuffer_mesh_shader_pipelines[6]);
-//     u32 const RPID_DRAW_VISBUFFER_7 = rasters.add(draw_visbuffer_mesh_shader_pipelines[7]);
-//     u32 const RPID_CULL_DRAW_PAGES_0 = rasters.add();
-//     u32 const RPID_CULL_DRAW_PAGES_1 = rasters.add();
-//     u32 const RPID_DRAW_SHADER_DEBUG_LINES = rasters.add();
-//     u32 const RPID_DRAW_SHADER_DEBUG_CIRCLES = rasters.add();
-//     u32 const RPID_DRAW_SHADER_DEBUG_RECTANGLES = rasters.add();
-//     u32 const RPID_DRAW_SHADER_DEBUG_AABBS = rasters.add();
-//     u32 const RPID_DRAW_SHADER_DEBUG_BOXES = rasters.add();
-//     u32 const RPID_PGI_DRAW_DEBUG_PROBES = rasters.add();
-//     u32 const RPID_COUNT = rasters.add();
-// };
 
 void Renderer::compile_pipelines()
 {
@@ -318,11 +311,11 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
-        {rtgi_reproject_diffuse_compile_info()},
-        {rtgi_pre_blur_flatten_compile_info()},
-        {rtgi_pre_blur_prepare_compile_info()},
-        {rtgi_pre_blur_apply_compile_info()},
-        {rtgi_adaptive_blur_diffuse_compile_info()},
+        {rtgi_temporal_compile_info()},
+        {rtgi_pre_filter_prepare_compile_info()},
+        {rtgi_pre_filter_apply_compile_info()},
+        {rtgi_adaptive_blur_compile_info()},
+        {rtgi_post_blur_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
@@ -493,6 +486,21 @@ void Renderer::recreate_framebuffer()
         gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
     }
     rtgi_samplecnt_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_samplecnt_history_image_info(render_context.get()))}});
+    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+    }
+    rtgi_diffuse_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_diffuse_history_image_info(render_context.get()))}});
+    if (!rtgi_diffuse2_history.get_state().images.empty() && !rtgi_diffuse2_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_diffuse2_history.get_state().images[0]);
+    }
+    rtgi_diffuse2_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_diffuse2_history_image_info(render_context.get()))}});
+    if (!rtgi_statistics_history.get_state().images.empty() && !rtgi_statistics_history.get_state().images[0].is_empty())
+    {
+        gpu_context->device.destroy_image(rtgi_statistics_history.get_state().images[0]);
+    }
+    rtgi_statistics_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_statistics_history_image_info(render_context.get()))}});
     if (!rtgi_face_normal_history.get_state().images.empty() && !rtgi_face_normal_history.get_state().images[0].is_empty())
     {
         gpu_context->device.destroy_image(rtgi_face_normal_history.get_state().images[0]);
@@ -1037,6 +1045,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         tg.use_persistent_image(rtgi_depth_history);
         tg.use_persistent_image(rtgi_samplecnt_history);
         tg.use_persistent_image(rtgi_face_normal_history);
+        tg.use_persistent_image(rtgi_diffuse_history);
+        tg.use_persistent_image(rtgi_diffuse2_history);
+        tg.use_persistent_image(rtgi_statistics_history);
 
         TasksRtgiInfo info = {
             .tg = tg,
@@ -1068,6 +1079,9 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.half_res_depth_history = rtgi_depth_history;
         info.half_res_samplecnt_history = rtgi_samplecnt_history;
         info.half_res_face_normal_history = rtgi_face_normal_history;
+        info.half_res_diffuse_history = rtgi_diffuse_history;
+        info.half_res_diffuse2_history = rtgi_diffuse2_history;
+        info.half_res_statistics_history = rtgi_statistics_history;
         info.color_history = rtgi_full_color_history;
         info.statistics_history = rtgi_full_statistics_history;
         info.face_normal_history = rtgi_full_face_normal_history;
@@ -1416,7 +1430,8 @@ auto Renderer::prepare_frame(
     bool const rtgi_settings_changed = 
         render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled || 
         render_context->render_data.rtgi_settings.spatial_filter_enabled != render_context->prev_rtgi_settings.spatial_filter_enabled ||
-        render_context->render_data.rtgi_settings.firefly_flatten_filter_enabled != render_context->prev_rtgi_settings.firefly_flatten_filter_enabled;
+        render_context->render_data.rtgi_settings.spatial_filter_two_pass_enabled != render_context->prev_rtgi_settings.spatial_filter_two_pass_enabled ||
+        render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;

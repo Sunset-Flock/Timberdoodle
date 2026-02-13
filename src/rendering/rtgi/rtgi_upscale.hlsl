@@ -16,7 +16,6 @@ groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 
-
 __generic<uint N>
 func linear_to_perceptual(vector<float, N> v) -> vector<float, N> 
 {
@@ -207,9 +206,9 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         {
             upscaled_diffuse = y_co_cg_to_linear(float3(upscaled_sh_y.w, upscaled_cocg));
         }
-
     }
 
+    #if 0
     // reproject history data
     float reprojected_samplecount = 0;
     float3 reprojected_color_history0 = float3(0.0f, 0.0f, 0.0f);
@@ -331,7 +330,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             reprojected_samplecount = {};
         }
         
-        // Stable Color History
+        // Real Color History
         const uint4 color_history0 = push.attach.color_history_full_res.get().GatherRed( nearest_clamp_s, reproject_gather_uv ).wzxy;
         float3 decoded_color_history0[4] = {
             rgb9e5_to_float3(color_history0[0]),
@@ -345,7 +344,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             reprojected_color_history0 = {};
         }
 
-        // Real Color History
+        // Stable Color History
         const uint4 color_history1 = push.attach.color_history_full_res.get().GatherGreen( nearest_clamp_s, reproject_gather_uv ).wzxy;
         float3 decoded_color_history1[4] = {
             rgb9e5_to_float3(color_history1[0]),
@@ -428,7 +427,6 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + fast_relative_std_dev * 0.5f) / rgb_brightness(upscaled_diffuse);
         const float clamp_factor = min(1.0f, brightness_ratio);
         upscaled_diffuse = clamp_factor * upscaled_diffuse;
-        // push.attach.debug_image.get()[dtid.xy] = float4(reprojected_fast_temporal_mean, reprojected_fast_temporal_mean * fast_relative_std_dev, reprojected_fast_temporal_mean * reprojected_fast_temporal_variance, 0);
     }
 
     const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
@@ -462,4 +460,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
     );
     push.attach.samplecount_full_res.get()[dtid] = reprojected_samplecount;
     push.attach.diffuse_resolved.get()[dtid] = float4((stable_history) / VALUE_MULTIPLIER, 1.0f);
+    #else
+    push.attach.samplecount_full_res.get()[dtid] = 0; // reprojected_samplecount;
+    push.attach.diffuse_resolved.get()[dtid] = float4((upscaled_diffuse) / VALUE_MULTIPLIER, 1.0f);
+    #endif
 }

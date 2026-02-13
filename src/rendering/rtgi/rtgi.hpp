@@ -13,11 +13,12 @@
 /// * ultra high performance, < 0.5ms for denoising + upscaling
 /// 
 /// Future denoiser design:
-/// 1. AnalyzePrefilter
-///    * calculate geometric properties of pixel in 5x5 area: thin-ness, claustrophobia
+/// 1. Prefilter
+///    * calculate geometric properties of pixel in 5x5 area: foreground and background footprint quality
 ///    * calculate spatial variance of raw signal in 5x5 area.
 ///    * calculate geometric brightness mean and clamp raw values against it (firefly filtering)
-///    * downsample result 2x2, store results in 2 mips image.
+///      * reduce clamp ceiling based on footprint quality
+///      * writeout the firefly energy factor to an image, used later for firefly energy compensation
 /// 2. stochastic variance guided preblur
 ///    * use the downsampled 2x2 per hit for samples far away from center (> 2px distance to center)
 ///    * taking advantage of temporal integration later (filter can be really crappy)
@@ -25,6 +26,7 @@
 ///    * anisotropic with min angle, simple edge stopping via plane distance metric
 ///    * random disc sampling, full weight for every sample (importance sample disc)
 ///    * radius scaled based on spatial variance estimated in AnalyzePrefilter 
+///    * samples weighted by firefly factor, this recovers clamped firefly energy
 /// 3. temporal integration
 ///    * reproject previous frame samplecount, radiance, radiance moments
 ///    * temporally accumulate fast temporal history
@@ -131,11 +133,11 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
     };
 }
 
-MAKE_COMPUTE_COMPILE_INFO(rtgi_reproject_diffuse_compile_info, "./src/rendering/rtgi/rtgi_reproject.hlsl", "entry_reproject_halfres")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_flatten_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_flatten")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_prepare")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_apply")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_diffuse_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_blur_diffuse")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_reproject_halfres")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_prepare")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_apply")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_adaptive_blur_compile_info, "./src/rendering/rtgi/rtgi_adaptive_blur.hlsl", "entry_adaptive_blur")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
 
 ///
@@ -147,8 +149,8 @@ inline auto rtgi_create_diffuse_history_image_info(RenderContext * render_contex
     return daxa::ImageInfo{
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
             1,
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
@@ -161,12 +163,26 @@ inline auto rtgi_create_diffuse2_history_image_info(RenderContext * render_conte
     return daxa::ImageInfo{
         .format = daxa::Format::R16G16_SFLOAT,
         .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
             1,
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .name = "rtgi diffuse2 history image",
+    };
+}
+
+inline auto rtgi_create_statistics_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
+{
+    return daxa::ImageInfo{
+        .format = daxa::Format::R32_UINT,
+        .size = {
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
+            1,
+        },
+        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "rtgi statistics history image",
     };
 }
 
@@ -175,8 +191,8 @@ inline auto rtgi_create_depth_history_image_info(RenderContext * render_context)
     return daxa::ImageInfo{
         .format = daxa::Format::R32_SFLOAT,
         .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
             1,
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
@@ -189,8 +205,8 @@ inline auto rtgi_create_samplecnt_history_image_info(RenderContext * render_cont
     return daxa::ImageInfo{
         .format = daxa::Format::R16_SFLOAT,
         .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
             1,
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
@@ -203,8 +219,8 @@ inline auto rtgi_create_face_normal_history_image_info(RenderContext * render_co
     return daxa::ImageInfo{
         .format = daxa::Format::R32_UINT,
         .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_DIFFUSE_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
+            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
             1,
         },
         .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
@@ -244,6 +260,9 @@ struct TasksRtgiInfo
     daxa::TaskImageView half_res_depth_history = {};
     daxa::TaskImageView half_res_samplecnt_history = {};
     daxa::TaskImageView half_res_face_normal_history = {};
+    daxa::TaskImageView half_res_diffuse_history = {};
+    daxa::TaskImageView half_res_diffuse2_history = {};
+    daxa::TaskImageView half_res_statistics_history = {};
     daxa::TaskImageView color_history = {};
     daxa::TaskImageView statistics_history = {};
     daxa::TaskImageView face_normal_history = {};
