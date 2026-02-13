@@ -7,8 +7,8 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/rtgi.inl"
 
-#define RTGI_POST_BLUR_DIFFUSE_X 8
-#define RTGI_POST_BLUR_DIFFUSE_Y 8
+#define RTGI_POST_BLUR_X 8
+#define RTGI_POST_BLUR_Y 8
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiPostBlurH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)

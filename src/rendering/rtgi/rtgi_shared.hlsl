@@ -5,6 +5,8 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
+#define RTGI_FIREFLY_ENERGY_HACKS 1
+
 #define RTGI_MAX_FIREFLY_FACTOR (32.0f)
 
 #define RTGI_USE_POISSON_DISC 0

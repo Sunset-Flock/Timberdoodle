@@ -9,7 +9,7 @@
 [[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
 
 [shader("compute")]
-[numthreads(RTGI_POST_BLUR_DIFFUSE_X,RTGI_POST_BLUR_DIFFUSE_Y,1)]
+[numthreads(RTGI_POST_BLUR_X,RTGI_POST_BLUR_Y,1)]
 func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 {
     let push = rtgi_post_blur_push;
@@ -63,7 +63,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 #endif
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(6.0f, lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.spatial_filter_width * px_size_radius_scale, validity));
+    float blur_radius = max(6.0f, lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale, validity));
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 

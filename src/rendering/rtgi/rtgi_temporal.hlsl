@@ -316,7 +316,11 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         history_confidence *= fast_mean_diff_scaling;                                                         // decreased confidence based on relative difference
         history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increases conficende based on temporal variance
     }
-    const float blend = 1.0f / (1.0f + history_confidence);
+    float blend = 1.0f / (1.0f + history_confidence);
+    if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
+    {
+        blend = 1.0f;
+    }
 
     // Determine accumulated diffuse
     float4 accumulated_diffuse = disocclusion ? new_diffuse : lerp(reprojected_diffuse, new_diffuse, blend);

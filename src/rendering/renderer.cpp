@@ -313,8 +313,7 @@ void Renderer::compile_pipelines()
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {rtgi_temporal_compile_info()},
         {rtgi_pre_filter_prepare_compile_info()},
-        {rtgi_pre_filter_apply_compile_info()},
-        {rtgi_adaptive_blur_compile_info()},
+        {rtgi_pre_blur_compile_info()},
         {rtgi_post_blur_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
@@ -1429,8 +1428,7 @@ auto Renderer::prepare_frame(
     bool const ao_settings_changed = render_context->render_data.ao_settings.mode != render_context->prev_ao_settings.mode;
     bool const rtgi_settings_changed = 
         render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled || 
-        render_context->render_data.rtgi_settings.spatial_filter_enabled != render_context->prev_rtgi_settings.spatial_filter_enabled ||
-        render_context->render_data.rtgi_settings.spatial_filter_two_pass_enabled != render_context->prev_rtgi_settings.spatial_filter_two_pass_enabled ||
+        render_context->render_data.rtgi_settings.pre_blur_enabled != render_context->prev_rtgi_settings.pre_blur_enabled ||
         render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
