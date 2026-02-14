@@ -40,7 +40,13 @@ func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth)
     return pixel_ws_size;
 }
 
-func planar_surface_distance(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
+func planar_surface_distance(float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
+{
+    const float plane_distance = dot(other_vs_position - vs_position, vs_normal);
+    return plane_distance;
+}
+
+func planar_surface_distance_ws(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
 {
     const float plane_distance = dot(other_vs_position - vs_position, vs_normal);
     return plane_distance * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
