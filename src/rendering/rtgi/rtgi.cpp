@@ -65,8 +65,8 @@ inline void rtgi_pre_filter_prepare_callback(daxa::TaskInterface ti, RenderConte
 
 inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
 {
-    auto const & AT = RtgiAdaptiveBlurH::Info::AT;
-    dispatch_image_relative(RtgiAdaptiveBlurPush{}, ti, render_context, AT.view_cam_half_res_depth, RTGI_PRE_BLUR_X, RenderTimes::index<"RTGI", "PRE_BLUR">(), rtgi_pre_blur_compile_info().name);
+    auto const & AT = RtgiPreBlurH::Info::AT;
+    dispatch_image_relative(RtgiPreBlurPush{}, ti, render_context, AT.view_cam_half_res_depth, RTGI_PRE_BLUR_X, RenderTimes::index<"RTGI", "PRE_BLUR">(), rtgi_pre_blur_compile_info().name);
 }
 
 inline void rtgi_post_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
@@ -178,6 +178,15 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "spatial_std_dev_image",
     });
+    auto footprint_quality_image = info.tg.create_transient_image({
+        .format = daxa::Format::R8_UNORM,
+        .size = {
+            info.render_context.render_data.settings.render_target_size.x / 2,
+            info.render_context.render_data.settings.render_target_size.y / 2,
+            1,
+        },
+        .name = "footprint_quality_image",
+    });
     info.tg.add_task(daxa::HeadTask<RtgiPreFilterPrepareH::Info>()
             .head_views(RtgiPreFilterPrepareH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
@@ -191,6 +200,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .firefly_factor_image = firefly_factor_image,
                 .spatial_std_dev_image = spatial_std_dev_image,
+                .footprint_quality_image = footprint_quality_image,
             })
             .executes(rtgi_pre_filter_prepare_callback, &info.render_context));
 
@@ -201,8 +211,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         auto pre_blurred_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_blurred_diffuse_image");
         auto pre_blurred_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_blurred_diffuse2_image");
 
-        info.tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiPreBlur")
-                .head_views(RtgiAdaptiveBlurH::Info::Views{
+        info.tg.add_task(daxa::HeadTask<RtgiPreBlurH::Info>("RtgiPreBlur")
+                .head_views(RtgiPreBlurH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
                     .clocks_image = info.clocks_image,
@@ -215,6 +225,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .rtgi_diffuse2_blurred = pre_blurred_diffuse2_image,
                     .firefly_factor_image = firefly_factor_image,
                     .spatial_std_dev_image = spatial_std_dev_image,
+                    .footprint_quality_image = footprint_quality_image,
                 })
                 .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, 1u));
         post_pre_blur_diffuse_image = pre_blurred_diffuse_image;
@@ -273,6 +284,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
                     .temporal_moments = accumulated_statistics_image,
+                    .spatial_std_dev_image = spatial_std_dev_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
 
@@ -291,6 +303,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
                     .temporal_moments = accumulated_statistics_image,
+                    .spatial_std_dev_image = spatial_std_dev_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
     }

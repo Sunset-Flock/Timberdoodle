@@ -6,7 +6,7 @@
 #include "shader_lib/misc.hlsl"
 #include "rtgi_shared.hlsl"
 
-[[vk::push_constant]] RtgiAdaptiveBlurPush rtgi_pre_blur_push;
+[[vk::push_constant]] RtgiPreBlurPush rtgi_pre_blur_push;
 
 float2 rand_concentric_sample_disc_center_focus()
 {
@@ -68,9 +68,15 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float pixel_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
 
+    // Footprint Quality Scaling
+    // * for a low quality footprint, most far radius samples will be rejected -> poor temporal stability
+    // * a lot quality footprint indicates complex geometry -> large radius will lead to overblur
+    // * scaling down the radius for low quality footprints increases temporal stability and reduces light leak.
+    const float pixel_footprint_quality = (push.attach.footprint_quality_image.get()[dtid.xy]);
+
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale;
+    float blur_radius = max(3.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale * pixel_footprint_quality);
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -89,6 +95,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg;
     float valid_sample_count = 1.0f;
     float weight_accum = push.attach.firefly_factor_image.get()[dtid.xy] * RTGI_MAX_FIREFLY_FACTOR;
+
     for (uint s = 0; s < samples; ++s)
     {        
         const float2 disc_noise = rand_concentric_sample_disc_center_focus();
@@ -100,11 +107,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         const float2 pixel_index_wiggle = disc_noise * 0.5f; 
         const float2 sample_uv = sample_ndc.xy * 0.5f + 0.5f;
         const uint2 sample_index = uint2(sample_uv * half_res_render_target_size + pixel_index_wiggle);
-        
-        // if (all(dtid.xy == half_res_render_target_size/2))
-        // {
-        //     push.attach.debug_image.get()[sample_index] = float4(1,0,0,1);
-        // }
 
         // Load sample data
         const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
@@ -133,6 +135,11 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
         const float weight = geometric_weight * normal_weight * firefly_power * relative_sample_y_weight;
         
+        // if (all(dtid.xy == half_res_render_target_size/2))
+        // {
+        //     push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
+        // }
+        
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample_value_depth == 0.0f;
         if (!is_sky)
@@ -145,8 +152,8 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         }
     }
 
-    const float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.0001f);
-    const float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.0001f);
+    float4 blurry_sh_y = blurred_accum * rcp(weight_accum + 0.00001f);
+    float2 blurry_cocg = blurred_accum2 * rcp(weight_accum + 0.00001f);
 
     push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = blurry_sh_y;
     push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = blurry_cocg;

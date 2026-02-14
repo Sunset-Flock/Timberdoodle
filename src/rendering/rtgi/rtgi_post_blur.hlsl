@@ -80,10 +80,12 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const int FILTER_STRIDE = 2;
 
     const float pixel_y = push.attach.rtgi_diffuse_before.get()[dtid.xy].w;
+    const float pixel_y_spatial_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
     const float2 pixel_temporal_moments = unpack_2x16f_uint(push.attach.temporal_moments.get()[dtid.xy]);
     const float pixel_temporal_relative_variance = pixel_temporal_moments.y;
     const float pixel_temporal_variance = pixel_temporal_relative_variance * pixel_y;
     const float pixel_temporal_std_dev = sqrt(pixel_temporal_variance);
+    const float pixel_y_std_dev = lerp(pixel_y_spatial_std_dev, pixel_temporal_std_dev, temporal_stability);
 
     for (int i = -FILTER_WIDTH; i <= FILTER_WIDTH; ++i)
     {
@@ -117,7 +119,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         // * improves shadowing contact detail
         // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
         // * turn down the y difference based on temporal stability, the result of the temporal pass is too noisy for a few frames to rely on variance guiding
-        const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_temporal_std_dev + pixel_y * 0.0001f) * temporal_stability);
+        const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y_std_dev + pixel_y * 0.0001f));
         const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
 
         const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * relative_sample_y_weight;
