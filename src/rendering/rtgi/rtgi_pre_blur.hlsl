@@ -66,16 +66,11 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
 
-#if RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION
-    const float validity = min(1.0f, pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames));
-#else
-    const float validity = 1.0f;
-#endif
+    const float pixel_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
+
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
-    float variance_based_radius_scale = 1;//clamp(push.attach.debug_image.get()[dtid].x, 1.0f, 4.0f);
-    float firefly_based_radius_scale = 1;//push.attach.firefly_factor_image.get()[dtid].x * RTGI_MAX_FIREFLY_FACTOR;
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(8.0f, lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale * variance_based_radius_scale * firefly_based_radius_scale, validity));
+    float blur_radius = push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale;
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -87,15 +82,17 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         sin(acos(biased_vs_normal.y)),
     ) * inv_half_res_render_target_size;
 
-    float valid_sample_count = 0.0f;
-    float weight_accum = 0.0f;
-    float4 blurred_accum = float4( 0.0f, 0.0f, 0.0f, 0.0f );
-    float2 blurred_accum2 = float2( 0.0f, 0.0f );
     uint samples = 8u;
+
+    float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy];
+    const float pixel_y = blurred_accum.w;
+    float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg;
+    float valid_sample_count = 1.0f;
+    float weight_accum = push.attach.firefly_factor_image.get()[dtid.xy] * RTGI_MAX_FIREFLY_FACTOR;
     for (uint s = 0; s < samples; ++s)
     {        
         const float2 disc_noise = rand_concentric_sample_disc_center_focus();
-        const float2 sample_2d = s == 0 ? float2(0,0) : disc_noise * blur_radius; // make sure to always sample the center pixel on the first tap
+        const float2 sample_2d = disc_noise * blur_radius;
         const float3 sample_ndc = ndc + float3(ss_gradient * sample_2d, 0.0f);
         // Wiggle does two things:
         // - rand_concentric_sample_disc_center_focus creates a LOT of samples at the center texel, the wiggle moves many of those out by one pixel
@@ -127,7 +124,14 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // * clamped fireflys are distributed to more pixels, this recovers lost energy from the firefly clamp
         // * as bright pixels are spread much more than others, this increases their temporal stability by a lot, allowing a higher firefly ceiling and more temporal stability
         const float firefly_power = push.attach.firefly_factor_image.get()[sample_index].x * RTGI_MAX_FIREFLY_FACTOR;
-        const float weight = geometric_weight * normal_weight * firefly_power;
+        
+        // Variance guiding:
+        // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
+        // * improves shadowing contact detail
+        const float relative_sample_y_deviation = (max(1.0f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_std_dev + pixel_y * 0.00001f)) * 0.5f);
+        const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
+
+        const float weight = geometric_weight * normal_weight * firefly_power * relative_sample_y_weight;
         
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample_value_depth == 0.0f;

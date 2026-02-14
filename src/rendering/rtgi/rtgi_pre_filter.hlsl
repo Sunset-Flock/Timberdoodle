@@ -161,6 +161,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         foreground_footprint_quality = foreground_sample_weight * rcp(FILTER_TAPS_TOTAL);
     }
 
+    float std_dev = 1000.0f;
     float firefly_energy_factor = 1.0f;
     // Firefly Filter + Background Pixel Suppression
     if (valid_neightborhood_samples > 1.0f)
@@ -188,6 +189,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float y_variance = (y_variance_acc * rcp(valid_neightborhood_samples + 1)) - square(y_mean);
         const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
         const float y_std_dev = sqrt(y_variance);
+        std_dev = y_std_dev;
         const float y_std_dev_relative = y_std_dev / y_mean;
 
         const float y_mean_perceptual = y_mean_geometric_acc * rcp(valid_neightborhood_samples);
@@ -228,4 +230,5 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = float4(filtered_diffuse2, depth, foreground_footprint_quality);
     push.attach.firefly_factor_image.get()[dtid] = min(1.0f, firefly_energy_factor * (1.0f / RTGI_MAX_FIREFLY_FACTOR));
+    push.attach.spatial_std_dev_image.get()[dtid] = std_dev;
 }

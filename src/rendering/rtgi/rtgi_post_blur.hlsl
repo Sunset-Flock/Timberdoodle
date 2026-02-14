@@ -4,6 +4,7 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
+#include "shader_lib/pack_unpack.hlsl"
 #include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
@@ -50,20 +51,11 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
-    // Load pixels diffuse before value, used for width estimation and fallback diffuse
-    const float4 pixel_value = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
-
     // Sample disc around normal
     const float pixel_ws_size = inv_half_res_render_target_size.y * camera.near_plane * rcp(pixel_depth + 0.000000001f);
 
-#if RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION
-    const float validity = min(1.0f, pixel_samplecnt * rcp(push.attach.globals.rtgi_settings.history_frames));
-#else
-    const float validity = 1.0f;
-#endif
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(6.0f, lerp(RTGI_SPATIAL_FILTER_RADIUS_MAX, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale, validity));
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -82,8 +74,16 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
 
-    const int FILTER_WIDTH = int(lerp(12.0f, 4.0f, min(1.0f, pixel_samplecnt * rcp(12.0f))));
-    const int FILTER_STRIDE = 1;
+    const float temporal_stability = min(1.0f, pixel_samplecnt * rcp(12.0f));
+
+    const int FILTER_WIDTH = int(lerp(8.0f, 3.0f, temporal_stability));
+    const int FILTER_STRIDE = 2;
+
+    const float pixel_y = push.attach.rtgi_diffuse_before.get()[dtid.xy].w;
+    const float2 pixel_temporal_moments = unpack_2x16f_uint(push.attach.temporal_moments.get()[dtid.xy]);
+    const float pixel_temporal_relative_variance = pixel_temporal_moments.y;
+    const float pixel_temporal_variance = pixel_temporal_relative_variance * pixel_y;
+    const float pixel_temporal_std_dev = sqrt(pixel_temporal_variance);
 
     for (int i = -FILTER_WIDTH; i <= FILTER_WIDTH; ++i)
     {
@@ -110,9 +110,17 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         // Calculate validity weights
         const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
         const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
-        const float gauss_weight = pixel_samplecnt < (max_sample_count * 0.75f) ? 1.0f : get_gaussian_weight(float(abs(i))/float(FILTER_WIDTH));
-        const float sample_count_weight = square(sample_value_samplecnt + 1); // hides disocclusion flicker
-        const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight;
+        const float gauss_weight = get_gaussian_weight(float(abs(i))/float(FILTER_WIDTH));
+        const float sample_count_weight = (sample_value_samplecnt + 1); // hides disocclusion flicker
+
+        // Variance guiding:
+        // * improves shadowing contact detail
+        // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
+        // * turn down the y difference based on temporal stability, the result of the temporal pass is too noisy for a few frames to rely on variance guiding
+        const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_temporal_std_dev + pixel_y * 0.0001f) * temporal_stability);
+        const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
+
+        const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * relative_sample_y_weight;
         
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample_value_depth == 0.0f;

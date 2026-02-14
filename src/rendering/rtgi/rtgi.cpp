@@ -201,7 +201,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         auto pre_blurred_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_blurred_diffuse_image");
         auto pre_blurred_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_blurred_diffuse2_image");
 
-        info.tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiAdaptiveBlur2")
+        info.tg.add_task(daxa::HeadTask<RtgiAdaptiveBlurH::Info>("RtgiPreBlur")
                 .head_views(RtgiAdaptiveBlurH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
@@ -214,6 +214,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .rtgi_diffuse_blurred = pre_blurred_diffuse_image,
                     .rtgi_diffuse2_blurred = pre_blurred_diffuse2_image,
                     .firefly_factor_image = firefly_factor_image,
+                    .spatial_std_dev_image = spatial_std_dev_image,
                 })
                 .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, 1u));
         post_pre_blur_diffuse_image = pre_blurred_diffuse_image;
@@ -259,7 +260,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     {
         auto rtgi_post_blur_pass0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse_image");
         auto rtgi_post_blur_pass0_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse2_image");
-        info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlur0")
+        info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurVertical")
                 .head_views(RtgiPostBlurH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
@@ -271,12 +272,13 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
+                    .temporal_moments = accumulated_statistics_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
 
         rtgi_post_blur_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse_image");
         rtgi_post_blur_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_post_blur_diffuse2_image");
-        info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlur1")
+        info.tg.add_task(daxa::HeadTask<RtgiPostBlurH::Info>("RtgiPostBlurHorizontal")
                 .head_views(RtgiPostBlurH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
@@ -288,6 +290,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
+                    .temporal_moments = accumulated_statistics_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
     }
