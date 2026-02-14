@@ -68,6 +68,8 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float pixel_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
 
+    const bool variance_guiding_enabled = push.attach.globals.rtgi_settings.pre_blur_variance_guiding != 0;
+
     // Footprint Quality Scaling
     // * for a low quality footprint, most far radius samples will be rejected -> poor temporal stability
     // * a lot quality footprint indicates complex geometry -> large radius will lead to overblur
@@ -76,7 +78,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(3.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale * pixel_footprint_quality);
+    float blur_radius = max(3.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale) * pixel_footprint_quality;
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -131,7 +133,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
         // * improves shadowing contact detail
         const float relative_sample_y_deviation = (max(1.0f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_std_dev + pixel_y * 0.00001f)) * 0.5f);
-        const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
+        const float relative_sample_y_weight = select(variance_guiding_enabled, 1.0f / relative_sample_y_deviation, 1.0f);
 
         const float weight = geometric_weight * normal_weight * firefly_power * relative_sample_y_weight;
         

@@ -90,6 +90,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float y_max = 0.0f;
     float valid_neightborhood_samples = 0.0f;
 
+    float ray_length_mean_acc = 0.0f;
     float valid_footprint_samples = 0.0f;
 
     float4 blurred_diffuse_acc = float4(0,0,0,0);
@@ -107,6 +108,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             int2 load_idx = int2(x,y) * FILTER_STRIDE + int2(clamped_index);
             load_idx = flip_oob_index(load_idx, max_index);
 
+            const float sample_ray_length = push.attach.ray_length_image.get()[load_idx];
             float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];
             float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];
             const float sample_depth = push.attach.view_cam_half_res_depth.get()[load_idx];
@@ -138,7 +140,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 const float GEO_WEIGHT_THRESHOLD = 1.0f * FILTER_STRIDE;
                 {
                     const float plane_distance = planar_surface_distance(inv_half_res_render_target_size, camera.near_plane, depth, vs_position, vs_normal, sample_value_vs);
-                    const float geometric_weight_real = abs(plane_distance) < 2.0f ? 1.0f : 0.0f;
+                    const float geometric_weight_real = abs(plane_distance) < 1.0f ? 1.0f : 0.0f;
                     if (is_part_of_center_blur(int2(x,y)))
                     {
                         blurred_weight_acc += geometric_weight_real;
@@ -146,13 +148,14 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                         blurred_diffuse2_acc += geometric_weight_real * sample_diffuse2;
                     }
                     
-                    y_mean_acc += sample_diffuse.w;
-                    y_variance_acc += square(sample_diffuse.w);
-                    y_max = max(y_max, sample_diffuse.w);
+                    y_mean_acc += sample_diffuse.w * geometric_weight_real;
+                    y_variance_acc += square(sample_diffuse.w) * geometric_weight_real;
+                    y_max = max(y_max, sample_diffuse.w) * geometric_weight_real;
+                    ray_length_mean_acc += sample_ray_length * geometric_weight_real;
 
                     foreground_sample_weight += plane_distance > -GEO_WEIGHT_THRESHOLD ? 1 : 0;
                     background_sample_weight += plane_distance < GEO_WEIGHT_THRESHOLD ? 1 : 0;
-                    valid_footprint_samples += abs(plane_distance) < GEO_WEIGHT_THRESHOLD ? 1 : 0;
+                    valid_footprint_samples += geometric_weight_real;
                 }
             }
         }
@@ -163,8 +166,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         foreground_footprint_quality = foreground_sample_weight * rcp(FILTER_TAPS_TOTAL);
     }
 
-    float std_dev = 1000.0f;
+    float y_std_dev = 1000.0f;
     float firefly_energy_factor = 1.0f;
+    float footprint_quality = 1.0f;
     // Firefly Filter + Background Pixel Suppression
     if (valid_neightborhood_samples > 1.0f)
     {
@@ -187,13 +191,20 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float y_mean = y_mean_acc * rcp(valid_footprint_samples);
         const float y_variance = (y_variance_acc * rcp(valid_footprint_samples)) - square(y_mean);
         const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
-        const float y_std_dev = sqrt(y_variance);
-        std_dev = y_std_dev;
+        y_std_dev = sqrt(y_variance);
         const float y_std_dev_relative = y_std_dev / y_mean;
 
         const float y_mean_perceptual = y_mean_geometric_acc * rcp(valid_neightborhood_samples);
         const float y_mean_geometric = perceptual_to_linear(y_mean_perceptual);
         const float y_variance_geometric_relative = (y_variance) / (y_mean_geometric + EPSILON);
+
+        footprint_quality = (valid_footprint_samples * rcp(FILTER_TAPS_TOTAL));
+
+        float ray_length_mean = ray_length_mean_acc * rcp(valid_footprint_samples);
+        if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
+        {
+            footprint_quality *= square(square(ray_length_mean));
+        }
 
         const float valid_samples_ceiling_factor = valid_neightborhood_samples / FILTER_TAPS_TOTAL;
         const float footprint_quality_ceiling_factor = foreground_footprint_quality * tight_neighborgood_factor;
@@ -220,15 +231,15 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             #endif
         }
 
-        /// push.attach.debug_image.get()[dtid] = float4(valid_footprint_samples * rcp(FILTER_TAPS_TOTAL), 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(y_std_dev * 2 + y_mean, valid_footprint_samples, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(y_std_dev * 2 + y_mean, valid_footprint_samples, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(y_std_dev * 2 + y_mean, valid_footprint_samples, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
     }
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
-    push.attach.pre_filtered_diffuse2_image.get()[dtid] = float4(filtered_diffuse2, depth, foreground_footprint_quality);
+    push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;
     push.attach.firefly_factor_image.get()[dtid] = min(1.0f, firefly_energy_factor * (1.0f / RTGI_MAX_FIREFLY_FACTOR));
-    push.attach.spatial_std_dev_image.get()[dtid] = std_dev;
-    push.attach.footprint_quality_image.get()[dtid] = valid_footprint_samples * rcp(FILTER_TAPS_TOTAL);
+    push.attach.spatial_std_dev_image.get()[dtid] = y_std_dev;
+    push.attach.footprint_quality_image.get()[dtid] = footprint_quality;
 }

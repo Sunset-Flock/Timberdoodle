@@ -717,6 +717,8 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
                 ImGui::Checkbox("Pre Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
                 ImGui::SliderFloat("Pre Blur Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
+                ImGui::Checkbox("Pre Blur Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_variance_guiding));
+                ImGui::Checkbox("Pre Blur Ray Length Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_length_guiding));
                 ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));

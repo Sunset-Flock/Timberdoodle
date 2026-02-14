@@ -60,7 +60,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
     // so we bias the normal to face the camera more.
-    const float ss_gradient_view_bias = 0.1;
+    const float ss_gradient_view_bias = 0.1f;
     const float3 biased_vs_normal = lerp(vs_normal, float3(0,0,1), ss_gradient_view_bias);
     const float2 ss_gradient = float2(
         sin(acos(biased_vs_normal.x)),
@@ -119,7 +119,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         // * improves shadowing contact detail
         // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
         // * turn down the y difference based on temporal stability, the result of the temporal pass is too noisy for a few frames to rely on variance guiding
-        const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y_std_dev + pixel_y * 0.0001f));
+        const float relative_sample_y_deviation = max(1.0f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y_std_dev + pixel_y * 0.0001f) * 0.25f);
         const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
 
         const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * relative_sample_y_weight;

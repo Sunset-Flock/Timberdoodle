@@ -101,6 +101,7 @@ void ray_gen()
 
     float4 acc = float4( 0, 0, 0, 0 );
     float2 acc2 = float2( 0, 0 );
+    float acc_ray_length = 0.0f;
 
     const uint thread_seed = dtid.x * push.attach.globals->settings.render_target_size.y + dtid.y + push.attach.globals.frame_index * push.attach.globals->settings.render_target_size.y * push.attach.globals->settings.render_target_size.x;
     rand_seed(thread_seed);
@@ -109,8 +110,8 @@ void ray_gen()
 
     if(depth > 0.0f)
     {
-        const int SAMPLES = push.attach.globals.rtgi_settings.ray_samples;
-        for (uint i = 0; i < SAMPLES; ++i)
+        const int samples = push.attach.globals.rtgi_settings.ray_samples;
+        for (uint i = 0; i < samples; ++i)
         {
             const float3 sample_pos = rt_calc_ray_start(world_position, face_normal, primary_ray);
             const float3 world_tangent = normalize(cross(face_normal, float3(0,0,1) + 0.0001));
@@ -155,17 +156,20 @@ void ray_gen()
             float4 sh_y_new;
             float2 cocg_new;
             radiance_to_y_co_cg_sh((payload.color * VALUE_MULTIPLIER), sample_dir, sh_y_new, cocg_new);
-            acc += sh_y_new * rcp(SAMPLES);
-            acc2 += cocg_new * rcp(SAMPLES);
+            acc += sh_y_new * rcp(samples);
+            acc2 += cocg_new * rcp(samples);
+            acc_ray_length += min(1.0f, payload.t) * rcp(samples);
         }
 
         push.attach.diffuse_raw.get()[dtid.xy] = acc;
         push.attach.diffuse2_raw.get()[dtid.xy] = acc2;
+        push.attach.ray_length_image.get()[dtid.xy] = acc_ray_length;
     }
     else
     {
         push.attach.diffuse_raw.get()[dtid.xy] = float4(0.0f, 0.0f, 0.0f, 0.0f);
         push.attach.diffuse2_raw.get()[dtid.xy] = float2(0.0f, 0.0f);
+        push.attach.ray_length_image.get()[dtid.xy] = 0.0f;
     }
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)

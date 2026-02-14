@@ -14,6 +14,8 @@ struct RtgiSettings
     daxa_f32 firefly_filter_ceiling TIDO_DEFAULT_VALUE(32.0f);
     daxa_i32 pre_blur_enabled TIDO_DEFAULT_VALUE(1);
     daxa_f32 pre_blur_base_width TIDO_DEFAULT_VALUE(32);
+    daxa_i32 pre_blur_variance_guiding TIDO_DEFAULT_VALUE(1);
+    daxa_i32 pre_blur_ray_length_guiding TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_accumulation_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_fast_history_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_firefly_filter_enabled TIDO_DEFAULT_VALUE(1);

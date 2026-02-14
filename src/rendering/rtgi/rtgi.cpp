@@ -129,6 +129,15 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 {
     auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
     auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
+    auto ray_length_image = info.tg.create_transient_image({
+        .format = daxa::Format::R8_UNORM,
+        .size = {
+            info.render_context.render_data.settings.render_target_size.x / 2,
+            info.render_context.render_data.settings.render_target_size.y / 2,
+            1,
+        },
+        .name = "ray_length_image",
+    });
     info.tg.add_task(daxa::HeadTask<RtgiTraceDiffuseH::Info>()
             .head_views(RtgiTraceDiffuseH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
@@ -136,6 +145,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .clocks_image = info.clocks_image,
                 .diffuse_raw = trace_diffuse_image,
                 .diffuse2_raw = trace_diffuse2_image,
+                .ray_length_image = ray_length_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                 .meshlet_instances = info.meshlet_instances,
@@ -194,6 +204,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .clocks_image = info.clocks_image,
                 .diffuse_raw = trace_diffuse_image,
                 .diffuse2_raw = trace_diffuse2_image,
+                .ray_length_image = ray_length_image,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
                 .pre_filtered_diffuse_image = pre_filtered_diffuse_image,
                 .pre_filtered_diffuse2_image = pre_filtered_diffuse2_image,
