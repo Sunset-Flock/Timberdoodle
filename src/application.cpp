@@ -227,14 +227,6 @@ void Application::update()
     // TODO(msakmary) HACKY - fix this
     // ===== Saky's Ball =====
     {
-        auto mat_4x3_to_4x4 = [](glm::mat4x3 const & transform) -> glm::mat4x4
-        {
-            return glm::mat4x4{
-                glm::vec4(transform[0], 0.0f),
-                glm::vec4(transform[1], 0.0f),
-                glm::vec4(transform[2], 0.0f),
-                glm::vec4(transform[3], 1.0f)};
-        };
         static f32 total_time = 0.0f;
         total_time += app_state.delta_time;
 
@@ -322,7 +314,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_renderer->render_context, *_scene, app_state);
+    _ui_engine->main_update(*_renderer->render_context, *_scene, app_state, *_threadpool);
     if (_renderer->main_task_graph.get() && _ui_engine->tg_debug_ui)
     {
         #if DAXA_ENABLE_TASK_GRAPH_MK2

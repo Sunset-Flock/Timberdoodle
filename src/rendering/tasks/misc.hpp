@@ -123,3 +123,12 @@ struct SimpleComputeTaskPushless : HeadTaskT
         ti.recorder.dispatch(dispatch_callback());
     }
 };
+
+inline auto mat_4x3_to_4x4(glm::mat4x3 const & transform) -> glm::mat4x4
+{
+    return glm::mat4x4{
+        glm::vec4(transform[0], 0.0f),
+        glm::vec4(transform[1], 0.0f),
+        glm::vec4(transform[2], 0.0f),
+        glm::vec4(transform[3], 1.0f)};
+};
