@@ -44,7 +44,7 @@ auto load_stbnCosDir(AssetProcessor & asset_processor) -> daxa::ImageId
 }
 
 std::filesystem::path const DEFAULT_CLOUD_DATA_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_data_fields.cloudbin";
-std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\_cloud_detail_noise.cloudbin";
+std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_detail_noise.cloudbin";
 
 Application::Application()
 {
