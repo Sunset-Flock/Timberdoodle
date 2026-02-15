@@ -6,7 +6,7 @@
 #include "vsm_util.glsl"
 #include "misc.hlsl"
 
-static const uint PCF_NUM_SAMPLES = 4;
+static const uint PCF_NUM_SAMPLES = 32;
 
 
 
