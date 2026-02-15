@@ -35,7 +35,8 @@ add_executable(${PROJECT_NAME}
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"
-    "src/json_handler.cpp"
+    "src/scene/tex_compression/tex_compression.cpp"
+    "src/scene/tex_compression/sdf_bc1_compressor.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/rtgi/rtgi.cpp"
 )
@@ -61,7 +62,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     nlohmann_json::nlohmann_json
     implot::implot
     glm::glm
-    openvdb_static
+    CMP_Core
 )
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")

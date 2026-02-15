@@ -212,3 +212,31 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 FetchContent_MakeAvailable(libpng)
+
+if (NOT TARGET CMP_Core)
+
+    # Save original
+    set(_orig_configs "${CMAKE_CONFIGURATION_TYPES}")
+
+    set(compressonator_patch 
+        # The first part of the command are used to check whether the patch has already been applied.
+        # This is needed because the path is applied on each reconfigure however it should only be applied once.
+        # The --reverse option tries to revert the patch and the --check makes sure this command is just a "dry run"
+        # that is, it does not change any files.
+        git apply --reverse --check ${CMAKE_CURRENT_SOURCE_DIR}/cmake/compressonator-fix.patch ||
+        git apply ${CMAKE_CURRENT_SOURCE_DIR}/cmake/compressonator-fix.patch)
+
+    OPTION(OPTION_ENABLE_ALL_APPS "" OFF)
+    OPTION(LIB_BUILD_CORE "" ON)
+    FetchContent_Declare(
+        compressonator
+        GIT_REPOSITORY https://github.com/GPUOpen-Tools/compressonator.git
+        GIT_TAG        V4.5.52
+        PATCH_COMMAND ${compressonator_patch}
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(compressonator)
+
+    # Restore
+    set(CMAKE_CONFIGURATION_TYPES "${_orig_configs}" CACHE STRING "" FORCE)
+endif()
