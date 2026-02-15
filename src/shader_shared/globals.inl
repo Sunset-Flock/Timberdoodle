@@ -35,7 +35,7 @@ struct GPUScene
 
 struct RenderGlobalData
 {
-    // UI Written Data:
+    // ============ UI Written Data ============================
     daxa_u32 hovered_entity_index;
     daxa_u32 selected_entity_index;
     daxa_u32 selected_mesh_index;
@@ -48,10 +48,16 @@ struct RenderGlobalData
     daxa_ImageViewId stbn2d;
     daxa_ImageViewId stbnCosDir;
     
-    // Renderer Written Data:
-    GPUScene scene; // Passing scene directly into push can yield good perf gains, avoid this field.
+    // ============= Renderer Written Data =====================
+
+    // Passing scene directly into push can yield good perf gains, avoid this field.
+    GPUScene scene; 
+    // The main camera is always the "player" camera.
     CameraInfo main_camera;
     CameraInfo main_camera_prev_frame;
+    // View camera is always the one that is used to draw the final image.
+    // That is, the view camera is the observer camera when drawing from observer is active.
+    // When drawing from observer is not active this is the regular "player" camera.
     CameraInfo view_camera;
     CameraInfo view_camera_prev_frame;
     daxa_u64 total_elapsed_us;

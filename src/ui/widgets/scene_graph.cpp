@@ -193,8 +193,10 @@ namespace tido
             if (icon != ICONS::SIZE)
             {
                 ImGui::SameLine();
-                ImGui::Image(renderer->create_texture_id({.image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
-                                 .sampler_id = linear_sampler}),
+                ImGui::Image(
+                    renderer->create_texture_id({
+                        .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
+                        .sampler_id = linear_sampler}),
                     ImVec2(icon_size, icon_size),
                     ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
                     icon_to_color(icon));

@@ -183,6 +183,7 @@ struct AssetProcessor
     // TODO: Replace with lockless queue.
     std::vector<MeshLodGroupUploadInfo> _upload_mesh_queue = {};
     std::vector<LoadedTextureInfo> _upload_texture_queue = {};
+
     std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
     std::unique_ptr<std::mutex> _texture_upload_mutex = std::make_unique<std::mutex>();
 };

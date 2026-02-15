@@ -34,12 +34,13 @@ struct CPUMeshInstanceCounts
  */
 struct TextureManifestEntry
 {
-    // The type is determined by the materials that reference it.
-    TextureMaterialType type = {};
     struct MaterialManifestIndex
     {
         u32 material_manifest_index = {};
     };
+
+    // The type is determined by the materials that reference it.
+    TextureMaterialType type = {};
     u32 gltf_asset_manifest_index = {};
     u32 asset_local_index = {};
     u32 asset_local_image_index = {};
@@ -314,7 +315,7 @@ struct Scene
     CPUMeshInstanceCounts cpu_mesh_instance_counts = {};                            // Useful for cpu driven dispatches and draws. Only really need counts on cpu.
     CPUMeshInstances current_frame_mesh_instances = {};
     daxa::TaskBuffer mesh_instances_buffer = {};
-    bool entities_changed = {};
+
     auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;
     void write_gpu_mesh_instances_buffer(CPUMeshInstances const& mesh_instances);
 

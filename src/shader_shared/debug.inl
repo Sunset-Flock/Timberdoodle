@@ -39,6 +39,7 @@ DAXA_DECL_BUFFER_PTR(ShaderDebugRectangleDraw)
 
 struct ShaderDebugAABBDraw
 {
+    // Center position
     daxa_f32vec3 position;
     daxa_f32vec3 size;
     daxa_f32vec3 color;

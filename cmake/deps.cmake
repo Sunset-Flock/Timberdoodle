@@ -41,6 +41,7 @@ if (NOT TARGET fastgltf::fastgltf)
 endif()
 
 if (NOT TARGET KTX::ktx)
+    option(KTX_FEATURE_TESTS "" OFF)
     FetchContent_Declare(
         ktx
         GIT_REPOSITORY https://github.com/KhronosGroup/KTX-Software

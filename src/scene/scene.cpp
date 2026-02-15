@@ -407,7 +407,6 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
         cpu_spot_light.cutoff = light.range.value();
         cpu_spot_light.spot_light_ptr = scene._device.buffer_device_address(scene._gpu_spot_lights.get_state().buffers[0]).value() + (scene._spot_lights.size() * sizeof(GPUSpotLight));
         scene._spot_lights.push_back(cpu_spot_light);
-
     };
 
     switch(light.type) 
@@ -555,8 +554,6 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
     }
     return root_r_ent_id;
 }
-
-// std::vector<std::shared_ptr<Task>> scene_load_tasks;
 
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info)
 {
@@ -948,10 +945,8 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         .dst_access = daxa::AccessConsts::READ_WRITE,
     });
 
-    // updating material & texture manifest
+    // ================== UPDATING MANIFESTS ============================
     update_material_and_texture_manifest(*this, info, recorder);
-
-    // updating mesh manifest
     update_mesh_and_mesh_lod_group_manifest(*this, info, recorder);
 
     /// TODO: Taskgraph this shit.
@@ -1407,8 +1402,6 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
             bool const is_mesh_group_loaded = (mesh_group.loaded_mesh_lod_groups == mesh_group.mesh_lod_group_count);
             bool const is_mesh_group_just_loaded = !mesh_group.fully_loaded_last_frame && is_mesh_group_loaded;
             mesh_group.fully_loaded_last_frame = is_mesh_group_loaded;
-
-            entities_changed |= is_mesh_group_just_loaded;
 
             // Process all fully loaded mesh groups
             if (is_mesh_group_loaded)
