@@ -59,7 +59,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     KTX::ktx
     png_static
     nlohmann_json::nlohmann_json
-    # implot::implot
+    implot::implot
     glm::glm
     openvdb_static
 )

@@ -1,7 +1,7 @@
 #include "ui.hpp"
 #include <filesystem>
 #include <imgui.h>
-// #include <implot.h>
+#include <implot.h>
 #include <algorithm>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
