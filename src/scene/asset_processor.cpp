@@ -7,6 +7,8 @@
 #include <png.h>
 #include <variant>
 
+#include "tex_compression/tex_compression.hpp"
+
 #include <ktx.h>
 
 #pragma region IMAGE_RAW_DATA_LOADING_HELPERS
@@ -510,6 +512,134 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
 
     parsed_data.src_data.resize(0);
     parsed_data.src_data.shrink_to_fit();
+}
+
+auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo const & info) -> AssetLoadResultCode
+{
+    // Open the binary file for reading
+    std::ifstream input_file(info.volumetric_data_path, std::ios::binary);
+    if (!input_file.is_open()) { return AssetLoadResultCode::ERROR_COULD_NOT_OPEN_FILE; }
+
+    // Read the header
+    TidoVolumetricCloudDataHeader header;
+    input_file.read(reinterpret_cast<char*>(&header), sizeof(TidoVolumetricCloudDataHeader));
+    
+    if (!input_file.good()) { return AssetLoadResultCode::ERROR_COULD_NOT_READ_FILE; }
+
+    // Validate magic number
+    if (header.magic[0] != 'T' || header.magic[1] != 'D' || header.magic[2] != 'V' || header.magic[3] != 'C')
+    {
+        return AssetLoadResultCode::ERROR_INVALID_HEADER_MAGIC_CONSTANT_IN_FILE;
+    }
+
+    DBG_ASSERT_TRUE_M(header.version == TIDO_VOLUMETRIC_CLOUD_FILE_VERSION, "Currently only the current version of the volumetric cloud file is supported");
+
+    daxa::ImageId cloud_data_image = {};
+    daxa::ImageId cloud_sdf_image = {};
+
+    struct FieldImageInfo
+    {
+        daxa::Format format;
+        u64 total_byte_size;
+        daxa::ImageId * dst_image_id;
+        u32 texture_manifest_index;
+        std::string name;
+    };
+
+    std::vector<FieldImageInfo> fields_info;
+
+    switch(header.format)
+    {
+        case TidoVolumetricCloudFileFormat::RAW:
+        {
+            if (header.field_count != 1) { return AssetLoadResultCode::ERROR_INVALID_FIELD_COUNT_IN_FILE; }
+
+            // Calculate total size for all fields
+            u32vec3 const field_extents = u32vec3(header.field_extents.x, header.field_extents.y, header.field_extents.z);
+            u64 const total_texels = static_cast<u64>(field_extents.x) * static_cast<u64>(field_extents.y) * static_cast<u64>(field_extents.z);
+
+            fields_info = std::vector<FieldImageInfo>{
+                FieldImageInfo{
+                    .format = daxa::Format::R16G16B16A16_SFLOAT,
+                    .total_byte_size = total_texels * 4 * sizeof(u16),
+                    .dst_image_id = &cloud_data_image,
+                    .texture_manifest_index = info.cloud_data_texture_manifest_index,
+                    .name = "Cloud volumetric uncompressed data"},
+            };
+            break;
+        }
+
+        case TidoVolumetricCloudFileFormat::CLOUD_SDF_BC1_DATA_BC6:
+        {
+            if (header.field_count != 2) { return AssetLoadResultCode::ERROR_INVALID_FIELD_COUNT_IN_FILE; }
+
+            constexpr u32 TEXELS_PER_BLOCK = 4 * 4;
+            constexpr u32 BYTES_PER_BC6_BLOCK = 16;
+            constexpr u32 BYTES_PER_BC1_BLOCK = 8;
+
+            const u64 total_blocks = header.field_extents.z * ((header.field_extents.x * header.field_extents.y) / TEXELS_PER_BLOCK);
+
+            fields_info = std::vector<FieldImageInfo>{
+                FieldImageInfo{
+                    .format = daxa::Format::BC6H_UFLOAT_BLOCK,
+                    .total_byte_size = total_blocks * BYTES_PER_BC6_BLOCK,
+                    .dst_image_id = &cloud_data_image,
+                    .texture_manifest_index = info.cloud_data_texture_manifest_index,
+                    .name = "Cloud volumetric BC6 data" 
+                },
+                FieldImageInfo{
+                    .format = daxa::Format::BC1_RGBA_UNORM_BLOCK,
+                    .total_byte_size = total_blocks * BYTES_PER_BC1_BLOCK,
+                    .dst_image_id = &cloud_sdf_image,
+                    .texture_manifest_index = info.cloud_sdf_texture_manifest_index,
+                    .name = "Cloud volumetric SDF data"
+                },
+            };
+            break;
+        }
+    }
+
+    auto cr = _device.create_command_recorder({.name = "upload cloud volumetric data"});
+    ParsedImageData parsed_data = {};
+    for(u32 field_index = 0; field_index < header.field_count; ++field_index)
+    {
+        FieldImageInfo & field_info = fields_info[field_index];
+        parsed_data.src_data.resize(field_info.total_byte_size);
+
+        input_file.read(reinterpret_cast<char*>(parsed_data.src_data.data()), field_info.total_byte_size);
+        
+        if (!input_file.good()) { return AssetLoadResultCode::ERROR_COULD_NOT_READ_FILE; }
+
+        daxa::ImageInfo image_info = {
+            .flags = daxa::ImageCreateFlagBits::COMPATIBLE_2D_ARRAY,
+            .dimensions = 3,
+            .format = field_info.format,
+            .size = {s_cast<u32>(header.field_extents.x), s_cast<u32>(header.field_extents.y), s_cast<u32>(header.field_extents.z)},
+            .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
+            .allocate_info = {},
+            .name = field_info.name,
+        };
+        *field_info.dst_image_id = _device.create_image(image_info);
+
+        parsed_data.image_info = image_info;
+        parsed_data.mips_to_copy = 1;
+        upload_texture(_device, parsed_data, *field_info.dst_image_id);
+    }
+
+    input_file.close();
+
+    for(FieldImageInfo & field_info : fields_info)
+    {
+        /// NOTE: Append the processed texture to the upload queue.
+        {
+            std::lock_guard<std::mutex> lock{*_texture_upload_mutex};
+            _upload_texture_queue.push_back(LoadedTextureInfo{
+                .image = *field_info.dst_image_id,
+                .texture_manifest_index = field_info.texture_manifest_index,
+            });
+        }
+    }
+    return AssetLoadResultCode::SUCCESS;
 }
 
 auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const & info) -> NonmanifestLoadRet

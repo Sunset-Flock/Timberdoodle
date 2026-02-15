@@ -9,6 +9,8 @@
 
 #include "virtual_shadow_maps/vsm.hpp"
 
+#include "volumetric/volumetric.hpp"
+
 #include "rtao/rtao.inl"
 #include "path_trace/path_trace.inl"
 #include "path_trace/kajiya/brdf_fg.inl"
@@ -359,6 +361,10 @@ void Renderer::compile_pipelines()
         {brdf_fg_compute_pipeline_info()},
         {cull_lights_compile_info()},
         {copy_depth_pipeline_compile_info()},
+        {raymarch_clouds_volumetric_shadowmap_compile_info()},
+        {raymarch_clouds_compile_info()},
+        {raymarch_clouds_debug_compile_info()},
+        {compose_clouds_compile_info()},
     };
     for (auto const & info : computes)
     {
@@ -670,6 +676,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     tg.use_persistent_buffer(scene->_gpu_material_manifest);
     tg.use_persistent_buffer(scene->_scene_as_indirections);
     tg.use_persistent_buffer(scene->mesh_instances_buffer);
+    tg.use_persistent_buffer(scene->cloud_volume_instances_buffer);
     tg.use_persistent_buffer(scene->_gpu_point_lights);
     tg.use_persistent_buffer(scene->_gpu_spot_lights);
     tg.use_persistent_buffer(render_context->tgpu_render_data);
@@ -893,9 +900,55 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         tg.submit({});
     }
-    
 
-    #if 1
+    daxa::TaskImageView clouds_raymarch_result;
+    if (render_context->render_data.volumetric_settings.enable)
+    {
+        clouds_raymarch_result = tg.create_transient_image({
+            .format = daxa::Format::R16G16B16A16_SFLOAT,
+            .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
+            .name = "clouds_raymarched_result_image",
+        });
+
+        // daxa::TaskImageView clouds_volumetric_shadow_map = tg.create_transient_image({
+        //     .dimensions = 3,
+        //     .format = daxa::Format::R16G16_SFLOAT,
+        //     .size = {256, 256, 32},
+        //     .name = "clouds_volumetric_shadow_map",
+        // });
+
+        // tg.clear_image({clouds_volumetric_shadow_map, std::array{0.0f, 0.0f, 0.0f, 0.0f}, misc_tasks_queue});
+
+        // tg.add_task(daxa::HeadTask<RaymarchCloudVolumetricShadowMap::Info>()
+        //     .uses_queue(misc_tasks_queue)
+        //     .head_views({
+        //         .globals = render_context->tgpu_render_data.view(),
+        //         .cloud_data_field = cloud_data_field.view(),
+        //         .cloud_detail_noise = cloud_detail_noise.view(),
+        //         .cloud_volumetric_shadow_map = clouds_volumetric_shadow_map})
+        //     .executes(raymarch_volumetric_shadow_map_callback, render_context.get()));
+
+        auto raymarch_views = RaymarchCloudsH::Info::Views{
+                .globals = render_context->tgpu_render_data.view(),
+                .cloud_volumes = scene->cloud_volume_instances_buffer.view(),
+                .cloud_volumetric_shadow_map = daxa::NullTaskImage,
+                .transmittance = transmittance.view(),
+                .depth = view_camera_depth,
+                .sky_ibl = sky_ibl_view,
+                .clouds_raymarched_result = clouds_raymarch_result,
+        };
+        tg.add_task(daxa::HeadTask<RaymarchCloudsH::Info>()
+            .head_views(raymarch_views)
+            .executes(raymarch_clouds_callback, render_context.get(), false));
+
+        // DEBUG RAYMARCH -- (1, 1, 1) dispatch outputing debug info
+        // - Currently draws the debug ray
+        tg.add_task(daxa::HeadTask<RaymarchCloudsH::Info>()
+            .head_views(raymarch_views)
+            .head_views({.depth = main_camera_depth})
+            .executes(raymarch_clouds_callback, render_context.get(), true));
+    }
+
     if (render_context->render_data.vsm_settings.enable)
     {
         vsm_state.initialize_transient_state(tg, render_context->render_data);
@@ -915,7 +968,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
     }
     else
-    #endif
     {
         vsm_state.zero_out_transient_state();
     }
@@ -1219,6 +1271,20 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         }
     }
 
+    if (render_context->render_data.volumetric_settings.enable)
+    {
+        tg.add_task(daxa::HeadTask<ComposeCloudsH::Info>()
+            .head_views(ComposeCloudsH::Info::Views{
+                .globals = render_context->tgpu_render_data.view(),
+                .exposure = exposure_state.view(),
+                .debug_image = debug_image,
+                .clouds_raymarched_result = clouds_raymarch_result,
+                .view_cam_depth = view_camera_depth,
+                .color_image = color_image,
+            })
+            .executes(compose_clouds_callback, render_context.get()));
+    }
+
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
     tg.add_task(GenLuminanceHistogramTask{
         .views = GenLuminanceHistogramTask::Views{
@@ -1434,13 +1500,14 @@ auto Renderer::prepare_frame(
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;
     auto const sky_res_changed_flags = render_context->render_data.sky_settings.resolutions_changed(render_context->prev_sky_settings);
-    bool const vsm_settings_changed =
-        render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
+    bool const vsm_settings_changed = render_context->render_data.vsm_settings.enable != render_context->prev_vsm_settings.enable;
+    bool const volumetrics_settings_changed = render_context->render_data.volumetric_settings.enable != render_context->prev_volumetric_settings.enable;
+
     if (pgi_settings_changed)
     {
         pgi_state.recreate_and_clear(render_context->gpu_context->device, render_context->render_data.pgi_settings);
     }
-    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ao_settings_changed || rtgi_settings_changed)
+    if (settings_changed || sky_res_changed_flags.sky_changed || vsm_settings_changed || pgi_settings_changed || light_settings_changed || ao_settings_changed || rtgi_settings_changed || volumetrics_settings_changed)
     {
         this->gpu_context->device.wait_idle();
         this->gpu_context->device.collect_garbage();
@@ -1496,6 +1563,7 @@ auto Renderer::prepare_frame(
     render_context->prev_light_settings = render_context->render_data.light_settings;
     render_context->prev_ao_settings = render_context->render_data.ao_settings;
     render_context->prev_rtgi_settings = render_context->render_data.rtgi_settings;
+    render_context->prev_volumetric_settings = render_context->render_data.volumetric_settings;
 
     // Write GPUScene
     {
@@ -1563,6 +1631,23 @@ auto Renderer::prepare_frame(
         .debug_context = &gpu_context->shader_debug_context,
         .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
     });
+
+    if (render_context->visualize_clouds_bounds) 
+    {
+        for(u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.cloud_volume_instances.size(); ++cloud_volume)
+        {
+            auto const & volume = scene->current_frame_cloud_volume_instances.cloud_volume_instances.at(cloud_volume);
+            auto const bottom_left_corner = f32vec4(0.0f, 0.0f, 0.0f, 1.0f) * mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform));
+            auto const top_right_corner = f32vec4(1.0f, 1.0f, 1.0f, 1.0f) * mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform));
+
+            ShaderDebugAABBDraw aabb_draw = {};
+            aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;
+            aabb_draw.color = daxa_f32vec3(1.0, 0.0, 0.0);
+            aabb_draw.size = std::bit_cast<daxa_f32vec3>(f32vec3((top_right_corner) - (bottom_left_corner)));
+            aabb_draw.position = std::bit_cast<daxa_f32vec3>(f32vec3(bottom_left_corner) + std::bit_cast<f32vec3>(aabb_draw.size) * 0.5f);
+            gpu_context->shader_debug_context.aabb_draws.draw(aabb_draw);
+        }
+    }
 
     auto new_swapchain_image = gpu_context->swapchain.acquire_next_image();
     if (new_swapchain_image.is_empty())

@@ -43,6 +43,9 @@ auto load_stbnCosDir(AssetProcessor & asset_processor) -> daxa::ImageId
     return std::get<daxa::ImageId>(ret);
 }
 
+std::filesystem::path const DEFAULT_CLOUD_DATA_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\cloud_data_fields.cloudbin";
+std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberdoodle_assets\\clouds\\_cloud_detail_noise.cloudbin";
+
 Application::Application()
 {
     _threadpool = std::make_unique<ThreadPool>(6);
@@ -69,7 +72,16 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    struct CompPipelinesTask final : Task
+    auto const cloud_volume_index = _scene->add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
+    const RenderEntityId cloud_entity_id = _scene->_render_entities.create_slot({
+        .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
+        .cloud_volume_index = cloud_volume_index,
+        .type = EntityType::CLOUD_VOLUME,
+        .name = "Default cloud volume",
+    });
+    _scene->_dirty_render_entities.push_back(cloud_entity_id);
+
+    struct CompPipelinesTask : Task
     {
         Renderer * renderer = {};
         CompPipelinesTask(Renderer * renderer)
@@ -276,13 +288,16 @@ void Application::update()
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
-    _scene->current_frame_mesh_instances = _scene->process_entities(_renderer->render_context->render_data);
+    auto const scene_instances = _scene->process_entities(_renderer->render_context->render_data);
+    _scene->current_frame_mesh_instances = scene_instances.mesh_instances;
+    _scene->current_frame_cloud_volume_instances = scene_instances.cloud_volume_instances;
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
     // ===== Update GPU Scene Buffers =====
 
     _scene->write_gpu_mesh_instances_buffer(_scene->current_frame_mesh_instances);
+    _scene->write_gpu_cloud_volume_instances_buffer(_scene->current_frame_cloud_volume_instances);
 
     usize cmd_list_count = 0ull;
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};

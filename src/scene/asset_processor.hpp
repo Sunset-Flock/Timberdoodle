@@ -14,6 +14,34 @@ using namespace tido::types;
 
 using MeshIndex = size_t;
 using ImageIndex = size_t;
+static constexpr u32 TIDO_VOLUMETRIC_CLOUD_FILE_VERSION = 1;
+
+enum TidoVolumetricCloudFileFormat : u8
+{
+    RAW = 0, // All fields are stored in 16bit float format.
+    CLOUD_SDF_BC1_DATA_BC6 = 1, // SDF field is stored using custom BC1 compression, the three data fields are stored using BC6 compression.
+    COUNT = 2, // SDF field is stored using custom BC1 compression, the three data fields are stored using BC6 compression.
+};
+
+inline constexpr auto to_string(TidoVolumetricCloudFileFormat format) -> std::string_view
+{
+    switch(format)
+    {
+        case TidoVolumetricCloudFileFormat::RAW: return "RAW";
+        case TidoVolumetricCloudFileFormat::CLOUD_SDF_BC1_DATA_BC6: return "CLOUD_SDF_BC1_DATA_BC6";
+        default: return "UNKNOWN";
+    }
+}
+
+struct TidoVolumetricCloudDataHeader
+{
+    u32 version = {}; // Leave this as the first field so that changes in the header do not break version checking.
+    std::array<char, 4> magic; // "TDVC"
+    TidoVolumetricCloudFileFormat format;
+    i32vec3 field_extents;
+
+    u32 field_count;
+};
 
 enum struct TextureMaterialType
 {
@@ -34,6 +62,10 @@ struct AssetProcessor
         ERROR_FAULTY_BUFFER_VIEW,
         ERROR_COULD_NOT_OPEN_GLTF,
         ERROR_COULD_NOT_READ_BUFFER_IN_GLTF,
+        ERROR_COULD_NOT_OPEN_FILE,
+        ERROR_COULD_NOT_READ_FILE,
+        ERROR_INVALID_HEADER_MAGIC_CONSTANT_IN_FILE,
+        ERROR_INVALID_FIELD_COUNT_IN_FILE,
         ERROR_COULD_NOT_OPEN_TEXTURE_FILE,
         ERROR_COULD_NOT_READ_TEXTURE_FILE,
         ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM,
@@ -64,6 +96,10 @@ struct AssetProcessor
             case AssetLoadResultCode::ERROR_FAULTY_BUFFER_VIEW: return "ERROR_FAULTY_BUFFER_VIEW"; 
             case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_GLTF: return "ERROR_COULD_NOT_OPEN_GLTF"; 
             case AssetLoadResultCode::ERROR_COULD_NOT_READ_BUFFER_IN_GLTF: return "ERROR_COULD_NOT_READ_BUFFER_IN_GLTF"; 
+            case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_FILE: return "ERROR_COULD_NOT_OPEN_FILE";
+            case AssetLoadResultCode::ERROR_COULD_NOT_READ_FILE: return "ERROR_COULD_NOT_READ_FILE";
+            case AssetLoadResultCode::ERROR_INVALID_HEADER_MAGIC_CONSTANT_IN_FILE: return "ERROR_INVALID_HEADER_MAGIC_CONSTANT_IN_FILE";
+            case AssetLoadResultCode::ERROR_INVALID_FIELD_COUNT_IN_FILE: return "ERROR_INVALID_FIELD_COUNT_IN_FILE";
             case AssetLoadResultCode::ERROR_COULD_NOT_OPEN_TEXTURE_FILE: return "ERROR_COULD_NOT_OPEN_TEXTURE_FILE"; 
             case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE: return "ERROR_COULD_NOT_READ_TEXTURE_FILE"; 
             case AssetLoadResultCode::ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM: return "ERROR_COULD_NOT_READ_TEXTURE_FILE_FROM_MEMSTREAM"; 
@@ -117,6 +153,14 @@ struct AssetProcessor
         TextureMaterialType texture_material_type = {};
     };
     auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
+
+    struct LoadCloudVolumetricDataInfo
+    {
+        std::filesystem::path volumetric_data_path = {};
+        u32 cloud_data_texture_manifest_index = {};
+        u32 cloud_sdf_texture_manifest_index = {};
+    };
+    auto load_cloud_volumetric_data(LoadCloudVolumetricDataInfo const & info) -> AssetLoadResultCode;
 
     struct MeshLodGroupUploadInfo
     {

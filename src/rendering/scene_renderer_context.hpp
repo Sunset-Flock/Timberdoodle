@@ -108,6 +108,14 @@ namespace RenderTimes
             },
         },
         GroupNames{
+            "CLOUDS",
+            {
+                "VOLUME_SHADOW_MAP",
+                "RAYMARCH",
+                "COMPOSE",
+            }
+        },
+        GroupNames{
             "MISC",
             {
                 "CULL_LIGHTS",
@@ -604,6 +612,16 @@ struct RenderContext
                 .max_lod = 3.0f,
                 .name = "normals sampler",
             }),
+            .clouds_noise_sampler = gpu_context->device.create_sampler({
+                .magnification_filter = daxa::Filter::NEAREST,
+                .minification_filter = daxa::Filter::NEAREST,
+                .mipmap_filter = daxa::Filter::NEAREST,
+                .address_mode_u = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_v = daxa::SamplerAddressMode::REPEAT,
+                .address_mode_w = daxa::SamplerAddressMode::REPEAT,
+                .mip_lod_bias = 0.5f,
+                .name = "Clouds noise sampler",
+            }),
         };
         render_data.debug = gpu_context->device.buffer_device_address(gpu_context->shader_debug_context.buffer).value();
         render_times.init(gpu_context->device, s_cast<u32>(gpu_context->swapchain.info().max_allowed_frames_in_flight));
@@ -618,6 +636,7 @@ struct RenderContext
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat_ani));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat_ani));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.normals));
+        gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.clouds_noise_sampler));
     }
 
     // GPUContext containing all shared global-ish gpu related data.
@@ -638,6 +657,7 @@ struct RenderContext
     LightSettings prev_light_settings = {};
     AoSettings prev_ao_settings = {};
     RtgiSettings prev_rtgi_settings = {};
+    VolumetricSettings prev_volumetric_settings = {};
 
     // Settings
     RenderGlobalData render_data = {};
@@ -646,6 +666,7 @@ struct RenderContext
     i32 debug_frustum = {-1};
     bool visualize_point_frustum = {};
     bool visualize_spot_frustum = {};
+    bool visualize_clouds_bounds = {};
 
     // TimingName code:
     RenderTimes::State render_times = {};

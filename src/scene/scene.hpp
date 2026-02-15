@@ -133,6 +133,16 @@ struct SpotLight
     daxa_BufferPtr(GPUSpotLight) spot_light_ptr;
 };
 
+struct CloudVolume
+{
+    std::string cloud_volume_data_path;
+    std::string detail_noise_path;
+
+    u32 data_texture_manifest_index = {};
+    u32 sdf_texture_manifest_index = {};
+    u32 detail_noise_texture_manifest_index = {};
+};
+
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
@@ -147,6 +157,7 @@ enum struct EntityType
     SPOT_LIGHT,
     CAMERA,
     MESHGROUP,
+    CLOUD_VOLUME,
     UNKNOWN
 };
 
@@ -158,6 +169,7 @@ struct RenderEntity
     std::optional<RenderEntityId> next_sibling = {};
     std::optional<RenderEntityId> parent = {};
     std::optional<u32> mesh_group_manifest_index = {};
+    std::optional<u32> cloud_volume_index = {};
     EntityType type = EntityType::UNKNOWN;
     std::string name = {};
     std::optional<u32> light_index = {};
@@ -185,6 +197,17 @@ struct CPUMeshInstances
     std::vector<MeshInstance> mesh_instances = {};
     std::vector<u32> prepass_draw_lists[PREPASS_DRAW_LIST_TYPE_COUNT] = {{}, {}};
     std::vector<u32> vsm_invalidate_draw_list = {};
+};
+
+struct CPUCloudVolumeInstaces
+{
+    std::vector<CloudVolumeInstance> cloud_volume_instances = {};
+};
+
+struct CPUSceneInstances
+{
+    CPUMeshInstances mesh_instances = {};
+    CPUCloudVolumeInstaces cloud_volume_instances = {};
 };
 
 struct Scene
@@ -255,12 +278,16 @@ struct Scene
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
     std::vector<PointLight> _point_lights = {};
     std::vector<SpotLight> _spot_lights = {};
+    std::vector<CloudVolume> _cloud_volumes = {};
     // Count the added meshes and meshgroups when loading.
     // Used to do the initialization of these on the gpu when recording manifest update.
     u32 _new_mesh_lod_group_manifest_entries = {};
     u32 _new_mesh_group_manifest_entries = {};
     u32 _new_material_manifest_entries = {};
     u32 _new_texture_manifest_entries = {};
+
+    std::vector<u32> _cloud_volumes_requesting_load = {};
+
 
     daxa::BlasId _scene_blas = {};
     daxa::TaskBuffer _scene_as_indirections = {};
@@ -299,6 +326,8 @@ struct Scene
     };
     auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
+    auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
+
     struct RecordGPUManifestUpdateInfo
     {
         std::span<const AssetProcessor::MeshLodGroupUploadInfo> uploaded_meshes = {};
@@ -316,8 +345,12 @@ struct Scene
     CPUMeshInstances current_frame_mesh_instances = {};
     daxa::TaskBuffer mesh_instances_buffer = {};
 
-    auto process_entities(RenderGlobalData & render_data) -> CPUMeshInstances;
+    auto process_entities(RenderGlobalData & render_data) -> CPUSceneInstances;
     void write_gpu_mesh_instances_buffer(CPUMeshInstances const& mesh_instances);
+
+    CPUCloudVolumeInstaces current_frame_cloud_volume_instances = {};
+    daxa::TaskBuffer cloud_volume_instances_buffer = {};
+    void write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cloud_volume_instances);
 
     void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);
 };

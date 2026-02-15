@@ -326,6 +326,7 @@ struct GlobalSamplers
     daxa_SamplerId linear_repeat_ani;
     daxa_SamplerId nearest_repeat_ani;
     daxa_SamplerId normals;
+    daxa_SamplerId clouds_noise_sampler;
 };
 
 struct CameraInfo

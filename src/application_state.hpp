@@ -2,6 +2,7 @@
 
 #include "camera.hpp"
 #include "scene/scene.hpp"
+#include "scene/asset_processor.hpp"
 
 struct ApplicationState
 {

@@ -36,6 +36,7 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
     _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
     mesh_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "mesh_instances"}};
+    cloud_volume_instances_buffer = daxa::TaskBuffer{daxa::TaskBufferInfo{.name = "cloud_volume_instances"}};
     _scene_as_indirections = tido::make_task_buffer(_device, _indirections_count, "_scene_as_indirections", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
 }
 
@@ -81,6 +82,9 @@ Scene::~Scene()
 
     for (auto & buffer : mesh_instances_buffer.get_state().buffers)
         _device.destroy_buffer(buffer);
+
+    for (auto & buffer : cloud_volume_instances_buffer.get_state().buffers)
+        _device.destroy_buffer(buffer);
 }
 // TODO: Loading god function.
 struct LoadManifestFromFileContext
@@ -99,6 +103,7 @@ static void update_texture_manifest_from_gltf(Scene & scene, Scene::LoadManifest
 static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx);
 static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifestInfo const & info);
 static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManifestInfo const & info);
+static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcessor * asset_processor, ThreadPool * thread_pool);
 // Returns root entity of loaded asset.
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & gpu_context) -> RenderEntityId;
 
@@ -431,6 +436,34 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
     return s_cast<u32>(-1);
 }
 
+auto Scene::add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32
+{
+    CloudVolume cpu_cloud_volume = {};
+    cpu_cloud_volume.cloud_volume_data_path = cloud_volume_data_path;
+    cpu_cloud_volume.detail_noise_path = detail_noise_path;
+
+    // Preallocate manifest entries for all possible textures.
+    // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
+    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading and not thread safe at all).
+    // In the future this should be rewritten but for now this will work fine.
+    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
+    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
+
+    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
+    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
+
+    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
+    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
+
+    u32 const cloud_volume_manifest_index = s_cast<u32>(_cloud_volumes.size());
+    _cloud_volumes.push_back(cpu_cloud_volume);
+
+    _cloud_volumes_requesting_load.push_back(cloud_volume_manifest_index);
+    start_async_loads_of_dirty_cloud_volumes(*this, asset_processor, thread_pool);
+
+    return cloud_volume_manifest_index;
+}
+
 static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx) -> RenderEntityId
 {
     /// NOTE: fastgltf::Node is Entity
@@ -690,6 +723,77 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
         }
     }
     scene._new_texture_manifest_entries = 0;
+}
+
+static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcessor * asset_processor, ThreadPool * thread_pool)
+{
+    struct LoadCloudVolumeTask : Task
+    {
+        struct TaskInfo
+        {
+            AssetProcessor * asset_processor = {};
+            CloudVolume const * volume;
+        };
+
+        TaskInfo info = {};
+
+        LoadCloudVolumeTask(TaskInfo const & info)
+            : info{info}
+        {
+            chunk_count = 1;
+        }
+
+        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        {
+            {
+                AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
+                    .volumetric_data_path = std::filesystem::path(info.volume->cloud_volume_data_path),
+                    .cloud_data_texture_manifest_index = info.volume->data_texture_manifest_index,
+                    .cloud_sdf_texture_manifest_index = info.volume->sdf_texture_manifest_index,
+                };
+
+                auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
+                if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
+                {
+                    DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
+                        info.volume->cloud_volume_data_path, AssetProcessor::to_string(ret_status)));
+                }
+                else
+                {
+                    DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->cloud_volume_data_path));
+                }
+            }
+            
+            {
+                AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
+                    .volumetric_data_path = std::filesystem::path(info.volume->detail_noise_path),
+                    .cloud_data_texture_manifest_index = info.volume->detail_noise_texture_manifest_index,
+                    .cloud_sdf_texture_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
+                };
+                auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
+                if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
+                {
+                    DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
+                        info.volume->detail_noise_path, AssetProcessor::to_string(ret_status)));
+                }
+                else
+                {
+                    DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->detail_noise_path));
+                }
+            }
+        };
+    };
+
+    for (u32 cloud_volume_manifest_index : scene._cloud_volumes_requesting_load)
+    {
+        // Launch loading of this cloud volume
+        auto task = std::make_shared<LoadCloudVolumeTask>(LoadCloudVolumeTask::TaskInfo{
+            .asset_processor = asset_processor,
+            .volume = &scene._cloud_volumes.at(cloud_volume_manifest_index),
+        });
+        thread_pool->async_dispatch(task, TaskPriority::LOW);
+    }
+    scene._cloud_volumes_requesting_load.clear();
 }
 
 static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
@@ -1341,12 +1445,9 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
     });
 }
 
-auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
+auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstances
 {
-    // Go over all entities every frame.
-    // Check if entity changed, if so, queue appropriate update events.
-    // Populate GPUMeshInstances buffer from scratch, sort entities into draw lists.
-    CPUMeshInstances ret = {};
+    CPUSceneInstances ret = {};
 
     auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.get_state().buffers[0]).value();
     auto * const gpu_spot_lights_write_ptr = _device.buffer_host_address_as<GPUSpotLight>(_gpu_spot_lights.get_state().buffers[0]).value();
@@ -1356,8 +1457,33 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
         RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
         bool const is_entity_dirty = r_ent->dirty;
         r_ent->dirty = false;
+        
+        if (r_ent != nullptr && r_ent->cloud_volume_index.has_value())
+        {
+            DBG_ASSERT_TRUE_M(r_ent->type == EntityType::CLOUD_VOLUME, "IMPOSSIBLE CASE! Only cloud volume entities can have cloud volume index");
+            auto const & cloud_volume = _cloud_volumes.at(r_ent->cloud_volume_index.value());
 
-        // FIXME(msakmary) move this into manifest update I guess
+            CloudVolumeInstance cloud_volume_instance = {};
+            cloud_volume_instance.transform = std::bit_cast<daxa_f32mat4x3>(r_ent->combined_transform);
+            cloud_volume_instance.albedo = 1.0f;
+            cloud_volume_instance.density_scale = 0.1f;
+
+
+            cloud_volume_instance.cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+            cloud_volume_instance.cloud_sdf_texture = _material_texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+            cloud_volume_instance.detail_noise_texture = _material_texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+
+            cloud_volume_instance.texture_size = {0u, 0u, 0u};
+            if(_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+            {
+                daxa::ImageId cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
+                daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
+                cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
+            }
+
+            ret.cloud_volume_instances.cloud_volume_instances.push_back(cloud_volume_instance);
+        }
+
         if (r_ent != nullptr && r_ent->light_index.has_value()) 
         {
             if (r_ent->type == EntityType::POINT_LIGHT) {
@@ -1425,17 +1551,20 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUMeshInstances
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
                     
-                    ret.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.size()));
+                    ret.mesh_instances.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.mesh_instances.size()));
 
                     // If the mesh loaded for the first time, it needs to invalidate VSM
                     // We also need to invalidate when the alpha texture just got streamed in
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
-                    if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) { ret.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.size())); }
+                    if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) 
+                    {
+                        ret.mesh_instances.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.mesh_instances.size()));
+                    }
 
                     u32 mesh_index = select_lod(render_data, mesh_lod_group, mesh_lod_group_manifest_index, r_ent);
 
                     // Because this mesh will be referenced by the prepass drawlist, we need also need it's appropriate mesh instance data
-                    ret.mesh_instances.push_back({
+                    ret.mesh_instances.mesh_instances.push_back({
                         .entity_index = entity_i,
                         .mesh_index = mesh_index,
                         .in_mesh_group_index = in_mesh_group_index,
@@ -1512,7 +1641,43 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
     cpu_mesh_instance_counts.vsm_invalidate_instance_count = s_cast<u32>(cpu_mesh_instances.vsm_invalidate_draw_list.size());
 }
 
-void Scene::clear([[maybe_unused]]std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
+void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cpu_cloud_volume_instances)
+{
+    // Calculate offsets into buffer and required size:
+    usize offset = {};
+    CloudVolumeInstancesBufferHead buffer_head = {};
+    offset += sizeof(CloudVolumeInstancesBufferHead);
+
+    buffer_head.instances = offset;
+    buffer_head.count = static_cast<u32>(cpu_cloud_volume_instances.cloud_volume_instances.size());
+    offset += sizeof(CloudVolumeInstance) * cpu_cloud_volume_instances.cloud_volume_instances.size();
+    usize const required_size = offset;
+
+    // TODO: Allocate this into a ring buffer.
+    // Allocate buffer
+    if (!cloud_volume_instances_buffer.get_state().buffers.empty())
+    {
+        _device.destroy_buffer(cloud_volume_instances_buffer.get_state().buffers[0]);
+    }
+    cloud_volume_instances_buffer.set_buffers({
+        .buffers = std::array{_device.create_buffer({
+            .size = required_size,
+            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .name = "cpu_cloud_volume_instances_buffer",
+        })},
+    });
+    daxa::DeviceAddress device_address = _device.buffer_device_address(cloud_volume_instances_buffer.get_state().buffers[0]).value();
+    std::byte * host_address = _device.buffer_host_address(cloud_volume_instances_buffer.get_state().buffers[0]).value();
+
+    // Write Buffer, add address on offsets and counts:
+    usize const cloud_volume_instances_size = sizeof(CloudVolumeInstance) * cpu_cloud_volume_instances.cloud_volume_instances.size();
+    std::memcpy(host_address + buffer_head.instances, cpu_cloud_volume_instances.cloud_volume_instances.data(), cloud_volume_instances_size);
+
+    buffer_head.instances += device_address;
+    std::memcpy(host_address, &buffer_head, sizeof(CloudVolumeInstancesBufferHead));
+}
+
+void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
 {
     // for (auto &task : scene_load_tasks)
     // {
