@@ -1526,14 +1526,6 @@ auto Renderer::prepare_frame(
     daxa::DeviceAddress render_data_device_address =
         gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
 
-    // Do General Readback
-    {
-        u32 const index = render_context->render_data.frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
-        render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
-        render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
-        render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
-    }
-
     if (sky_settings_changed)
     {
         // Potentially wastefull, ideally we want to only recreate the resource that changed the name
@@ -1656,13 +1648,21 @@ auto Renderer::prepare_frame(
     }
     swapchain_image.set_images({.images = std::array{new_swapchain_image}});
 
+    // Do General Readback
+    {
+        u32 const index = render_context->render_data.frame_index % (MAX_GPU_FRAMES_IN_FLIGHT + 2);
+        render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
+        render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
+        render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
+    }
+
     render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 
     // Draw Frustum Camera.
     gpu_context->shader_debug_context.aabb_draws.draw(ShaderDebugAABBDraw{
-        .position = daxa_f32vec3(0, 0, 0.5),
-        .size = daxa_f32vec3(2.01, 2.01, 0.999),
-        .color = daxa_f32vec3(1, 0, 0),
+        .position = daxa_f32vec3(0.0f, 0.0f, 0.5f),
+        .size = daxa_f32vec3(2.01f, 2.01f, 0.999f),
+        .color = daxa_f32vec3(1.0f, 0.0f, 0.0f),
         .coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA,
     });
 
