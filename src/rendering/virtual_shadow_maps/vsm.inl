@@ -113,18 +113,13 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(VSMClipProjection), vsm_clip_projections
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_page_table)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DArrayId<daxa_f32vec4>, vsm_page_view_pos_row)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u64>, vsm_meta_memory_table)
-DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
+DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DArrayIndex<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_DECL_TASK_HEAD_END
 
-struct AllocatePagesAttachments
-{
-    DAXA_TH_BLOB(AllocatePagesH, attachments);
-};
-DAXA_DECL_BUFFER_PTR(AllocatePagesAttachments);
 
 struct AllocatePagesPush
 {
-    daxa_BufferPtr(AllocatePagesAttachments) attachments;
+    DAXA_TH_BLOB(AllocatePagesH, attachments);
 };
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ClearPagesH)

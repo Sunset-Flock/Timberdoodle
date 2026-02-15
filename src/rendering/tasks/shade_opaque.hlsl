@@ -160,6 +160,11 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
     const uint page_entry = Texture2DArray<uint>::get(AT.vsm_page_table).Load(int4(vsm_page_texel_coords, 0)).r;
     color.rgb = hsv2rgb(float3(pow(float(vsm_page_texel_coords.z) / float(VSM_CLIP_LEVELS - 1), 0.5), 1.0, 1.0));
 
+    if(!get_is_allocated(page_entry) && get_is_visited_marked(page_entry)) 
+    {
+        color.rgb = float3(1.0f, 0.0f, 0.0f);
+    }
+
     if(get_is_visited_marked(page_entry) || get_is_dirty(page_entry) || get_is_allocated(page_entry))
     {
         const int2 physical_page_coords = get_meta_coords_from_vsm_entry(page_entry);

@@ -5,7 +5,7 @@
 
 [[vk::push_constant]] AllocatePagesPush allocate_pages_push;
 
-#define AT deref(allocate_pages_push.attachments).attachments
+#define AT allocate_pages_push.attachments
 
 [numthreads(ALLOCATE_PAGES_X_DISPATCH, 1, 1)]
 [shader("compute")]

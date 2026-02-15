@@ -26,7 +26,8 @@ void debug_virtual_main(uint3 svdtid : SV_DispatchThreadID)
         if(get_is_allocated(page_entry))        { color.rgb = hsv2rgb(float3(hue, 0.8f, 0.2f)); }
         // if(get_is_dirty(page_entry))            { color.rgb = float3(1.0f); }
         if(get_is_visited_marked(page_entry))   { color.rgb = hsv2rgb(float3(hue, 1.0f, 0.8f)); }
-        else if(get_allocation_failed(page_entry))   { color.rgb = float3(1.0f, 0.0f, 0.0f); }
+        if(!get_is_allocated(page_entry) && get_is_visited_marked(page_entry) && get_requests_allocation(page_entry)) {color.rgb = float3(1.0f, 0.0f, 0.0f); }
+        else if(get_requests_allocation(page_entry)) {color.rgb = float3(0.0, 0.0, 1.0);}
 
         push.vsm_debug_page_table.get()[svdtid.xy] = color;
     }
@@ -69,7 +70,7 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
                 }
                 else 
                 {
-                    color.rgb = float3(0.03f);
+                    color.rgb = float3(0.00f);
                 }
             }
             // Directional
@@ -125,6 +126,10 @@ void debug_meta_main(uint3 svdtid : SV_DispatchThreadID)
                 const uint reset_virtual_entry = virtual_entry & (~(visited_marked_mask() | dirty_mask() | requests_allocation_mask()));
                 push.vsm_page_table.get_formatted()[virtual_page_table_coords] = reset_virtual_entry;
             }
+        }
+        if(!get_meta_memory_is_allocated(meta_entry) && get_meta_memory_is_visited(meta_entry))
+        {
+            color.rgb = float3(1.0f, 0.0f, 0.0f);
         }
         push.vsm_debug_meta_memory_table.get()[svdtid.xy] = color;
     }

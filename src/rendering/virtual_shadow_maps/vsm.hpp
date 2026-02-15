@@ -239,9 +239,7 @@ struct AllocatePagesTask : AllocatePagesH::Task
     {
         ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_allocate_pages_pipeline_compile_info().name));
 
-        auto alloc = ti.allocator->allocate(sizeof(AllocatePagesH::AttachmentShaderBlob));
-        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(AllocatePagesH::AttachmentShaderBlob));
-        AllocatePagesPush push = {.attachments = alloc->device_address};
+        AllocatePagesPush push = {.attachments = ti.attachment_shader_blob};
         ti.recorder.push_constant(push);
 
         render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "ALLOCATE_PAGES">());
