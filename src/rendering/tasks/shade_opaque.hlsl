@@ -259,7 +259,7 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
 
 float get_dir_shadow_rt(float3 position, float3 normal, float3 primary_ray, float2 uv)
 {
-    rand_seed(asuint(uv.x + uv.y * 13136.1235f) * AT.globals.frame_index);
+    rand_seed(asuint(position.x + position.y * 13136.1235f + position.z * 897.12f) * AT.globals.frame_index);
     float offset_scale = 0.0;
     float sum = 0.0;
 
@@ -278,7 +278,7 @@ float get_dir_shadow_rt(float3 position, float3 normal, float3 primary_ray, floa
     return 1.0f - (sum / PCF_NUM_SAMPLES);
 }
 
-float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorldFootprint pixel_footprint, float3 normal, float3 tangent, float3 bitangent)
+float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorldFootprint pixel_footprint, float3 normal, float3 tangent, float3 bitangent, float3 position)
 {
     const bool level_forced = AT.globals->vsm_settings.force_clip_level != 0;
     const int force_clip_level = level_forced ? AT.globals->vsm_settings.forced_clip_level : -1;
@@ -298,7 +298,7 @@ float get_vsm_shadow(float2 screen_uv, float sun_norm_dot, ScreenSpacePixelWorld
     const float filter_radius = 0.08;
     float sum = 0.0;
 
-    rand_seed(asuint(screen_uv.x + screen_uv.y * 13136.1235f));// * AT.globals.frame_index);
+    rand_seed(asuint( ceil(position.x * 10000000.0f) + ceil(position.y * 10000000.0f) * 1.1235f + ceil(position.z * 10000000.0f) * 8.12f));
 
     for(int sample = 0; sample < PCF_NUM_SAMPLES; sample++)
     {
@@ -510,7 +510,7 @@ struct VsmLightVisibilityTester : LightVisibilityTesterI
         const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.0001, 1.0);
         // TODO: fix
         float3 tangent = float3(0.0, 0.0, 1.0);
-        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, sun_norm_dot, footprint, material_point.normal, tangent, tangent) : 1.0f;
+        float shadow = AT.globals->vsm_settings.enable != 0 ? get_vsm_shadow(screen_uv, sun_norm_dot, footprint, material_point.normal, tangent, tangent, material_point.position) : 1.0f;
         const float final_shadow = sun_norm_dot * shadow.x;
 
         return final_shadow;
@@ -835,7 +835,7 @@ void entry_main_cs(
 #if RT
             shadow = get_dir_shadow_rt(tri_point.world_position, tri_point.world_normal, primary_ray, screen_uv) * sun_norm_dot;
 #else 
-            shadow = get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint, tri_point.face_normal, tri_point.world_tangent, tri_point.world_bitangent);
+            shadow = get_vsm_shadow(screen_uv, sun_norm_dot, ws_pixel_footprint, tri_point.face_normal, tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_position);
 #endif
         }
 

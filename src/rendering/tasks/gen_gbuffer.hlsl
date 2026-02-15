@@ -134,6 +134,25 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
             gs_face_normals[gtid.x + 1][gtid.y + 1]
         };
 
+#if 1
+        const float4 scaled_depths = (depths);
+        const float avg_scaled_depth = dot(scaled_depths, 1.0f) * 0.25f;
+        const float4 scaled_depth_differnces = abs(scaled_depths - avg_scaled_depth);
+        int best_depth_index = 0;
+        [unroll]
+        for (uint i = 1; i < 4; ++i)
+        {
+            if (scaled_depth_differnces[i] < scaled_depth_differnces[best_depth_index])
+            {
+                best_depth_index = i;
+            }
+        }
+        
+        float closest_depth = depths[best_depth_index];
+        uint closest_face_normal = normals[best_depth_index];
+
+#else
+
         float closest_depth = 0.0f;
         uint closest_face_normal = 0u;
         for (uint i = 0; i < 4; ++i)
@@ -144,6 +163,8 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
                 closest_face_normal = normals[i];
             }
         }
+
+#endif
 
         push.attachments.half_res_depth_image.get()[half_out_idx] = closest_depth;
         push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;

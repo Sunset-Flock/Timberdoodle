@@ -72,7 +72,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
     float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(3.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale) * pixel_footprint_quality;
+    float blur_radius = max(2.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale * pixel_footprint_quality);
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 

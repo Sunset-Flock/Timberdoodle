@@ -317,14 +317,16 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increases conficende based on temporal variance
     }
     float blend = 1.0f / (1.0f + history_confidence);
+    float co_cg_blend = 1.0f / (1.0f + history_confidence * 0.25f);
     if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
     {
         blend = 1.0f;
+        co_cg_blend = 1.0f;
     }
 
     // Determine accumulated diffuse
     float4 accumulated_diffuse = disocclusion ? new_diffuse : lerp(reprojected_diffuse, new_diffuse, blend);
-    float2 accumulated_diffuse2 = disocclusion ? new_diffuse2 : lerp(reprojected_diffuse2, new_diffuse2, blend);
+    float2 accumulated_diffuse2 = disocclusion ? new_diffuse2 : lerp(reprojected_diffuse2, new_diffuse2, co_cg_blend);
 
     // Write Textures
     push.attach.half_res_sample_count.get()[dtid.xy] = accumulated_sample_count;

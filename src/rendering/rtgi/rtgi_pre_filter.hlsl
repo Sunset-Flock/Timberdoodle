@@ -138,7 +138,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const float3 sample_value_vs = preload_v.xyz;
             const float sample_depth = preload_v.w;
             float sample_y = sample_diffuse.w;
-            sample_y = max(sample_y, 1e-4f);          // Values below 1e-4f start to break float16 precision, have to clamp radiance up to that value as a minimum for statistic analysis.
+            sample_y = max(sample_y, 1e-3f);          // Values below this start to break float16 precision, have to clamp radiance up to that value as a minimum for statistic analysis.
             
             const bool is_sky = sample_depth == 0.0f;
             if (is_sky)
