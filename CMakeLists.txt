@@ -37,6 +37,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/asset_processor.cpp"
     "src/scene/tex_compression/tex_compression.cpp"
     "src/scene/tex_compression/sdf_bc1_compressor.cpp"
+    "src/scene/tex_compression/test.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/rtgi/rtgi.cpp"
 )
