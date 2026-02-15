@@ -219,7 +219,7 @@ static void update_texture_manifest_from_gltf(Scene & scene, [[maybe_unused]]Sce
 
     for (u32 i = 0; i < s_cast<u32>(load_ctx.asset.textures.size()); ++i)
     {
-        u32 const texture_manifest_index = s_cast<u32>(scene._material_texture_manifest.size());
+        u32 const texture_manifest_index = s_cast<u32>(scene._material_texture_manifest.size()) - load_ctx.texture_manifest_offset;
         auto gltf_image_idx_opt = gltf_texture_to_image_index(texture_manifest_index);
         DBG_ASSERT_TRUE_M(
             gltf_image_idx_opt.has_value(),
@@ -672,15 +672,17 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
     };
     auto gltf_texture_to_image_index = [&](u32 const texture_index) -> std::optional<u32>
     {
-        std::unique_ptr<fastgltf::Asset> const & asset =
-            scene._gltf_asset_manifest.at(scene._material_texture_manifest.at(texture_index).gltf_asset_manifest_index).gltf_asset;
-        if (asset->textures.at(texture_index).basisuImageIndex.has_value())
+        GltfAssetManifestEntry const & asset_manifest_entry = scene._gltf_asset_manifest.at(scene._material_texture_manifest.at(texture_index).gltf_asset_manifest_index);
+        std::unique_ptr<fastgltf::Asset> const & asset = asset_manifest_entry.gltf_asset;
+
+        u32 asset_local_texture_index = texture_index - asset_manifest_entry.texture_manifest_offset;
+        if (asset->textures.at(asset_local_texture_index).basisuImageIndex.has_value())
         {
-            return s_cast<u32>(asset->textures.at(texture_index).basisuImageIndex.value());
+            return s_cast<u32>(asset->textures.at(asset_local_texture_index).basisuImageIndex.value());
         }
-        else if (asset->textures.at(texture_index).imageIndex.has_value())
+        else if (asset->textures.at(asset_local_texture_index).imageIndex.has_value())
         {
-            return s_cast<u32>(asset->textures.at(texture_index).imageIndex.value());
+            return s_cast<u32>(asset->textures.at(asset_local_texture_index).imageIndex.value());
         }
         else
         {
