@@ -88,6 +88,10 @@ func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals
                 ret.normal = mul(tbn, normal_map_value);
             }
         }
+
+        const float inwards_normal_amount = -min(0.0f, dot(ret.geometry_normal, ret.normal));
+        // Inward normals are bend back.
+        ret.normal = normalize(ret.normal - inwards_normal_amount * ret.geometry_normal + ret.face_normal * 0.01f);
     }
     else
     {

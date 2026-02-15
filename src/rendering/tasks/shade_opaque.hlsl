@@ -236,8 +236,9 @@ float vsm_shadow_test(ClipInfo clip_info, uint page_entry, float3 world_position
     const float quantize = 2.0f / (1 << 23);
     const float b = sqrt2 * AT.vsm_globals.clip_0_texel_world_size * pow(2.0f, clip_info.clip_level + 1) / 2.0f;
     float bias = quantize + b;
-    if(sun_norm_dot < 0.99) {
-        bias += b * length(cross(normal, AT.globals.sky_settings.sun_direction)) / sun_norm_dot;
+    if(sun_norm_dot < 0.99) 
+        {
+        bias += b * length(cross(normal, AT.globals.sky_settings.sun_direction)) / max(sun_norm_dot, 0.1f);
     }
     else {
         bias += b;
@@ -827,7 +828,7 @@ void entry_main_cs(
         // ================================================================================================================
 
         const float3 sun_direction = AT.globals->sky_settings.sun_direction;
-        const float sun_norm_dot = clamp(dot(material_point.normal, sun_direction), 0.1, 1.0);
+        const float sun_norm_dot = max(dot(material_point.normal, sun_direction), 0.0f);
         float shadow = 1.0f;
         if(!skip_shadows)
         {
