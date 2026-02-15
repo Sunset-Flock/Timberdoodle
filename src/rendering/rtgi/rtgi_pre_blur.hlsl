@@ -31,12 +31,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
     const uint2 halfres_pixel_index = dtid;
 
-    #if RTGI_SPATIAL_PASSTHROUGH
-        push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
-        push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index];
-        return;
-    #endif
-
     // Load half res depth, normal and sample count
     const float pixel_depth = push.attach.view_cam_half_res_depth.get()[halfres_pixel_index];
     const float pixel_vs_depth = linearise_depth(pixel_depth, camera.near_plane);

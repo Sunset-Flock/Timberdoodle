@@ -312,10 +312,10 @@ float apply_bilinear_custom_weights( float s00, float s10, float s01, float s11,
 
 int2 flip_oob_index(int2 index, int2 max_index)
 {
-    index.x = index.x < 0 ? (abs(index.x)) * 2 : index.x;
-    index.y = index.y < 0 ? (abs(index.y)) * 2 : index.y;
-    index.x = index.x > max_index.x ? (max_index.x - (index.x - max_index.x)) * 2 : index.x;
-    index.y = index.y > max_index.y ? (max_index.y - (index.y - max_index.y)) * 2 : index.y;
+    index.x = index.x < 0 ? abs(index.x) : index.x;
+    index.y = index.y < 0 ? abs(index.y) : index.y;
+    index.x = index.x > max_index.x ? (max_index.x - (index.x - max_index.x)) : index.x;
+    index.y = index.y > max_index.y ? (max_index.y - (index.y - max_index.y)) : index.y;
     return index;
 }
 

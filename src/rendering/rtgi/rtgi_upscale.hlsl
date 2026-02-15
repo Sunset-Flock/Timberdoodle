@@ -159,7 +159,7 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 const float tent_weight = tent_weights_x[row] * tent_weights_y[col];
                 const float geometry_weight = planar_surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, position_vs, pixel_face_normal_vs, sample_vs, 3.0f);
                 const float normal_weight = square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal))));
-                const float samplecount_weight = square(samplecount);
+                const float samplecount_weight = square(samplecount + 1.0f);
                 const float weight = tent_weight * geometry_weight * normal_weight * samplecount_weight;
 
 
@@ -180,15 +180,15 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         // Write upscaled diffuse:
         float4 upscaled_sh_y = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 upscaled_cocg = float2( 0.0f, 0.0f );
-        if (acc_weight > 1.0f)
+        if (acc_geo_weight >= 1.0f)
         {
             upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
             upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);
         }
         else
         {
-            upscaled_sh_y = fallback_acc_diffuse * rcp(fallback_acc_weight + 0.0000001f);
-            upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
+            upscaled_sh_y = {};//fallback_acc_diffuse * rcp(fallback_acc_weight + 0.0000001f);
+            upscaled_cocg = {};//fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
         }
 
         if (!push.attach.globals.rtgi_settings.upscale_enabled)

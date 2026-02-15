@@ -9,11 +9,20 @@
 
 [[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
 
+static const int BLUR_STRIDE = 2;
+static const int MAX_BLUR_WIDTH = 8;
+static const int PRELAOD_WIDTH = RTGI_POST_BLUR_X + (MAX_BLUR_WIDTH * BLUR_STRIDE) * 2;
+
+// groupshared float gs_depth_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
+// groupshared float4 gs_diffuse_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
+// groupshared float2 gs_diffuse2_preload[PRELAOD_WIDTH][RTGI_POST_BLUR_X];
+
 [shader("compute")]
 [numthreads(RTGI_POST_BLUR_X,RTGI_POST_BLUR_Y,1)]
 func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 {
     let push = rtgi_post_blur_push;
+
     if (any(dtid.xy >= push.size))
     {
         return;
@@ -24,12 +33,6 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
     const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
     const uint2 halfres_pixel_index = dtid;
-
-    #if RTGI_SPATIAL_PASSTHROUGH
-        push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
-        push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index];
-        return;
-    #endif
 
     // Load half res depth, normal and sample count
     const float pixel_depth = push.attach.view_cam_half_res_depth.get()[halfres_pixel_index];
@@ -76,8 +79,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float temporal_stability = min(1.0f, pixel_samplecnt * rcp(12.0f));
 
-    const int FILTER_WIDTH = int(lerp(8.0f, 3.0f, temporal_stability));
-    const int FILTER_STRIDE = 2;
+    const int filter_width = min(MAX_BLUR_WIDTH, int(lerp(8.0f, 3.0f, temporal_stability)));
 
     const float pixel_y = push.attach.rtgi_diffuse_before.get()[dtid.xy].w;
     const float pixel_y_spatial_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
@@ -85,14 +87,14 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     const float pixel_temporal_relative_variance = pixel_temporal_moments.y;
     const float pixel_temporal_variance = pixel_temporal_relative_variance * pixel_y;
     const float pixel_temporal_std_dev = sqrt(pixel_temporal_variance);
-    const float pixel_y_std_dev = lerp(pixel_y_spatial_std_dev, pixel_temporal_std_dev, temporal_stability);
+    const float pixel_y_std_dev = lerp(pixel_y_spatial_std_dev, pixel_temporal_std_dev, min(1.0f, pixel_samplecnt * rcp(4)));
 
-    for (int i = -FILTER_WIDTH; i <= FILTER_WIDTH; ++i)
+    for (int i = -filter_width; i <= filter_width; ++i)
     {
         int2 xy = push.pass == 0 ? int2(0, i) : int2(i, 0);
 
-        const float2 sample_ndc = ndc.xy + float2(xy) * inv_half_res_render_target_size * 2 * FILTER_STRIDE;
-        const int2 sample_index = clamp(int2(dtid.xy) + xy * FILTER_STRIDE, int2(0, 0), int2(push.size - 1));
+        const float2 sample_ndc = ndc.xy + float2(xy) * inv_half_res_render_target_size * 2 * BLUR_STRIDE;
+        const int2 sample_index = clamp(int2(dtid.xy) + xy * BLUR_STRIDE, int2(0, 0), int2(push.size - 1));
         
         // if (all(dtid.xy == half_res_render_target_size/2))
         // {
@@ -112,7 +114,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         // Calculate validity weights
         const float geometric_weight = planar_surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, vs_position, vs_normal, sample_value_vs);
         const float normal_weight = normal_similarity_weight(pixel_face_normal, sample_value_normal);
-        const float gauss_weight = get_gaussian_weight(float(abs(i))/float(FILTER_WIDTH));
+        const float gauss_weight = get_gaussian_weight(float(abs(i))/float(filter_width));
         const float sample_count_weight = (sample_value_samplecnt + 1); // hides disocclusion flicker
 
         // Variance guiding:

@@ -6,7 +6,7 @@
 #include "shader_lib/misc.hlsl"
 #include "rtgi_shared.hlsl"
 
-[[vk::push_constant]] RtgiPreFilterPreparePush rtgi_pre_filter_prepare_push;
+[[vk::push_constant]] RtgiPreFilterPush rtgi_pre_filter_prepare_push;
 
 // Because of the +1
 static const float PERCEPTUAL_SPACE_MULTIPLIER = 1e1f;
@@ -26,11 +26,7 @@ func perceptual_to_linear(vector<float, N> v) -> vector<float, N>
 // The center blur is used to preserve firefly energy by flat filtering all pixels in a star kernel covering 5 pixels.
 func is_part_of_center_blur(int2 index) -> bool
 {
-    #if RTGI_FIREFLY_ENERGY_HACKS
     return (abs(index.x) + abs(index.y) <= 1);
-    #else
-    return all(index == 0);
-    #endif
 }
 
 static const int FILTER_STRIDE = 1;
@@ -74,7 +70,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 const int2 in_preload_index = int2(group_iter_x * RTGI_PRE_BLUR_PREPARE_X, group_iter_y * RTGI_PRE_BLUR_PREPARE_Y) + int2(gtid);
                 const int2 src_group_base_index = int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) - TOTAL_FILTER_REACH;
                 const int2 src_index = src_group_base_index + in_preload_index;
-                const int2 clamped_src_index = clamp(src_index, int2(0,0), int2(push.size - 1));
+                int2 clamped_src_index = clamp(src_index, int2(0,0), int2(push.size - 1));
+                const int2 max_index = push.size - 1;
+                clamped_src_index = flip_oob_index(clamped_src_index, max_index);
 
                 if (all(in_preload_index < int2(PRELOAD_SIZE_X, PRELOAD_SIZE_Y)))
                 {
@@ -104,7 +102,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
     const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
-    const float pixel_ws_size_rcp =rcp(ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, depth));
+    const float pixel_ws_size_rcp = rcp(ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, depth));
 
     // Geometric mean is used to suppress fireflies
     float y_mean_geometric_acc = 0.0f;
@@ -229,10 +227,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, adjustment_factor);
         }
 
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_mean_acc * rcp(valid_footprint_samples), 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(y_mean_geometric, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(y_mean_geometric, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(y_mean_geometric, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(y_mean_geometric, 0, 0, 0);
     } 
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;

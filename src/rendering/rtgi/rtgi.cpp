@@ -59,8 +59,8 @@ inline void rtgi_temporal_callback(daxa::TaskInterface ti, RenderContext * rende
 
 inline void rtgi_pre_filter_prepare_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = RtgiPreFilterPrepareH::Info::AT;
-    dispatch_image_relative(RtgiPreFilterPreparePush(), ti, render_context, AT.diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_FILTER">(), rtgi_pre_filter_prepare_compile_info().name);
+    auto const & AT = RtgiPreFilterH::Info::AT;
+    dispatch_image_relative(RtgiPreFilterPush(), ti, render_context, AT.diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_FILTER">(), rtgi_pre_filter_prepare_compile_info().name);
 }
 
 inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
@@ -197,8 +197,8 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "footprint_quality_image",
     });
-    info.tg.add_task(daxa::HeadTask<RtgiPreFilterPrepareH::Info>()
-            .head_views(RtgiPreFilterPrepareH::Info::Views{
+    info.tg.add_task(daxa::HeadTask<RtgiPreFilterH::Info>()
+            .head_views(RtgiPreFilterH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
