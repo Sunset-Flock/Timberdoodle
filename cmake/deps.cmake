@@ -144,27 +144,50 @@ if (NOT TARGET implot::implot)
     endif()
 endif()
 
+if(TIDO_ENABLE_UTILS_VDB_LOADER)
+    FetchContent_Declare(
+        Boost
+        URL      https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-cmake.tar.gz
+        URL_HASH SHA256=913ca43d49e93d1b158c9862009add1518a4c665e7853b349a6492d158b036d4
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_Declare(
+        tbb
+        URL      https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v2022.3.0.tar.gz
+        URL_HASH SHA256=01598a46c1162c27253a0de0236f520fd8ee8166e9ebb84a4243574f88e6e50a
+        OVERRIDE_FIND_PACKAGE
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_Declare(
+        blosc
+        URL      https://github.com/Blosc/c-blosc/archive/refs/tags/v1.21.6.tar.gz
+        URL_HASH SHA256=9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4579a0c156f38
+        OVERRIDE_FIND_PACKAGE
+        EXCLUDE_FROM_ALL
+    )
 
-FetchContent_Declare(
-    Boost
-    URL      https://github.com/boostorg/boost/releases/download/boost-1.90.0/boost-1.90.0-cmake.tar.gz
-    URL_HASH SHA256=913ca43d49e93d1b158c9862009add1518a4c665e7853b349a6492d158b036d4
-    EXCLUDE_FROM_ALL
-)
-FetchContent_Declare(
-    tbb
-    URL      https://github.com/uxlfoundation/oneTBB/archive/refs/tags/v2022.3.0.tar.gz
-    URL_HASH SHA256=01598a46c1162c27253a0de0236f520fd8ee8166e9ebb84a4243574f88e6e50a
-    OVERRIDE_FIND_PACKAGE
-    EXCLUDE_FROM_ALL
-)
-FetchContent_Declare(
-    blosc
-    URL      https://github.com/Blosc/c-blosc/archive/refs/tags/v1.21.6.tar.gz
-    URL_HASH SHA256=9fcd60301aae28f97f1301b735f966cc19e7c49b6b4321b839b4579a0c156f38
-    OVERRIDE_FIND_PACKAGE
-    EXCLUDE_FROM_ALL
-)
+    file(WRITE ${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/tbb-extra.cmake
+    [=[
+        set(TBB_VERSION 2022)
+    ]=])
+
+    file(WRITE ${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/blosc-extra.cmake
+    [=[
+        set(BLOSC_VERSION 1.21.6)
+        add_library(Blosc::blosc ALIAS blosc_static)
+    ]=])
+
+    FetchContent_Declare(
+        OpenVDB
+        GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openvdb.git
+        GIT_TAG        v13.0.0
+        EXCLUDE_FROM_ALL
+    )
+
+    FetchContent_MakeAvailable(Boost)
+    FetchContent_MakeAvailable(tbb)
+    FetchContent_MakeAvailable(blosc)
+endif()
 
 option(ZLIB_COMPAT "" ON)
 FetchContent_Declare(
@@ -175,35 +198,13 @@ FetchContent_Declare(
     EXCLUDE_FROM_ALL
 )
 
-
-
-file(WRITE ${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/tbb-extra.cmake
-[=[
-    set(TBB_VERSION 2022)
-]=])
-
-file(WRITE ${CMAKE_FIND_PACKAGE_REDIRECTS_DIR}/blosc-extra.cmake
-[=[
-    set(BLOSC_VERSION 1.21.6)
-    add_library(Blosc::blosc ALIAS blosc_static)
-]=])
-
-FetchContent_Declare(
-    OpenVDB
-    GIT_REPOSITORY https://github.com/AcademySoftwareFoundation/openvdb.git
-    GIT_TAG        v13.0.0
-    EXCLUDE_FROM_ALL
-)
-
-FetchContent_MakeAvailable(Boost)
-FetchContent_MakeAvailable(tbb)
-FetchContent_MakeAvailable(blosc)
 FetchContent_MakeAvailable(zlib)
 add_library(ZLIB::ZLIB ALIAS zlib-ng)
 
-option(OPENVDB_USE_DELAYED_LOADING "" OFF)
-
-FetchContent_MakeAvailable(OpenVDB)
+if(TIDO_ENABLE_UTILS_VDB_LOADER)
+    option(OPENVDB_USE_DELAYED_LOADING "" OFF)
+    FetchContent_MakeAvailable(OpenVDB)
+endif()
 
 FetchContent_Declare(
     libpng

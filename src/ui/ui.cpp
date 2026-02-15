@@ -136,7 +136,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     #endif
 }
 
-void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state)
+void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state, ThreadPool & threadpool)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();
@@ -179,8 +179,9 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
         {
             if (ImGui::MenuItem("Open"))
             {
-                app_state.desired_scene_path = open_file_dialog();
+                app_state.desired_scene_path = open_file_dialog("GLTF\0*.gltf\0");
             }
+            ImGui::MenuItem("Load and convert VDB", NULL, &convert_vdb_window);
             ImGui::EndMenu();
         }
         if (ImGui::BeginMenu("Widgets"))
@@ -238,6 +239,10 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     if (demo_window)
     {
         ImGui::ShowDemoWindow();
+    }
+    if (convert_vdb_window)
+    {
+        ui_convert_vdb_windw(app_state, &threadpool);
     }
     if (shader_debug_menu)
     {
@@ -1062,6 +1067,255 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
             ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         ImGui::End();
     }
+}
+
+void UIEngine::ui_convert_vdb_windw(ApplicationState & app_state, ThreadPool * _threadpool)
+{
+    if(ImGui::Begin("Load and Convert VDB", nullptr, 0))
+    {
+#if TIDO_BUILT_WITH_UTILS_VDB_LOADER
+        auto & vdb_state = app_state.vdb_management_state;
+        bool load_metadata = false;
+        // Input path
+        {
+            std::array<char, 512> in_path_buffer = {};
+            std::memcpy(in_path_buffer.data(), vdb_state.desired_load_path.data(), vdb_state.desired_load_path.size());
+            ImGui::Text("VDB file path:");
+            ImGui::SameLine(200);
+            ImGui::InputText("##In VDB Path", in_path_buffer.data(), in_path_buffer.size());
+            vdb_state.desired_load_path = std::string(in_path_buffer.data());
+            ImGui::SameLine();
+            if(ImGui::Button("..."))
+            {
+                vdb_state.desired_load_path = open_file_dialog("VDB\0*.vdb\0");
+                vdb_state.desired_save_path = std::filesystem::path(vdb_state.desired_load_path).replace_extension(".cloudbin").string();
+                load_metadata = !vdb_state.desired_load_path.empty();
+            }
+        }
+
+        {
+            std::array<char, 512> out_path_buffer = {};
+            std::memcpy(out_path_buffer.data(), vdb_state.desired_save_path.data(), vdb_state.desired_save_path.size());
+            ImGui::Text("Result File Path:");
+            ImGui::SameLine(200);
+            ImGui::InputText("##Out VDB Path", out_path_buffer.data(), out_path_buffer.size());
+            vdb_state.desired_save_path = std::string(out_path_buffer.data());
+        }
+
+        static bool attempted_vdb_header_load = false;
+        if(ImGui::Button("Load VDB metadata") || load_metadata)
+        {
+            fmt::print("Requested VDB metadata load: {}\n", vdb_state.desired_load_path);
+            vdb_state.vdb_grids_metadata = read_vdb_header(vdb_state.desired_load_path);
+            attempted_vdb_header_load = true;
+            if(! vdb_state.vdb_grids_metadata.empty())
+            {
+                vdb_state.grid_included_in_conversion.resize(vdb_state.vdb_grids_metadata.size());
+                vdb_state.grids_to_load.resize(vdb_state.vdb_grids_metadata.size());
+                std::fill(vdb_state.grid_included_in_conversion.begin(), vdb_state.grid_included_in_conversion.end(), true);
+            }
+        };
+
+        if(vdb_state.vdb_grids_metadata.empty() && attempted_vdb_header_load)
+        {
+            ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertFloat4ToU32(ImVec4(1.00f, 0.37f, 0.37f, 1.00f)));
+            ImGui::Text("File header could not be read");
+            ImGui::PopStyleColor();
+        }
+
+        std::array<const char *, 2> conversion_formats = {
+            to_string(TidoVolumetricCloudFileFormat::RAW).data(),
+            to_string(TidoVolumetricCloudFileFormat::CLOUD_SDF_BC1_DATA_BC6).data(),
+        };
+
+        static const std::array<std::vector<ImVec4>, s_cast<TidoVolumetricCloudFileFormat>(TidoVolumetricCloudFileFormat::COUNT)> format_colors = {
+            std::vector<ImVec4>{
+                ImVec4(1.00f, 0.37f, 0.37f, 1.00f), // RAW
+                ImVec4(1.00f, 0.37f, 0.37f, 1.00f), // RAW
+                ImVec4(1.00f, 0.37f, 0.37f, 1.00f), // RAW
+                ImVec4(1.00f, 0.37f, 0.37f, 1.00f), // RAW
+            },
+            std::vector<ImVec4>{
+                ImVec4(0.078f, 0.106f, 0.961f, 1.0f), // BC6
+                ImVec4(0.078f, 0.106f, 0.961f, 1.0f), // BC6
+                ImVec4(0.078f, 0.106f, 0.961f, 1.0f), // BC6
+                ImVec4(0.40f, 1.00f, 0.52f, 1.00f), // SDF BC1 
+            },
+        };
+
+        i32 conversion_format = s_cast<i32>(vdb_state.conversion_format);
+        ImGui::Combo("Conversion format", &conversion_format, conversion_formats.data(), s_cast<i32>(conversion_formats.size()));
+        vdb_state.conversion_format = s_cast<TidoVolumetricCloudFileFormat>(conversion_format);
+        auto const & format_coloring = format_colors[s_cast<u32>(vdb_state.conversion_format)];
+
+        if(! vdb_state.vdb_grids_metadata.empty())
+        {
+            if (ImGui::BeginTable("Metadata", 5, ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg))
+            {
+                ImGui::TableSetupColumn("Name", {});
+                ImGui::TableSetupColumn("Min extents", {});
+                ImGui::TableSetupColumn("Max extents", {});
+                ImGui::TableSetupColumn("Include", {});
+                ImGui::TableSetupColumn("Clamp Values", {});
+                ImGui::TableHeadersRow();
+
+                u32 active_grid_counter = 0;
+                for(u32 grid_index = 0; grid_index < vdb_state.vdb_grids_metadata.size(); grid_index++)
+                {
+                    bool const grid_included_in_conversion = vdb_state.grid_included_in_conversion[grid_index];
+                    auto & grid_metadata = vdb_state.vdb_grids_metadata[grid_index];
+
+                    ImVec4 row_color = ImVec4(0.1f, 0.1f, 0.1f, 1.0f);
+                    if(grid_included_in_conversion && active_grid_counter < format_coloring.size())
+                    {
+                        row_color = format_coloring[active_grid_counter];
+                        active_grid_counter++;
+                    }
+                    ImGui::PushStyleColor(ImGuiCol_TableRowBg, row_color);
+                    ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, row_color);
+
+                    ImGui::TableNextRow();
+
+                    // --- Column 0 (drag handle) ---
+                    ImGui::TableSetColumnIndex(0);
+                    ImGui::Selectable(grid_metadata.name.c_str(), false);
+
+                    // Begin drag source
+                    if (ImGui::BeginDragDropSource())
+                    {
+                        ImGui::SetDragDropPayload("ROW_INDEX", &grid_index, sizeof(u32));
+                        ImGui::Text("Move row %d", grid_index);
+                        ImGui::EndDragDropSource();
+                    }
+
+                    // Begin drop target
+                    if (ImGui::BeginDragDropTarget())
+                    {
+                        if (const ImGuiPayload* payload =
+                            ImGui::AcceptDragDropPayload("ROW_INDEX"))
+                        {
+                            u32 src_index = *(const u32*)payload->Data;
+
+                            if (src_index != grid_index)
+                            {
+                                std::swap(vdb_state.vdb_grids_metadata[src_index], vdb_state.vdb_grids_metadata[grid_index]);
+                            }
+                        }
+                        ImGui::EndDragDropTarget();
+                    }
+
+                    ImGui::TableSetColumnIndex(1);
+                    ImGui::Text("%i, %i, %i", grid_metadata.min_extents.x, grid_metadata.min_extents.y, grid_metadata.min_extents.z);
+                    ImGui::TableSetColumnIndex(2);
+                    ImGui::Text("%i, %i, %i", grid_metadata.max_extents.x, grid_metadata.max_extents.y, grid_metadata.max_extents.z);
+                    ImGui::TableSetColumnIndex(3);
+                    bool check_value = vdb_state.grid_included_in_conversion[grid_index] != 0;
+                    ImGui::Checkbox(fmt::format("##include{}", grid_metadata.name).c_str(), &check_value);
+                    vdb_state.grid_included_in_conversion[grid_index] = check_value ? 1u : 0u;
+
+                    ImGui::TableSetColumnIndex(4);
+                    ImGui::InputFloat2(fmt::format("##clamp_values{}", grid_metadata.name).c_str(), &vdb_state.grids_to_load[grid_index].value_range.x);
+                    ImGui::TableEndRow(ImGui::GetCurrentTable());
+
+                    ImGui::PopStyleColor(2);
+                }
+                ImGui::EndTable();
+            }
+        }
+
+        ImGui::BeginDisabled(vdb_state.convert_vdb_task != nullptr);
+        if(ImGui::Button("Load and Convert"))
+        {
+            AssetProcessor::ConvertVDBTaskInfo task_info{
+                .vdb_path = vdb_state.desired_load_path,
+                .converted_result_path = vdb_state.desired_save_path,
+                .output_format = vdb_state.conversion_format,
+                .threadpool = _threadpool,
+            };
+            for(u32 grid_index = 0; grid_index < vdb_state.vdb_grids_metadata.size(); grid_index++)
+            {
+                if(vdb_state.grid_included_in_conversion[grid_index])
+                {
+                    bool const is_sdf_compressed = vdb_state.conversion_format == TidoVolumetricCloudFileFormat::CLOUD_SDF_BC1_DATA_BC6;
+                    bool const is_sdf_channel = task_info.grids_to_convert.size() == 3;
+
+                    // We don't convert to fp16 only if we are using a custom compression of the sdf values.
+                    // This is because only BC1 sdf compression expects values to be in fp32.
+                    bool const convert_to_fp16 = !(is_sdf_compressed && is_sdf_channel);
+                    task_info.grids_to_convert.push_back(VDBGridInfo{
+                        .name = vdb_state.vdb_grids_metadata[grid_index].name,
+                        .value_range = vdb_state.grids_to_load[grid_index].value_range,
+                        .convert_to_fp16 = convert_to_fp16,
+                    });
+                }
+            }
+            vdb_state.convert_vdb_task = std::make_shared<AssetProcessor::ConvertVDBTask>(task_info);
+            _threadpool->async_dispatch(vdb_state.convert_vdb_task);
+        }
+        ImGui::EndDisabled();
+        if(vdb_state.convert_vdb_task != nullptr)
+        {
+            // Position at bottom-right corner with padding
+            ImVec2 work_pos = ImGui::GetMainViewport()->WorkPos;
+            ImVec2 work_size = ImGui::GetMainViewport()->WorkSize;
+            ImVec2 window_pos = ImVec2(work_pos.x + work_size.x - 10.0f, work_pos.y + work_size.y - 10.0f);
+            ImGui::SetNextWindowPos(window_pos, ImGuiCond_Always, ImVec2(1.0f, 1.0f)); // pivot bottom-right
+    
+            ImGui::SetNextWindowBgAlpha(0.9f); // Slightly transparent
+    
+            static int ticks_since_finished = 0;
+            if (ImGui::Begin("VDB Conversion", nullptr, 
+                ImGuiWindowFlags_NoDecoration | 
+                ImGuiWindowFlags_AlwaysAutoResize | 
+                ImGuiWindowFlags_NoSavedSettings | 
+                ImGuiWindowFlags_NoFocusOnAppearing | 
+                ImGuiWindowFlags_NoNav))
+            {
+                if(vdb_state.convert_vdb_task->not_finished == 0)
+                {
+                    ticks_since_finished += 1;
+                    if(vdb_state.convert_vdb_task->result)
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertFloat4ToU32(ImVec4(0.40f, 1.00f, 0.52f, 1.00f)));
+                        ImGui::Text("VDB conversion finished successfully!");
+                        ImGui::PopStyleColor();
+                    }
+                    else
+                    {
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertFloat4ToU32(ImVec4(1.00f, 0.37f, 0.37f, 1.00f)));
+                        ImGui::Text("VDB conversion failed!");
+                        ImGui::Text(vdb_state.convert_vdb_task->error_message.c_str());
+                        ImGui::PopStyleColor();
+                    }
+                }
+                else
+                {
+                    ImGui::Text("VDB conversion in process!");
+                    ImGui::Text(vdb_state.convert_vdb_task->progress_message.c_str());
+                    Task * current_subtask = vdb_state.convert_vdb_task->current_subtask;
+                    if(current_subtask)
+                    {
+                        ImGui::ProgressBar(
+                            s_cast<f32>(current_subtask->chunk_count - current_subtask->not_finished) /
+                            s_cast<f32>(current_subtask->chunk_count),
+                        ImVec2(-1.0f, 15.0f));
+                    }
+                }
+            }
+            ImGui::End();
+            if(ticks_since_finished > 1000)
+            {
+                ticks_since_finished = 0;
+                vdb_state.convert_vdb_task = nullptr;
+            }
+        }
+#else // TIDO_BUILT_WITH_UTILS_VDB_LOADER
+        ImGui::PushStyleColor(ImGuiCol_Text, ImGui::ColorConvertFloat4ToU32(ImVec4(1.00f, 0.37f, 0.37f, 1.00f)));
+        ImGui::Text("VDB loading and converting is not available in this build.");
+        ImGui::PopStyleColor();
+#endif // TIDO_BUILT_WITH_UTILS_VDB_LOADER
+    }
+    ImGui::End();
 }
 
 void UIEngine::ui_visbuffer_pipeline_statistics(RenderContext & render_context)

@@ -8,6 +8,7 @@
 #include "../timberdoodle.hpp"
 #include "../gpu_context.hpp"
 #include "../shader_shared/geometry.inl"
+#include "openvdb_loader.hpp"
 #include <ktx.h>
 
 using namespace tido::types;
@@ -131,6 +132,31 @@ struct AssetProcessor
     };
     using NonmanifestLoadRet = std::variant<AssetProcessor::AssetLoadResultCode, daxa::ImageId>;
     auto load_nonmanifest_texture(LoadNonManifestTextureInfo const & info) -> NonmanifestLoadRet;
+
+    struct ConvertVDBTaskInfo
+    {
+        std::filesystem::path vdb_path;
+        std::filesystem::path converted_result_path;
+        TidoVolumetricCloudFileFormat output_format;
+        std::vector<VDBGridInfo> grids_to_convert;
+        
+        ThreadPool * threadpool;
+    };
+
+    struct ConvertVDBTask : Task
+    {
+        std::string progress_message;
+        Task* current_subtask = nullptr;
+
+        bool result;
+        std::string error_message;
+
+        ConvertVDBTaskInfo info;
+        std::vector<std::vector<u16>> grids_data;
+
+        ConvertVDBTask(ConvertVDBTaskInfo const & info);
+        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override;
+    };
 
     /**
      * THREADSAFETY:

@@ -85,6 +85,7 @@ struct UIEngine
             bool view_reconstructed_shadow_map = false;
             bool view_page_table = false;
         } vsm_windows;
+        bool convert_vdb_window = false;
         bool renderer_settings = true;
         bool widget_settings = false;
         bool widget_renderer_statistics = false;
@@ -120,7 +121,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state);
+        void main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state, ThreadPool & threadpool);
 
     private:
         struct DebugCloneUiState
@@ -156,6 +157,7 @@ struct UIEngine
         void ui_scene_graph(Scene const & scene);
         void ui_renderer_settings(RenderContext & render_context, ApplicationState & app_state);
         void ui_vsm_textures(RenderContext & render_context);
+        void ui_convert_vdb_windw(ApplicationState & app_state, ThreadPool * _threadpool);
 
         void ui_render_statistics(RenderContext & render_context, ApplicationState & app_state);
         void ui_visbuffer_pipeline_statistics(RenderContext & render_context);

@@ -74,4 +74,4 @@ struct Window
     i32 cursor_pos_change_y = {};
 };
 
-std::string open_file_dialog();
+std::string open_file_dialog(std::string_view const filter);

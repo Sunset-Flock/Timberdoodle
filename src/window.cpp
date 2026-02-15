@@ -256,7 +256,7 @@ u32 Window::get_height() const
     return h;
 }
 
-std::string open_file_dialog()
+std::string open_file_dialog(std::string_view const filter)
 {
     OPENFILENAME ofn;        // common dialog box structure
     TCHAR szFile[260] = {0}; // if using TCHAR macros
@@ -271,7 +271,7 @@ std::string open_file_dialog()
     ofn.hwndOwner = nullptr;
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = ("GLTF\0*.gltf\0");
+    ofn.lpstrFilter = filter.data();
     ofn.nFilterIndex = 1;
     ofn.lpstrFileTitle = NULL;
     ofn.nMaxFileTitle = 0;

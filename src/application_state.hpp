@@ -3,6 +3,8 @@
 #include "camera.hpp"
 #include "scene/scene.hpp"
 #include "scene/asset_processor.hpp"
+#include "scene/openvdb_loader.hpp"
+
 
 struct ApplicationState
 {
@@ -28,4 +30,18 @@ struct ApplicationState
     std::chrono::time_point<std::chrono::steady_clock> startup_time_point = {};
     std::chrono::time_point<std::chrono::steady_clock> last_time_point = {};
     std::string desired_scene_path = {};
+
+    struct VDBManagementState
+    {
+        std::string desired_load_path = {};
+        std::string desired_save_path = {};
+        std::shared_ptr<AssetProcessor::ConvertVDBTask> convert_vdb_task = nullptr;
+        std::vector<VDBGridMetaData> vdb_grids_metadata = {};
+
+        TidoVolumetricCloudFileFormat conversion_format = {};
+        std::vector<u8> grid_included_in_conversion = {};
+        std::vector<VDBGridInfo> grids_to_load = {};
+    };
+
+    VDBManagementState vdb_management_state = {};
 };

@@ -5,10 +5,13 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(BUILD_SHARED_LIBS OFF)
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY "bin")
 
+set(TIDO_ENABLE_UTILS_VDB_LOADER false)
+
 if("${CMAKE_HOST_SYSTEM_NAME}" STREQUAL "Windows")
     # /MT for Release, /MTd for Debug. Force static CRT
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
+
 include(cmake/deps.cmake)
 
 set(DAXA_ENABLE_UTILS_IMGUI true)
@@ -25,6 +28,7 @@ add_executable(${PROJECT_NAME}
     "src/camera.cpp"
     "src/application.cpp"
     "src/gpu_context.cpp"
+    "src/json_handler.cpp"
     "src/ui/ui.cpp"
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"
@@ -35,12 +39,20 @@ add_executable(${PROJECT_NAME}
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"
     "src/scene/asset_processor.cpp"
+    "src/scene/openvdb_loader.cpp"
     "src/scene/tex_compression/tex_compression.cpp"
     "src/scene/tex_compression/sdf_bc1_compressor.cpp"
     "src/scene/tex_compression/test.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/rtgi/rtgi.cpp"
 )
+
+if(TIDO_ENABLE_UTILS_VDB_LOADER)
+    target_compile_definitions(${PROJECT_NAME}
+        PRIVATE
+        TIDO_BUILT_WITH_UTILS_VDB_LOADER=true
+    )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     # NOTE(grundlett): Really hacky. It appears there's no way to create plugin dll dependencies...
@@ -65,6 +77,12 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     glm::glm
     CMP_Core
 )
+
+if(TIDO_ENABLE_UTILS_VDB_LOADER)
+    target_link_libraries(${PROJECT_NAME} PRIVATE
+        openvdb_static
+    )
+endif()
 
 if(CMAKE_SYSTEM_NAME STREQUAL "Windows")
     target_link_libraries(${PROJECT_NAME} PRIVATE Dwmapi)

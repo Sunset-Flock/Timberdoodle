@@ -442,6 +442,171 @@ AssetProcessor::~AssetProcessor()
 #endif
 }
 
+AssetProcessor::ConvertVDBTask::ConvertVDBTask(ConvertVDBTaskInfo const & info)
+    : info{info}
+{
+    chunk_count = 1;
+}
+
+void AssetProcessor::ConvertVDBTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+{
+    LoadVDBTaskInfo task_info{
+        .vdb_path = info.vdb_path,
+        .grids_to_load = info.grids_to_convert,
+    };
+
+    auto load_task = std::make_shared<LoadVDBTask>(task_info);
+
+    if(!load_task->initialize())
+    {
+        result = false;
+        error_message = "Failed to initialize VDB load task: " + load_task->error_message;
+        return;
+    }
+
+    progress_message = "Loading VDB file...";
+    current_subtask = load_task.get();
+    info.threadpool->blocking_dispatch(load_task);
+
+    if(load_task->result == false)
+    {
+        result = false;
+        error_message = load_task->error_message;
+        return;
+    }
+
+    // Write all loaded grids to file
+    std::ofstream output_file(info.converted_result_path, std::ios::binary);
+    if (!output_file.is_open())
+    {
+        result = false;
+        error_message = fmt::format("Failed to open output file {} for writing\n", info.converted_result_path.string());
+        return;
+    }
+
+    // Write header information
+    u32 grid_count = static_cast<u32>(info.grids_to_convert.size());
+        
+    TidoVolumetricCloudDataHeader header;
+    header.magic = {'T', 'D', 'V', 'C'};
+    header.version = TIDO_VOLUMETRIC_CLOUD_FILE_VERSION;
+    header.format = info.output_format;
+    header.field_extents = load_task->grid_extents;
+
+    std::vector<std::vector<std::byte>> fields_converted_data;
+
+    switch(info.output_format)
+    {
+        case TidoVolumetricCloudFileFormat::RAW:
+        {
+            constexpr u32 element_size = sizeof(u16);
+
+            header.field_count = 1;
+            u64 const per_grid_entries = s_cast<u64>(header.field_extents.x) * s_cast<u64>(header.field_extents.y) * s_cast<u64>(header.field_extents.z);
+            u64 const total_byte_size = grid_count * per_grid_entries * element_size;
+            fields_converted_data.emplace_back(total_byte_size);
+
+            for (u32 elem_index = 0; elem_index < per_grid_entries; ++elem_index)
+            {
+                u64 const element_offset = elem_index * element_size * grid_count;
+                std::memcpy(&fields_converted_data[0][element_offset + 0 * element_size], &load_task->grids_data[0][elem_index * element_size], element_size);
+                std::memcpy(&fields_converted_data[0][element_offset + 1 * element_size], &load_task->grids_data[1][elem_index * element_size], element_size);
+                std::memcpy(&fields_converted_data[0][element_offset + 2 * element_size], &load_task->grids_data[2][elem_index * element_size], element_size);
+                std::memcpy(&fields_converted_data[0][element_offset + 3 * element_size], &load_task->grids_data[3][elem_index * element_size], element_size);
+            }
+            break;
+        }
+        case TidoVolumetricCloudFileFormat::CLOUD_SDF_BC1_DATA_BC6:
+        {
+            header.field_count = 2;
+            DBG_ASSERT_TRUE_M((header.field_extents.x % 4 == 0) && (header.field_extents.y % 4 == 0), "For now the image must be 4 aligned (block compression...)");
+
+            // ========================== BC6 COMPRESSION ==========================
+            {
+
+                constexpr u32 element_size = sizeof(u16);
+                constexpr u32 TEXELS_PER_BLOCK = 4 * 4;
+                constexpr u32 BYTES_PER_BC6_BLOCK = 16;
+                const u32 blocks_per_layer = ((header.field_extents.x * header.field_extents.y) / TEXELS_PER_BLOCK);
+                fields_converted_data.emplace_back(header.field_extents.z * blocks_per_layer * BYTES_PER_BC6_BLOCK);
+
+                u64 const per_grid_entries = s_cast<u64>(header.field_extents.x) * s_cast<u64>(header.field_extents.y) * s_cast<u64>(header.field_extents.z);
+
+                u64 const total_byte_size = 3 * per_grid_entries * element_size;
+                std::vector<std::byte> repacked_loaded_fields(total_byte_size);
+
+                for (u32 elem_index = 0; elem_index < per_grid_entries; ++elem_index)
+                {
+                    u64 const element_offset = elem_index * element_size * 3;
+                    std::memcpy(&repacked_loaded_fields[element_offset + 0 * element_size], &load_task->grids_data[0][elem_index * element_size], element_size);
+                    std::memcpy(&repacked_loaded_fields[element_offset + 1 * element_size], &load_task->grids_data[1][elem_index * element_size], element_size);
+                    std::memcpy(&repacked_loaded_fields[element_offset + 2 * element_size], &load_task->grids_data[2][elem_index * element_size], element_size);
+                }
+
+                auto compress_bc6_task = compress_image({
+                    .in_data = std::span(repacked_loaded_fields.data(), repacked_loaded_fields.size()),
+                    .out_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
+                    .image_dimensions = header.field_extents,
+                    .compression = Compression::BC6,
+                });
+
+                current_subtask = compress_bc6_task.get();
+                progress_message = "Compressing cloud data fields (BC6)...";
+
+                info.threadpool->blocking_dispatch(compress_bc6_task);
+            }
+
+            // ========================== SDF1 COMPRESSION ==========================
+            {
+                constexpr u32 TEXELS_PER_BLOCK = 4 * 4;
+                constexpr u32 BYTES_PER_BC1_BLOCK = 8;
+                const u32 blocks_per_layer = ((header.field_extents.x * header.field_extents.y) / TEXELS_PER_BLOCK);
+                fields_converted_data.emplace_back(header.field_extents.z * blocks_per_layer * BYTES_PER_BC1_BLOCK);
+
+                for(u32 elem_index = 0; elem_index < load_task->grids_data[3].size(); elem_index += sizeof(f32))
+                {
+                    float const original_value = *r_cast<float*>(&load_task->grids_data[3][elem_index]);
+                    float const remapped_value = (original_value + 32.0f) / (512.0f + 32.0f);
+                    std::memcpy(&load_task->grids_data[3][elem_index], &remapped_value, sizeof(f32));
+                }
+
+                auto compress_bc1_sdf_task = compress_image({
+                    .in_data = std::span(reinterpret_cast<std::byte*>(load_task->grids_data[3].data()), load_task->grids_data[3].size()),
+                    .out_data = std::span(fields_converted_data.back().data(), fields_converted_data.back().size()),
+                    .image_dimensions = header.field_extents,
+                    .compression = Compression::BC1_SDF,
+                });
+
+                current_subtask = compress_bc1_sdf_task.get();
+                progress_message = "Compressing cloud data fields (BC1 SDF)...";
+
+                info.threadpool->blocking_dispatch(compress_bc1_sdf_task);
+            }
+        }
+    }
+
+    output_file.write(reinterpret_cast<const char*>(&header), sizeof(TidoVolumetricCloudDataHeader));
+
+    DBG_ASSERT_TRUE_M(header.field_count == fields_converted_data.size(), "Field count in header does not match number of fields converted");
+
+    // Write each grid's data
+    for (u32 field_index = 0; field_index < header.field_count; ++field_index)
+    {
+        output_file.write(reinterpret_cast<const char*>(fields_converted_data[field_index].data()), fields_converted_data[field_index].size());
+    }
+
+    output_file.close();
+
+    if (!output_file.good())
+    {
+        result = false;
+        error_message = fmt::format("Error occurred while writing to file {}\n", info.converted_result_path.string());
+        return;
+    }
+
+    result = true;
+}
+
 void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::ImageId & image, u32 layer = 0u)
 {
     daxa::ImageViewInfo image_view_info = device.info(image.default_view()).value();
@@ -1519,3 +1684,4 @@ void AssetProcessor::clear()
         _upload_texture_queue.clear();
     }
 }
+
