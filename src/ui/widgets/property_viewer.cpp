@@ -42,8 +42,8 @@ namespace tido
                     if (ImGui::ImageButton(
                             std::to_string(i).c_str(),
                             renderer->create_texture_id({
-                                .image_view_id = icons->at(s_cast<u32>(selector_icons.at(i))).default_view(),
-                                .sampler_id = std::bit_cast<daxa::SamplerId>(linear_sampler),
+                                .image_view = icons->at(s_cast<u32>(selector_icons.at(i))).default_view(),
+                                .sampler = std::bit_cast<daxa::SamplerId>(linear_sampler),
                             }),
                             ImVec2(26.0f, 22.0f),
                             ImVec2(0.0f, 1.0f),

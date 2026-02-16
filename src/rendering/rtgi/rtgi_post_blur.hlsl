@@ -122,7 +122,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
         // * turn down the y difference based on temporal stability, the result of the temporal pass is too noisy for a few frames to rely on variance guiding
         const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y_std_dev + pixel_y * 0.0001f) * 0.1f);
-        const float relative_sample_y_weight = 1.0f / relative_sample_y_deviation;
+        const float relative_sample_y_weight = 1;//1.0f / relative_sample_y_deviation;
 
         const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * relative_sample_y_weight;
         

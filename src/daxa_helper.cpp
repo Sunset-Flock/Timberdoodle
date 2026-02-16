@@ -8,7 +8,7 @@ namespace tido
             device,
             daxa::BufferInfo{
                 .size = size,
-                .allocate_info = flags,
+                .memory_flags = flags,
                 .name = name,
             },
         };

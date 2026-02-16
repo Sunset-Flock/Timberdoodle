@@ -375,16 +375,16 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             })
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 
-    info.tg.copy_image_to_image({.src = info.view_cam_half_res_depth, .dst = info.half_res_depth_history, .name = "save rtgi depth history"});
-    info.tg.copy_image_to_image({.src = half_res_sample_count_image, .dst = info.half_res_samplecnt_history, .name = "save rtgi samplecnt history"});
-    info.tg.copy_image_to_image({.src = info.view_cam_half_res_face_normals, .dst = info.half_res_face_normal_history, .name = "save rtgi face normal history"});
-    info.tg.copy_image_to_image({.src = full_samplecount_image, .dst = info.samplecount_history, .name = "save full_samplecount_history"});
-    info.tg.copy_image_to_image({.src = info.view_cam_face_normals, .dst = info.face_normal_history, .name = "save full_face_normal_history"});
-    info.tg.copy_image_to_image({.src = accumualted_color_image, .dst = info.color_history, .name = "save full_color_history"});
-    info.tg.copy_image_to_image({.src = accumulated_full_statistics_image, .dst = info.statistics_history, .name = "save full_statistics_history"});
-    info.tg.copy_image_to_image({.src = accumulated_diffuse_image, .dst = info.half_res_diffuse_history, .name = "save half_res_diffuse_history"});
-    info.tg.copy_image_to_image({.src = accumulated_diffuse2_image, .dst = info.half_res_diffuse2_history, .name = "save half_res_diffuse2_history"});
-    info.tg.copy_image_to_image({.src = accumulated_statistics_image, .dst = info.half_res_statistics_history, .name = "save half_res_statistics_history"});
+    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_depth, .dst_image = info.half_res_depth_history, .name = "save rtgi depth history"});
+    info.tg.copy_image_to_image({.src_image = half_res_sample_count_image, .dst_image = info.half_res_samplecnt_history, .name = "save rtgi samplecnt history"});
+    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_face_normals, .dst_image = info.half_res_face_normal_history, .name = "save rtgi face normal history"});
+    info.tg.copy_image_to_image({.src_image = full_samplecount_image, .dst_image = info.samplecount_history, .name = "save full_samplecount_history"});
+    info.tg.copy_image_to_image({.src_image = info.view_cam_face_normals, .dst_image = info.face_normal_history, .name = "save full_face_normal_history"});
+    info.tg.copy_image_to_image({.src_image = accumualted_color_image, .dst_image = info.color_history, .name = "save full_color_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_full_statistics_image, .dst_image = info.statistics_history, .name = "save full_statistics_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_diffuse_image, .dst_image = info.half_res_diffuse_history, .name = "save half_res_diffuse_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_diffuse2_image, .dst_image = info.half_res_diffuse2_history, .name = "save half_res_diffuse2_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_statistics_image, .dst_image = info.half_res_statistics_history, .name = "save half_res_statistics_history"});
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved_per_pixel_diffuse,

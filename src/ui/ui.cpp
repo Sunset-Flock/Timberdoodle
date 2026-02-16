@@ -1038,8 +1038,8 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         {
             ImGui::Image(
                 imgui_renderer.create_texture_id({
-                    .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
-                    .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                    .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                    .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
                 }),
                 ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         }
@@ -1050,8 +1050,8 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         ImGui::Begin("VSM Memory Texture", nullptr, 0);
         ImGui::Image(
             imgui_renderer.create_texture_id({
-                .image_view_id = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
-                .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
             }),
             ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         ImGui::End();
@@ -1061,8 +1061,8 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         ImGui::Begin("VSM Reconstructed Directional Texture", nullptr, 0);
         ImGui::Image(
             imgui_renderer.create_texture_id({
-                .image_view_id = render_context.gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.get_state().images[0].default_view(),
-                .sampler_id = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
+                .image_view = render_context.gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.get_state().images[0].default_view(),
+                .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
             }),
             ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
         ImGui::End();
@@ -1651,7 +1651,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                         for (auto i = 0; i < list_len; ++i)
                         {
                             auto buf = mem_report.buffer_list[i];
-                            char const * name = render_context.gpu_context->device.buffer_info(buf.id).value().name.data();
+                            char const * name = render_context.gpu_context->device.buffer_info(buf.buffer).value().name.data();
     
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
@@ -1682,7 +1682,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                         for (auto i = 0; i < list_len; ++i)
                         {
                             auto img = mem_report.image_list[i];
-                            char const * name = render_context.gpu_context->device.image_info(img.id).value().name.data();
+                            char const * name = render_context.gpu_context->device.image_info(img.image).value().name.data();
     
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
@@ -1713,7 +1713,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                         for (auto i = 0; i < list_len; ++i)
                         {
                             auto tlas = mem_report.tlas_list[i];
-                            char const * name = render_context.gpu_context->device.tlas_info(tlas.id).value().name.data();
+                            char const * name = render_context.gpu_context->device.tlas_info(tlas.tlas).value().name.data();
     
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);
@@ -1744,7 +1744,7 @@ void UIEngine::ui_render_statistics(RenderContext & render_context, ApplicationS
                         for (auto i = 0; i < list_len; ++i)
                         {
                             auto blas = mem_report.blas_list[i];
-                            char const * name = render_context.gpu_context->device.blas_info(blas.id).value().name.data();
+                            char const * name = render_context.gpu_context->device.blas_info(blas.blas).value().name.data();
     
                             ImGui::TableNextRow();
                             ImGui::TableSetColumnIndex(0);

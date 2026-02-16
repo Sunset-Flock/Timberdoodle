@@ -818,7 +818,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         required_staging_size += sizeof(GPUMeshGroup) * (_dirty_render_entities.size() + _modified_render_entities.size());   // _gpu_entity_mesh_groups
         staging_buffer = _device.create_buffer({
             .size = required_staging_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "entities update staging",
         });
         recorder.destroy_buffer_deferred(staging_buffer);
@@ -924,7 +924,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 
         daxa::BufferId mesh_groups_indices_staging = _device.create_buffer({
             .size = mesh_group_indices_mem_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh group update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_groups_indices_staging);
@@ -941,7 +941,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         u32 const mesh_group_staging_buffer_size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries;
         daxa::BufferId mesh_group_staging_buffer = _device.create_buffer({
             .size = mesh_group_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh group update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_group_staging_buffer);
@@ -972,7 +972,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         u64 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
         daxa::BufferId mesh_lod_group_staging_buffer = _device.create_buffer({
             .size = mesh_lod_group_update_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh lod group manifest update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_lod_group_staging_buffer);
@@ -996,7 +996,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         u64 const mesh_manifest_offset = _mesh_lod_group_manifest.size() - _new_mesh_lod_group_manifest_entries;
         daxa::BufferId mesh_staging_buffer = _device.create_buffer({
             .size = mesh_update_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh manifest update staging buffer",
         });
         recorder.destroy_buffer_deferred(mesh_staging_buffer);
@@ -1019,7 +1019,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         u64 const material_manifest_offset = _material_manifest.size() - _new_material_manifest_entries;
         daxa::BufferId material_staging_buffer = _device.create_buffer({
             .size = material_update_staging_buffer_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "material update staging buffer",
         });
         recorder.destroy_buffer_deferred(material_staging_buffer);
@@ -1076,7 +1076,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
         usize const mesh_lod_group_staging_size = info.uploaded_meshes.size() * sizeof(GPUMeshLodGroup);
         daxa::BufferId staging_buffer = scene._device.create_buffer({
             .size = meshes_staging_size + mesh_lod_group_staging_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
             .name = "mesh manifest and mesh lod group manifest upload staging buffer",
         });
 
@@ -1222,7 +1222,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
         {
             materials_update_staging_buffer = scene._device.create_buffer({
                 .size = sizeof(GPUMaterial) * scene.dirty_material_entry_indices.size(),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
+                .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
                 .name = "gpu materials update staging",
             });
             recorder.destroy_buffer_deferred(materials_update_staging_buffer);
@@ -1355,7 +1355,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         _mesh_as_build_queue.pop_back();
     }
 
-    auto recorder = _device.create_command_recorder({daxa::QueueFamily::MAIN});
+    auto recorder = _device.create_command_recorder({daxa::QueueType::MAIN});
     if (!build_infos.empty())
     {
         DEBUG_MSG(fmt::format("[DEBUG][Scene::create_and_record_build_as()] Building {} blases this frame", build_infos.size()));
@@ -1404,7 +1404,7 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
     if (!blas_instances.empty())
     {
         blas_instances_buffer = _device.create_buffer({.size = sizeof(daxa_BlasInstanceData) * blas_instances.size(),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "blas instances buffer"});
         recorder.destroy_buffer_deferred(blas_instances_buffer);
 
@@ -1609,7 +1609,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
     mesh_instances_buffer.set_buffers({
         .buffers = std::array{_device.create_buffer({
             .size = required_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "cpu_mesh_instances_buffer",
         })},
     });
@@ -1664,7 +1664,7 @@ void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const
     cloud_volume_instances_buffer.set_buffers({
         .buffers = std::array{_device.create_buffer({
             .size = required_size,
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = "cpu_cloud_volume_instances_buffer",
         })},
     });

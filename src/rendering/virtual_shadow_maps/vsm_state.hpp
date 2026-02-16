@@ -339,19 +339,19 @@ struct VSMState
                     {
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .dst_image = ti.id(meta_memory_table.view()),
+                            .image = ti.id(meta_memory_table.view()),
                         });
 
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .dst_image = ti.id(page_table_array_view),
-                            .dst_slice = ti.get(page_table_array_view).view.slice,
+                            .image = ti.id(page_table_array_view),
+                            .slice = ti.get(page_table_array_view).view.slice,
                         });
 
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .dst_image = ti.get(point_spot_table_array_view).ids[0],
-                            .dst_slice = ti.get(point_spot_table_array_view).view.slice,
+                            .image = ti.get(point_spot_table_array_view).ids[0],
+                            .slice = ti.get(point_spot_table_array_view).view.slice,
                         });
                     }));
         upload_task_graph.submit({});

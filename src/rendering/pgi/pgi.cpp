@@ -1559,7 +1559,7 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
     render_cmd.push_constant(push);
 
     render_cmd.set_index_buffer({
-        .id = pgi_state->debug_probe_mesh_buffer,
+        .buffer = pgi_state->debug_probe_mesh_buffer,
     }); 
 
     {
@@ -1800,7 +1800,7 @@ void PGIState::initialize(daxa::Device& device)
 
     this->debug_probe_mesh_buffer = device.create_buffer({
         .size = probe_triangles_mem_size + probe_vertex_mem_size,
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "pgi probe debug mesh buffer",
     });
 

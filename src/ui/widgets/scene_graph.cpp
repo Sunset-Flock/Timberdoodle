@@ -124,8 +124,8 @@ namespace tido
             ImGui::SetCursorPosX(ImGui::GetCursorPosX() + icon_size);
             ImGui::Image(
                 renderer->create_texture_id({
-                    .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
-                    .sampler_id = linear_sampler,
+                    .image_view = icons->at(s_cast<u32>(icon)).default_view(),
+                    .sampler = linear_sampler,
                 }),
                 ImVec2(icon_size, icon_size),
                 ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
@@ -184,8 +184,8 @@ namespace tido
             ICONS arrow_icon = component_state ? ICONS::CHEVRON_UP : ICONS::CHEVRON_DOWN;
             ImGui::Image(
                 renderer->create_texture_id({
-                    .image_view_id = icons->at(s_cast<u32>(arrow_icon)).default_view(),
-                    .sampler_id = linear_sampler,
+                    .image_view = icons->at(s_cast<u32>(arrow_icon)).default_view(),
+                    .sampler = linear_sampler,
                 }),
                 ImVec2(icon_size, icon_size),
                 ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
@@ -195,8 +195,8 @@ namespace tido
                 ImGui::SameLine();
                 ImGui::Image(
                     renderer->create_texture_id({
-                        .image_view_id = icons->at(s_cast<u32>(icon)).default_view(),
-                        .sampler_id = linear_sampler}),
+                        .image_view = icons->at(s_cast<u32>(icon)).default_view(),
+                        .sampler = linear_sampler}),
                     ImVec2(icon_size, icon_size),
                     ImVec2(0.0, 1.0), ImVec2(1.0, 0.0),
                     icon_to_color(icon));

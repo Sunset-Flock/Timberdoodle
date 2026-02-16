@@ -399,7 +399,7 @@ static auto ktx_parse_raw_image_data(ImageFromRawInfo & raw_data, TextureMateria
         .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED |
                  // daxa::ImageUsageFlagBits::HOST_TRANSFER |
                  daxa::ImageUsageFlagBits::TRANSFER_DST,
-        .allocate_info = {},
+        .memory_flags = {},
         .name = raw_data.image_path.filename().string(),
     };
     ret.compressed_bc5_rg = transcode_format == KTX_TTF_BC5_RG;
@@ -615,13 +615,13 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
 
     cr.pipeline_image_barrier({
         .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-        .image_id = image,
+        .image = image,
         .layout_operation = daxa::ImageLayoutOperation::TO_GENERAL,
     });
 
     daxa::BufferId staging_buffer = device.create_buffer({
         .size = parsed_data.src_data.size(),
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "upload image",
     });
     cr.destroy_buffer_deferred(staging_buffer);
@@ -649,9 +649,9 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
         //     .image_extent = {width, height, depth},
         // });
         cr.copy_buffer_to_image({
-            .buffer = staging_buffer,
+            .src_buffer = staging_buffer,
             .buffer_offset = parsed_data.mip_copy_offsets[mip],
-            .image = image,
+            .dst_image = image,
             .image_slice = {
                 .mip_level = mip,
                 .base_array_layer = layer,
@@ -664,7 +664,7 @@ void upload_texture(daxa::Device & device, ParsedImageData parsed_data, daxa::Im
     cr.pipeline_image_barrier({
         .src_access = daxa::AccessConsts::TRANSFER_WRITE,
         .dst_access = daxa::AccessConsts::READ,
-        .image_id = image,
+        .image = image,
     });
 
     device.wait_on_submit({
@@ -781,7 +781,7 @@ auto AssetProcessor::load_cloud_volumetric_data(LoadCloudVolumetricDataInfo cons
             .format = field_info.format,
             .size = {s_cast<u32>(header.field_extents.x), s_cast<u32>(header.field_extents.y), s_cast<u32>(header.field_extents.z)},
             .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
-            .allocate_info = {},
+            .memory_flags = {},
             .name = field_info.name,
         };
         *field_info.dst_image_id = _device.create_image(image_info);
@@ -1556,7 +1556,7 @@ auto AssetProcessor::load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadRe
         {
             mesh.mesh_buffer = _device.create_buffer({
                 .size = s_cast<daxa::usize>(total_mesh_buffer_size),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+                .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
                 .name = std::string(gltf_mesh.name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
             });
             mesh_bda = _device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();

@@ -115,7 +115,7 @@ struct ShaderDebugDrawContext
 
         readback_queue = device.create_buffer({
             .size = sizeof(ShaderDebugOutput) * (MAX_GPU_FRAMES_IN_FLIGHT),
-            .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
+            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
             .name = "shader debug readback queue",
         });
     }
@@ -243,7 +243,7 @@ struct GPUContext
     {
         std::shared_ptr<daxa::RayTracingPipeline> pipeline = {};
         daxa::RayTracingShaderBindingTable sbt = {};
-        daxa::BufferId sbt_buffer_id = {};
+        daxa::BufferId sbt_buffer = {};
     };
     // Pipelines:
     std::unordered_map<std::string, std::shared_ptr<daxa::RasterPipeline>> raster_pipelines = {};

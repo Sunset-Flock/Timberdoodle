@@ -125,18 +125,18 @@ void test_main()
 
         recorder.pipeline_image_barrier({
             .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .image_id = swapchain_image,
+            .image = swapchain_image,
             .layout_operation = daxa::ImageLayoutOperation::TO_GENERAL,
         });
 
         recorder.clear_image({
             .clear_value = {std::array<f32, 4>{0, 0, 1, 1}},
-            .dst_image = swapchain_image,
+            .image = swapchain_image,
         });
 
         recorder.pipeline_image_barrier({
             .src_access = daxa::AccessConsts::TRANSFER_WRITE,
-            .image_id = swapchain_image,
+            .image = swapchain_image,
             .layout_operation = daxa::ImageLayoutOperation::TO_PRESENT_SRC,
         });
 
@@ -291,7 +291,7 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
             // Transition images to general layout.
             for(auto const & tex : *format_data.textures)
             {
-                barrier_info.image_id = tex;
+                barrier_info.image = tex;
                 cr.pipeline_image_barrier(barrier_info);
             }
         }
@@ -303,16 +303,16 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
             auto const & compressed_data_ = (format_data.compression != Compression::UNDEFINED) ? compressed_data : *format_data.source;
             daxa::BufferId staging_buffer = context.device.create_buffer({
                 .size = compressed_data_.size(),
-                .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+                .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
                 .name = "staging buffer",
             });
             cr.destroy_buffer_deferred(staging_buffer);
             std::memcpy(context.device.buffer_host_address(staging_buffer).value(), compressed_data_.data(), compressed_data_.size());
 
             daxa::BufferImageCopyInfo buffer_copy_info = {
-                .buffer = staging_buffer,
+                .src_buffer = staging_buffer,
                 .buffer_offset = 0,
-                .image = format_data.textures->at(0),
+                .dst_image = format_data.textures->at(0),
                 .image_slice = {
                     .mip_level = 0,
                     .base_array_layer = 0,
@@ -350,7 +350,7 @@ void prepare_test_textures(u32vec3 const test_textures_dimensions, TextureConten
             // Transition images to general layout.
             for(auto const & tex : *format_data.textures)
             {
-                barrier_info.image_id = tex;
+                barrier_info.image = tex;
                 cr.pipeline_image_barrier(barrier_info);
             }
         }

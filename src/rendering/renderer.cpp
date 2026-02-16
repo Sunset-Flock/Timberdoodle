@@ -79,7 +79,7 @@ Renderer::Renderer(
     exposure_state = create_task_buffer(gpu_context, sizeof(AutoExposureState), "exposure state", "exposure_state");
     general_readback_buffer = gpu_context->device.create_buffer({
         .size = sizeof(ReadbackValues) * (MAX_GPU_FRAMES_IN_FLIGHT),
-        .allocate_info = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "general readback buffer",
     });
     visible_meshlet_instances = create_task_buffer(gpu_context, sizeof(u32) * (MAX_MESHLET_INSTANCES + 4), "visible_meshlet_instances", "visible_meshlet_instances");
@@ -231,9 +231,9 @@ Renderer::~Renderer()
     }
     for (auto const & [name, rt_pipe] : this->gpu_context->ray_tracing_pipelines)
     {
-        if (!rt_pipe.sbt_buffer_id.is_empty())
+        if (!rt_pipe.sbt_buffer.is_empty())
         {
-            this->gpu_context->device.destroy_buffer(rt_pipe.sbt_buffer_id);
+            this->gpu_context->device.destroy_buffer(rt_pipe.sbt_buffer);
         }
     }
     
@@ -404,7 +404,7 @@ void Renderer::compile_pipelines()
         this->gpu_context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
         auto sbt_info = gpu_context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
         this->gpu_context->ray_tracing_pipelines[info.name].sbt = sbt_info.table;
-        this->gpu_context->ray_tracing_pipelines[info.name].sbt_buffer_id = sbt_info.buffer;
+        this->gpu_context->ray_tracing_pipelines[info.name].sbt_buffer = sbt_info.buffer;
     }
 
     while (!gpu_context->pipeline_manager.all_pipelines_valid())
@@ -632,8 +632,8 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
                 {
                     ImGui::Render();
                     auto size = ti.info(swapchain_image.view()).value().size;
-                    imgui_renderer->record_commands(
-                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y);
+                    imgui_renderer->record_commands({
+                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
                 }));
 
     tg.submit({});
@@ -1085,7 +1085,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .gpu_context = gpu_context,
             .render_context = render_context.get(),
         });
-        tg.copy_image_to_image({.src = ao_image, .dst = rtao_history, .name = "save rtao history"});
+        tg.copy_image_to_image({.src_image = ao_image, .dst_image = rtao_history, .name = "save rtao history"});
     }
 
     // RTGI
@@ -1376,8 +1376,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 {
                     ImGui::Render();
                     auto size = ti.info(swapchain_image.view()).value().size;
-                    imgui_renderer->record_commands(
-                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y);
+                    imgui_renderer->record_commands({
+                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
                 }));
 
     tg.submit({});
@@ -1443,10 +1443,10 @@ auto Renderer::prepare_frame(
                 std::cout << "Successfully reloaded!\n";
                 for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
                 {
-                    this->gpu_context->device.destroy_buffer(pipe.sbt_buffer_id);
+                    this->gpu_context->device.destroy_buffer(pipe.sbt_buffer);
                     auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
                     this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
-                    this->gpu_context->ray_tracing_pipelines[name].sbt_buffer_id = sbt_info.buffer;
+                    this->gpu_context->ray_tracing_pipelines[name].sbt_buffer = sbt_info.buffer;
                 }
             }
         }
