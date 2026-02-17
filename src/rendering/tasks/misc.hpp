@@ -29,7 +29,7 @@ inline void allocate_fill_copy(daxa::TaskInterface ti, T value, daxa::TaskBuffer
     auto alloc = ti.allocator->allocate_fill(value).value();
     ti.recorder.copy_buffer_to_buffer({
         .src_buffer = ti.allocator->buffer(),
-        .dst_buffer = dst.ids[0],
+        .dst_buffer = dst.id,
         .src_offset = alloc.buffer_offset,
         .dst_offset = dst_offset,
         .size = sizeof(T),

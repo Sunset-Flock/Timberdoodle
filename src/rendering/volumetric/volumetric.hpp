@@ -26,8 +26,7 @@ inline void raymarch_volumetric_shadow_map_callback(daxa::TaskInterface ti, Rend
     auto gpu_time = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"CLOUDS", "VOLUME_SHADOW_MAP">());
 
     RaymarchCloudVolumetricShadowMapPush push = {};
-    auto const volume_size = render_context->gpu_context->device.image_info(
-        ti.get(RaymarchCloudVolumetricShadowMap::AT.cloud_volumetric_shadow_map).ids[0]).value().size;
+    auto const volume_size = ti.info(RaymarchCloudVolumetricShadowMap::AT.cloud_volumetric_shadow_map).value().size;
 
     push.volumetric_resolution = daxa_u32vec3(volume_size.x, volume_size.y, volume_size.z);
     push.attach = ti.allocator->allocate_fill(RaymarchCloudVolumetricShadowMap::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;

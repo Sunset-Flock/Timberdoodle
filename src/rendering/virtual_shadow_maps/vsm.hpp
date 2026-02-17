@@ -376,7 +376,7 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
         auto const memory_block_view = render_context->gpu_context->device.create_image_view({
             .type = daxa::ImageViewType::REGULAR_2D,
             .format = daxa::Format::R32_UINT,
-            .image = ti.get(AT.vsm_memory_block).ids[0],
+            .image = ti.id(AT.vsm_memory_block),
             .name = "vsm memory daxa integer view",
         });
 
@@ -401,38 +401,38 @@ struct CullAndDrawPointPagesTask : CullAndDrawPointPagesH::Task
             switch (mip)
             {
                 case 0:
-                    po2expansion = ti.get(AT.po2expansion_mip0).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip0).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip0);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip0);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip0).view_ids[0];
                     break;
                 case 1:
-                    po2expansion = ti.get(AT.po2expansion_mip1).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip1).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip1);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip1);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip1).view_ids[0];
                     break;
                 case 2:
-                    po2expansion = ti.get(AT.po2expansion_mip2).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip2).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip2);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip2);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip2).view_ids[0];
                     break;
                 case 3:
-                    po2expansion = ti.get(AT.po2expansion_mip3).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip3).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip3);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip3);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip3).view_ids[0];
                     break;
                 case 4:
-                    po2expansion = ti.get(AT.po2expansion_mip4).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip4).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip4);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip4);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip4).view_ids[0];
                     break;
                 case 5:
-                    po2expansion = ti.get(AT.po2expansion_mip5).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip5).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip5);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip5);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip5).view_ids[0];
                     break;
                 case 6:
-                    po2expansion = ti.get(AT.po2expansion_mip6).ids[0];
-                    masked_po2expansion = ti.get(AT.masked_po2expansion_mip6).ids[0];
+                    po2expansion = ti.id(AT.po2expansion_mip6);
+                    masked_po2expansion = ti.id(AT.masked_po2expansion_mip6);
                     hpb = ti.get(AT.vsm_dirty_bit_hiz_mip6).view_ids[0];
                     break;
             }

@@ -329,7 +329,7 @@ struct VSMState
 
                         ti.recorder.clear_image({
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .image = ti.get(point_spot_table_array_view).ids[0],
+                            .image = ti.id(point_spot_table_array_view),
                             .slice = ti.get(point_spot_table_array_view).view.slice,
                         });
                     }));
