@@ -7,7 +7,7 @@
 #include "shader_shared/vsm_shared.inl"
 #include "daxa_helper.hpp"
 
-template<typename T>
+template <typename T>
 struct CPUDebugDraws
 {
     u32 max_draws = {};
@@ -25,20 +25,20 @@ struct CPUDebugDraws
 
 struct ShaderDebugDrawContext
 {
-    CPUDebugDraws<ShaderDebugLineDraw> line_draws = { .max_draws = 1u << 16u, .vertices = 2 };
-    CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = { .max_draws = 1u << 16u, .vertices = 128 };
-    CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = { .max_draws = 1u << 16u, .vertices = 8 };
-    CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = { .max_draws = 1u << 16u, .vertices = 24 };
-    CPUDebugDraws<ShaderDebugBoxDraw> box_draws = { .max_draws = 1u << 14u, .vertices = 24 };
-    CPUDebugDraws<ShaderDebugConeDraw> cone_draws = { .max_draws = 1u << 14u, .vertices = 64 };
-    CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = { .max_draws = 1u << 14u, .vertices = (5*64) };
+    CPUDebugDraws<ShaderDebugLineDraw> line_draws = {.max_draws = 1u << 16u, .vertices = 2};
+    CPUDebugDraws<ShaderDebugCircleDraw> circle_draws = {.max_draws = 1u << 16u, .vertices = 128};
+    CPUDebugDraws<ShaderDebugRectangleDraw> rectangle_draws = {.max_draws = 1u << 16u, .vertices = 8};
+    CPUDebugDraws<ShaderDebugAABBDraw> aabb_draws = {.max_draws = 1u << 16u, .vertices = 24};
+    CPUDebugDraws<ShaderDebugBoxDraw> box_draws = {.max_draws = 1u << 14u, .vertices = 24};
+    CPUDebugDraws<ShaderDebugConeDraw> cone_draws = {.max_draws = 1u << 14u, .vertices = 64};
+    CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = {.max_draws = 1u << 14u, .vertices = (5 * 64)};
     daxa::BufferId buffer = {};
     ShaderDebugInput shader_debug_input = {};
     ShaderDebugOutput shader_debug_output = {};
     daxa_i32vec2 detector_window_position = {};
     i32 detector_window_size = 15;
     i32 old_detector_rt_size = 0;
-    
+
     daxa::TaskImage vsm_debug_meta_memory_table = {};
     daxa::TaskImage vsm_recreated_shadowmap_memory_table = {};
     daxa::TaskImage vsm_debug_page_table = {};
@@ -62,55 +62,43 @@ struct ShaderDebugDrawContext
         });
 
         vsm_debug_page_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    device.create_image({
-                        .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_SRC |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm debug page table physical image",
-                    }),
-                },
-            },
+            .image = device.create_image({
+                .format = daxa::Format::R8G8B8A8_UNORM,
+                .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_SRC |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm debug page table physical image",
+            }),
             .name = "vsm debug page table",
         });
 
         vsm_debug_meta_memory_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    device.create_image({
-                        .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_SRC |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm debug meta memory table physical image",
-                    }),
-                },
-            },
+            .image = device.create_image({
+                .format = daxa::Format::R8G8B8A8_UNORM,
+                .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_SRC |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm debug meta memory table physical image",
+            }),
             .name = "vsm debug meta memory table",
         });
 
         vsm_recreated_shadowmap_memory_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    device.create_image({
-                        .format = daxa::Format::R8G8B8A8_UNORM,
-                        .size = {VSM_DIRECTIONAL_TEXTURE_RESOLUTION, VSM_DIRECTIONAL_TEXTURE_RESOLUTION, 1},
-                        .usage = 
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm recreated shadowmap physical image",
-                    }),
-                },
-            },
+            .image = device.create_image({
+                .format = daxa::Format::R8G8B8A8_UNORM,
+                .size = {VSM_DIRECTIONAL_TEXTURE_RESOLUTION, VSM_DIRECTIONAL_TEXTURE_RESOLUTION, 1},
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm recreated shadowmap physical image",
+            }),
         });
 
         readback_queue = device.create_buffer({
@@ -120,19 +108,19 @@ struct ShaderDebugDrawContext
         });
     }
 
-    void update(daxa::Device & device, [[maybe_unused]]daxa_u32vec2 render_target_size, [[maybe_unused]]i32vec2 window_size, [[maybe_unused]]u32 renderer_frame_index)
+    void update(daxa::Device & device, [[maybe_unused]] daxa_u32vec2 render_target_size, [[maybe_unused]] i32vec2 window_size, [[maybe_unused]] u32 renderer_frame_index)
     {
         frame_index = renderer_frame_index;
 
         // Readback
         {
             u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
-            auto& readback_buffer_ref = device.buffer_host_address_as<ShaderDebugOutput>(readback_queue).value()[readback_index];
-            shader_debug_output = readback_buffer_ref;  // read back from previous frame
-            readback_buffer_ref = {};                   // clear for next frame
+            auto & readback_buffer_ref = device.buffer_host_address_as<ShaderDebugOutput>(readback_queue).value()[readback_index];
+            shader_debug_output = readback_buffer_ref; // read back from previous frame
+            readback_buffer_ref = {};                  // clear for next frame
         }
     }
-    
+
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
         u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
@@ -142,7 +130,7 @@ struct ShaderDebugDrawContext
             .gpu_output = device.device_address(readback_queue).value() + sizeof(ShaderDebugOutput) * readback_index,
         };
 
-        auto update_debug_draws = [&](auto& draws, auto& cpu_draws)
+        auto update_debug_draws = [&](auto & draws, auto & cpu_draws)
         {
             u32 const offset = buffer_mem_offset;
             buffer_mem_offset += cpu_draws.max_draws * sizeof(decltype(cpu_draws.cpu_draws[0]));
@@ -156,7 +144,7 @@ struct ShaderDebugDrawContext
             draws.draw_requests = std::min(static_cast<u32>(cpu_draws.cpu_draws.size()), cpu_draws.max_draws);
             draws.draws = device.device_address(buffer).value() + offset;
         };
-        
+
         update_debug_draws(head.line_draws, line_draws);
         update_debug_draws(head.circle_draws, circle_draws);
         update_debug_draws(head.rectangle_draws, rectangle_draws);
@@ -174,7 +162,8 @@ struct ShaderDebugDrawContext
             .size = sizeof(ShaderDebugBufferHead),
         });
 
-        auto upload_debug_draws = [&](auto& draws, auto& cpu_draws){
+        auto upload_debug_draws = [&](auto & draws, auto & cpu_draws)
+        {
             u32 const upload_size = sizeof(decltype(cpu_draws.cpu_draws[0])) * draws.draw_indirect.instance_count;
             if (upload_size > 0)
             {

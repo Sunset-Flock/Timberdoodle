@@ -1532,7 +1532,6 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
         .color_attachments = {
             daxa::RenderAttachmentInfo{
                 .image_view = ti.view(AT.color_image),
-                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
@@ -1541,7 +1540,6 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
         .depth_attachment =
             daxa::RenderAttachmentInfo{
                 .image_view = ti.view(AT.depth_image),
-                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = daxa::AttachmentLoadOp::LOAD,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::DepthValue{0.0f, 0},
@@ -1815,21 +1813,21 @@ void PGIState::initialize(daxa::Device& device)
 
 void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & settings)
 {
-    if (!this->probe_color.get_state().images.empty() && !this->probe_color.get_state().images[0].is_empty())
+    if (!this->probe_color.id().is_empty() && !this->probe_color.id().is_empty())
     {
-        device.destroy_image(this->probe_color.get_state().images[0]);
+        device.destroy_image(this->probe_color.id());
     }
-    if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
+    if (!this->probe_visibility.id().is_empty() && !this->probe_visibility.id().is_empty())
     {
-        device.destroy_image(this->probe_visibility.get_state().images[0]);
+        device.destroy_image(this->probe_visibility.id());
     }
-    if (!this->probe_info.get_state().images.empty() && !this->probe_info.get_state().images[0].is_empty())
+    if (!this->probe_info.id().is_empty() && !this->probe_info.id().is_empty())
     {
-        device.destroy_image(this->probe_info.get_state().images[0]);
+        device.destroy_image(this->probe_info.id());
     }
-    if (!this->cell_requests.get_state().images.empty() && !this->cell_requests.get_state().images[0].is_empty())
+    if (!this->cell_requests.id().is_empty() && !this->cell_requests.id().is_empty())
     {
-        device.destroy_image(this->cell_requests.get_state().images[0]);
+        device.destroy_image(this->cell_requests.id());
     }
 
     daxa::ImageId probe_color_image = device.create_image({
@@ -1893,20 +1891,20 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    this->probe_color = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ probe_color_image }},
+    this->probe_color = daxa::TaskImage({
+        .image = probe_color_image,
         .name = "pgi probe radiance",
     });
-    this->probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ probe_visibility_image }},
+    this->probe_visibility = daxa::TaskImage({
+        .image = probe_visibility_image,
         .name = "pgi probe visibility",
     });
-    this->probe_info = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ probe_info_image }},
+    this->probe_info = daxa::TaskImage({
+        .image =  probe_info_image,
         .name = "pgi probe info tex",
     });
-    this->cell_requests = daxa::TaskImage(daxa::TaskImageInfo{
-        .initial_images = daxa::TrackedImages{.images = std::array{ cell_requests_image }},
+    this->cell_requests = daxa::TaskImage({
+        .image =  cell_requests_image,
         .name = "pgi cell requests tex",
     });
 
@@ -1919,10 +1917,10 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .device = device,
         .name = "clear pgi resources",
     }};
-    tg.use_persistent_image(probe_color);
-    tg.use_persistent_image(probe_visibility);
-    tg.use_persistent_image(probe_info);
-    tg.use_persistent_image(cell_requests);
+    tg.register_image(probe_color);
+    tg.register_image(probe_visibility);
+    tg.register_image(probe_info);
+    tg.register_image(cell_requests);
     tg.clear_image({.view = probe_color_view, .name = "clear pgi radiance"});
     tg.clear_image({.view = probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = probe_info_view, .name = "clear pgi info"});
@@ -1938,24 +1936,24 @@ void PGIState::cleanup(daxa::Device& device)
     {
         device.destroy_buffer(this->debug_probe_mesh_buffer);
     }
-    if (!this->probe_color.get_state().images.empty() && !this->probe_color.get_state().images[0].is_empty())
+    if (!this->probe_color.id().is_empty() && !this->probe_color.id().is_empty())
     {
-        device.destroy_image(this->probe_color.get_state().images[0]);
+        device.destroy_image(this->probe_color.id());
         probe_color_view = daxa::NullTaskImage;
     }
-    if (!this->probe_visibility.get_state().images.empty() && !this->probe_visibility.get_state().images[0].is_empty())
+    if (!this->probe_visibility.id().is_empty() && !this->probe_visibility.id().is_empty())
     {
-        device.destroy_image(this->probe_visibility.get_state().images[0]);
+        device.destroy_image(this->probe_visibility.id());
         probe_visibility_view = daxa::NullTaskImage;
     }
-    if (!this->probe_info.get_state().images.empty() && !this->probe_info.get_state().images[0].is_empty())
+    if (!this->probe_info.id().is_empty() && !this->probe_info.id().is_empty())
     {
-        device.destroy_image(this->probe_info.get_state().images[0]);
+        device.destroy_image(this->probe_info.id());
         probe_info_view = daxa::NullTaskImage;
     }
-    if (!this->cell_requests.get_state().images.empty() && !this->cell_requests.get_state().images[0].is_empty())
+    if (!this->cell_requests.id().is_empty() && !this->cell_requests.id().is_empty())
     {
-        device.destroy_image(this->cell_requests.get_state().images[0]);
+        device.destroy_image(this->cell_requests.id());
         cell_requests_view = daxa::NullTaskImage;
     }
     *this = {};

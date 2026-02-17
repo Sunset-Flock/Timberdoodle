@@ -1,6 +1,5 @@
 #pragma once
 
-#define DAXA_REMOVE_DEPRECATED 0
 #include <daxa/daxa.hpp>
 #include <daxa/utils/task_graph.hpp>
 #include "../../gpu_context.hpp"

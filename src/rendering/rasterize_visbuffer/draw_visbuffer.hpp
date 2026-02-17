@@ -112,7 +112,6 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         render_pass_begin_info.depth_attachment =
             daxa::RenderAttachmentInfo{
                 .image_view = ti.id(AT.depth_image).default_view(),
-                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = daxa::DepthValue{0.0f, 0},
@@ -120,7 +119,6 @@ struct DrawVisbufferTask : DrawVisbufferH::Task
         render_pass_begin_info.color_attachments.push_back(
             daxa::RenderAttachmentInfo{
                 .image_view = ti.id(AT.vis_image).default_view(),
-                .layout = daxa::ImageLayout::GENERAL,
                 .load_op = load_op,
                 .store_op = daxa::AttachmentStoreOp::STORE,
                 .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},
@@ -182,7 +180,6 @@ static inline void cull_meshlets_draw_visbuffer_callback(
     render_pass_begin_info.depth_attachment =
         daxa::RenderAttachmentInfo{
             .image_view = ti.view(depth_image),
-            .layout = daxa::ImageLayout::GENERAL,
             .load_op = load_op,
             .store_op = daxa::AttachmentStoreOp::STORE,
             .clear_value = daxa::DepthValue{0.0f, 0},
@@ -190,7 +187,6 @@ static inline void cull_meshlets_draw_visbuffer_callback(
     render_pass_begin_info.color_attachments.push_back(
         daxa::RenderAttachmentInfo{
             .image_view = ti.view(vis_image),
-            .layout = daxa::ImageLayout::GENERAL,
             .load_op = load_op,
             .store_op = daxa::AttachmentStoreOp::STORE,
             .clear_value = std::array<u32, 4>{INVALID_TRIANGLE_ID, 0, 0, 0},

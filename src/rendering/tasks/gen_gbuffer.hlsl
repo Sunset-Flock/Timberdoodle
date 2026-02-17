@@ -135,9 +135,9 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         };
 
 #if 1
-        const float4 scaled_depths = (depths);
-        const float avg_scaled_depth = dot(scaled_depths, 1.0f) * 0.25f;
-        const float4 scaled_depth_differnces = abs(scaled_depths - avg_scaled_depth);
+        const float4 scaled_depths = square(depths);
+        const float avg_scaled_depth = sqrt(dot(scaled_depths, 1.0f) * 0.25f);
+        const float4 scaled_depth_differnces = abs(depths - avg_scaled_depth);
         int best_depth_index = 0;
         [unroll]
         for (uint i = 1; i < 4; ++i)

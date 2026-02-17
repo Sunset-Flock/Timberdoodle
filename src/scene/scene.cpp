@@ -45,9 +45,85 @@ Scene::~Scene()
     if (!_gpu_mesh_group_indices_array_buffer.is_empty()) { _device.destroy_buffer(_gpu_mesh_group_indices_array_buffer); }
     if (!_scene_blas.is_empty()) { _device.destroy_blas(_scene_blas); }
 
+    if (!_gpu_entity_meta.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_entity_meta.id());
+        _gpu_entity_meta = {};
+    }
+    if (!_gpu_entity_parents.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_entity_parents.id());
+        _gpu_entity_parents = {};
+    }
+    if (!_gpu_entity_transforms.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_entity_transforms.id());
+        _gpu_entity_transforms = {};
+    }
+    if (!_gpu_entity_combined_transforms.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_entity_combined_transforms.id());
+        _gpu_entity_combined_transforms = {};
+    }
+    if (!_gpu_entity_mesh_groups.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_entity_mesh_groups.id());
+        _gpu_entity_mesh_groups = {};
+    }
+    if (!_gpu_mesh_manifest.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_mesh_manifest.id());
+        _gpu_mesh_manifest = {};
+    }
+    if (!_gpu_mesh_lod_group_manifest.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_mesh_lod_group_manifest.id());
+        _gpu_mesh_lod_group_manifest = {};
+    }
+    if (!_gpu_mesh_group_manifest.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_mesh_group_manifest.id());
+        _gpu_mesh_group_manifest = {};
+    }
+    if (!_gpu_material_manifest.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_material_manifest.id());
+        _gpu_material_manifest = {};
+    }
+    if (!_gpu_point_lights.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_point_lights.id());
+        _gpu_point_lights = {};
+    }
+    if (!_gpu_spot_lights.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_spot_lights.id());
+        _gpu_spot_lights = {};
+    }
+    if (!_gpu_scratch_buffer.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_scratch_buffer.id());
+        _gpu_scratch_buffer = {};
+    }
+    if (!_gpu_mesh_acceleration_structure_build_scratch_buffer.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_mesh_acceleration_structure_build_scratch_buffer.id());
+        _gpu_mesh_acceleration_structure_build_scratch_buffer = {};
+    }
+    if (!_gpu_tlas_build_scratch_buffer.id().is_empty())
+    {
+        _device.destroy_buffer(_gpu_tlas_build_scratch_buffer.id());
+        _gpu_tlas_build_scratch_buffer = {};
+    }
+    if (!_scene_as_indirections.id().is_empty())
+    {
+        _device.destroy_buffer(_scene_as_indirections.id());
+        _scene_as_indirections = {};
+    }
+
     for (auto & mesh_group : _mesh_group_manifest)
     {
-        if(!mesh_group.blas.is_empty())
+        if (!mesh_group.blas.is_empty())
         {
             _device.destroy_blas(mesh_group.blas);
         }
@@ -80,11 +156,15 @@ Scene::~Scene()
         }
     }
 
-    for (auto & buffer : mesh_instances_buffer.get_state().buffers)
-        _device.destroy_buffer(buffer);
+    if (!mesh_instances_buffer.id().is_empty())
+    {
+        _device.destroy_buffer(mesh_instances_buffer.id());
+    }
 
-    for (auto & buffer : cloud_volume_instances_buffer.get_state().buffers)
-        _device.destroy_buffer(buffer);
+    if (!cloud_volume_instances_buffer.id().is_empty())
+    {
+        _device.destroy_buffer(cloud_volume_instances_buffer.id());
+    }
 }
 // TODO: Loading god function.
 struct LoadManifestFromFileContext
@@ -146,8 +226,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
 
     fastgltf::Parser parser{
         fastgltf::Extensions::KHR_texture_basisu |
-        fastgltf::Extensions::KHR_lights_punctual
-    };
+        fastgltf::Extensions::KHR_lights_punctual};
 
     constexpr auto gltf_options =
         fastgltf::Options::DontRequireValidAssetMember |
@@ -195,7 +274,7 @@ static auto get_load_manifest_data_from_gltf(Scene & scene, Scene::LoadManifestI
     return load_ctx;
 }
 
-static void update_texture_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_texture_manifest_from_gltf(Scene & scene, [[maybe_unused]] Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     auto gltf_texture_to_image_index = [&](u32 const texture_index) -> std::optional<u32>
     {
@@ -245,7 +324,7 @@ static void update_texture_manifest_from_gltf(Scene & scene, [[maybe_unused]]Sce
     }
 }
 
-static void update_material_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_material_manifest_from_gltf(Scene & scene, [[maybe_unused]] Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     for (u32 material_index = 0; material_index < s_cast<u32>(load_ctx.asset.materials.size()); material_index++)
     {
@@ -332,7 +411,7 @@ static void update_material_manifest_from_gltf(Scene & scene, [[maybe_unused]]Sc
     }
 }
 
-static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, [[maybe_unused]]Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
+static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, [[maybe_unused]] Scene::LoadManifestInfo const & info, LoadManifestFromFileContext & load_ctx)
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup
     // std::array<u32, MAX_MESHES_PER_MESHGROUP> mesh_manifest_indices;
@@ -378,12 +457,13 @@ static void update_meshgroup_and_mesh_manifest_from_gltf(Scene & scene, [[maybe_
 
 static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
 {
-    const f32 LUMENS_PER_WATT = 683.0f;
+    f32 const LUMENS_PER_WATT = 683.0f;
     // Defines the minimum energy of a light before cutoff.
     // TODO(msakmary) hook this up to UI?
-    const f32 E_min = 1.0f;
+    f32 const E_min = 1.0f;
 
-    auto handle_point_light = [&](fastgltf::Light const & light) {
+    auto handle_point_light = [&](fastgltf::Light const & light)
+    {
         DBG_ASSERT_TRUE_M(scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
 
         PointLight cpu_point_light = {};
@@ -392,12 +472,13 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
         // Converting candella to watt - blender (https://projects.blender.org/blender/blender-addons/issues/91035).
         cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
         // When the cutoff is not specified attempt to calculate one based on a minimum energy.
-        cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity/E_min));
-        cpu_point_light.point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.get_state().buffers[0]).value() + (scene._point_lights.size() * sizeof(GPUPointLight));
+        cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity / E_min));
+        cpu_point_light.point_light_ptr = scene._device.buffer_device_address(scene._gpu_point_lights.id()).value() + (scene._point_lights.size() * sizeof(GPUPointLight));
         scene._point_lights.push_back(cpu_point_light);
     };
 
-    auto handle_spot_light = [&](fastgltf::Light const & light) {
+    auto handle_spot_light = [&](fastgltf::Light const & light)
+    {
         DBG_ASSERT_TRUE_M(scene._spot_lights.size() < MAX_SPOT_LIGHTS, "Maximum spot light limit is currently hardcoded");
 
         SpotLight cpu_spot_light = {};
@@ -410,11 +491,11 @@ static u32 add_light_from_gltf(Scene & scene, fastgltf::Light const & light)
 
         DBG_ASSERT_TRUE_M(light.range.has_value(), "Currently no auto deduce of range from intensity for spot lights");
         cpu_spot_light.cutoff = light.range.value();
-        cpu_spot_light.spot_light_ptr = scene._device.buffer_device_address(scene._gpu_spot_lights.get_state().buffers[0]).value() + (scene._spot_lights.size() * sizeof(GPUSpotLight));
+        cpu_spot_light.spot_light_ptr = scene._device.buffer_device_address(scene._gpu_spot_lights.id()).value() + (scene._spot_lights.size() * sizeof(GPUSpotLight));
         scene._spot_lights.push_back(cpu_spot_light);
     };
 
-    switch(light.type) 
+    switch (light.type)
     {
         case fastgltf::LightType::Point:
         {
@@ -447,13 +528,13 @@ auto Scene::add_cloud_volume(std::string const & cloud_volume_data_path, std::st
     // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading and not thread safe at all).
     // In the future this should be rewritten but for now this will work fine.
     cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
+    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
 
     cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
+    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
 
     cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{ .name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
+    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
 
     u32 const cloud_volume_manifest_index = s_cast<u32>(_cloud_volumes.size());
     _cloud_volumes.push_back(cpu_cloud_volume);
@@ -494,7 +575,7 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
             else if (auto const * mat_trs = std::get_if<fastgltf::math::fmat4x4>(&trans))
             {
                 // Gltf and glm matrices are column major.
-                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const*>(mat_trs->data()));
+                ret_trans = glm::mat4x3(*reinterpret_cast<glm::mat4x4 const *>(mat_trs->data()));
             }
             return ret_trans;
         };
@@ -507,11 +588,13 @@ static auto update_entities_from_gltf(Scene & scene, Scene::LoadManifestInfo con
         r_ent.name = node.name.c_str();
 
         r_ent.light_index = std::optional<u32>(std::nullopt);
-        
+
         DBG_ASSERT_TRUE_M(
             s_cast<u32>(node.lightIndex.has_value()) +
-            s_cast<u32>(node.meshIndex.has_value()) +
-            s_cast<u32>(node.cameraIndex.has_value()) <= 1u, "Node can only be of one type");
+                    s_cast<u32>(node.meshIndex.has_value()) +
+                    s_cast<u32>(node.cameraIndex.has_value()) <=
+                1u,
+            "Node can only be of one type");
 
         if (node.lightIndex.has_value())
         {
@@ -606,7 +689,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
             chunk_count = 1;
         }
 
-        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
+        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
         {
             auto const ret_status = info.asset_processor->load_mesh(info.load_info);
             if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
@@ -622,7 +705,7 @@ static void start_async_loads_of_dirty_meshes(Scene & scene, Scene::LoadManifest
     {
         auto const mesh_lod_group_manifest_index = curr_asset.mesh_manifest_offset + new_lod_group;
         auto const & mesh_manifest_lod_group_entry = scene._mesh_lod_group_manifest.at(mesh_lod_group_manifest_index);
-        
+
         // Launch loading of this mesh
         auto task = std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
             .load_info = {
@@ -659,7 +742,7 @@ static void start_async_loads_of_dirty_textures(Scene & scene, Scene::LoadManife
             chunk_count = 1;
         }
 
-        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
+        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
         {
             auto const ret_status = info.asset_processor->load_texture(info.load_info);
             auto const texture_name = info.load_info.asset->images.at(info.load_info.gltf_image_index).name;
@@ -745,57 +828,56 @@ static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcess
             chunk_count = 1;
         }
 
-        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
+        virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override{
+            {AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
+                .volumetric_data_path = std::filesystem::path(info.volume -> cloud_volume_data_path),
+                .cloud_data_texture_manifest_index = info.volume->data_texture_manifest_index,
+                .cloud_sdf_texture_manifest_index = info.volume->sdf_texture_manifest_index,
+            };
+
+        auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
+        if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
         {
-            {
-                AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
-                    .volumetric_data_path = std::filesystem::path(info.volume->cloud_volume_data_path),
-                    .cloud_data_texture_manifest_index = info.volume->data_texture_manifest_index,
-                    .cloud_sdf_texture_manifest_index = info.volume->sdf_texture_manifest_index,
-                };
-
-                auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
-                if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
-                {
-                    DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
-                        info.volume->cloud_volume_data_path, AssetProcessor::to_string(ret_status)));
-                }
-                else
-                {
-                    DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->cloud_volume_data_path));
-                }
-            }
-            
-            {
-                AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
-                    .volumetric_data_path = std::filesystem::path(info.volume->detail_noise_path),
-                    .cloud_data_texture_manifest_index = info.volume->detail_noise_texture_manifest_index,
-                    .cloud_sdf_texture_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
-                };
-                auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
-                if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
-                {
-                    DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
-                        info.volume->detail_noise_path, AssetProcessor::to_string(ret_status)));
-                }
-                else
-                {
-                    DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->detail_noise_path));
-                }
-            }
-        };
-    };
-
-    for (u32 cloud_volume_manifest_index : scene._cloud_volumes_requesting_load)
-    {
-        // Launch loading of this cloud volume
-        auto task = std::make_shared<LoadCloudVolumeTask>(LoadCloudVolumeTask::TaskInfo{
-            .asset_processor = asset_processor,
-            .volume = &scene._cloud_volumes.at(cloud_volume_manifest_index),
-        });
-        thread_pool->async_dispatch(task, TaskPriority::LOW);
+            DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
+                info.volume->cloud_volume_data_path, AssetProcessor::to_string(ret_status)));
+        }
+        else
+        {
+            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->cloud_volume_data_path));
+        }
     }
-    scene._cloud_volumes_requesting_load.clear();
+
+    {
+        AssetProcessor::LoadCloudVolumetricDataInfo load_data_info = {
+            .volumetric_data_path = std::filesystem::path(info.volume->detail_noise_path),
+            .cloud_data_texture_manifest_index = info.volume->detail_noise_texture_manifest_index,
+            .cloud_sdf_texture_manifest_index = std::numeric_limits<u32>::max(), // Currently should be unused.
+        };
+        auto const ret_status = info.asset_processor->load_cloud_volumetric_data(load_data_info);
+        if (ret_status != AssetProcessor::AssetLoadResultCode::SUCCESS)
+        {
+            DEBUG_MSG(fmt::format("[ERROR] Failed to load cloud volume {} - error {}",
+                info.volume->detail_noise_path, AssetProcessor::to_string(ret_status)));
+        }
+        else
+        {
+            DEBUG_MSG(fmt::format("[SUCCESS] Successfuly loaded cloud volume {}", info.volume->detail_noise_path));
+        }
+    }
+};
+}
+;
+
+for (u32 cloud_volume_manifest_index : scene._cloud_volumes_requesting_load)
+{
+    // Launch loading of this cloud volume
+    auto task = std::make_shared<LoadCloudVolumeTask>(LoadCloudVolumeTask::TaskInfo{
+        .asset_processor = asset_processor,
+        .volume = &scene._cloud_volumes.at(cloud_volume_manifest_index),
+    });
+    thread_pool->async_dispatch(task, TaskPriority::LOW);
+}
+scene._cloud_volumes_requesting_load.clear();
 }
 
 static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::RecordGPUManifestUpdateInfo const & info, daxa::CommandRecorder & recorder);
@@ -826,7 +908,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         *r_cast<GPUEntityMetaData *>(host_ptr) = {.entity_count = s_cast<u32>(_render_entities.size())};
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
-            .dst_buffer = _gpu_entity_meta.get_state().buffers[0],
+            .dst_buffer = _gpu_entity_meta.id(),
             .src_offset = staging_offset,
             .size = sizeof(GPUEntityMetaData),
         });
@@ -877,21 +959,21 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         };
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
-            .dst_buffer = _gpu_entity_transforms.get_state().buffers[0],
+            .dst_buffer = _gpu_entity_transforms.id(),
             .src_offset = offset + offsetof(RenderEntityUpdateStagingMemoryView, transform),
             .dst_offset = sizeof(glm::mat4x3) * entity_index,
             .size = sizeof(glm::mat4x3),
         });
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
-            .dst_buffer = _gpu_entity_combined_transforms.get_state().buffers[0],
+            .dst_buffer = _gpu_entity_combined_transforms.id(),
             .src_offset = offset + offsetof(RenderEntityUpdateStagingMemoryView, combined_transform),
             .dst_offset = sizeof(glm::mat4x3) * entity_index,
             .size = sizeof(glm::mat4x3),
         });
         recorder.copy_buffer_to_buffer({
             .src_buffer = staging_buffer,
-            .dst_buffer = _gpu_entity_mesh_groups.get_state().buffers[0],
+            .dst_buffer = _gpu_entity_mesh_groups.id(),
             .src_offset = offset + offsetof(RenderEntityUpdateStagingMemoryView, mesh_group_manifest_index),
             .dst_offset = sizeof(u32) * entity_index,
             .size = sizeof(u32),
@@ -957,7 +1039,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
         }
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_group_staging_buffer,
-            .dst_buffer = _gpu_mesh_group_manifest.get_state().buffers[0],
+            .dst_buffer = _gpu_mesh_group_manifest.id(),
             .src_offset = 0,
             .dst_offset = mesh_group_manifest_offset * sizeof(GPUMeshGroup),
             .size = sizeof(GPUMeshGroup) * _new_mesh_group_manifest_entries,
@@ -981,7 +1063,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_lod_group_staging_buffer,
-            .dst_buffer = _gpu_mesh_lod_group_manifest.get_state().buffers[0],
+            .dst_buffer = _gpu_mesh_lod_group_manifest.id(),
             .src_offset = 0,
             .dst_offset = sizeof(GPUMeshLodGroup) * mesh_manifest_offset,
             .size = sizeof(GPUMeshLodGroup) * _new_mesh_lod_group_manifest_entries,
@@ -1005,7 +1087,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = mesh_staging_buffer,
-            .dst_buffer = _gpu_mesh_manifest.get_state().buffers[0],
+            .dst_buffer = _gpu_mesh_manifest.id(),
             .src_offset = 0,
             .dst_offset = sizeof(GPUMesh) * mesh_manifest_offset * MAX_MESHES_PER_LOD_GROUP,
             .size = sizeof(GPUMesh) * _new_mesh_lod_group_manifest_entries * MAX_MESHES_PER_LOD_GROUP,
@@ -1038,7 +1120,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
 
         recorder.copy_buffer_to_buffer({
             .src_buffer = material_staging_buffer,
-            .dst_buffer = _gpu_material_manifest.get_state().buffers[0],
+            .dst_buffer = _gpu_material_manifest.id(),
             .src_offset = 0,
             .dst_offset = material_manifest_offset * sizeof(GPUMaterial),
             .size = sizeof(GPUMaterial) * _new_material_manifest_entries,
@@ -1082,7 +1164,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
 
         recorder.destroy_buffer_deferred(staging_buffer);
         GPUMesh * mesh_staging_ptr = scene._device.buffer_host_address_as<GPUMesh>(staging_buffer).value();
-        GPUMeshLodGroup * mesh_lod_group_staging_ptr = reinterpret_cast<GPUMeshLodGroup*>(scene._device.buffer_host_address(staging_buffer).value() + meshes_staging_size);
+        GPUMeshLodGroup * mesh_lod_group_staging_ptr = reinterpret_cast<GPUMeshLodGroup *>(scene._device.buffer_host_address(staging_buffer).value() + meshes_staging_size);
         for (i32 upload_index = 0; upload_index < info.uploaded_meshes.size(); upload_index++)
         {
             auto const & upload = info.uploaded_meshes[upload_index];
@@ -1123,7 +1205,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
             std::memcpy(mesh_staging_ptr + upload_index * MAX_MESHES_PER_LOD_GROUP, &upload.lods, sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP);
             recorder.copy_buffer_to_buffer({
                 .src_buffer = staging_buffer,
-                .dst_buffer = scene._gpu_mesh_manifest.get_state().buffers[0],
+                .dst_buffer = scene._gpu_mesh_manifest.id(),
                 .src_offset = upload_index * sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
                 .dst_offset = upload.mesh_lod_manifest_index * sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
                 .size = sizeof(GPUMesh) * MAX_MESHES_PER_LOD_GROUP,
@@ -1133,7 +1215,7 @@ static void update_mesh_and_mesh_lod_group_manifest(Scene & scene, Scene::Record
             };
             recorder.copy_buffer_to_buffer({
                 .src_buffer = staging_buffer,
-                .dst_buffer = scene._gpu_mesh_lod_group_manifest.get_state().buffers[0],
+                .dst_buffer = scene._gpu_mesh_lod_group_manifest.id(),
                 .src_offset = upload_index * sizeof(GPUMeshLodGroup) + meshes_staging_size,
                 .dst_offset = upload.mesh_lod_manifest_index * sizeof(GPUMeshLodGroup),
                 .size = sizeof(GPUMeshLodGroup),
@@ -1149,7 +1231,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
         /// NOTE: We need to propagate each loaded texture image ID into the material manifest This will be done in two steps:
         //        1) We update the CPU manifest with the correct values and remember the materials that were updated
         //        2) For each dirty material we generate a copy buffer to buffer comand to update the GPU manifest
-        for(auto const dirty_material_index : scene.dirty_material_entry_indices) 
+        for (auto const dirty_material_index : scene.dirty_material_entry_indices)
         {
             scene._material_manifest.at(dirty_material_index).alpha_dirty = false;
         }
@@ -1271,7 +1353,7 @@ static void update_material_and_texture_manifest(Scene & scene, Scene::RecordGPU
             staging_origin_ptr[dirty_materials_index].double_sided_enabled = material.double_sided;
             staging_origin_ptr[dirty_materials_index].blend_enabled = material.blend_enabled;
 
-            daxa::BufferId gpu_material_manifest = scene._gpu_material_manifest.get_state().buffers[0];
+            daxa::BufferId gpu_material_manifest = scene._gpu_material_manifest.id();
             recorder.copy_buffer_to_buffer({
                 .src_buffer = materials_update_staging_buffer,
                 .dst_buffer = gpu_material_manifest,
@@ -1293,7 +1375,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
 
     u64 current_scratch_buffer_offset = 0;
-    auto const scratch_device_address = _device.buffer_device_address(_gpu_mesh_acceleration_structure_build_scratch_buffer.get_state().buffers[0]).value();
+    auto const scratch_device_address = _device.buffer_device_address(_gpu_mesh_acceleration_structure_build_scratch_buffer.id()).value();
     std::vector<daxa::BlasTriangleGeometryInfo> build_geometries = {};
     // Reserve is nessecary to avoid memory resising.
     // We store pointers to the vector memory elsewhere, IT MUST NOT REALLOCATE!
@@ -1322,7 +1404,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
             .count = static_cast<daxa_u32>(mesh.primitive_count),
             .flags = is_alpha_discard ? daxa::GeometryFlagBits::NONE : daxa::GeometryFlagBits::OPAQUE,
         });
-        auto& geometry = build_geometries.back();
+        auto & geometry = build_geometries.back();
         daxa::BlasBuildInfo blas_build_info = daxa::BlasBuildInfo{
             .flags = daxa::AccelerationStructureBuildFlagBits::PREFER_FAST_TRACE |
                      daxa::AccelerationStructureBuildFlagBits::ALLOW_DATA_ACCESS,
@@ -1336,7 +1418,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
         u64 aligned_scratch_size = round_up_to_multiple(s_cast<u32>(build_size_info.build_scratch_size), s_cast<u32>(scratch_buffer_offset_alignment));
         DBG_ASSERT_TRUE_M(aligned_scratch_size < _gpu_mesh_acceleration_structure_build_scratch_buffer_size,
             "[ERROR][Scene::create_and_record_build_as()] Mesh group too big for the scratch buffer - increase scratch buffer size");
- 
+
         bool const fits_scratch = (current_scratch_buffer_offset + aligned_scratch_size <= _gpu_mesh_acceleration_structure_build_scratch_buffer_size);
         if (!fits_scratch) { break; }
 
@@ -1377,15 +1459,15 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
     blas_instances.reserve(mesh_instances.mesh_instances.size());
     for (u32 mesh_inst_i = 0; mesh_inst_i < mesh_instances.mesh_instances.size(); ++mesh_inst_i)
     {
-        MeshInstance const& mesh_instance =  mesh_instances.mesh_instances[mesh_inst_i];
+        MeshInstance const & mesh_instance = mesh_instances.mesh_instances[mesh_inst_i];
         auto const lod = mesh_instance.mesh_index % MAX_MESHES_PER_LOD_GROUP;
         auto const lod_group = mesh_instance.mesh_index / MAX_MESHES_PER_LOD_GROUP;
 
         if (!_mesh_lod_group_manifest[lod_group].runtime.has_value()) { continue; }
         if (_mesh_lod_group_manifest[lod_group].runtime.value().blas_lods[lod].is_empty()) { continue; }
 
-        RenderEntity const* render_entity = _render_entities.slot_by_index(mesh_instance.entity_index);
-        auto const& t = render_entity->combined_transform;
+        RenderEntity const * render_entity = _render_entities.slot_by_index(mesh_instance.entity_index);
+        auto const & t = render_entity->combined_transform;
         blas_instances.push_back(daxa_BlasInstanceData{
             .transform = {
                 {t[0][0], t[1][0], t[2][0], t[3][0]},
@@ -1436,7 +1518,7 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
     DBG_ASSERT_TRUE_M(tlas_build_sizes.build_scratch_size < _gpu_tlas_build_scratch_buffer_size,
         "[ERROR][Scene::build_tlas_from_mesh_instances] Tlas too big for scratch buffer - create bigger scratch buffer");
 
-    daxa::DeviceAddress scratch_device_address = _device.buffer_device_address(_gpu_tlas_build_scratch_buffer.get_state().buffers[0]).value();
+    daxa::DeviceAddress scratch_device_address = _device.buffer_device_address(_gpu_tlas_build_scratch_buffer.id()).value();
     tlas_build_info.dst_tlas = tlas;
     tlas_build_info.scratch_data = scratch_device_address;
 
@@ -1451,15 +1533,15 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
 {
     CPUSceneInstances ret = {};
 
-    auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.get_state().buffers[0]).value();
-    auto * const gpu_spot_lights_write_ptr = _device.buffer_host_address_as<GPUSpotLight>(_gpu_spot_lights.get_state().buffers[0]).value();
+    auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.id()).value();
+    auto * const gpu_spot_lights_write_ptr = _device.buffer_host_address_as<GPUSpotLight>(_gpu_spot_lights.id()).value();
 
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
     {
         RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
         bool const is_entity_dirty = r_ent->dirty;
         r_ent->dirty = false;
-        
+
         if (r_ent != nullptr && r_ent->cloud_volume_index.has_value())
         {
             DBG_ASSERT_TRUE_M(r_ent->type == EntityType::CLOUD_VOLUME, "IMPOSSIBLE CASE! Only cloud volume entities can have cloud volume index");
@@ -1470,13 +1552,12 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
             cloud_volume_instance.albedo = 1.0f;
             cloud_volume_instance.density_scale = 0.1f;
 
-
             cloud_volume_instance.cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
             cloud_volume_instance.cloud_sdf_texture = _material_texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
             cloud_volume_instance.detail_noise_texture = _material_texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
 
             cloud_volume_instance.texture_size = {0u, 0u, 0u};
-            if(_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+            if (_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
             {
                 daxa::ImageId cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
                 daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
@@ -1486,9 +1567,10 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
             ret.cloud_volume_instances.cloud_volume_instances.push_back(cloud_volume_instance);
         }
 
-        if (r_ent != nullptr && r_ent->light_index.has_value()) 
+        if (r_ent != nullptr && r_ent->light_index.has_value())
         {
-            if (r_ent->type == EntityType::POINT_LIGHT) {
+            if (r_ent->type == EntityType::POINT_LIGHT)
+            {
                 PointLight & point_light = _point_lights.at(r_ent->light_index.value());
                 point_light.position = r_ent->combined_transform[3];
 
@@ -1499,7 +1581,8 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                     .cutoff = point_light.cutoff,
                 };
             }
-            else if (r_ent->type == EntityType::SPOT_LIGHT) {
+            else if (r_ent->type == EntityType::SPOT_LIGHT)
+            {
                 SpotLight & spot_light = _spot_lights.at(r_ent->light_index.value());
                 spot_light.transform = r_ent->combined_transform;
 
@@ -1514,7 +1597,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                     .transform = std::bit_cast<daxa_f32mat4x3>(spot_light.transform),
                     .position = std::bit_cast<daxa_f32vec3>(spot_light.transform[3]),
                     .direction = std::bit_cast<daxa_f32vec3>(spot_direction),
-                    .color =  std::bit_cast<daxa_f32vec3>(spot_light.color),
+                    .color = std::bit_cast<daxa_f32vec3>(spot_light.color),
                     .intensity = spot_light.intensity,
                     .cutoff = spot_light.cutoff,
                     .inner_cone_angle = spot_light.inner_cone_angle,
@@ -1552,13 +1635,13 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
 
                     // Put this mesh into appropriate drawlist for prepass
                     u32 const draw_list_type = is_alpha_discard ? PREPASS_DRAW_LIST_MASKED : PREPASS_DRAW_LIST_OPAQUE;
-                    
+
                     ret.mesh_instances.prepass_draw_lists[draw_list_type].push_back(static_cast<u32>(ret.mesh_instances.mesh_instances.size()));
 
                     // If the mesh loaded for the first time, it needs to invalidate VSM
                     // We also need to invalidate when the alpha texture just got streamed in
                     //   - this is because previously the shadows were drawn without alpha discard and so may be cached incorrectly
-                    if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty ) 
+                    if (is_mesh_group_just_loaded || is_alpha_dirty || is_entity_dirty)
                     {
                         ret.mesh_instances.vsm_invalidate_draw_list.push_back(static_cast<u32>(ret.mesh_instances.mesh_instances.size()));
                     }
@@ -1580,7 +1663,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
     return ret;
 }
 
-void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_instances)
+void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const & cpu_mesh_instances)
 {
     // Calculate offsets into buffer and required size:
     usize offset = {};
@@ -1602,19 +1685,17 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
 
     // TODO: Allocate this into a ring buffer.
     // Allocate buffer
-    if (!mesh_instances_buffer.get_state().buffers.empty())
+    if (!mesh_instances_buffer.id().is_empty())
     {
-        _device.destroy_buffer(mesh_instances_buffer.get_state().buffers[0]);
+        _device.destroy_buffer(mesh_instances_buffer.id());
     }
-    mesh_instances_buffer.set_buffers({
-        .buffers = std::array{_device.create_buffer({
-            .size = required_size,
-            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-            .name = "cpu_mesh_instances_buffer",
-        })},
-    });
-    daxa::DeviceAddress device_address = _device.buffer_device_address(mesh_instances_buffer.get_state().buffers[0]).value();
-    std::byte * host_address = _device.buffer_host_address(mesh_instances_buffer.get_state().buffers[0]).value();
+    mesh_instances_buffer.set_buffer(_device.create_buffer({
+        .size = required_size,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "cpu_mesh_instances_buffer",
+    }));
+    daxa::DeviceAddress device_address = _device.buffer_device_address(mesh_instances_buffer.id()).value();
+    std::byte * host_address = _device.buffer_host_address(mesh_instances_buffer.id()).value();
 
     // Write Buffer, add address on offsets and counts:
     cpu_mesh_instance_counts = {};
@@ -1643,7 +1724,7 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const& cpu_mesh_ins
     cpu_mesh_instance_counts.vsm_invalidate_instance_count = s_cast<u32>(cpu_mesh_instances.vsm_invalidate_draw_list.size());
 }
 
-void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cpu_cloud_volume_instances)
+void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const & cpu_cloud_volume_instances)
 {
     // Calculate offsets into buffer and required size:
     usize offset = {};
@@ -1657,19 +1738,17 @@ void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const
 
     // TODO: Allocate this into a ring buffer.
     // Allocate buffer
-    if (!cloud_volume_instances_buffer.get_state().buffers.empty())
+    if (!cloud_volume_instances_buffer.id().is_empty())
     {
-        _device.destroy_buffer(cloud_volume_instances_buffer.get_state().buffers[0]);
+        _device.destroy_buffer(cloud_volume_instances_buffer.id());
     }
-    cloud_volume_instances_buffer.set_buffers({
-        .buffers = std::array{_device.create_buffer({
-            .size = required_size,
-            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
-            .name = "cpu_cloud_volume_instances_buffer",
-        })},
-    });
-    daxa::DeviceAddress device_address = _device.buffer_device_address(cloud_volume_instances_buffer.get_state().buffers[0]).value();
-    std::byte * host_address = _device.buffer_host_address(cloud_volume_instances_buffer.get_state().buffers[0]).value();
+    cloud_volume_instances_buffer.set_buffer(_device.create_buffer({
+        .size = required_size,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "cpu_cloud_volume_instances_buffer",
+    }));
+    daxa::DeviceAddress device_address = _device.buffer_device_address(cloud_volume_instances_buffer.id()).value();
+    std::byte * host_address = _device.buffer_host_address(cloud_volume_instances_buffer.id()).value();
 
     // Write Buffer, add address on offsets and counts:
     usize const cloud_volume_instances_size = sizeof(CloudVolumeInstance) * cpu_cloud_volume_instances.cloud_volume_instances.size();
@@ -1694,7 +1773,7 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
 
         for (auto & mesh_group : _mesh_group_manifest)
         {
-            if(!mesh_group.blas.is_empty())
+            if (!mesh_group.blas.is_empty())
             {
                 _device.destroy_blas(mesh_group.blas);
             }
@@ -1727,9 +1806,11 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
             }
         }
 
-        for (auto & buffer : mesh_instances_buffer.get_state().buffers)
-            _device.destroy_buffer(buffer);
-        mesh_instances_buffer.set_buffers({});
+        if (!mesh_instances_buffer.id().is_empty())
+        {
+            _device.destroy_buffer(mesh_instances_buffer.id());
+        }
+        mesh_instances_buffer.set_buffer({});
     }
 
     // NOTE(grundlett): clear all state

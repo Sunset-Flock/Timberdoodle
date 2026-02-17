@@ -58,14 +58,10 @@ inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_bu
     }};
 
     return daxa::TaskBuffer{{
-        .initial_buffers = {
-            .buffers = std::array{
-                gpu_context->device.create_buffer({
-                    .size = static_cast<u32>(size),
-                    .name = buf_name,
-                }),
-            },
-        },
+        .buffer = gpu_context->device.create_buffer({
+            .size = static_cast<u32>(size),
+            .name = buf_name,
+        }),
         .name = task_buf_name,
     }};
 }
@@ -91,7 +87,7 @@ Renderer::Renderer(
         exposure_state,
     };
 
-    swapchain_image = daxa::TaskImage{{.swapchain_image = true, .name = "swapchain_image"}};
+    swapchain_image = daxa::TaskImage{{.is_swapchain_image = true, .name = "swapchain_image"}};
     transmittance = daxa::TaskImage{{.name = "transmittance"}};
     multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
     sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
@@ -212,17 +208,16 @@ Renderer::~Renderer()
 {
     for (auto & tbuffer : buffers)
     {
-        if (tbuffer.is_owning()) continue;
-        for (auto buffer : tbuffer.get_state().buffers)
+        if (!tbuffer.id().is_empty())
         {
-            this->gpu_context->device.destroy_buffer(buffer);
+            this->gpu_context->device.destroy_buffer(tbuffer.id());
         }
     }
     for (auto & timage : images)
     {
-        for (auto image : timage.get_state().images)
+        if (!timage.id().is_empty())
         {
-            this->gpu_context->device.destroy_image(image);
+            this->gpu_context->device.destroy_image(timage.id());
         }
     }
     if (!general_readback_buffer.is_empty())
@@ -236,30 +231,30 @@ Renderer::~Renderer()
             this->gpu_context->device.destroy_buffer(rt_pipe.sbt_buffer);
         }
     }
-    
-    if (!rtgi_depth_history.get_state().images.empty() && !rtgi_depth_history.get_state().images[0].is_empty())
+
+    if (!rtgi_depth_history.id().is_empty() && !rtgi_depth_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_depth_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_depth_history.id());
     }
-    if (!rtgi_samplecnt_history.get_state().images.empty() && !rtgi_samplecnt_history.get_state().images[0].is_empty())
+    if (!rtgi_samplecnt_history.id().is_empty() && !rtgi_samplecnt_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_samplecnt_history.id());
     }
-    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    if (!rtgi_diffuse_history.id().is_empty() && !rtgi_diffuse_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_diffuse_history.id());
     }
-    if (!rtgi_diffuse2_history.get_state().images.empty() && !rtgi_diffuse2_history.get_state().images[0].is_empty())
+    if (!rtgi_diffuse2_history.id().is_empty() && !rtgi_diffuse2_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_diffuse2_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_diffuse2_history.id());
     }
-    if (!rtgi_statistics_history.get_state().images.empty() && !rtgi_statistics_history.get_state().images[0].is_empty())
+    if (!rtgi_statistics_history.id().is_empty() && !rtgi_statistics_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_statistics_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_statistics_history.id());
     }
-    if (!rtgi_face_normal_history.get_state().images.empty() && !rtgi_face_normal_history.get_state().images[0].is_empty())
+    if (!rtgi_face_normal_history.id().is_empty() && !rtgi_face_normal_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_face_normal_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_face_normal_history.id());
     }
     if (!stbn2d.is_empty())
     {
@@ -421,96 +416,84 @@ void Renderer::compile_pipelines()
 
 void Renderer::recreate_sky_luts()
 {
-    if (!transmittance.get_state().images.empty() && !transmittance.get_state().images[0].is_empty())
+    if (!transmittance.id().is_empty() && !transmittance.id().is_empty())
     {
-        gpu_context->device.destroy_image(transmittance.get_state().images[0]);
+        gpu_context->device.destroy_image(transmittance.id());
     }
-    if (!multiscattering.get_state().images.empty() && !multiscattering.get_state().images[0].is_empty())
+    if (!multiscattering.id().is_empty() && !multiscattering.id().is_empty())
     {
-        gpu_context->device.destroy_image(multiscattering.get_state().images[0]);
+        gpu_context->device.destroy_image(multiscattering.id());
     }
-    if (!sky_ibl_cube.get_state().images.empty() && !sky_ibl_cube.get_state().images[0].is_empty())
+    if (!sky_ibl_cube.id().is_empty() && !sky_ibl_cube.id().is_empty())
     {
-        gpu_context->device.destroy_image(sky_ibl_cube.get_state().images[0]);
+        gpu_context->device.destroy_image(sky_ibl_cube.id());
     }
-    transmittance.set_images({
-        .images = std::array{
-            gpu_context->device.create_image({
-                .format = daxa::Format::R16G16B16A16_SFLOAT,
-                .size = {render_context->render_data.sky_settings.transmittance_dimensions.x, render_context->render_data.sky_settings.transmittance_dimensions.y, 1},
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                .name = "transmittance look up table",
-            }),
-        },
-    });
+    transmittance.set_image(gpu_context->device.create_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {render_context->render_data.sky_settings.transmittance_dimensions.x, render_context->render_data.sky_settings.transmittance_dimensions.y, 1},
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "transmittance look up table",
+    }));
 
-    multiscattering.set_images({
-        .images = std::array{
-            gpu_context->device.create_image({
-                .format = daxa::Format::R16G16B16A16_SFLOAT,
-                .size = {render_context->render_data.sky_settings.multiscattering_dimensions.x, render_context->render_data.sky_settings.multiscattering_dimensions.y, 1},
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                .name = "multiscattering look up table",
-            }),
-        },
-    });
+    multiscattering.set_image(gpu_context->device.create_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {render_context->render_data.sky_settings.multiscattering_dimensions.x, render_context->render_data.sky_settings.multiscattering_dimensions.y, 1},
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "multiscattering look up table",
+    }));
 
-    sky_ibl_cube.set_images({
-        .images = std::array{
-            gpu_context->device.create_image({
-                .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
-                .format = daxa::Format::R16G16B16A16_SFLOAT,
-                .size = {IBL_CUBE_RES, IBL_CUBE_RES, 1},
-                .array_layer_count = 6,
-                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                .name = "ibl cube",
-            }),
-        },
-    });
+    sky_ibl_cube.set_image(gpu_context->device.create_image({
+        .flags = daxa::ImageCreateFlagBits::COMPATIBLE_CUBE,
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = {IBL_CUBE_RES, IBL_CUBE_RES, 1},
+        .array_layer_count = 6,
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .name = "ibl cube",
+    }));
 }
 
 void Renderer::recreate_framebuffer()
 {
     for (auto & [info, timg] : frame_buffer_images)
     {
-        if (!timg.get_state().images.empty() && !timg.get_state().images[0].is_empty())
+        if (!timg.id().is_empty() && !timg.id().is_empty())
         {
-            gpu_context->device.destroy_image(timg.get_state().images[0]);
+            gpu_context->device.destroy_image(timg.id());
         }
         auto new_info = info;
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
-        timg.set_images({.images = std::array{this->gpu_context->device.create_image(new_info)}});
+        timg.set_image(this->gpu_context->device.create_image(new_info));
     }
-    if (!rtgi_depth_history.get_state().images.empty() && !rtgi_depth_history.get_state().images[0].is_empty())
+    if (!rtgi_depth_history.id().is_empty() && !rtgi_depth_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_depth_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_depth_history.id());
     }
-    rtgi_depth_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_depth_history_image_info(render_context.get()))}});
-    if (!rtgi_samplecnt_history.get_state().images.empty() && !rtgi_samplecnt_history.get_state().images[0].is_empty())
+    rtgi_depth_history.set_image(this->gpu_context->device.create_image(rtgi_create_depth_history_image_info(render_context.get())));
+    if (!rtgi_samplecnt_history.id().is_empty() && !rtgi_samplecnt_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_samplecnt_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_samplecnt_history.id());
     }
-    rtgi_samplecnt_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_samplecnt_history_image_info(render_context.get()))}});
-    if (!rtgi_diffuse_history.get_state().images.empty() && !rtgi_diffuse_history.get_state().images[0].is_empty())
+    rtgi_samplecnt_history.set_image(this->gpu_context->device.create_image(rtgi_create_samplecnt_history_image_info(render_context.get())));
+    if (!rtgi_diffuse_history.id().is_empty() && !rtgi_diffuse_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_diffuse_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_diffuse_history.id());
     }
-    rtgi_diffuse_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_diffuse_history_image_info(render_context.get()))}});
-    if (!rtgi_diffuse2_history.get_state().images.empty() && !rtgi_diffuse2_history.get_state().images[0].is_empty())
+    rtgi_diffuse_history.set_image(this->gpu_context->device.create_image(rtgi_create_diffuse_history_image_info(render_context.get())));
+    if (!rtgi_diffuse2_history.id().is_empty() && !rtgi_diffuse2_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_diffuse2_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_diffuse2_history.id());
     }
-    rtgi_diffuse2_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_diffuse2_history_image_info(render_context.get()))}});
-    if (!rtgi_statistics_history.get_state().images.empty() && !rtgi_statistics_history.get_state().images[0].is_empty())
+    rtgi_diffuse2_history.set_image(this->gpu_context->device.create_image(rtgi_create_diffuse2_history_image_info(render_context.get())));
+    if (!rtgi_statistics_history.id().is_empty() && !rtgi_statistics_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_statistics_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_statistics_history.id());
     }
-    rtgi_statistics_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_statistics_history_image_info(render_context.get()))}});
-    if (!rtgi_face_normal_history.get_state().images.empty() && !rtgi_face_normal_history.get_state().images[0].is_empty())
+    rtgi_statistics_history.set_image(this->gpu_context->device.create_image(rtgi_create_statistics_history_image_info(render_context.get())));
+    if (!rtgi_face_normal_history.id().is_empty() && !rtgi_face_normal_history.id().is_empty())
     {
-        gpu_context->device.destroy_image(rtgi_face_normal_history.get_state().images[0]);
+        gpu_context->device.destroy_image(rtgi_face_normal_history.id());
     }
-    rtgi_face_normal_history.set_images({.images = std::array{this->gpu_context->device.create_image(rtgi_create_face_normal_history_image_info(render_context.get()))}});
+    rtgi_face_normal_history.set_image(this->gpu_context->device.create_image(rtgi_create_face_normal_history_image_info(render_context.get())));
 }
 
 void Renderer::clear_select_buffers()
@@ -521,7 +504,7 @@ void Renderer::clear_select_buffers()
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .name = "clear task list",
     }};
-    tg.use_persistent_buffer(meshlet_instances);
+    tg.register_buffer(meshlet_instances);
     tg.add_task(daxa::InlineTask::Transfer("clear meshlet instance buffers")
             .writes(meshlet_instances)
             .executes([=](daxa::TaskInterface ti)
@@ -529,23 +512,23 @@ void Renderer::clear_select_buffers()
                     auto mesh_instances_address = ti.device_address(meshlet_instances.view()).value();
                     MeshletInstancesBufferHead mesh_instances_reset = make_meshlet_instance_buffer_head(mesh_instances_address);
                     allocate_fill_copy(ti, mesh_instances_reset, ti.get(meshlet_instances)); }));
-    tg.use_persistent_image(rtao_history);
+    tg.register_image(rtao_history);
     tg.clear_image({rtao_history.view(), {}, daxa::QUEUE_MAIN, "clear rtao history"});
-    tg.use_persistent_buffer(visible_meshlet_instances);
+    tg.register_buffer(visible_meshlet_instances);
     tg.clear_buffer({.buffer = visible_meshlet_instances, .size = sizeof(u32), .clear_value = 0});
-    
+
     // RTGI
     {
-        tg.use_persistent_image(rtgi_depth_history);
-        tg.use_persistent_image(rtgi_face_normal_history);
-        tg.use_persistent_image(rtgi_samplecnt_history);
+        tg.register_image(rtgi_depth_history);
+        tg.register_image(rtgi_face_normal_history);
+        tg.register_image(rtgi_samplecnt_history);
         tg.clear_image({rtgi_depth_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_depth_history"});
         tg.clear_image({rtgi_face_normal_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_face_normal_history"});
         tg.clear_image({rtgi_samplecnt_history.view(), {}, daxa::QUEUE_MAIN, "clear rtgi_samplecnt_history"});
     }
-    // tg.use_persistent_buffer(exposure_state);
+    // tg.register_buffer(exposure_state);
     // tg.clear_buffer({.buffer = exposure_state, .size = sizeof(ExposureState), .clear_value = 0});
-    tg.use_persistent_image(path_trace_history);
+    tg.register_image(path_trace_history);
     tg.clear_image({.view = path_trace_history, .name = "clear pt history"});
     tg.submit({});
     tg.complete({});
@@ -571,9 +554,9 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
     }};
     // TODO:    Do not use globals here, make a new buffer.
     //          Globals should only be used within the main task graph.
-    tg.use_persistent_buffer(render_context->tgpu_render_data);
-    tg.use_persistent_image(transmittance);
-    tg.use_persistent_image(multiscattering);
+    tg.register_buffer(render_context->tgpu_render_data);
+    tg.register_image(transmittance);
+    tg.register_image(multiscattering);
 
     tg.add_task(daxa::InlineTask::Transfer("update sky settings globals")
             .writes(render_context->tgpu_render_data)
@@ -621,7 +604,7 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .name = "Timberdoodle main TaskGraph",
     }};
-    tg.use_persistent_image(swapchain_image);
+    tg.register_image(swapchain_image);
     tg.clear_image({.view = swapchain_image.view()});
     tg.submit({});
 
@@ -632,8 +615,7 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
                 {
                     ImGui::Render();
                     auto size = ti.info(swapchain_image.view()).value().size;
-                    imgui_renderer->record_commands({
-                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
+                    imgui_renderer->record_commands({ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
                 }));
 
     tg.submit({});
@@ -657,44 +639,44 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .name = "Timberdoodle main TaskGraph",
     }};
-    tg.use_persistent_image(swapchain_image);
+    tg.register_image(swapchain_image);
     for (auto const & tbuffer : buffers)
     {
-        tg.use_persistent_buffer(tbuffer);
+        tg.register_buffer(tbuffer);
     }
     for (auto const & timage : images)
     {
-        tg.use_persistent_image(timage);
+        tg.register_image(timage);
     }
-    tg.use_persistent_buffer(scene->_gpu_entity_meta);
-    tg.use_persistent_buffer(scene->_gpu_entity_transforms);
-    tg.use_persistent_buffer(scene->_gpu_entity_combined_transforms);
-    tg.use_persistent_buffer(scene->_gpu_entity_parents);
-    tg.use_persistent_buffer(scene->_gpu_entity_mesh_groups);
-    tg.use_persistent_buffer(scene->_gpu_mesh_manifest);
-    tg.use_persistent_buffer(scene->_gpu_mesh_group_manifest);
-    tg.use_persistent_buffer(scene->_gpu_material_manifest);
-    tg.use_persistent_buffer(scene->_scene_as_indirections);
-    tg.use_persistent_buffer(scene->mesh_instances_buffer);
-    tg.use_persistent_buffer(scene->cloud_volume_instances_buffer);
-    tg.use_persistent_buffer(scene->_gpu_point_lights);
-    tg.use_persistent_buffer(scene->_gpu_spot_lights);
-    tg.use_persistent_buffer(render_context->tgpu_render_data);
-    tg.use_persistent_buffer(vsm_state.globals);
-    tg.use_persistent_image(vsm_state.memory_block);
-    tg.use_persistent_image(vsm_state.meta_memory_table);
-    tg.use_persistent_image(vsm_state.page_table);
-    tg.use_persistent_image(vsm_state.page_view_pos_row);
-    tg.use_persistent_image(vsm_state.point_spot_page_tables);
-    tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_page_table);
-    tg.use_persistent_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
-    tg.use_persistent_image(gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table);
+    tg.register_buffer(scene->_gpu_entity_meta);
+    tg.register_buffer(scene->_gpu_entity_transforms);
+    tg.register_buffer(scene->_gpu_entity_combined_transforms);
+    tg.register_buffer(scene->_gpu_entity_parents);
+    tg.register_buffer(scene->_gpu_entity_mesh_groups);
+    tg.register_buffer(scene->_gpu_mesh_manifest);
+    tg.register_buffer(scene->_gpu_mesh_group_manifest);
+    tg.register_buffer(scene->_gpu_material_manifest);
+    tg.register_buffer(scene->_scene_as_indirections);
+    tg.register_buffer(scene->mesh_instances_buffer);
+    tg.register_buffer(scene->cloud_volume_instances_buffer);
+    tg.register_buffer(scene->_gpu_point_lights);
+    tg.register_buffer(scene->_gpu_spot_lights);
+    tg.register_buffer(render_context->tgpu_render_data);
+    tg.register_buffer(vsm_state.globals);
+    tg.register_image(vsm_state.memory_block);
+    tg.register_image(vsm_state.meta_memory_table);
+    tg.register_image(vsm_state.page_table);
+    tg.register_image(vsm_state.page_view_pos_row);
+    tg.register_image(vsm_state.point_spot_page_tables);
+    tg.register_image(gpu_context->shader_debug_context.vsm_debug_page_table);
+    tg.register_image(gpu_context->shader_debug_context.vsm_debug_meta_memory_table);
+    tg.register_image(gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table);
 
     // TODO: Move into an if and create persistent state only if necessary.
-    tg.use_persistent_image(pgi_state.probe_color);
-    tg.use_persistent_image(pgi_state.probe_visibility);
-    tg.use_persistent_image(pgi_state.probe_info);
-    tg.use_persistent_image(pgi_state.cell_requests);
+    tg.register_image(pgi_state.probe_color);
+    tg.register_image(pgi_state.probe_visibility);
+    tg.register_image(pgi_state.probe_info);
+    tg.register_image(pgi_state.cell_requests);
 
     daxa::TaskImageView clocks_image = daxa::NullTaskImage;
 
@@ -759,24 +741,24 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskImageView sky_ibl_view = sky_ibl_cube.view().layers(0, 6);
     tg.add_task(daxa::HeadTask<ComputeSkyH::Info>()
-        .head_views({
-            .globals = render_context->tgpu_render_data.view(),
-            .transmittance = transmittance.view(),
-            .multiscattering = multiscattering.view(),
-            .sky = sky,
-        })
-        .uses_queue(misc_tasks_queue)
-        .executes(compute_sky_task, render_context.get()));
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .transmittance = transmittance.view(),
+                .multiscattering = multiscattering.view(),
+                .sky = sky,
+            })
+            .uses_queue(misc_tasks_queue)
+            .executes(compute_sky_task, render_context.get()));
 
     tg.add_task(daxa::HeadTask<SkyIntoCubemapH::Info>()
-                .head_views({
-                    .globals = render_context->tgpu_render_data.view(),
-                    .transmittance = transmittance.view(),
-                    .sky = sky,
-                    .ibl_cube = sky_ibl_view,
-                })
-                .uses_queue(misc_tasks_queue)
-                .executes(sky_into_cubemap_task, gpu_context));
+            .head_views({
+                .globals = render_context->tgpu_render_data.view(),
+                .transmittance = transmittance.view(),
+                .sky = sky,
+                .ibl_cube = sky_ibl_view,
+            })
+            .uses_queue(misc_tasks_queue)
+            .executes(sky_into_cubemap_task, gpu_context));
 
     daxa::TaskImageView light_mask_volume = create_light_mask_volume(tg, *render_context);
     tg.add_task(daxa::HeadTask<CullLightsH::Info>()
@@ -822,15 +804,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     daxa::TaskImageView view_camera_face_normal_image = main_camera_face_normal_image;
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
-    
+
     daxa::TaskImageView main_camera_half_res_face_normal_image = tg.create_transient_image({
         .format = GBUFFER_NORMAL_FORMAT,
-        .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+        .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
         .name = "main_camera_half_res_face_normal_image",
     });
     daxa::TaskImageView main_camera_half_res_depth_image = tg.create_transient_image({
         .format = daxa::Format::R32_SFLOAT,
-        .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+        .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
         .name = "main_camera_half_res_depth_image",
     });
     daxa::TaskImageView view_camera_half_res_face_normal_image = main_camera_half_res_face_normal_image;
@@ -870,12 +852,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
         view_camera_half_res_face_normal_image = tg.create_transient_image({
             .format = GBUFFER_NORMAL_FORMAT,
-            .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+            .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
             .name = "view_camera_half_res_face_normal_image",
         });
         view_camera_half_res_depth_image = tg.create_transient_image({
             .format = daxa::Format::R32_SFLOAT,
-            .size = {render_context->render_data.settings.render_target_size.x/2, render_context->render_data.settings.render_target_size.y/2, 1},
+            .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
             .name = "view_camera_half_res_depth_image",
         });
         tg.add_task(GenGbufferTask{
@@ -929,24 +911,24 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         //     .executes(raymarch_volumetric_shadow_map_callback, render_context.get()));
 
         auto raymarch_views = RaymarchCloudsH::Info::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .cloud_volumes = scene->cloud_volume_instances_buffer.view(),
-                .cloud_volumetric_shadow_map = daxa::NullTaskImage,
-                .transmittance = transmittance.view(),
-                .depth = view_camera_depth,
-                .sky_ibl = sky_ibl_view,
-                .clouds_raymarched_result = clouds_raymarch_result,
+            .globals = render_context->tgpu_render_data.view(),
+            .cloud_volumes = scene->cloud_volume_instances_buffer.view(),
+            .cloud_volumetric_shadow_map = daxa::NullTaskImage,
+            .transmittance = transmittance.view(),
+            .depth = view_camera_depth,
+            .sky_ibl = sky_ibl_view,
+            .clouds_raymarched_result = clouds_raymarch_result,
         };
         tg.add_task(daxa::HeadTask<RaymarchCloudsH::Info>()
-            .head_views(raymarch_views)
-            .executes(raymarch_clouds_callback, render_context.get(), false));
+                .head_views(raymarch_views)
+                .executes(raymarch_clouds_callback, render_context.get(), false));
 
         // DEBUG RAYMARCH -- (1, 1, 1) dispatch outputing debug info
         // - Currently draws the debug ray
         tg.add_task(daxa::HeadTask<RaymarchCloudsH::Info>()
-            .head_views(raymarch_views)
-            .head_views({.depth = main_camera_depth})
-            .executes(raymarch_clouds_callback, render_context.get(), true));
+                .head_views(raymarch_views)
+                .head_views({.depth = main_camera_depth})
+                .executes(raymarch_clouds_callback, render_context.get(), true));
     }
 
     if (render_context->render_data.vsm_settings.enable)
@@ -971,7 +953,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     {
         vsm_state.zero_out_transient_state();
     }
-
 
     auto const vsm_page_table_view = vsm_state.page_table.view().layers(0, VSM_CLIP_LEVELS);
     auto const vsm_page_heigh_offsets_view = vsm_state.page_view_pos_row.view().layers(0, VSM_CLIP_LEVELS);
@@ -1093,12 +1074,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView rtgi_debug_primary_trace = daxa::NullTaskImage;
     if (render_context->render_data.rtgi_settings.enabled)
     {
-        tg.use_persistent_image(rtgi_depth_history);
-        tg.use_persistent_image(rtgi_samplecnt_history);
-        tg.use_persistent_image(rtgi_face_normal_history);
-        tg.use_persistent_image(rtgi_diffuse_history);
-        tg.use_persistent_image(rtgi_diffuse2_history);
-        tg.use_persistent_image(rtgi_statistics_history);
+        tg.register_image(rtgi_depth_history);
+        tg.register_image(rtgi_samplecnt_history);
+        tg.register_image(rtgi_face_normal_history);
+        tg.register_image(rtgi_diffuse_history);
+        tg.register_image(rtgi_diffuse2_history);
+        tg.register_image(rtgi_statistics_history);
 
         TasksRtgiInfo info = {
             .tg = tg,
@@ -1122,7 +1103,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.pgi_info = pgi_info;
         info.pgi_requests = pgi_requests;
         info.tlas = scene_main_tlas;
-        info.vsm_globals =  vsm_state.globals.view();
+        info.vsm_globals = vsm_state.globals.view();
         info.vsm_point_lights = vsm_state.vsm_point_lights;
         info.vsm_spot_lights = vsm_state.vsm_spot_lights;
         info.vsm_memory_block = vsm_state.memory_block.view();
@@ -1231,7 +1212,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .render_context = render_context.get(),
         });
 
-        if(render_context->render_data.vsm_settings.enable)
+        if (render_context->render_data.vsm_settings.enable)
         {
             tg.clear_image({render_context->gpu_context->shader_debug_context.vsm_debug_page_table, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
             tg.add_task(DebugVirtualPageTableTask{
@@ -1274,15 +1255,15 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.volumetric_settings.enable)
     {
         tg.add_task(daxa::HeadTask<ComposeCloudsH::Info>()
-            .head_views(ComposeCloudsH::Info::Views{
-                .globals = render_context->tgpu_render_data.view(),
-                .exposure = exposure_state.view(),
-                .debug_image = debug_image,
-                .clouds_raymarched_result = clouds_raymarch_result,
-                .view_cam_depth = view_camera_depth,
-                .color_image = color_image,
-            })
-            .executes(compose_clouds_callback, render_context.get()));
+                .head_views(ComposeCloudsH::Info::Views{
+                    .globals = render_context->tgpu_render_data.view(),
+                    .exposure = exposure_state.view(),
+                    .debug_image = debug_image,
+                    .clouds_raymarched_result = clouds_raymarch_result,
+                    .view_cam_depth = view_camera_depth,
+                    .color_image = color_image,
+                })
+                .executes(compose_clouds_callback, render_context.get()));
     }
 
     tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
@@ -1356,8 +1337,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .gpu_context = gpu_context,
     });
-    
-    #if 0
+
+#if 0
     tg.add_task(daxa::HeadTask<WriteSwapchainDebugH::Info>()
         .head_views({
             .globals = render_context->tgpu_render_data.view(),
@@ -1366,8 +1347,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .swapchain = swapchain_image.view(),
         })
         .executes(write_swapchain_debug_callback, render_context.get()));
-    #endif
-
+#endif
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
             .color_attachment.reads_writes(swapchain_image)
@@ -1376,8 +1356,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 {
                     ImGui::Render();
                     auto size = ti.info(swapchain_image.view()).value().size;
-                    imgui_renderer->record_commands({
-                        ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
+                    imgui_renderer->record_commands({ImGui::GetDrawData(), ti.recorder, ti.id(swapchain_image.view()), size.x, size.y});
                 }));
 
     tg.submit({});
@@ -1492,8 +1471,8 @@ auto Renderer::prepare_frame(
 
     bool const settings_changed = render_context->render_data.settings != render_context->prev_settings;
     bool const ao_settings_changed = render_context->render_data.ao_settings.mode != render_context->prev_ao_settings.mode;
-    bool const rtgi_settings_changed = 
-        render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled || 
+    bool const rtgi_settings_changed =
+        render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled ||
         render_context->render_data.rtgi_settings.pre_blur_enabled != render_context->prev_rtgi_settings.pre_blur_enabled ||
         render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
@@ -1524,7 +1503,7 @@ auto Renderer::prepare_frame(
         // std::cout << "tg compile took " << duration << "us" << std::endl;
     }
     daxa::DeviceAddress render_data_device_address =
-        gpu_context->device.buffer_device_address(render_context->tgpu_render_data.get_state().buffers[0]).value();
+        gpu_context->device.buffer_device_address(render_context->tgpu_render_data.id()).value();
 
     // Do General Readback
     {
@@ -1568,16 +1547,16 @@ auto Renderer::prepare_frame(
     // Write GPUScene
     {
         auto & device = render_context->gpu_context->device;
-        render_context->render_data.scene.meshes = device.device_address(scene->_gpu_mesh_manifest.get_state().buffers[0]).value();
-        render_context->render_data.scene.mesh_lod_groups = device.device_address(scene->_gpu_mesh_lod_group_manifest.get_state().buffers[0]).value();
-        render_context->render_data.scene.mesh_groups = device.device_address(scene->_gpu_mesh_group_manifest.get_state().buffers[0]).value();
-        render_context->render_data.scene.entity_to_meshgroup = device.device_address(scene->_gpu_entity_mesh_groups.get_state().buffers[0]).value();
-        render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.get_state().buffers[0]).value();
+        render_context->render_data.scene.meshes = device.device_address(scene->_gpu_mesh_manifest.id()).value();
+        render_context->render_data.scene.mesh_lod_groups = device.device_address(scene->_gpu_mesh_lod_group_manifest.id()).value();
+        render_context->render_data.scene.mesh_groups = device.device_address(scene->_gpu_mesh_group_manifest.id()).value();
+        render_context->render_data.scene.entity_to_meshgroup = device.device_address(scene->_gpu_entity_mesh_groups.id()).value();
+        render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.id()).value();
         render_context->render_data.scene.material_count = scene->_material_manifest.size();
-        render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.get_state().buffers[0]).value();
-        render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.get_state().buffers[0]).value();
-        render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.get_state().buffers[0]).value();
-        render_context->render_data.scene.spot_lights = device.device_address(scene->_gpu_spot_lights.get_state().buffers[0]).value();
+        render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.id()).value();
+        render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.id()).value();
+        render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.id()).value();
+        render_context->render_data.scene.spot_lights = device.device_address(scene->_gpu_spot_lights.id()).value();
     }
 
     auto const vsm_projections_info = GetVSMProjectionsInfo{
@@ -1632,9 +1611,9 @@ auto Renderer::prepare_frame(
         .vsm_view_direction = -std::bit_cast<f32vec3>(render_context->render_data.sky_settings.sun_direction),
     });
 
-    if (render_context->visualize_clouds_bounds) 
+    if (render_context->visualize_clouds_bounds)
     {
-        for(u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.cloud_volume_instances.size(); ++cloud_volume)
+        for (u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.cloud_volume_instances.size(); ++cloud_volume)
         {
             auto const & volume = scene->current_frame_cloud_volume_instances.cloud_volume_instances.at(cloud_volume);
             auto const bottom_left_corner = f32vec4(0.0f, 0.0f, 0.0f, 1.0f) * mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform));
@@ -1654,7 +1633,7 @@ auto Renderer::prepare_frame(
     {
         return false;
     }
-    swapchain_image.set_images({.images = std::array{new_swapchain_image}});
+    swapchain_image.set_image(new_swapchain_image);
 
     render_context->render_times.readback_render_times(render_context->render_data.frame_index);
 

@@ -105,9 +105,7 @@ struct UIEngine
         RenderTimesHistory render_times_history = {};
         Window *window = {};
         SceneInterfaceState scene_interface = {};
-        #if DAXA_ENABLE_TASK_GRAPH_MK2
         daxa::TaskGraphDebugUi main_task_graph_debug_ui = {};
-        #endif
 
         i32 debug_visualization_index = {};
         i32 debug_visualization_index_override = {};

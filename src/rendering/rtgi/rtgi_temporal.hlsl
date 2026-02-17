@@ -317,7 +317,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increases conficende based on temporal variance
     }
     float blend = 1.0f / (1.0f + history_confidence);
-    float co_cg_blend = 1.0f / (1.0f + history_confidence * 0.5f);
+    float co_cg_blend = 1.0f / (1.0f + history_confidence);
     if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
     {
         blend = 1.0f;

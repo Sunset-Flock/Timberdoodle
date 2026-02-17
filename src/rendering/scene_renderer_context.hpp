@@ -113,16 +113,13 @@ namespace RenderTimes
                 "VOLUME_SHADOW_MAP",
                 "RAYMARCH",
                 "COMPOSE",
-            }
-        },
+            }},
         GroupNames{
             "MISC",
-            {
-                "CULL_LIGHTS",
+            {"CULL_LIGHTS",
                 "AUTO_EXPOSURE_GEN_HIST",
                 "AUTO_EXPOSURE_AVERAGE",
-                "BUILD_TLAS"
-            },
+                "BUILD_TLAS"},
         },
     };
 
@@ -546,15 +543,11 @@ struct RenderContext
     RenderContext(GPUContext * gpu_context)
         : gpu_context{gpu_context}
     {
-        tgpu_render_data = daxa::TaskBuffer{daxa::TaskBufferInfo{
-            .initial_buffers = {
-                .buffers = std::array{
-                    gpu_context->device.create_buffer({
-                        .size = sizeof(RenderGlobalData),
-                        .name = "scene render data",
-                    }),
-                },
-            },
+        tgpu_render_data = daxa::TaskBuffer{{
+            .buffer = gpu_context->device.create_buffer({
+                .size = sizeof(RenderGlobalData),
+                .name = "scene render data",
+            }),
             .name = "scene render data",
         }};
         render_data.samplers = {
@@ -628,7 +621,7 @@ struct RenderContext
     }
     ~RenderContext()
     {
-        gpu_context->device.destroy_buffer(tgpu_render_data.get_state().buffers[0]);
+        gpu_context->device.destroy_buffer(tgpu_render_data.id());
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_clamp));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.linear_repeat));
         gpu_context->device.destroy_sampler(std::bit_cast<daxa::SamplerId>(render_data.samplers.nearest_repeat));

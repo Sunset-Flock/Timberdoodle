@@ -127,13 +127,11 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     imgui_renderer = daxa::ImGuiRenderer({gpu_context->device, gpu_context->swapchain.get_format(), imgui_context, nullptr, false});
     setup_colors();
     
-    #if DAXA_ENABLE_TASK_GRAPH_MK2
     main_task_graph_debug_ui = daxa::TaskGraphDebugUi({
         .device = gpu_context->device,
         .imgui_renderer = imgui_renderer,
         .buffer_layout_cache_folder = "./tg_dbg_cache",
     });
-    #endif
 }
 
 void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state, ThreadPool & threadpool)
@@ -1038,7 +1036,7 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         {
             ImGui::Image(
                 imgui_renderer.create_texture_id({
-                    .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.get_state().images[0].default_view(),
+                    .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_page_table.id().default_view(),
                     .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
                 }),
                 ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
@@ -1050,7 +1048,7 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         ImGui::Begin("VSM Memory Texture", nullptr, 0);
         ImGui::Image(
             imgui_renderer.create_texture_id({
-                .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0].default_view(),
+                .image_view = render_context.gpu_context->shader_debug_context.vsm_debug_meta_memory_table.id().default_view(),
                 .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
             }),
             ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));
@@ -1061,7 +1059,7 @@ void UIEngine::ui_vsm_textures(RenderContext & render_context)
         ImGui::Begin("VSM Reconstructed Directional Texture", nullptr, 0);
         ImGui::Image(
             imgui_renderer.create_texture_id({
-                .image_view = render_context.gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.get_state().images[0].default_view(),
+                .image_view = render_context.gpu_context->shader_debug_context.vsm_recreated_shadowmap_memory_table.id().default_view(),
                 .sampler = std::bit_cast<daxa::SamplerId>(render_context.render_data.samplers.nearest_clamp),
             }),
             ImVec2(ImGui::GetContentRegionAvail().x, ImGui::GetContentRegionAvail().x));

@@ -113,6 +113,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float y_variance_acc = 0.0f;
     float y_max = 0.0f;
     float ray_length_mean_acc = 0.0f;
+    float sq_ray_length_mean_acc = 0.0f;
     float valid_footprint_samples = 0.0f;
 
     // The raw signal is pre blurredi in a star shape with 5 taps to conserve energy from the firefly filter.
@@ -170,6 +171,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 y_variance_acc += square(sample_y) * geometric_weight;
                 y_max = max(y_max, sample_y) * geometric_weight;
                 ray_length_mean_acc += sample_ray_length * geometric_weight;
+                sq_ray_length_mean_acc += square(sample_ray_length) * geometric_weight;
 
                 valid_footprint_samples += geometric_weight;
             }
@@ -187,8 +189,16 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float4 star_blurred_diffuse = star_blurred_diffuse_acc * rcp(star_blurred_weight_acc + EPSILON);
         const float2 star_blurred_diffuse2 = star_blurred_diffuse2_acc * rcp(star_blurred_weight_acc + EPSILON);
 
-        filtered_diffuse = star_blurred_diffuse;
-        filtered_diffuse2 = star_blurred_diffuse2;
+        if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)
+        {
+            filtered_diffuse = star_blurred_diffuse;
+            filtered_diffuse2 = star_blurred_diffuse2;
+        }
+        else
+        {
+            filtered_diffuse = push.attach.diffuse_raw.get()[clamped_index];
+            filtered_diffuse2 = push.attach.diffuse2_raw.get()[clamped_index];
+        }
 
         const float y_mean = y_mean_acc * rcp(valid_footprint_samples);
         const float y_variance = (y_variance_acc * rcp(valid_footprint_samples)) - square(y_mean);
@@ -203,9 +213,11 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         footprint_quality = valid_footprint_relative;
 
         float ray_length_mean = ray_length_mean_acc * rcp(valid_footprint_samples);
+        float squared_ray_length_mean = sq_ray_length_mean_acc * rcp(valid_footprint_samples);
+        const float ray_length_guide_factor = square(square(squared_ray_length_mean));
         if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
         {
-            footprint_quality *= square(square(ray_length_mean));
+            footprint_quality *= ray_length_guide_factor;
         }
 
         const float valid_geometric_samples_ceiling_factor = (valid_geometric_mean_samples / (GEOMETRIC_MEAN_TAPS_TOTAL));
@@ -227,10 +239,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, adjustment_factor);
         }
 
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(y_mean_geometric, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(y_mean_geometric, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(y_mean_geometric, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(y_mean_geometric, 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_guide_factor, 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_guide_factor, 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_guide_factor, 0, 0, 0);
+        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_guide_factor, 0, 0, 0);
     } 
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;

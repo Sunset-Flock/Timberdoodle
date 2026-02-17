@@ -146,13 +146,13 @@ void ray_gen()
             #endif
 
             RayDesc ray = {};
-            ray.Origin = sample_pos - primary_ray * ws_px_size + face_normal * ws_px_size;
+            ray.Origin = sample_pos - primary_ray * ws_px_size;
             ray.TMax = t_max;
             ray.TMin = ws_px_size * 0.5f;
 
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
-            const uint flags = RAY_FLAG_CULL_BACK_FACING_TRIANGLES; // RAY_FLAG_FORCE_OPAQUE; 
+            const uint flags = {}; // RAY_FLAG_FORCE_OPAQUE; 
             TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 
             float4 sh_y_new;

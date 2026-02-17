@@ -102,9 +102,9 @@ GPUContext::~GPUContext()
 {
     device.destroy_buffer(shader_debug_context.buffer);
     device.destroy_buffer(shader_debug_context.readback_queue);
-    device.destroy_image(shader_debug_context.vsm_debug_meta_memory_table.get_state().images[0]);
-    device.destroy_image(shader_debug_context.vsm_debug_page_table.get_state().images[0]);
-    device.destroy_image(shader_debug_context.vsm_recreated_shadowmap_memory_table.get_state().images[0]);
+    device.destroy_image(shader_debug_context.vsm_debug_meta_memory_table.id());
+    device.destroy_image(shader_debug_context.vsm_debug_page_table.id());
+    device.destroy_image(shader_debug_context.vsm_recreated_shadowmap_memory_table.id());
     device.destroy_sampler(lin_clamp_sampler);
     device.destroy_sampler(nearest_clamp_sampler);
 }

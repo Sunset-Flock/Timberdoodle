@@ -220,83 +220,63 @@ struct VSMState
         globals_cpu.inverse_point_light_projection_matrix = glm::inverse(globals_cpu.point_light_projection_matrix);
 
         globals = daxa::TaskBuffer({
-            .initial_buffers = {
-                .buffers = std::array{
-                    gpu_context->device.create_buffer({
-                        .size = static_cast<daxa_u32>(sizeof(VSMGlobals)),
-                        .name = "vsm globals physical buffer",
-                    }),
-                },
-            },
+            .buffer = gpu_context->device.create_buffer({
+                .size = static_cast<daxa_u32>(sizeof(VSMGlobals)),
+                .name = "vsm globals physical buffer",
+            }),
             .name = "vsm globals buffer",
         });
 
         memory_block = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    gpu_context->device.create_image({
-                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
-                        .format = daxa::Format::R32_SFLOAT,
-                        .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
-                        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                        .sharing_mode = daxa::SharingMode::CONCURRENT,
-                        .name = "vsm memory block physical image",
-                    }),
-                },
-            },
+            .image = gpu_context->device.create_image({
+                .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
+                .format = daxa::Format::R32_SFLOAT,
+                .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
+                .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+                .sharing_mode = daxa::SharingMode::CONCURRENT,
+                .name = "vsm memory block physical image",
+            }),
             .name = "vsm memory block",
         });
 
         meta_memory_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    gpu_context->device.create_image({
-                        .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
-                        .format = daxa::Format::R64_UINT,
-                        .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm meta memory table physical image",
-                    }),
-                },
-            },
+            .image = gpu_context->device.create_image({
+                .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
+                .format = daxa::Format::R64_UINT,
+                .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm meta memory table physical image",
+            }),
             .name = "vsm meta memory table",
         });
 
         page_table = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    gpu_context->device.create_image({
-                        .format = daxa::Format::R32_UINT,
-                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
-                        .array_layer_count = VSM_CLIP_LEVELS,
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm page table physical image",
-                    }),
-                },
-            },
+            .image = gpu_context->device.create_image({
+                .format = daxa::Format::R32_UINT,
+                .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
+                .array_layer_count = VSM_CLIP_LEVELS,
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm page table physical image",
+            }),
             .name = "vsm page table",
         });
 
         page_view_pos_row = daxa::TaskImage({
-            .initial_images = {
-                .images = std::array{
-                    gpu_context->device.create_image({
-                        .format = daxa::Format::R32G32B32A32_SFLOAT,
-                        .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
-                        .array_layer_count = VSM_CLIP_LEVELS,
-                        .usage =
-                            daxa::ImageUsageFlagBits::SHADER_SAMPLED |
-                            daxa::ImageUsageFlagBits::SHADER_STORAGE |
-                            daxa::ImageUsageFlagBits::TRANSFER_DST,
-                        .name = "vsm page height offsets physical image",
-                    }),
-                },
-            },
+            .image = gpu_context->device.create_image({
+                .format = daxa::Format::R32G32B32A32_SFLOAT,
+                .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
+                .array_layer_count = VSM_CLIP_LEVELS,
+                .usage =
+                    daxa::ImageUsageFlagBits::SHADER_SAMPLED |
+                    daxa::ImageUsageFlagBits::SHADER_STORAGE |
+                    daxa::ImageUsageFlagBits::TRANSFER_DST,
+                .name = "vsm page height offsets physical image",
+            }),
             .name = "vsm page height offsets",
         });
 
@@ -316,17 +296,16 @@ struct VSMState
                     daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = fmt::format("vsm point spot table phys image")});
 
-            point_spot_page_tables = daxa::TaskImage({.initial_images = {.images = std::array{page_image_id}},
-                .name = "vsm point spot tables"});
+            point_spot_page_tables = daxa::TaskImage({.image = page_image_id, .name = "vsm point spot tables"});
         }
 
         auto upload_task_graph = daxa::TaskGraph({
             .device = gpu_context->device,
             .name = "upload task graph",
         });
-        upload_task_graph.use_persistent_image(page_table);
-        upload_task_graph.use_persistent_image(meta_memory_table);
-        upload_task_graph.use_persistent_image(point_spot_page_tables);
+        upload_task_graph.register_image(page_table);
+        upload_task_graph.register_image(meta_memory_table);
+        upload_task_graph.register_image(point_spot_page_tables);
 
         auto const page_table_array_view = page_table.view().layers(0, VSM_CLIP_LEVELS);
         auto const point_spot_table_array_view = point_spot_page_tables.view().mips(0, mip_levels).layers(0, 6 * MAX_POINT_LIGHTS + MAX_SPOT_LIGHTS);
@@ -361,12 +340,12 @@ struct VSMState
 
     void cleanup_persistent_state(GPUContext * gpu_context)
     {
-        gpu_context->device.destroy_buffer(globals.get_state().buffers[0]);
-        gpu_context->device.destroy_image(memory_block.get_state().images[0]);
-        gpu_context->device.destroy_image(meta_memory_table.get_state().images[0]);
-        gpu_context->device.destroy_image(page_table.get_state().images[0]);
-        gpu_context->device.destroy_image(page_view_pos_row.get_state().images[0]);
-        gpu_context->device.destroy_image(point_spot_page_tables.get_state().images[0]);
+        gpu_context->device.destroy_buffer(globals.id());
+        gpu_context->device.destroy_image(memory_block.id());
+        gpu_context->device.destroy_image(meta_memory_table.id());
+        gpu_context->device.destroy_image(page_table.id());
+        gpu_context->device.destroy_image(page_view_pos_row.id());
+        gpu_context->device.destroy_image(point_spot_page_tables.id());
     }
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
