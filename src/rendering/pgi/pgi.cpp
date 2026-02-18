@@ -1456,7 +1456,6 @@ MAKE_COMPUTE_COMPILE_INFO(pgi_update_probes_compile_info, "./src/rendering/pgi/p
 MAKE_COMPUTE_COMPILE_INFO(pgi_pre_update_probes_compute_compile_info, "./src/rendering/pgi/pgi_update.hlsl", "entry_pre_update_probes")
 
 MAKE_COMPUTE_COMPILE_INFO(pgi_eval_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "enty_eval_screen_irradiance")
-MAKE_COMPUTE_COMPILE_INFO(pgi_upscale_screen_irradiance_compute_compile_info, "./src/rendering/pgi/pgi_eval_screen_irradiance.hlsl", "entry_upscale_screen_irradiance")
 
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo2
 {
@@ -1679,22 +1678,6 @@ void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
 }
 
-void PGIUpscaleScreenIrradianceTask::callback(daxa::TaskInterface ti)
-{
-    auto & gpu_context = render_context->gpu_context;
-    auto & render_data = render_context->render_data;
-    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_upscale_screen_irradiance_compute_compile_info().name));
-
-    PGIUpscaleScreenIrradiancePush push = {};
-    push.attach = ti.attachment_shader_blob;
-    push.size = render_data.settings.render_target_size;
-    ti.recorder.push_constant(push);
-    
-    auto const dispatch_x = round_up_div(push.size.x, PGI_UPSCALE_SCREEN_IRRADIANCE_XY);
-    auto const dispatch_y = round_up_div(push.size.y, PGI_UPSCALE_SCREEN_IRRADIANCE_XY);
-    ti.recorder.dispatch({dispatch_x, dispatch_y, 1});
-}
-
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool
 {
     bool const significant_settings_changed = 
@@ -1891,19 +1874,19 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    this->probe_color = daxa::TaskImage({
+    this->probe_color = daxa::TaskImageAdapter({
         .image = probe_color_image,
         .name = "pgi probe radiance",
     });
-    this->probe_visibility = daxa::TaskImage({
+    this->probe_visibility = daxa::TaskImageAdapter({
         .image = probe_visibility_image,
         .name = "pgi probe visibility",
     });
-    this->probe_info = daxa::TaskImage({
+    this->probe_info = daxa::TaskImageAdapter({
         .image =  probe_info_image,
         .name = "pgi probe info tex",
     });
-    this->cell_requests = daxa::TaskImage({
+    this->cell_requests = daxa::TaskImageAdapter({
         .image =  cell_requests_image,
         .name = "pgi cell requests tex",
     });
@@ -1961,7 +1944,7 @@ void PGIState::cleanup(daxa::Device& device)
 
 auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings, [[maybe_unused]] PGIState& state) -> daxa::TaskImageView
 {
-    return tg.create_transient_image({
+    return tg.create_task_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = { 
             static_cast<u32>(settings.probe_trace_resolution * PGI_TRACE_TEX_PROBES_X),
@@ -1975,7 +1958,7 @@ auto pgi_create_trace_result_texture(daxa::TaskGraph& tg, PGISettings& settings,
 
 auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings,  [[maybe_unused]] PGIState& state) -> daxa::TaskImageView
 {
-    return tg.create_transient_image({
+    return tg.create_task_image({
         .dimensions = 2,
         .format = daxa::Format::R32G32B32A32_SFLOAT,
         .size = {
@@ -1990,7 +1973,7 @@ auto pgi_create_probe_info_texture(daxa::TaskGraph& tg, PGISettings& settings,  
 
 auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings,  [[maybe_unused]] PGIState& state) -> daxa::TaskBufferView
 {
-    return tg.create_transient_buffer({
+    return tg.create_task_buffer({
         .size = static_cast<u32>(sizeof(PGIIndirections) + sizeof(daxa_u32) * (PGI_MAX_REQUESTED_PROBES + PGI_MAX_UPDATES_PER_FRAME /*contains two arrays, for requested and updated*/)),
         .name = "pgi indirections",
     });
@@ -1998,7 +1981,7 @@ auto pgi_create_probe_indirections(daxa::TaskGraph& tg, PGISettings& settings,  
 
 auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const& render_data) -> daxa::TaskImageView
 {
-    return tg.create_transient_image({
+    return tg.create_task_image({
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT, // TODO(pahrens): make U32 Packed exposure encoded
         .size = {
@@ -2012,7 +1995,7 @@ auto pgi_create_half_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData con
 
 auto pgi_create_screen_irradiance(daxa::TaskGraph& tg, RenderGlobalData const & render_data) -> daxa::TaskImageView
 {
-    return tg.create_transient_image({
+    return tg.create_task_image({
         .dimensions = 2,
         .format = daxa::Format::R16G16B16A16_SFLOAT, // TODO(pahrens): make U32 Packed exposure encoded
         .size = {

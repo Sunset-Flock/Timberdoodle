@@ -543,7 +543,7 @@ struct RenderContext
     RenderContext(GPUContext * gpu_context)
         : gpu_context{gpu_context}
     {
-        tgpu_render_data = daxa::TaskBuffer{{
+        tgpu_render_data = daxa::TaskBufferAdapter{{
             .buffer = gpu_context->device.create_buffer({
                 .size = sizeof(RenderGlobalData),
                 .name = "scene render data",
@@ -637,7 +637,7 @@ struct RenderContext
     // Passed from scene to renderer each frame to specify what should be drawn.
     CPUMeshInstanceCounts mesh_instance_counts = {};
 
-    daxa::TaskBuffer tgpu_render_data = {};
+    daxa::TaskBufferAdapter tgpu_render_data = {};
 
     // Data
     ReadbackValues general_readback;

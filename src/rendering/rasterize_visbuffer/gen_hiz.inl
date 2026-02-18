@@ -102,7 +102,7 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         std::max(1u, info.render_context->render_data.cull_data.physical_hiz_size.y),
     };
     u32 const mip_count = 1 + static_cast<u32>(std::floor(std::log2(std::max(hiz_size.x, hiz_size.y))));
-    *info.hiz = info.tg.create_transient_image({
+    *info.hiz = info.tg.create_task_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = {hiz_size.x, hiz_size.y, 1},
         .mip_level_count = mip_count,

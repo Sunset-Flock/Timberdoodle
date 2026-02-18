@@ -19,13 +19,13 @@ struct PGIState
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
     // TODO(pahrens): rename to irradiance
-    daxa::TaskImage probe_color = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe radiance texture"});
+    daxa::TaskImageAdapter probe_color = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe radiance texture"});
     daxa::TaskImageView probe_color_view = daxa::NullTaskImage;
-    daxa::TaskImage probe_visibility = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe visibility texture"});
+    daxa::TaskImageAdapter probe_visibility = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe visibility texture"});
     daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
-    daxa::TaskImage probe_info = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi probe info texture"});
+    daxa::TaskImageAdapter probe_info = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe info texture"});
     daxa::TaskImageView probe_info_view = daxa::NullTaskImage;
-    daxa::TaskImage cell_requests = daxa::TaskImage(daxa::TaskImageInfo{.name = "default init pgi cell requests texture"});
+    daxa::TaskImageAdapter cell_requests = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi cell requests texture"});
     daxa::TaskImageView cell_requests_view = daxa::NullTaskImage;
 
     void initialize(daxa::Device& device);
@@ -43,8 +43,6 @@ auto pgi_update_probes_compile_info() -> daxa::ComputePipelineCompileInfo2 const
 auto pgi_pre_update_probes_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
 auto pgi_eval_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
-
-auto pgi_upscale_screen_irradiance_compute_compile_info() -> daxa::ComputePipelineCompileInfo2 const&;
 
 auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo2;
 
@@ -91,14 +89,6 @@ struct PGIPreUpdateProbesTask : PGIPreUpdateProbesH::Task
 };
 
 struct PGIEvalScreenIrradianceTask : PGIEvalScreenIrradianceH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGIUpscaleScreenIrradianceTask : PGIUpscaleScreenIrradianceH::Task
 {
     AttachmentViews views = {};
     RenderContext* render_context = {};

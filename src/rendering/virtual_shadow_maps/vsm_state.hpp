@@ -13,13 +13,13 @@ struct VSMState
 {
     static constexpr f32 VSM_POINT_LIGHT_NEAR = 0.05f;
     // Persistent state
-    daxa::TaskBuffer globals = {};
+    daxa::TaskBufferAdapter globals = {};
 
-    daxa::TaskImage memory_block = {};
-    daxa::TaskImage meta_memory_table = {};
-    daxa::TaskImage page_table = {};
-    daxa::TaskImage page_view_pos_row = {};
-    daxa::TaskImage point_spot_page_tables = {};
+    daxa::TaskImageAdapter memory_block = {};
+    daxa::TaskImageAdapter meta_memory_table = {};
+    daxa::TaskImageAdapter page_table = {};
+    daxa::TaskImageAdapter page_view_pos_row = {};
+    daxa::TaskImageAdapter point_spot_page_tables = {};
 
     // Transient state
     daxa::TaskBufferView vsm_point_lights = {};
@@ -219,7 +219,7 @@ struct VSMState
         globals_cpu.point_light_projection_matrix = inf_depth_reverse_z_perspective(glm::radians(95.0f), 1.0f, VSM_POINT_LIGHT_NEAR);
         globals_cpu.inverse_point_light_projection_matrix = glm::inverse(globals_cpu.point_light_projection_matrix);
 
-        globals = daxa::TaskBuffer({
+        globals = daxa::TaskBufferAdapter({
             .buffer = gpu_context->device.create_buffer({
                 .size = static_cast<daxa_u32>(sizeof(VSMGlobals)),
                 .name = "vsm globals physical buffer",
@@ -227,7 +227,7 @@ struct VSMState
             .name = "vsm globals buffer",
         });
 
-        memory_block = daxa::TaskImage({
+        memory_block = daxa::TaskImageAdapter({
             .image = gpu_context->device.create_image({
                 .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                 .format = daxa::Format::R32_SFLOAT,
@@ -239,7 +239,7 @@ struct VSMState
             .name = "vsm memory block",
         });
 
-        meta_memory_table = daxa::TaskImage({
+        meta_memory_table = daxa::TaskImageAdapter({
             .image = gpu_context->device.create_image({
                 .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                 .format = daxa::Format::R64_UINT,
@@ -252,7 +252,7 @@ struct VSMState
             .name = "vsm meta memory table",
         });
 
-        page_table = daxa::TaskImage({
+        page_table = daxa::TaskImageAdapter({
             .image = gpu_context->device.create_image({
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
@@ -266,7 +266,7 @@ struct VSMState
             .name = "vsm page table",
         });
 
-        page_view_pos_row = daxa::TaskImage({
+        page_view_pos_row = daxa::TaskImageAdapter({
             .image = gpu_context->device.create_image({
                 .format = daxa::Format::R32G32B32A32_SFLOAT,
                 .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
@@ -296,7 +296,7 @@ struct VSMState
                     daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = fmt::format("vsm point spot table phys image")});
 
-            point_spot_page_tables = daxa::TaskImage({.image = page_image_id, .name = "vsm point spot tables"});
+            point_spot_page_tables = daxa::TaskImageAdapter({.image = page_image_id, .name = "vsm point spot tables"});
         }
 
         auto upload_task_graph = daxa::TaskGraph({
@@ -350,64 +350,64 @@ struct VSMState
 
     void initialize_transient_state(daxa::TaskGraph & tg, RenderGlobalData const & rgd)
     {
-        free_wrapped_pages_info = tg.create_transient_buffer({
+        free_wrapped_pages_info = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(FreeWrappedPagesInfo) * VSM_CLIP_LEVELS),
             .name = "vsm free wrapped pages info",
         });
 
-        allocation_requests = tg.create_transient_buffer({
+        allocation_requests = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(VSMAllocationRequestsHeader)),
             .name = "vsm allocation requests",
         });
 
-        free_page_buffer = tg.create_transient_buffer({
+        free_page_buffer = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(PageCoordBuffer) * MAX_VSM_ALLOC_REQUESTS),
             .name = "vsm free page buffer",
         });
 
-        not_visited_page_buffer = tg.create_transient_buffer({
+        not_visited_page_buffer = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(PageCoordBuffer) * MAX_VSM_ALLOC_REQUESTS),
             .name = "vsm not visited page buffer",
         });
 
-        find_free_pages_header = tg.create_transient_buffer({
+        find_free_pages_header = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(FindFreePagesHeader)),
             .name = "find free pages header",
         });
 
-        clip_projections = tg.create_transient_buffer({
+        clip_projections = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(VSMClipProjection) * VSM_CLIP_LEVELS),
             .name = "vsm clip projections",
         });
 
-        allocate_indirect = tg.create_transient_buffer({
+        allocate_indirect = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm allocate indirect",
         });
 
-        clear_indirect = tg.create_transient_buffer({
+        clear_indirect = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm clear indirect",
         });
 
-        clear_dirty_bit_indirect = tg.create_transient_buffer({
+        clear_dirty_bit_indirect = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(DispatchIndirectStruct)),
             .name = "vsm clear dirty bit indirect",
         });
 
-        vsm_point_lights = tg.create_transient_buffer({
+        vsm_point_lights = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(VSMPointLight) * MAX_POINT_LIGHTS),
             .name = "vsm point light infos",
         });
 
-        vsm_spot_lights = tg.create_transient_buffer({
+        vsm_spot_lights = tg.create_task_buffer({
             .size = static_cast<daxa_u32>(sizeof(VSMSpotLight) * MAX_SPOT_LIGHTS),
             .name = "vsm spot light infos",
         });
 
         auto const hiz_size = daxa::Extent3D{VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1};
 
-        dirty_pages_hiz = tg.create_transient_image({
+        dirty_pages_hiz = tg.create_task_image({
             .dimensions = 2,
             .format = daxa::Format::R8_UINT,
             .size = hiz_size,
@@ -419,7 +419,7 @@ struct VSMState
         for (i32 mip = 0; mip < 7; ++mip)
         {
             u32 const base_resolution = VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION / (1 << mip);
-            point_dirty_pages_hiz_mips.at(mip) = tg.create_transient_image({.dimensions = 2,
+            point_dirty_pages_hiz_mips.at(mip) = tg.create_task_image({.dimensions = 2,
                 .format = daxa::Format::R8_UINT,
                 .size = daxa::Extent3D{base_resolution, base_resolution, 1},
                 .mip_level_count = s_cast<u32>(std::log2(base_resolution) + 1),
@@ -430,7 +430,7 @@ struct VSMState
         overdraw_debug_image = daxa::NullTaskImage;
         if (rgd.settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
-            overdraw_debug_image = tg.create_transient_image({
+            overdraw_debug_image = tg.create_task_image({
                 .dimensions = 2,
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},

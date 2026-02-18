@@ -10,7 +10,7 @@ MAKE_COMPUTE_COMPILE_INFO(cull_lights_compile_info, "./src/rendering/tasks/cull_
 
 inline auto create_light_mask_volume(daxa::TaskGraph& tg, RenderContext& render_context)
 {
-    return tg.create_transient_image({
+    return tg.create_task_image({
         .format = daxa::Format::R32G32B32A32_UINT,
         .size = { s_cast<u32>(render_context.render_data.light_settings.mask_volume_cell_count.x), s_cast<u32>(render_context.render_data.light_settings.mask_volume_cell_count.y), 1 },
         .array_layer_count = s_cast<u32>(render_context.render_data.light_settings.mask_volume_cell_count.z),

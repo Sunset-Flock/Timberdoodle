@@ -147,15 +147,15 @@ struct PrefixSumTaskGroupInfo
 void task_prefix_sum(PrefixSumTaskGroupInfo info)
 {
     DAXA_DBG_ASSERT_TRUE_M(info.max_value_count < (1 << 20), "max max value is 2^20");
-    auto upsweep0_command_buffer = info.task_list.create_transient_buffer({
+    auto upsweep0_command_buffer = info.task_list.create_task_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "prefix sum upsweep0_command_buffer",
     });
-    auto upsweep1_command_buffer = info.task_list.create_transient_buffer({
+    auto upsweep1_command_buffer = info.task_list.create_task_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "prefix sum upsweep1_command_buffer",
     });
-    auto downsweep_command_buffer = info.task_list.create_transient_buffer({
+    auto downsweep_command_buffer = info.task_list.create_task_buffer({
         .size = sizeof(DispatchIndirectStruct),
         .name = "prefix sum downsweep_command_buffer",
     });
@@ -173,7 +173,7 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
     });
 
     auto max_block_count = (static_cast<u64>(info.max_value_count) + PREFIX_SUM_BLOCK_SIZE - 1) / PREFIX_SUM_BLOCK_SIZE;
-    auto block_sums_src = info.task_list.create_transient_buffer({
+    auto block_sums_src = info.task_list.create_task_buffer({
         .size = static_cast<u32>(sizeof(u32) * max_block_count),
         .name = "prefix sum block_sums_src",
     });
@@ -194,11 +194,11 @@ void task_prefix_sum(PrefixSumTaskGroupInfo info)
             .uint_dst_stride = info.dst_uint_stride,
         },
     });
-    auto block_sums_dst = info.task_list.create_transient_buffer({
+    auto block_sums_dst = info.task_list.create_task_buffer({
         .size = static_cast<u32>(sizeof(u32) * max_block_count),
         .name = "prefix sum block_sums_dst",
     });
-    auto total_count = info.task_list.create_transient_buffer({
+    auto total_count = info.task_list.create_task_buffer({
         .size = static_cast<u32>(sizeof(u32)),
         .name = "prefix sum block_sums total count",
     });

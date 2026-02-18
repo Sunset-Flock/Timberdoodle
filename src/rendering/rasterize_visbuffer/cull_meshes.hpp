@@ -40,11 +40,11 @@ inline void tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo const
     bool shadow_pass = info.is_directional_light;
     u32 worst_mesh_instances_in_expansion = shadow_pass ? (VSM_CLIP_LEVELS/2) * MAX_MESH_INSTANCES : MAX_MESH_INSTANCES;
     auto const expansion_size = prefix_sum_expansion ? PrefixSumWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion) : Po2BucketWorkExpansionBufferHead::calc_buffer_size(worst_mesh_instances_in_expansion);
-    auto opaque_expansion = info.tg.create_transient_buffer({
+    auto opaque_expansion = info.tg.create_task_buffer({
         .size = expansion_size,
         .name = std::string(info.buffer_name_prefix) + "opaque_meshlet_expansion_buffer" + std::to_string(rand()),
     });
-    auto masked_expansion = info.tg.create_transient_buffer({
+    auto masked_expansion = info.tg.create_task_buffer({
         .size = expansion_size,
         .name = std::string(info.buffer_name_prefix) + "masked_meshlet_expansion_buffer" + std::to_string(rand()),
     });

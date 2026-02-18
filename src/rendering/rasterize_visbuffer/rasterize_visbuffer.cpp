@@ -4,7 +4,7 @@ namespace raster_visbuf
 {
     auto create_visbuffer(daxa::TaskGraph & tg, RenderContext const & render_context, char const * name) -> daxa::TaskImageView
     {
-        return tg.create_transient_image({
+        return tg.create_task_image({
             .format = daxa::Format::R32_UINT,
             .size = {
                 render_context.render_data.settings.render_target_size.x,
@@ -18,7 +18,7 @@ namespace raster_visbuf
     auto create_depth(daxa::TaskGraph & tg, RenderContext const & render_context, char const * name) -> daxa::TaskImageView
     {
         daxa::Format format = daxa::Format::D32_SFLOAT;
-        return tg.create_transient_image({
+        return tg.create_task_image({
             .format = format,
             .size = {
                 render_context.render_data.settings.render_target_size.x,
@@ -38,7 +38,7 @@ namespace raster_visbuf
         ret.view_camera_overdraw = daxa::NullTaskImage;
         if (info.render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_OVERDRAW)
         {
-            ret.view_camera_overdraw = info.tg.create_transient_image({
+            ret.view_camera_overdraw = info.tg.create_task_image({
                 .format = daxa::Format::R32_UINT,
                 .size = {
                     info.render_context->render_data.settings.render_target_size.x,
@@ -66,7 +66,7 @@ namespace raster_visbuf
                         allocate_fill_copy(ti, mesh_instances_reset, ti.get(info.meshlet_instances));
                     }));
 
-        daxa::TaskBufferView first_pass_meshlet_bitfield = info.tg.create_transient_buffer({
+        daxa::TaskBufferView first_pass_meshlet_bitfield = info.tg.create_task_buffer({
             .size = sizeof(FirstPassMeshletBitfield),
             .name = "first_pass_meshlet_bitfield",
         });
@@ -147,9 +147,9 @@ namespace raster_visbuf
         info.tg.clear_buffer({.buffer = info.visible_meshlet_instances, .size = 4, .clear_value = 0});
         // unused for now, will be used later for perfect f+ drawing.
         if (false) {
-            auto visible_meshlets_bitfield = info.tg.create_transient_buffer({
-                sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
-                "visible meshlets bitfield",
+            auto visible_meshlets_bitfield = info.tg.create_task_buffer({
+                .size = sizeof(daxa_u32) * MAX_MESHLET_INSTANCES,
+                .name = "visible meshlets bitfield",
             });
             auto visible_meshes_bitfield = daxa::NullTaskBuffer;
             info.tg.clear_buffer({.buffer = visible_meshlets_bitfield, .clear_value = 0});
@@ -170,7 +170,7 @@ namespace raster_visbuf
 
         if (info.render_context->render_data.settings.draw_from_observer)
         {
-            auto const observer_depth = info.tg.create_transient_image({
+            auto const observer_depth = info.tg.create_task_image({
                 .format = daxa::Format::D32_SFLOAT,
                 .size = {
                     info.render_context->render_data.settings.render_target_size.x,

@@ -57,7 +57,7 @@ inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_bu
     fcont = {[gpu_context](daxa::TaskInterface ti) {
     }};
 
-    return daxa::TaskBuffer{{
+    return daxa::TaskBufferAdapter{{
         .buffer = gpu_context->device.create_buffer({
             .size = static_cast<u32>(size),
             .name = buf_name,
@@ -87,25 +87,25 @@ Renderer::Renderer(
         exposure_state,
     };
 
-    swapchain_image = daxa::TaskImage{{.is_swapchain_image = true, .name = "swapchain_image"}};
-    transmittance = daxa::TaskImage{{.name = "transmittance"}};
-    multiscattering = daxa::TaskImage{{.name = "multiscattering"}};
-    sky_ibl_cube = daxa::TaskImage{{.name = "sky ibl cube"}};
-    depth_history = daxa::TaskImage{{.name = "depth_history"}};
-    path_trace_history = daxa::TaskImage{{.name = "path_trace_history"}};
-    normal_history = daxa::TaskImage{{.name = "normal_history"}};
-    rtao_history = daxa::TaskImage{{.name = "rtao_history"}};
-    rtgi_depth_history = daxa::TaskImage{{.name = "rtgi_depth_history"}};
-    rtgi_samplecnt_history = daxa::TaskImage{{.name = "rtgi_samplecnt_history"}};
-    rtgi_face_normal_history = daxa::TaskImage{{.name = "rtgi_face_normal_history"}};
-    rtgi_diffuse_history = daxa::TaskImage{{.name = "rtgi_diffuse_history"}};
-    rtgi_diffuse2_history = daxa::TaskImage{{.name = "rtgi_diffuse2_history"}};
-    rtgi_statistics_history = daxa::TaskImage{{.name = "rtgi_statistics_history"}};
+    swapchain_image = daxa::TaskImageAdapter{{.is_swapchain_image = true, .name = "swapchain_image"}};
+    transmittance = daxa::TaskImageAdapter{{.name = "transmittance"}};
+    multiscattering = daxa::TaskImageAdapter{{.name = "multiscattering"}};
+    sky_ibl_cube = daxa::TaskImageAdapter{{.name = "sky ibl cube"}};
+    depth_history = daxa::TaskImageAdapter{{.name = "depth_history"}};
+    path_trace_history = daxa::TaskImageAdapter{{.name = "path_trace_history"}};
+    normal_history = daxa::TaskImageAdapter{{.name = "normal_history"}};
+    rtao_history = daxa::TaskImageAdapter{{.name = "rtao_history"}};
+    rtgi_depth_history = daxa::TaskImageAdapter{{.name = "rtgi_depth_history"}};
+    rtgi_samplecnt_history = daxa::TaskImageAdapter{{.name = "rtgi_samplecnt_history"}};
+    rtgi_face_normal_history = daxa::TaskImageAdapter{{.name = "rtgi_face_normal_history"}};
+    rtgi_diffuse_history = daxa::TaskImageAdapter{{.name = "rtgi_diffuse_history"}};
+    rtgi_diffuse2_history = daxa::TaskImageAdapter{{.name = "rtgi_diffuse2_history"}};
+    rtgi_statistics_history = daxa::TaskImageAdapter{{.name = "rtgi_statistics_history"}};
 
-    rtgi_full_samplecount_history = daxa::TaskImage{{.name = "rtgi_full_samplecount_history"}};
-    rtgi_full_face_normal_history = daxa::TaskImage{{.name = "rtgi_full_face_normal_history"}};
-    rtgi_full_color_history = daxa::TaskImage{{.name = "rtgi_full_color_history"}};
-    rtgi_full_statistics_history = daxa::TaskImage{{.name = "rtgi_full_statistics_history"}};
+    rtgi_full_samplecount_history = daxa::TaskImageAdapter{{.name = "rtgi_full_samplecount_history"}};
+    rtgi_full_face_normal_history = daxa::TaskImageAdapter{{.name = "rtgi_full_face_normal_history"}};
+    rtgi_full_color_history = daxa::TaskImageAdapter{{.name = "rtgi_full_color_history"}};
+    rtgi_full_statistics_history = daxa::TaskImageAdapter{{.name = "rtgi_full_statistics_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -318,7 +318,6 @@ void Renderer::compile_pipelines()
         {pgi_update_probes_compile_info()},
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
-        {pgi_upscale_screen_irradiance_compute_compile_info()},
         {cull_meshlets_compute_pipeline_compile_info()},
         {IndirectMemsetBufferTask::pipeline_compile_info},
         {analyze_visbufer_pipeline_compile_info()},
@@ -501,7 +500,7 @@ void Renderer::clear_select_buffers()
     using namespace daxa;
     TaskGraph tg{{
         .device = this->gpu_context->device,
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
+        .additional_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_STORAGE,
         .name = "clear task list",
     }};
     tg.register_buffer(meshlet_instances);
@@ -549,7 +548,7 @@ auto Renderer::create_sky_lut_task_graph() -> daxa::TaskGraph
 {
     daxa::TaskGraph tg{{
         .device = gpu_context->device,
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
+        .additional_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .name = "Calculate sky luts task graph",
     }};
     // TODO:    Do not use globals here, make a new buffer.
@@ -601,7 +600,7 @@ auto Renderer::create_debug_task_graph() -> daxa::TaskGraph
         .use_split_barriers = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
+        .additional_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .name = "Timberdoodle main TaskGraph",
     }};
     tg.register_image(swapchain_image);
@@ -636,7 +635,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .use_split_barriers = false,
         .staging_memory_pool_size = 2'097'152, // 2MiB.
         // Extra flags are required for tg debug inspector:
-        .additional_transient_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
+        .additional_image_usage_flags = daxa::ImageUsageFlagBits::TRANSFER_SRC,
         .name = "Timberdoodle main TaskGraph",
     }};
     tg.register_image(swapchain_image);
@@ -683,7 +682,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS ||
         render_context->render_data.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS)
     {
-        clocks_image = tg.create_transient_image({
+        clocks_image = tg.create_task_image({
             .format = daxa::Format::R32_UINT,
             .size = {
                 render_context->render_data.settings.render_target_size.x,
@@ -694,7 +693,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         });
     }
 
-    auto debug_image = tg.create_transient_image({
+    auto debug_image = tg.create_task_image({
         .format = daxa::Format::R32G32B32A32_SFLOAT,
         .size = {
             render_context->render_data.settings.render_target_size.x,
@@ -729,12 +728,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     /// === Misc Tasks Begin ===
     ///
 
-    auto sky = tg.create_transient_image({
+    auto sky = tg.create_task_image({
         .format = daxa::Format::R16G16B16A16_SFLOAT,
         .size = {render_context->render_data.sky_settings.sky_dimensions.x, render_context->render_data.sky_settings.sky_dimensions.y, 1},
         .name = "sky look up table",
     });
-    auto luminance_histogram = tg.create_transient_buffer({sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), "luminance_histogram"});
+    auto luminance_histogram = tg.create_task_buffer({ .size = sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), .name = "luminance_histogram"});
 
     auto misc_tasks_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
     auto tlas_build_task_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
@@ -769,7 +768,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .uses_queue(misc_tasks_queue)
             .executes(cull_lights_task, render_context.get()));
 
-    auto scene_main_tlas = tg.create_transient_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
+    auto scene_main_tlas = tg.create_task_tlas({.size = 1u << 25u /* 32 Mib */, .name = "scene_main_tlas"});
     tg.add_task(daxa::Task::RayTracing("build scene tlas")
             .acceleration_structure_build.writes(scene_main_tlas)
             .uses_queue(tlas_build_task_queue)
@@ -792,12 +791,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_depth = visbuffer_ret.view_camera_depth;
     daxa::TaskImageView overdraw_image = visbuffer_ret.view_camera_overdraw;
 
-    daxa::TaskImageView main_camera_face_normal_image = tg.create_transient_image({
+    daxa::TaskImageView main_camera_face_normal_image = tg.create_task_image({
         .format = GBUFFER_NORMAL_FORMAT,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "main_camera_face_normal_image",
     });
-    daxa::TaskImageView main_camera_detail_normal_image = tg.create_transient_image({
+    daxa::TaskImageView main_camera_detail_normal_image = tg.create_task_image({
         .format = GBUFFER_NORMAL_FORMAT,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "main_camera_detail_normal_image",
@@ -805,12 +804,12 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView view_camera_face_normal_image = main_camera_face_normal_image;
     daxa::TaskImageView view_camera_detail_normal_image = main_camera_detail_normal_image;
 
-    daxa::TaskImageView main_camera_half_res_face_normal_image = tg.create_transient_image({
+    daxa::TaskImageView main_camera_half_res_face_normal_image = tg.create_task_image({
         .format = GBUFFER_NORMAL_FORMAT,
         .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
         .name = "main_camera_half_res_face_normal_image",
     });
-    daxa::TaskImageView main_camera_half_res_depth_image = tg.create_transient_image({
+    daxa::TaskImageView main_camera_half_res_depth_image = tg.create_task_image({
         .format = daxa::Format::R32_SFLOAT,
         .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
         .name = "main_camera_half_res_depth_image",
@@ -840,22 +839,22 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     // For example shade opaque needs view camera information while VSMs always need the main cameras perspective for generation.
     if (render_context->render_data.settings.draw_from_observer)
     {
-        view_camera_face_normal_image = tg.create_transient_image({
+        view_camera_face_normal_image = tg.create_task_image({
             .format = GBUFFER_NORMAL_FORMAT,
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_geo_normal_image",
         });
-        view_camera_detail_normal_image = tg.create_transient_image({
+        view_camera_detail_normal_image = tg.create_task_image({
             .format = GBUFFER_NORMAL_FORMAT,
             .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
             .name = "view_camera_detail_normal_image",
         });
-        view_camera_half_res_face_normal_image = tg.create_transient_image({
+        view_camera_half_res_face_normal_image = tg.create_task_image({
             .format = GBUFFER_NORMAL_FORMAT,
             .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
             .name = "view_camera_half_res_face_normal_image",
         });
-        view_camera_half_res_depth_image = tg.create_transient_image({
+        view_camera_half_res_depth_image = tg.create_task_image({
             .format = daxa::Format::R32_SFLOAT,
             .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
             .name = "view_camera_half_res_depth_image",
@@ -886,13 +885,13 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView clouds_raymarch_result;
     if (render_context->render_data.volumetric_settings.enable)
     {
-        clouds_raymarch_result = tg.create_transient_image({
+        clouds_raymarch_result = tg.create_task_image({
             .format = daxa::Format::R16G16B16A16_SFLOAT,
             .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
             .name = "clouds_raymarched_result_image",
         });
 
-        // daxa::TaskImageView clouds_volumetric_shadow_map = tg.create_transient_image({
+        // daxa::TaskImageView clouds_volumetric_shadow_map = tg.create_task_image({
         //     .dimensions = 3,
         //     .format = daxa::Format::R16G16_SFLOAT,
         //     .size = {256, 256, 32},
@@ -961,7 +960,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             .mips(0, s_cast<u32>(std::log2(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION)) + 1)
             .layers(0, (6 * MAX_POINT_LIGHTS) + MAX_SPOT_LIGHTS);
 
-    auto color_image = tg.create_transient_image({
+    auto color_image = tg.create_task_image({
         .format = daxa::Format::B10G11R11_UFLOAT_PACK32,
         .size = {
             render_context->render_data.settings.render_target_size.x,
@@ -1019,7 +1018,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     daxa::TaskImageView ao_image = daxa::NullTaskImage;
     if (render_context->render_data.ao_settings.mode == AMBIENT_OCCLUSION_MODE_RTAO)
     {
-        auto ao_raw_image_info = daxa::TaskTransientImageInfo{
+        auto ao_raw_image_info = daxa::TaskImageInfo{
             .format = daxa::Format::R16G16B16A16_SFLOAT,
             .size = {
                 render_context->render_data.settings.render_target_size.x,
@@ -1028,10 +1027,10 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             },
             .name = "ao_raw_image",
         };
-        auto ao_raw_image = tg.create_transient_image(ao_raw_image_info);
+        auto ao_raw_image = tg.create_task_image(ao_raw_image_info);
         auto ao_image_info = ao_raw_image_info;
         ao_image_info.name = "ao_image";
-        ao_image = tg.create_transient_image(ao_image_info);
+        ao_image = tg.create_task_image(ao_image_info);
         tg.clear_image({ao_raw_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.clear_image({ao_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
         tg.add_task(RayTraceAmbientOcclusionTask{
@@ -1123,7 +1122,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         rtgi_per_pixel_diffuse = rtgi_result.opaque_diffuse;
     }
 
-    auto selected_mark_image = tg.create_transient_image({
+    auto selected_mark_image = tg.create_task_image({
         .format = daxa::Format::R8_UNORM,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "selected mark image",
@@ -1132,7 +1131,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     if (render_context->render_data.settings.enable_reference_path_trace)
     {
         // TODO: Precompute once, and save
-        auto brdf_fg_lut = tg.create_transient_image({
+        auto brdf_fg_lut = tg.create_task_image({
             .format = daxa::Format::R16G16B16A16_SFLOAT,
             .size = {64, 64, 1},
             .name = "brdf_fg_lut",
@@ -1284,7 +1283,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         },
         .render_context = render_context.get(),
     });
-    daxa::TaskImageView debug_draw_depth = tg.create_transient_image({
+    daxa::TaskImageView debug_draw_depth = tg.create_task_image({
         .format = daxa::Format::D32_SFLOAT,
         .size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1},
         .name = "debug depth",

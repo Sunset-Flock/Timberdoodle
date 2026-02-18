@@ -302,7 +302,7 @@ inline void task_cull_and_draw_visbuffer(TaskCullAndDrawVisbufferInfo const & in
                 })
                 .executes(cull_meshlets_compute_callback, info.render_context, info.first_pass));
 
-        auto draw_commands_array = info.tg.create_transient_buffer({
+        auto draw_commands_array = info.tg.create_task_buffer({
             .size = 2 * static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct))),
             .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
         });
@@ -375,7 +375,7 @@ struct TaskDrawVisbufferInfo
 
 inline void task_draw_visbuffer(TaskDrawVisbufferInfo const & info)
 {
-    auto draw_commands_array = info.tg.create_transient_buffer({
+    auto draw_commands_array = info.tg.create_task_buffer({
         .size = 2 * static_cast<u32>(std::max(sizeof(DrawIndirectStruct), sizeof(DispatchIndirectStruct))),
         .name = std::string("draw visbuffer command buffer array") + info.render_context->gpu_context->dummy_string(),
     });

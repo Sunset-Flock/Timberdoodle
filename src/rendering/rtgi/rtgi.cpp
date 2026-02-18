@@ -86,9 +86,9 @@ inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext 
 /// === Transient Images ===
 ///
 
-auto rtgi_create_common_transient_image_info(RenderContext * render_context, daxa::Format format, daxa::u32 size_div, std::string_view name) -> daxa::TaskTransientImageInfo
+auto rtgi_create_common_transient_image_info(RenderContext * render_context, daxa::Format format, daxa::u32 size_div, std::string_view name) -> daxa::TaskImageInfo
 {
-    return daxa::TaskTransientImageInfo{
+    return daxa::TaskImageInfo{
         .format = format,
         .size = {
             render_context->render_data.settings.render_target_size.x / size_div,
@@ -102,34 +102,34 @@ auto rtgi_create_common_transient_image_info(RenderContext * render_context, dax
 // rgb = diffuse radiance, a = ray travel distance
 auto rtgi_create_trace_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
 {
-    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
 }
 
 auto rtgi_create_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
 {
-    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
 }
 
 auto rtgi_create_diffuse2_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
 {
-    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16_SFLOAT, scale_div, name));
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16_SFLOAT, scale_div, name));
 }
 
 auto rtgi_create_upscaled_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name)
 {
-    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, 1, name));
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, 1, name));
 }
 
 auto rtgi_create_sample_count_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
 {
-    return tg.create_transient_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16_SFLOAT, scale_div, name));
+    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16_SFLOAT, scale_div, name));
 }
 
 auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 {
     auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
     auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
-    auto ray_length_image = info.tg.create_transient_image({
+    auto ray_length_image = info.tg.create_task_image({
         .format = daxa::Format::R8_UNORM,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
@@ -170,7 +170,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
     auto pre_filtered_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_filtered_diffuse_image");
     auto pre_filtered_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_filtered_diffuse2_image");
-    auto firefly_factor_image = info.tg.create_transient_image({
+    auto firefly_factor_image = info.tg.create_task_image({
         .format = daxa::Format::R8_UNORM,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
@@ -179,7 +179,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "firefly_factor_image",
     });    
-    auto spatial_std_dev_image = info.tg.create_transient_image({
+    auto spatial_std_dev_image = info.tg.create_task_image({
         .format = daxa::Format::R16_SFLOAT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
@@ -188,7 +188,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "spatial_std_dev_image",
     });
-    auto footprint_quality_image = info.tg.create_transient_image({
+    auto footprint_quality_image = info.tg.create_task_image({
         .format = daxa::Format::R8_UNORM,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
@@ -245,7 +245,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 
     auto accumulated_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "accumulated_diffuse_image");
     auto accumulated_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "accumulated_diffuse2_image");
-    auto accumulated_statistics_image = info.tg.create_transient_image({
+    auto accumulated_statistics_image = info.tg.create_task_image({
         .format = daxa::Format::R32_UINT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
@@ -324,7 +324,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     auto full_samplecount_image = rtgi_create_sample_count_image(info.tg, &info.render_context, "full_samplecount_image", 1);
     auto resolved_per_pixel_diffuse = rtgi_create_upscaled_diffuse_image(info.tg, &info.render_context, "resolved_per_pixel_diffuse");
 
-    auto accumualted_color_image = info.tg.create_transient_image({
+    auto accumualted_color_image = info.tg.create_task_image({
         .format = daxa::Format::R32G32_UINT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x,
@@ -333,7 +333,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "accumualted_color_image",
     });
-    auto accumulated_full_statistics_image = info.tg.create_transient_image({
+    auto accumulated_full_statistics_image = info.tg.create_task_image({
         .format = daxa::Format::R32_UINT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x,

@@ -82,10 +82,14 @@ func evaluate_material<ShadingQuality SHADING_QUALITY>(RenderGlobalData* globals
                 ).rgb;
                 normal_map_value = raw * 2.0f - 1.0f;
             }
-            if (dot(normal_map_value, -1) < 0.9999)
+            if (normal_map_value.z > 0.0f)
             {
                 const float3x3 tbn = transpose(float3x3(tri_point.world_tangent, tri_point.world_bitangent, tri_point.world_normal));
-                ret.normal = mul(tbn, normal_map_value);
+                ret.normal = mul(tbn, normalize(normal_map_value));
+            }
+            else
+            {
+                ret.normal = tri_point.world_normal;
             }
         }
 
