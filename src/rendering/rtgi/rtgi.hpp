@@ -6,60 +6,6 @@
 #include "../scene_renderer_context.hpp"
 
 /// 
-/// Current denoiser strategy:
-/// * limit to indirect diffuse
-/// * stick to low frequency detail, only increase detail when absolutely cheap, for example low spatiotemporal variance
-/// * run everything at half res, take advantage of upscaling later
-/// * ultra high performance, < 0.5ms for denoising + upscaling
-/// 
-/// Future denoiser design:
-/// 1. Prefilter
-///    * calculate geometric properties of pixel in 5x5 area: foreground and background footprint quality
-///    * calculate spatial variance of raw signal in 5x5 area.
-///    * calculate geometric brightness mean and clamp raw values against it (firefly filtering)
-///      * reduce clamp ceiling based on footprint quality
-///      * writeout the firefly energy factor to an image, used later for firefly energy compensation
-/// 2. stochastic variance guided preblur
-///    * use the downsampled 2x2 per hit for samples far away from center (> 2px distance to center)
-///    * taking advantage of temporal integration later (filter can be really crappy)
-///    * ultra high performance filter, aim for < 50us
-///    * anisotropic with min angle, simple edge stopping via plane distance metric
-///    * random disc sampling, full weight for every sample (importance sample disc)
-///    * radius scaled based on spatial variance estimated in AnalyzePrefilter 
-///    * samples weighted by firefly factor, this recovers clamped firefly energy
-/// 3. temporal integration
-///    * reproject previous frame samplecount, radiance, radiance moments
-///    * temporally accumulate fast temporal history
-///      * massive advantage here compared to normal denoisers
-///      * already firefly filtered
-///      * already spatially integrated in stochastic preblur
-///      * fast history is much less noisy than usually because of this, can be much more reactive  
-///    * based on fast history, temporally firefly filter result
-///    * based on fast history, decrease history confidence (large mean difference) or increase it (large temporal variance)
-/// === At this point the image is already quite denoised but there are a bunch of ugly issues:
-/// ===     * the stochastic filter is no where near good enough to get a final temporally stable result 
-/// ===     * movement caused permanent shimmer on edges, because there will always be bilinear samples that are invalid in the last frame on edges
-/// ===     * disocclusions remain quite noisy for a few frames
-/// ===     * preblur, due to its nature, is fixed size and does not adapt to spatial variance at all
-/// ===     * the following passes address these issues
-/// 4. smooth, fixed width post blur
-///     * width limited to small range
-///     * smooths over disocclusions as well as permanent shimmer edges completely
-///     * using analyze pass data(thinness and claustrophobia), aggressively increases the geometric acceptance threshold for blending samples
-///         * some thin geometry should just be blurred into oblivion, it will never truly converge temporally
-///     * uses weighted sampling, as it has to be very smooth
-///     * never needs to be very wide, the preblur already takes care of getting good range if needed
-/// 5. upscaling
-///     * 3x3 bilateral tent weighted upscaler
-///     * effectively this is another blur pass
-///     * by far most expensive pass, has to be kept as lean as possible
-///     * performs sh resolve post upscale for maximum clarity
-///     * initially attempted to perform temporal integration here but this has big disadvantages:
-///         * full res cost of sh reprojection way too big
-///         * reprojecting the resolved color causes blurr in movement due to bilinear reprojection
-///         * bicubic reprojection is far to expensive here as well
-///         * permanent dissocclusion shimmer never fixed as its the last pass, no spatial follows.
-///
 /// Typical denoisers do one of these three things:
 ///     1. spatial -> temporal (simplest to get good results with strong caveats (disocclusion shimmer etc))
 ///         * uncommon, only used fast paced games (doom)
@@ -96,6 +42,7 @@
 ///         * recurrent nature makes it VERY blurry
 ///         * okish stable in motion as the spatial filter following the temporal have blurred history but the spatial filter is noisy
 ///         * resolve is VERY ugly in my opinion, it overblurrs A LOT, not acceptable
+///
 /// Tidos denoiser approach:
 ///     * fast spatial -> temporal -> cleanup spatial
 ///         * combines advantages of both the first two approaches
@@ -105,6 +52,7 @@
 ///         * post filter allows for temporarily altering the result without polluting the temporal history 
 ///             * for example: go from gauss to box blur for stability in a few frames after disocclusion
 ///         * naturally integrates with the upscale later, as upscaling really is also a spatial blur filter.
+///
 
 
 ///
