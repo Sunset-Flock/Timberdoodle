@@ -252,6 +252,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             info.render_context.render_data.settings.render_target_size.y / 2,
             1,
         },
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
         .name = "accumulated_statistics_image",
     });
     info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()

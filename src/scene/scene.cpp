@@ -35,8 +35,8 @@ Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     _gpu_scratch_buffer = tido::make_task_buffer(_device, _gpu_scratch_buffer_size, "_gpu_scratch_buffer");
     _gpu_mesh_acceleration_structure_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_mesh_acceleration_structure_build_scratch_buffer_size, "_gpu_mesh_acceleration_structure_build_scratch_buffer");
     _gpu_tlas_build_scratch_buffer = tido::make_task_buffer(_device, _gpu_tlas_build_scratch_buffer_size, "_gpu_tlas_build_scratch_buffer");
-    mesh_instances_buffer = daxa::TaskBufferAdapter{daxa::TaskBufferAdapterInfo{.name = "mesh_instances"}};
-    cloud_volume_instances_buffer = daxa::TaskBufferAdapter{daxa::TaskBufferAdapterInfo{.name = "cloud_volume_instances"}};
+    mesh_instances_buffer = daxa::ExternalTaskBuffer{daxa::ExternalTaskBufferInfo{.name = "mesh_instances"}};
+    cloud_volume_instances_buffer = daxa::ExternalTaskBuffer{daxa::ExternalTaskBufferInfo{.name = "cloud_volume_instances"}};
     _scene_as_indirections = tido::make_task_buffer(_device, _indirections_count, "_scene_as_indirections", daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE);
 }
 

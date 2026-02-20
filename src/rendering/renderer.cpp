@@ -57,7 +57,7 @@ inline auto create_task_buffer(GPUContext * gpu_context, auto size, auto task_bu
     fcont = {[gpu_context](daxa::TaskInterface ti) {
     }};
 
-    return daxa::TaskBufferAdapter{{
+    return daxa::ExternalTaskBuffer{{
         .buffer = gpu_context->device.create_buffer({
             .size = static_cast<u32>(size),
             .name = buf_name,
@@ -87,25 +87,25 @@ Renderer::Renderer(
         exposure_state,
     };
 
-    swapchain_image = daxa::TaskImageAdapter{{.is_swapchain_image = true, .name = "swapchain_image"}};
-    transmittance = daxa::TaskImageAdapter{{.name = "transmittance"}};
-    multiscattering = daxa::TaskImageAdapter{{.name = "multiscattering"}};
-    sky_ibl_cube = daxa::TaskImageAdapter{{.name = "sky ibl cube"}};
-    depth_history = daxa::TaskImageAdapter{{.name = "depth_history"}};
-    path_trace_history = daxa::TaskImageAdapter{{.name = "path_trace_history"}};
-    normal_history = daxa::TaskImageAdapter{{.name = "normal_history"}};
-    rtao_history = daxa::TaskImageAdapter{{.name = "rtao_history"}};
-    rtgi_depth_history = daxa::TaskImageAdapter{{.name = "rtgi_depth_history"}};
-    rtgi_samplecnt_history = daxa::TaskImageAdapter{{.name = "rtgi_samplecnt_history"}};
-    rtgi_face_normal_history = daxa::TaskImageAdapter{{.name = "rtgi_face_normal_history"}};
-    rtgi_diffuse_history = daxa::TaskImageAdapter{{.name = "rtgi_diffuse_history"}};
-    rtgi_diffuse2_history = daxa::TaskImageAdapter{{.name = "rtgi_diffuse2_history"}};
-    rtgi_statistics_history = daxa::TaskImageAdapter{{.name = "rtgi_statistics_history"}};
+    swapchain_image = daxa::ExternalTaskImage{{.is_swapchain_image = true, .name = "swapchain_image"}};
+    transmittance = daxa::ExternalTaskImage{{.name = "transmittance"}};
+    multiscattering = daxa::ExternalTaskImage{{.name = "multiscattering"}};
+    sky_ibl_cube = daxa::ExternalTaskImage{{.name = "sky ibl cube"}};
+    depth_history = daxa::ExternalTaskImage{{.name = "depth_history"}};
+    path_trace_history = daxa::ExternalTaskImage{{.name = "path_trace_history"}};
+    normal_history = daxa::ExternalTaskImage{{.name = "normal_history"}};
+    rtao_history = daxa::ExternalTaskImage{{.name = "rtao_history"}};
+    rtgi_depth_history = daxa::ExternalTaskImage{{.name = "rtgi_depth_history"}};
+    rtgi_samplecnt_history = daxa::ExternalTaskImage{{.name = "rtgi_samplecnt_history"}};
+    rtgi_face_normal_history = daxa::ExternalTaskImage{{.name = "rtgi_face_normal_history"}};
+    rtgi_diffuse_history = daxa::ExternalTaskImage{{.name = "rtgi_diffuse_history"}};
+    rtgi_diffuse2_history = daxa::ExternalTaskImage{{.name = "rtgi_diffuse2_history"}};
+    rtgi_statistics_history = daxa::ExternalTaskImage{{.name = "rtgi_statistics_history"}};
 
-    rtgi_full_samplecount_history = daxa::TaskImageAdapter{{.name = "rtgi_full_samplecount_history"}};
-    rtgi_full_face_normal_history = daxa::TaskImageAdapter{{.name = "rtgi_full_face_normal_history"}};
-    rtgi_full_color_history = daxa::TaskImageAdapter{{.name = "rtgi_full_color_history"}};
-    rtgi_full_statistics_history = daxa::TaskImageAdapter{{.name = "rtgi_full_statistics_history"}};
+    rtgi_full_samplecount_history = daxa::ExternalTaskImage{{.name = "rtgi_full_samplecount_history"}};
+    rtgi_full_face_normal_history = daxa::ExternalTaskImage{{.name = "rtgi_full_face_normal_history"}};
+    rtgi_full_color_history = daxa::ExternalTaskImage{{.name = "rtgi_full_color_history"}};
+    rtgi_full_statistics_history = daxa::ExternalTaskImage{{.name = "rtgi_full_statistics_history"}};
 
     vsm_state.initialize_persitent_state(gpu_context);
     pgi_state.initialize(gpu_context->device);
@@ -145,7 +145,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R32_UINT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "normal_history",
             },
             normal_history,
@@ -154,7 +153,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R16G16B16A16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "rtao_history",
             },
             rtao_history,
@@ -163,7 +161,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R16_SFLOAT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "rtgi_full_samplecount_history",
             },
             rtgi_full_samplecount_history,
@@ -172,7 +169,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R32_UINT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "rtgi_full_face_normal_history",
             },
             rtgi_full_face_normal_history,
@@ -181,7 +177,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R32G32_UINT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "rtgi_full_color_history",
             },
             rtgi_full_color_history,
@@ -190,7 +185,6 @@ Renderer::Renderer(
             daxa::ImageInfo{
                 .format = daxa::Format::R32_UINT,
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::TRANSFER_DST,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "rtgi_full_statistics_history",
             },
             rtgi_full_statistics_history,

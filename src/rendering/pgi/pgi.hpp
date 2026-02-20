@@ -19,13 +19,13 @@ struct PGIState
     daxa_f32vec3* debug_probe_mesh_vertex_positions_addr = {};
 
     // TODO(pahrens): rename to irradiance
-    daxa::TaskImageAdapter probe_color = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe radiance texture"});
+    daxa::ExternalTaskImage probe_color = daxa::ExternalTaskImage(daxa::ExternalTaskImageInfo{.name = "default init pgi probe radiance texture"});
     daxa::TaskImageView probe_color_view = daxa::NullTaskImage;
-    daxa::TaskImageAdapter probe_visibility = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe visibility texture"});
+    daxa::ExternalTaskImage probe_visibility = daxa::ExternalTaskImage(daxa::ExternalTaskImageInfo{.name = "default init pgi probe visibility texture"});
     daxa::TaskImageView probe_visibility_view = daxa::NullTaskImage;
-    daxa::TaskImageAdapter probe_info = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi probe info texture"});
+    daxa::ExternalTaskImage probe_info = daxa::ExternalTaskImage(daxa::ExternalTaskImageInfo{.name = "default init pgi probe info texture"});
     daxa::TaskImageView probe_info_view = daxa::NullTaskImage;
-    daxa::TaskImageAdapter cell_requests = daxa::TaskImageAdapter(daxa::TaskImageAdapterInfo{.name = "default init pgi cell requests texture"});
+    daxa::ExternalTaskImage cell_requests = daxa::ExternalTaskImage(daxa::ExternalTaskImageInfo{.name = "default init pgi cell requests texture"});
     daxa::TaskImageView cell_requests_view = daxa::NullTaskImage;
 
     void initialize(daxa::Device& device);

@@ -223,15 +223,15 @@ struct Scene
      * - TODO: Make the task buffers real buffers grow with time, unfix their size!
      * - TODO: Combine all into one task buffer when task graph gets array uses.
      */
-    daxa::TaskBufferAdapter _gpu_entity_meta = {};
-    daxa::TaskBufferAdapter _gpu_entity_transforms = {};
-    daxa::TaskBufferAdapter _gpu_entity_combined_transforms = {};
+    daxa::ExternalTaskBuffer _gpu_entity_meta = {};
+    daxa::ExternalTaskBuffer _gpu_entity_transforms = {};
+    daxa::ExternalTaskBuffer _gpu_entity_combined_transforms = {};
     // UNUSED, but later we wanna do
     // the compined transform calculation on the gpu!
-    daxa::TaskBufferAdapter _gpu_entity_parents = {};
-    daxa::TaskBufferAdapter _gpu_entity_mesh_groups = {};
-    daxa::TaskBufferAdapter _gpu_point_lights = {};
-    daxa::TaskBufferAdapter _gpu_spot_lights = {};
+    daxa::ExternalTaskBuffer _gpu_entity_parents = {};
+    daxa::ExternalTaskBuffer _gpu_entity_mesh_groups = {};
+    daxa::ExternalTaskBuffer _gpu_point_lights = {};
+    daxa::ExternalTaskBuffer _gpu_spot_lights = {};
 
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
@@ -257,14 +257,14 @@ struct Scene
      * - the cpu and gpu versions of the manifest will be different to reduce indirections on the gpu
      * - TODO: Make the task buffers real buffers grow with time, unfix their size!
      * */
-    daxa::TaskBufferAdapter _gpu_mesh_manifest = {};
-    daxa::TaskBufferAdapter _gpu_mesh_lod_group_manifest = {};
-    daxa::TaskBufferAdapter _gpu_mesh_group_manifest = {};
+    daxa::ExternalTaskBuffer _gpu_mesh_manifest = {};
+    daxa::ExternalTaskBuffer _gpu_mesh_lod_group_manifest = {};
+    daxa::ExternalTaskBuffer _gpu_mesh_group_manifest = {};
     daxa::BufferId _gpu_mesh_group_indices_array_buffer = {};
-    daxa::TaskBufferAdapter _gpu_material_manifest = {};
-    daxa::TaskBufferAdapter _gpu_scratch_buffer = {};
-    daxa::TaskBufferAdapter _gpu_mesh_acceleration_structure_build_scratch_buffer = {};
-    daxa::TaskBufferAdapter _gpu_tlas_build_scratch_buffer = {};
+    daxa::ExternalTaskBuffer _gpu_material_manifest = {};
+    daxa::ExternalTaskBuffer _gpu_scratch_buffer = {};
+    daxa::ExternalTaskBuffer _gpu_mesh_acceleration_structure_build_scratch_buffer = {};
+    daxa::ExternalTaskBuffer _gpu_tlas_build_scratch_buffer = {};
     static constexpr u32 _gpu_scratch_buffer_size = 1u << 24u;
     static constexpr u32 _gpu_mesh_acceleration_structure_build_scratch_buffer_size = 1u << 29u;
     static constexpr u32 _gpu_tlas_build_scratch_buffer_size = 1u << 24u;
@@ -290,7 +290,7 @@ struct Scene
 
 
     daxa::BlasId _scene_blas = {};
-    daxa::TaskBufferAdapter _scene_as_indirections = {};
+    daxa::ExternalTaskBuffer _scene_as_indirections = {};
 
     daxa::Device _device = {};
     GPUContext * gpu_context = {};
@@ -343,13 +343,13 @@ struct Scene
     // Populated by process entities every frame
     CPUMeshInstanceCounts cpu_mesh_instance_counts = {};                            // Useful for cpu driven dispatches and draws. Only really need counts on cpu.
     CPUMeshInstances current_frame_mesh_instances = {};
-    daxa::TaskBufferAdapter mesh_instances_buffer = {};
+    daxa::ExternalTaskBuffer mesh_instances_buffer = {};
 
     auto process_entities(RenderGlobalData & render_data) -> CPUSceneInstances;
     void write_gpu_mesh_instances_buffer(CPUMeshInstances const& mesh_instances);
 
     CPUCloudVolumeInstaces current_frame_cloud_volume_instances = {};
-    daxa::TaskBufferAdapter cloud_volume_instances_buffer = {};
+    daxa::ExternalTaskBuffer cloud_volume_instances_buffer = {};
     void write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cloud_volume_instances);
 
     void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);

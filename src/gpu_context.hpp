@@ -39,9 +39,9 @@ struct ShaderDebugDrawContext
     i32 detector_window_size = 15;
     i32 old_detector_rt_size = 0;
 
-    daxa::TaskImageAdapter vsm_debug_meta_memory_table = {};
-    daxa::TaskImageAdapter vsm_recreated_shadowmap_memory_table = {};
-    daxa::TaskImageAdapter vsm_debug_page_table = {};
+    daxa::ExternalTaskImage vsm_debug_meta_memory_table = {};
+    daxa::ExternalTaskImage vsm_recreated_shadowmap_memory_table = {};
+    daxa::ExternalTaskImage vsm_debug_page_table = {};
     daxa::BufferId readback_queue = {};
 
     u32 frame_index = 0;
@@ -61,7 +61,7 @@ struct ShaderDebugDrawContext
             .name = "shader debug buffer",
         });
 
-        vsm_debug_page_table = daxa::TaskImageAdapter({
+        vsm_debug_page_table = daxa::ExternalTaskImage({
             .image = device.create_image({
                 .format = daxa::Format::R8G8B8A8_UNORM,
                 .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
@@ -75,7 +75,7 @@ struct ShaderDebugDrawContext
             .name = "vsm debug page table",
         });
 
-        vsm_debug_meta_memory_table = daxa::TaskImageAdapter({
+        vsm_debug_meta_memory_table = daxa::ExternalTaskImage({
             .image = device.create_image({
                 .format = daxa::Format::R8G8B8A8_UNORM,
                 .size = {VSM_META_MEMORY_TABLE_RESOLUTION, VSM_META_MEMORY_TABLE_RESOLUTION, 1},
@@ -89,7 +89,7 @@ struct ShaderDebugDrawContext
             .name = "vsm debug meta memory table",
         });
 
-        vsm_recreated_shadowmap_memory_table = daxa::TaskImageAdapter({
+        vsm_recreated_shadowmap_memory_table = daxa::ExternalTaskImage({
             .image = device.create_image({
                 .format = daxa::Format::R8G8B8A8_UNORM,
                 .size = {VSM_DIRECTIONAL_TEXTURE_RESOLUTION, VSM_DIRECTIONAL_TEXTURE_RESOLUTION, 1},

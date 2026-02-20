@@ -4,7 +4,7 @@
 
 namespace tido
 {
-    auto make_task_buffer(daxa::Device & device, u32 size, std::string_view name, daxa::MemoryFlags flags = {}) -> daxa::TaskBufferAdapter;
+    auto make_task_buffer(daxa::Device & device, u32 size, std::string_view name, daxa::MemoryFlags flags = {}) -> daxa::ExternalTaskBuffer;
 
     auto compute_shader_info(char const * ident) -> daxa::ComputePipelineCompileInfo2;
 

@@ -2,9 +2,9 @@
 
 namespace tido
 {
-    auto tido::make_task_buffer(daxa::Device & device, u32 size, std::string_view name, daxa::MemoryFlags flags) -> daxa::TaskBufferAdapter
+    auto tido::make_task_buffer(daxa::Device & device, u32 size, std::string_view name, daxa::MemoryFlags flags) -> daxa::ExternalTaskBuffer
     {
-        return daxa::TaskBufferAdapter{{
+        return daxa::ExternalTaskBuffer{{
             .buffer = device.create_buffer(daxa::BufferInfo{
                 .size = size,
                 .memory_flags = flags,

@@ -41,38 +41,38 @@ struct Renderer
     daxa::ImageId stbn2d = {};
     daxa::ImageId stbnCosDir = {};
 
-    daxa::TaskBufferAdapter meshlet_instances = {};
-    daxa::TaskBufferAdapter visible_meshlet_instances = {};
-    daxa::TaskBufferAdapter visible_mesh_instances = {};
-    daxa::TaskBufferAdapter exposure_state = {};
+    daxa::ExternalTaskBuffer meshlet_instances = {};
+    daxa::ExternalTaskBuffer visible_meshlet_instances = {};
+    daxa::ExternalTaskBuffer visible_mesh_instances = {};
+    daxa::ExternalTaskBuffer exposure_state = {};
     daxa::BufferId general_readback_buffer = {};
 
-    std::vector<daxa::TaskBufferAdapter> buffers = {};
+    std::vector<daxa::ExternalTaskBuffer> buffers = {};
     // Images:
-    daxa::TaskImageAdapter transmittance = {};
-    daxa::TaskImageAdapter multiscattering = {};
-    daxa::TaskImageAdapter sky_ibl_cube = {};
+    daxa::ExternalTaskImage transmittance = {};
+    daxa::ExternalTaskImage multiscattering = {};
+    daxa::ExternalTaskImage sky_ibl_cube = {};
 
     // Render Targets:
-    daxa::TaskImageAdapter swapchain_image = {};
-    daxa::TaskImageAdapter depth_history = {};
-    daxa::TaskImageAdapter path_trace_history = {};
-    daxa::TaskImageAdapter normal_history = {};
-    daxa::TaskImageAdapter rtao_history = {};
-    daxa::TaskImageAdapter rtgi_depth_history = {};
-    daxa::TaskImageAdapter rtgi_face_normal_history = {};
-    daxa::TaskImageAdapter rtgi_samplecnt_history = {};
-    daxa::TaskImageAdapter rtgi_diffuse_history = {};
-    daxa::TaskImageAdapter rtgi_diffuse2_history = {};
-    daxa::TaskImageAdapter rtgi_statistics_history = {};
+    daxa::ExternalTaskImage swapchain_image = {};
+    daxa::ExternalTaskImage depth_history = {};
+    daxa::ExternalTaskImage path_trace_history = {};
+    daxa::ExternalTaskImage normal_history = {};
+    daxa::ExternalTaskImage rtao_history = {};
+    daxa::ExternalTaskImage rtgi_depth_history = {};
+    daxa::ExternalTaskImage rtgi_face_normal_history = {};
+    daxa::ExternalTaskImage rtgi_samplecnt_history = {};
+    daxa::ExternalTaskImage rtgi_diffuse_history = {};
+    daxa::ExternalTaskImage rtgi_diffuse2_history = {};
+    daxa::ExternalTaskImage rtgi_statistics_history = {};
 
-    daxa::TaskImageAdapter rtgi_full_samplecount_history = {};
-    daxa::TaskImageAdapter rtgi_full_face_normal_history = {};
-    daxa::TaskImageAdapter rtgi_full_color_history = {};
-    daxa::TaskImageAdapter rtgi_full_statistics_history = {};
+    daxa::ExternalTaskImage rtgi_full_samplecount_history = {};
+    daxa::ExternalTaskImage rtgi_full_face_normal_history = {};
+    daxa::ExternalTaskImage rtgi_full_color_history = {};
+    daxa::ExternalTaskImage rtgi_full_statistics_history = {};
 
-    std::vector<daxa::TaskImageAdapter> images = {};
-    std::vector<std::pair<daxa::ImageInfo, daxa::TaskImageAdapter>> frame_buffer_images = {};
+    std::vector<daxa::ExternalTaskImage> images = {};
+    std::vector<std::pair<daxa::ImageInfo, daxa::ExternalTaskImage>> frame_buffer_images = {};
 
     VSMState vsm_state = {};
     PGIState pgi_state = {};

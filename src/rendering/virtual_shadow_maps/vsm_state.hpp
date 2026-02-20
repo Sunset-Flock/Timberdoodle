@@ -13,13 +13,13 @@ struct VSMState
 {
     static constexpr f32 VSM_POINT_LIGHT_NEAR = 0.05f;
     // Persistent state
-    daxa::TaskBufferAdapter globals = {};
+    daxa::ExternalTaskBuffer globals = {};
 
-    daxa::TaskImageAdapter memory_block = {};
-    daxa::TaskImageAdapter meta_memory_table = {};
-    daxa::TaskImageAdapter page_table = {};
-    daxa::TaskImageAdapter page_view_pos_row = {};
-    daxa::TaskImageAdapter point_spot_page_tables = {};
+    daxa::ExternalTaskImage memory_block = {};
+    daxa::ExternalTaskImage meta_memory_table = {};
+    daxa::ExternalTaskImage page_table = {};
+    daxa::ExternalTaskImage page_view_pos_row = {};
+    daxa::ExternalTaskImage point_spot_page_tables = {};
 
     // Transient state
     daxa::TaskBufferView vsm_point_lights = {};
@@ -219,7 +219,7 @@ struct VSMState
         globals_cpu.point_light_projection_matrix = inf_depth_reverse_z_perspective(glm::radians(95.0f), 1.0f, VSM_POINT_LIGHT_NEAR);
         globals_cpu.inverse_point_light_projection_matrix = glm::inverse(globals_cpu.point_light_projection_matrix);
 
-        globals = daxa::TaskBufferAdapter({
+        globals = daxa::ExternalTaskBuffer({
             .buffer = gpu_context->device.create_buffer({
                 .size = static_cast<daxa_u32>(sizeof(VSMGlobals)),
                 .name = "vsm globals physical buffer",
@@ -227,19 +227,18 @@ struct VSMState
             .name = "vsm globals buffer",
         });
 
-        memory_block = daxa::TaskImageAdapter({
+        memory_block = daxa::ExternalTaskImage({
             .image = gpu_context->device.create_image({
                 .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                 .format = daxa::Format::R32_SFLOAT,
                 .size = {VSM_MEMORY_RESOLUTION, VSM_MEMORY_RESOLUTION, 1},
                 .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-                .sharing_mode = daxa::SharingMode::CONCURRENT,
                 .name = "vsm memory block physical image",
             }),
             .name = "vsm memory block",
         });
 
-        meta_memory_table = daxa::TaskImageAdapter({
+        meta_memory_table = daxa::ExternalTaskImage({
             .image = gpu_context->device.create_image({
                 .flags = daxa::ImageCreateFlagBits::ALLOW_MUTABLE_FORMAT,
                 .format = daxa::Format::R64_UINT,
@@ -252,7 +251,7 @@ struct VSMState
             .name = "vsm meta memory table",
         });
 
-        page_table = daxa::TaskImageAdapter({
+        page_table = daxa::ExternalTaskImage({
             .image = gpu_context->device.create_image({
                 .format = daxa::Format::R32_UINT,
                 .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
@@ -266,7 +265,7 @@ struct VSMState
             .name = "vsm page table",
         });
 
-        page_view_pos_row = daxa::TaskImageAdapter({
+        page_view_pos_row = daxa::ExternalTaskImage({
             .image = gpu_context->device.create_image({
                 .format = daxa::Format::R32G32B32A32_SFLOAT,
                 .size = {VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION, 1},
@@ -296,7 +295,7 @@ struct VSMState
                     daxa::ImageUsageFlagBits::TRANSFER_DST,
                 .name = fmt::format("vsm point spot table phys image")});
 
-            point_spot_page_tables = daxa::TaskImageAdapter({.image = page_image_id, .name = "vsm point spot tables"});
+            point_spot_page_tables = daxa::ExternalTaskImage({.image = page_image_id, .name = "vsm point spot tables"});
         }
 
         auto upload_task_graph = daxa::TaskGraph({
@@ -316,21 +315,22 @@ struct VSMState
                 .executes(
                     [&](daxa::TaskInterface ti)
                     {
+                        auto id = ti.id(meta_memory_table.view());
                         ti.recorder.clear_image({
+                            .image = id,
                             .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
-                            .image = ti.id(meta_memory_table.view()),
                         });
 
                         ti.recorder.clear_image({
-                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
                             .image = ti.id(page_table_array_view),
                             .slice = ti.get(page_table_array_view).view.slice,
+                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
                         });
 
                         ti.recorder.clear_image({
-                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
                             .image = ti.id(point_spot_table_array_view),
                             .slice = ti.get(point_spot_table_array_view).view.slice,
+                            .clear_value = std::array<daxa_u32, 4>{0u, 0u, 0u, 0u},
                         });
                     }));
         upload_task_graph.submit({});

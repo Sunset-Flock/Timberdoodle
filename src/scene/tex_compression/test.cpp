@@ -130,8 +130,8 @@ void test_main()
         });
 
         recorder.clear_image({
-            .clear_value = {std::array<f32, 4>{0, 0, 1, 1}},
             .image = swapchain_image,
+            .clear_value = {std::array<f32, 4>{0, 0, 1, 1}},
         });
 
         recorder.pipeline_image_barrier({

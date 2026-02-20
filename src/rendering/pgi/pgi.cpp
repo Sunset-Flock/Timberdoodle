@@ -1874,19 +1874,19 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
         .name = "pgi cell requests tex",
     });
 
-    this->probe_color = daxa::TaskImageAdapter({
+    this->probe_color = daxa::ExternalTaskImage({
         .image = probe_color_image,
         .name = "pgi probe radiance",
     });
-    this->probe_visibility = daxa::TaskImageAdapter({
+    this->probe_visibility = daxa::ExternalTaskImage({
         .image = probe_visibility_image,
         .name = "pgi probe visibility",
     });
-    this->probe_info = daxa::TaskImageAdapter({
+    this->probe_info = daxa::ExternalTaskImage({
         .image =  probe_info_image,
         .name = "pgi probe info tex",
     });
-    this->cell_requests = daxa::TaskImageAdapter({
+    this->cell_requests = daxa::ExternalTaskImage({
         .image =  cell_requests_image,
         .name = "pgi cell requests tex",
     });
