@@ -127,6 +127,48 @@ auto rtgi_create_sample_count_image(daxa::TaskGraph & tg, RenderContext * render
 
 auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
 {
+    auto half_res_image_size = daxa::Extent3D{
+        info.render_context.render_data.settings.render_target_size.x / 2,
+        info.render_context.render_data.settings.render_target_size.y / 2,
+        1,
+    };
+    auto half_res_depth_history = info.tg.create_task_image({
+        .format = daxa::Format::R32_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "rtgi_half_res_depth_history_persistent",
+    });
+    auto half_res_sample_count_history = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "half_res_sample_count_history_persistent",
+    });
+    auto half_res_diffuse_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "half_res_diffuse_history_persistent",
+    });
+    auto half_res_diffuse2_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "half_res_diffuse2_history_persistent",
+    });
+    auto half_res_statistics_history = info.tg.create_task_image({
+        .format = daxa::Format::R32_UINT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "half_res_statistics_history_persistent",
+    });
+    auto half_res_face_normal_history = info.tg.create_task_image({
+        .format = daxa::Format::R32_UINT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
+        .name = "half_res_face_normal_history_persistent",
+    });
+
     auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
     auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
     auto ray_length_image = info.tg.create_task_image({
@@ -261,19 +303,19 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
                 .half_res_sample_count = half_res_sample_count_image,
-                .half_res_sample_count_history = info.half_res_samplecnt_history,
+                .half_res_sample_count_history = half_res_sample_count_history,
                 .half_res_diffuse_new = post_pre_blur_diffuse_image,
                 .half_res_diffuse_accumulated = accumulated_diffuse_image,
-                .half_res_diffuse_history = info.half_res_diffuse_history,
+                .half_res_diffuse_history = half_res_diffuse_history,
                 .half_res_diffuse2_new = post_pre_blur_diffuse2_image,
                 .half_res_diffuse2_accumulated = accumulated_diffuse2_image,
-                .half_res_diffuse2_history = info.half_res_diffuse2_history,
+                .half_res_diffuse2_history = half_res_diffuse2_history,
                 .half_res_statistics_accumulated = accumulated_statistics_image,
-                .half_res_statistics_history = info.half_res_statistics_history,
+                .half_res_statistics_history = half_res_statistics_history,
                 .half_res_depth = info.view_cam_half_res_depth,
-                .half_res_depth_history = info.half_res_depth_history,
+                .half_res_depth_history = half_res_depth_history,
                 .half_res_normal = info.view_cam_half_res_face_normals,
-                .half_res_normal_history = info.half_res_face_normal_history,
+                .half_res_normal_history = half_res_face_normal_history,
             })
             .executes(rtgi_temporal_callback, &info.render_context));
 
@@ -350,19 +392,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .debug_image = info.debug_image,
                 .clocks_image = info.clocks_image,
 
-                .color_history_full_res = info.color_history,
-                .statistics_history_full_res = info.statistics_history,
-                .accumulated_color_full_res = accumualted_color_image,
-                .accumulated_statistics_full_res = accumulated_full_statistics_image,
-
-                .depth_history_full_res = info.depth_history,
-                .face_normal_history_full_res = info.face_normal_history,
-                .samplecount_history_full_res = info.samplecount_history,
-
-                .diffuse_full_res = full_diffuse_accumulated_image,
-                .diffuse2_full_res = full_diffuse2_accumulated_image,
-                .samplecount_full_res = full_samplecount_image,
-
                 .diffuse_half_res = rtgi_post_blur_diffuse_image,
                 .diffuse2_half_res = rtgi_post_blur_diffuse2_image,
 
@@ -376,16 +405,12 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             })
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 
-    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_depth, .dst_image = info.half_res_depth_history, .name = "save rtgi depth history"});
-    info.tg.copy_image_to_image({.src_image = half_res_sample_count_image, .dst_image = info.half_res_samplecnt_history, .name = "save rtgi samplecnt history"});
-    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_face_normals, .dst_image = info.half_res_face_normal_history, .name = "save rtgi face normal history"});
-    info.tg.copy_image_to_image({.src_image = full_samplecount_image, .dst_image = info.samplecount_history, .name = "save full_samplecount_history"});
-    info.tg.copy_image_to_image({.src_image = info.view_cam_face_normals, .dst_image = info.face_normal_history, .name = "save full_face_normal_history"});
-    info.tg.copy_image_to_image({.src_image = accumualted_color_image, .dst_image = info.color_history, .name = "save full_color_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_full_statistics_image, .dst_image = info.statistics_history, .name = "save full_statistics_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_diffuse_image, .dst_image = info.half_res_diffuse_history, .name = "save half_res_diffuse_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_diffuse2_image, .dst_image = info.half_res_diffuse2_history, .name = "save half_res_diffuse2_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_statistics_image, .dst_image = info.half_res_statistics_history, .name = "save half_res_statistics_history"});
+    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_depth, .dst_image = half_res_depth_history, .name = "save rtgi depth history"});
+    info.tg.copy_image_to_image({.src_image = half_res_sample_count_image, .dst_image = half_res_sample_count_history, .name = "save rtgi samplecnt history"});
+    info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_face_normals, .dst_image = half_res_face_normal_history, .name = "save rtgi face normal history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_diffuse_image, .dst_image = half_res_diffuse_history, .name = "save half_res_diffuse_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_diffuse2_image, .dst_image = half_res_diffuse2_history, .name = "save half_res_diffuse2_history"});
+    info.tg.copy_image_to_image({.src_image = accumulated_statistics_image, .dst_image = half_res_statistics_history, .name = "save half_res_statistics_history"});
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved_per_pixel_diffuse,

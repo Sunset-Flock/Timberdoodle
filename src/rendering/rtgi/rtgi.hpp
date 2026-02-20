@@ -88,94 +88,6 @@ MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_compile_info, "./src/rendering/rtgi/rtgi
 MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
 
-///
-/// === Persistent Images ===
-///
-
-inline auto rtgi_create_diffuse_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi diffuse history image",
-    };
-}
-
-inline auto rtgi_create_diffuse2_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R16G16_SFLOAT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi diffuse2 history image",
-    };
-}
-
-inline auto rtgi_create_statistics_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R32_UINT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi statistics history image",
-    };
-}
-
-inline auto rtgi_create_depth_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R32_SFLOAT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi depth history image",
-    };
-}
-
-inline auto rtgi_create_samplecnt_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R16_SFLOAT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi samplecnt history image",
-    };
-}
-
-inline auto rtgi_create_face_normal_history_image_info(RenderContext * render_context) -> daxa::ImageInfo
-{
-    return daxa::ImageInfo{
-        .format = daxa::Format::R32_UINT,
-        .size = {
-            render_context->render_data.settings.render_target_size.x / RTGI_PIXEL_SCALE_DIV,
-            render_context->render_data.settings.render_target_size.y / RTGI_PIXEL_SCALE_DIV,
-            1,
-        },
-        .usage = daxa::ImageUsageFlagBits::TRANSFER_DST | daxa::ImageUsageFlagBits::TRANSFER_SRC | daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::SHADER_STORAGE,
-        .name = "rtgi face normal history image",
-    };
-}
-
 struct TasksRtgiInfo
 {
     daxa::TaskGraph & tg;
@@ -205,16 +117,6 @@ struct TasksRtgiInfo
     daxa::TaskBufferView vsm_spot_lights = {};
     daxa::TaskImageView vsm_memory_block = {};
     daxa::TaskImageView vsm_point_spot_page_table = {};
-    daxa::TaskImageView half_res_depth_history = {};
-    daxa::TaskImageView half_res_samplecnt_history = {};
-    daxa::TaskImageView half_res_face_normal_history = {};
-    daxa::TaskImageView half_res_diffuse_history = {};
-    daxa::TaskImageView half_res_diffuse2_history = {};
-    daxa::TaskImageView half_res_statistics_history = {};
-    daxa::TaskImageView color_history = {};
-    daxa::TaskImageView statistics_history = {};
-    daxa::TaskImageView face_normal_history = {};
-    daxa::TaskImageView samplecount_history = {};
 };
 struct TasksRtgiMainResult
 {

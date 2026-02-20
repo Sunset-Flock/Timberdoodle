@@ -59,17 +59,6 @@ struct Renderer
     daxa::ExternalTaskImage path_trace_history = {};
     daxa::ExternalTaskImage normal_history = {};
     daxa::ExternalTaskImage rtao_history = {};
-    daxa::ExternalTaskImage rtgi_depth_history = {};
-    daxa::ExternalTaskImage rtgi_face_normal_history = {};
-    daxa::ExternalTaskImage rtgi_samplecnt_history = {};
-    daxa::ExternalTaskImage rtgi_diffuse_history = {};
-    daxa::ExternalTaskImage rtgi_diffuse2_history = {};
-    daxa::ExternalTaskImage rtgi_statistics_history = {};
-
-    daxa::ExternalTaskImage rtgi_full_samplecount_history = {};
-    daxa::ExternalTaskImage rtgi_full_face_normal_history = {};
-    daxa::ExternalTaskImage rtgi_full_color_history = {};
-    daxa::ExternalTaskImage rtgi_full_statistics_history = {};
 
     std::vector<daxa::ExternalTaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::ExternalTaskImage>> frame_buffer_images = {};
