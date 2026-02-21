@@ -138,35 +138,36 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
         .name = "rtgi_half_res_depth_history_persistent",
     });
-    auto half_res_sample_count_history = info.tg.create_task_image({
-        .format = daxa::Format::R16_SFLOAT,
-        .size = half_res_image_size,
-        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
-        .name = "half_res_sample_count_history_persistent",
-    });
-    auto half_res_diffuse_history = info.tg.create_task_image({
-        .format = daxa::Format::R16G16B16A16_SFLOAT,
-        .size = half_res_image_size,
-        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
-        .name = "half_res_diffuse_history_persistent",
-    });
-    auto half_res_diffuse2_history = info.tg.create_task_image({
-        .format = daxa::Format::R16G16_SFLOAT,
-        .size = half_res_image_size,
-        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
-        .name = "half_res_diffuse2_history_persistent",
-    });
-    auto half_res_statistics_history = info.tg.create_task_image({
-        .format = daxa::Format::R32_UINT,
-        .size = half_res_image_size,
-        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
-        .name = "half_res_statistics_history_persistent",
-    });
     auto half_res_face_normal_history = info.tg.create_task_image({
         .format = daxa::Format::R32_UINT,
         .size = half_res_image_size,
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
         .name = "half_res_face_normal_history_persistent",
+    });
+
+    auto half_res_sample_count_history = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_sample_count_history_persistent",
+    });
+    auto half_res_diffuse_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16B16A16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_diffuse_history_persistent",
+    });
+    auto half_res_diffuse2_history = info.tg.create_task_image({
+        .format = daxa::Format::R16G16_SFLOAT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_diffuse2_history_persistent",
+    });
+    auto half_res_statistics_history = info.tg.create_task_image({
+        .format = daxa::Format::R32_UINT,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_statistics_history_persistent",
     });
 
     auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
@@ -208,7 +209,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             })
             .executes(rtgi_trace_diffuse_callback, &info.render_context, RtgiTraceDiffuseCallbackInfo{.debug_primary_trace = false}));
 
-    auto half_res_sample_count_image = rtgi_create_sample_count_image(info.tg, &info.render_context, "half_res_sample_count_image");
+    // auto half_res_sample_count_image = rtgi_create_sample_count_image(info.tg, &info.render_context, "half_res_sample_count_image");
 
     auto pre_filtered_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "pre_filtered_diffuse_image");
     auto pre_filtered_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "pre_filtered_diffuse2_image");
@@ -271,7 +272,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .clocks_image = info.clocks_image,
                     .rtgi_diffuse_before = pre_filtered_diffuse_image,
                     .rtgi_diffuse2_before = pre_filtered_diffuse2_image,
-                    .rtgi_samplecnt = half_res_sample_count_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth,
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = pre_blurred_diffuse_image,
@@ -285,42 +285,30 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         post_pre_blur_diffuse2_image = pre_blurred_diffuse2_image;
     }
 
-    auto accumulated_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "accumulated_diffuse_image");
-    auto accumulated_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "accumulated_diffuse2_image");
-    auto accumulated_statistics_image = info.tg.create_task_image({
-        .format = daxa::Format::R32_UINT,
-        .size = {
-            info.render_context.render_data.settings.render_target_size.x / 2,
-            info.render_context.render_data.settings.render_target_size.y / 2,
-            1,
-        },
-        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT,
-        .name = "accumulated_statistics_image",
-    });
-    info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
-            .head_views(RtgiTemporalH::Info::Views{
-                .globals = info.render_context.tgpu_render_data.view(),
-                .debug_image = info.debug_image,
-                .clocks_image = info.clocks_image,
-                .half_res_sample_count = half_res_sample_count_image,
-                .half_res_sample_count_history = half_res_sample_count_history,
-                .half_res_diffuse_new = post_pre_blur_diffuse_image,
-                .half_res_diffuse_accumulated = accumulated_diffuse_image,
-                .half_res_diffuse_history = half_res_diffuse_history,
-                .half_res_diffuse2_new = post_pre_blur_diffuse2_image,
-                .half_res_diffuse2_accumulated = accumulated_diffuse2_image,
-                .half_res_diffuse2_history = half_res_diffuse2_history,
-                .half_res_statistics_accumulated = accumulated_statistics_image,
-                .half_res_statistics_history = half_res_statistics_history,
-                .half_res_depth = info.view_cam_half_res_depth,
-                .half_res_depth_history = half_res_depth_history,
-                .half_res_normal = info.view_cam_half_res_face_normals,
-                .half_res_normal_history = half_res_face_normal_history,
-            })
-            .executes(rtgi_temporal_callback, &info.render_context));
+info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
+        .head_views(RtgiTemporalH::Info::Views{
+            .globals = info.render_context.tgpu_render_data.view(),
+            .debug_image = info.debug_image,
+            .clocks_image = info.clocks_image,
+            .half_res_sample_count = half_res_sample_count_history.current(),
+            .half_res_sample_count_history = half_res_sample_count_history.previous(),
+            .half_res_diffuse_new = post_pre_blur_diffuse_image,
+            .half_res_diffuse_accumulated = half_res_diffuse_history.current(),
+            .half_res_diffuse_history = half_res_diffuse_history.previous(),
+            .half_res_diffuse2_new = post_pre_blur_diffuse2_image,
+            .half_res_diffuse2_accumulated = half_res_diffuse2_history.current(),
+            .half_res_diffuse2_history = half_res_diffuse2_history.previous(),
+            .half_res_statistics_accumulated = half_res_statistics_history.current(),
+            .half_res_statistics_history = half_res_statistics_history.previous(),
+            .half_res_depth = info.view_cam_half_res_depth,
+            .half_res_depth_history = half_res_depth_history,
+            .half_res_normal = info.view_cam_half_res_face_normals,
+            .half_res_normal_history = half_res_face_normal_history,
+        })
+        .executes(rtgi_temporal_callback, &info.render_context));
 
-    auto rtgi_post_blur_diffuse_image = accumulated_diffuse_image;
-    auto rtgi_post_blur_diffuse2_image = accumulated_diffuse2_image;
+    auto rtgi_post_blur_diffuse_image = half_res_diffuse_history;
+    auto rtgi_post_blur_diffuse2_image = half_res_diffuse2_history;
     if (info.render_context.render_data.rtgi_settings.post_blur_enabled)
     {
         auto rtgi_post_blur_pass0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse_image");
@@ -330,14 +318,14 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
                     .clocks_image = info.clocks_image,
-                    .rtgi_sample_count = half_res_sample_count_image,
-                    .rtgi_diffuse_before = accumulated_diffuse_image,
-                    .rtgi_diffuse2_before = accumulated_diffuse2_image,
+                    .rtgi_sample_count = half_res_sample_count_history,
+                    .rtgi_diffuse_before = half_res_diffuse_history,
+                    .rtgi_diffuse2_before = half_res_diffuse2_history,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth,
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
-                    .temporal_moments = accumulated_statistics_image,
+                    .temporal_moments = half_res_statistics_history,
                     .spatial_std_dev_image = spatial_std_dev_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
@@ -349,14 +337,14 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
                     .clocks_image = info.clocks_image,
-                    .rtgi_sample_count = half_res_sample_count_image,
+                    .rtgi_sample_count = half_res_sample_count_history,
                     .rtgi_diffuse_before = rtgi_post_blur_pass0_diffuse_image,
                     .rtgi_diffuse2_before = rtgi_post_blur_pass0_diffuse2_image,
                     .view_cam_half_res_depth = info.view_cam_half_res_depth,
                     .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                     .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
                     .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
-                    .temporal_moments = accumulated_statistics_image,
+                    .temporal_moments = half_res_statistics_history,
                     .spatial_std_dev_image = spatial_std_dev_image,
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
@@ -395,7 +383,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .diffuse_half_res = rtgi_post_blur_diffuse_image,
                 .diffuse2_half_res = rtgi_post_blur_diffuse2_image,
 
-                .samplecount_half_res = half_res_sample_count_image,
+                .samplecount_half_res = half_res_sample_count_history,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
                 .view_cam_depth = info.view_cam_depth,
@@ -406,11 +394,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .executes(rtgi_upscale_diffuse_callback, &info.render_context));
 
     info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_depth, .dst_image = half_res_depth_history, .name = "save rtgi depth history"});
-    info.tg.copy_image_to_image({.src_image = half_res_sample_count_image, .dst_image = half_res_sample_count_history, .name = "save rtgi samplecnt history"});
     info.tg.copy_image_to_image({.src_image = info.view_cam_half_res_face_normals, .dst_image = half_res_face_normal_history, .name = "save rtgi face normal history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_diffuse_image, .dst_image = half_res_diffuse_history, .name = "save half_res_diffuse_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_diffuse2_image, .dst_image = half_res_diffuse2_history, .name = "save half_res_diffuse2_history"});
-    info.tg.copy_image_to_image({.src_image = accumulated_statistics_image, .dst_image = half_res_statistics_history, .name = "save half_res_statistics_history"});
 
     return TasksRtgiMainResult{
         .opaque_diffuse = resolved_per_pixel_diffuse,

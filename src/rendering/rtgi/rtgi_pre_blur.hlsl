@@ -34,7 +34,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     // Load half res depth, normal and sample count
     const float pixel_depth = push.attach.view_cam_half_res_depth.get()[halfres_pixel_index];
     const float pixel_vs_depth = linearise_depth(pixel_depth, camera.near_plane);
-    const float pixel_samplecnt = push.attach.rtgi_samplecnt.get()[halfres_pixel_index];
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[halfres_pixel_index]);
 
     if (pixel_depth == 0.0f)
@@ -108,7 +107,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
         const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
         const float3 sample_value_normal = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[sample_index]);
-        const float sample_value_samplecnt = push.attach.rtgi_samplecnt.get()[sample_index];
         const float sample_value_depth = push.attach.view_cam_half_res_depth.get()[sample_index];
         const float3 sample_value_ndc = float3(sample_ndc.xy, sample_value_depth);
         const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));

@@ -239,10 +239,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, adjustment_factor);
         }
 
-        push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_guide_factor, 0, 0, 0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_guide_factor, 0, 0, 0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_guide_factor, 0, 0, 0);
-        push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_guide_factor, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_guide_factor, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_guide_factor, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_guide_factor, 0, 0, 0);
+        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_guide_factor, 0, 0, 0);
     } 
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
