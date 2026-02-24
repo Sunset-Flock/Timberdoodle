@@ -16,14 +16,12 @@
 #include "path_trace/kajiya/brdf_fg.inl"
 #include "rtgi/rtgi.hpp"
 
-#include "tasks/memset.inl"
 #include "tasks/prefix_sum.inl"
 #include "tasks/write_swapchain.inl"
 #include "tasks/shade_opaque.inl"
 #include "tasks/sky.inl"
 #include "tasks/autoexposure.inl"
 #include "tasks/shader_debug_draws.inl"
-#include "tasks/decode_visbuffer_test.inl"
 #include "tasks/gen_gbuffer.hpp"
 #include "tasks/cull_lights.hpp"
 #include "tasks/copy_depth.hpp"
@@ -242,7 +240,6 @@ void Renderer::compile_pipelines()
         {pgi_pre_update_probes_compute_compile_info()},
         {pgi_eval_screen_irradiance_compute_compile_info()},
         {cull_meshlets_compute_pipeline_compile_info()},
-        {IndirectMemsetBufferTask::pipeline_compile_info},
         {analyze_visbufer_pipeline_compile_info()},
         {write_swapchain_pipeline_compile_info2()},
         {write_swapchain_debug_pipeline_compile_info2()},
@@ -271,7 +268,6 @@ void Renderer::compile_pipelines()
         {vsm_debug_meta_memory_table_pipeline_compile_info()},
         {vsm_recreate_shadow_map_pipeline_compile_info()},
         {vsm_get_debug_statistics_pipeline_compile_info()},
-        {decode_visbuffer_test_pipeline_info2()},
         {draw_visbuffer_write_command_pipeline_compile_info()},
         {rtao_denoiser_pipeline_info()},
         {gen_gbuffer_pipeline_compile_info()},
