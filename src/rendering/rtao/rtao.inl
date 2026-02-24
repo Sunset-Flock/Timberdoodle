@@ -83,55 +83,44 @@ inline auto ray_trace_ao_rt_pipeline_info() -> daxa::RayTracingPipelineCompileIn
     };
 }
 
-struct RayTraceAmbientOcclusionTask : RayTraceAmbientOcclusionH::Task
+inline void ray_trace_ambient_occlusion_callback(daxa::TaskInterface ti, GPUContext * gpu_context, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    GPUContext * gpu_context = {};
-    RenderContext * render_context = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
-        RayTraceAmbientOcclusionPush push = {};
-        push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-        auto const & rtao_raw_image = ti.info(AT.rtao_raw_image).value();
-        auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
-        ti.recorder.set_pipeline(*rt_pipeline.pipeline);
-        ti.recorder.push_constant(push);
-        ti.recorder.trace_rays({
-            .width = rtao_raw_image.size.x,
-            .height = rtao_raw_image.size.y,
-            .depth = 1,
-            .shader_binding_table = rt_pipeline.sbt,
-        });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
-    }
-};
+    auto const & AT = RayTraceAmbientOcclusionH::Info::AT;
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
+    RayTraceAmbientOcclusionPush push = {};
+    push.attach = ti.allocator->allocate_fill(RayTraceAmbientOcclusionH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
+    auto const & rtao_raw_image = ti.info(AT.rtao_raw_image).value();
+    auto const & rt_pipeline = gpu_context->ray_tracing_pipelines.at(ray_trace_ao_rt_pipeline_info().name);
+    ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+    ti.recorder.push_constant(push);
+    ti.recorder.trace_rays({
+        .width = rtao_raw_image.size.x,
+        .height = rtao_raw_image.size.y,
+        .depth = 1,
+        .shader_binding_table = rt_pipeline.sbt,
+    });
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "TRACE">());
+}
 
 MAKE_COMPUTE_COMPILE_INFO(rtao_denoiser_pipeline_info, "./src/rendering/rtao/rtao.hlsl", "entry_rtao_denoiser")
 
-struct RTAODeoinserTask : RTAODenoiserH::Task
+inline void rtao_deoinser_callback(daxa::TaskInterface ti, GPUContext * gpu_context, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    GPUContext * gpu_context = {};
-    RenderContext * render_context = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
-        auto info = ti.info(AT.rtao_raw).value();
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
-        ti.recorder.push_constant(RTAODenoiserPush{
-            .attach = ti.attachment_shader_blob,
-            .size = {info.size.x, info.size.y},
-            .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
-        });
+    auto const & AT = RTAODenoiserH::Info::AT;
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
+    auto info = ti.info(AT.rtao_raw).value();
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(rtao_denoiser_pipeline_info().name));
+    ti.recorder.push_constant(RTAODenoiserPush{
+        .attach = ti.attachment_shader_blob,
+        .size = {info.size.x, info.size.y},
+        .inv_size = {1.0f / float(info.size.x), 1.0f / float(info.size.y)},
+    });
 
-        ti.recorder.dispatch({
-            round_up_div(info.size.x, RTAO_DENOISER_X),
-            round_up_div(info.size.y, RTAO_DENOISER_Y),
-        });
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
-    }
-};
+    ti.recorder.dispatch({
+        round_up_div(info.size.x, RTAO_DENOISER_X),
+        round_up_div(info.size.y, RTAO_DENOISER_Y),
+    });
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"RTAO", "DENOISE">());
+}
 
 #endif

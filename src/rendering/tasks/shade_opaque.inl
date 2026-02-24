@@ -83,32 +83,27 @@ inline daxa::ComputePipelineCompileInfo2 shade_opaque_pipeline_compile_info()
         .name = std::string{ShadeOpaqueH::Info::NAME},
     };
 };
-struct ShadeOpaqueTask : ShadeOpaqueH::Task
+inline void shade_opaque_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
-        auto const color_image_id = ti.id(AT.color_image);
-        auto const color_image_info = ti.device.image_info(color_image_id).value();
+    auto const & AT = ShadeOpaqueH::Info::AT;
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(shade_opaque_pipeline_compile_info().name));
+    auto const color_image_id = ti.id(AT.color_image);
+    auto const color_image_info = ti.device.image_info(color_image_id).value();
 
-        auto alloc = ti.allocator->allocate(sizeof(ShadeOpaqueAttachments));
-        std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ShadeOpaqueH::AttachmentShaderBlob));
-        ShadeOpaquePush push = {
-            .attachments = alloc->device_address,
-            .size = {static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y)},
-            .inv_size = {1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y)},
-        };
+    auto alloc = ti.allocator->allocate(sizeof(ShadeOpaqueAttachments));
+    std::memcpy(alloc->host_address, ti.attachment_shader_blob.data(), sizeof(ShadeOpaqueH::AttachmentShaderBlob));
+    ShadeOpaquePush push = {
+        .attachments = alloc->device_address,
+        .size = {static_cast<f32>(color_image_info.size.x), static_cast<f32>(color_image_info.size.y)},
+        .inv_size = {1.0f / static_cast<f32>(color_image_info.size.x), 1.0f / static_cast<f32>(color_image_info.size.y)},
+    };
 
-        ti.recorder.push_constant(push);
-        u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
-        u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
+    ti.recorder.push_constant(push);
+    u32 const dispatch_x = round_up_div(color_image_info.size.x, SHADE_OPAQUE_WG_X);
+    u32 const dispatch_y = round_up_div(color_image_info.size.y, SHADE_OPAQUE_WG_Y);
 
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
-        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
-    }
-};
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
+    ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_OPAQUE","SHADE_OPAQUE">());
+}
 #endif

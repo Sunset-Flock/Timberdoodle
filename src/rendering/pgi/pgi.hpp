@@ -48,53 +48,13 @@ auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo2;
 
 auto pgi_trace_probe_lighting_pipeline_compile_info() -> daxa::RayTracingPipelineCompileInfo2;
 
-struct PGIDrawDebugProbesTask : PGIDrawDebugProbesH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGIUpdateProbeTexelsTask : PGIUpdateProbeTexelsH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGIUpdateProbesTask : PGIUpdateProbesH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGITraceProbeRaysTask : PGITraceProbeLightingH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGIPreUpdateProbesTask : PGIPreUpdateProbesH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
-
-struct PGIEvalScreenIrradianceTask : PGIEvalScreenIrradianceH::Task
-{
-    AttachmentViews views = {};
-    RenderContext* render_context = {};
-    PGIState* pgi_state = {};
-    void callback(daxa::TaskInterface ti);
-};
+// Task callbacks (head kept; struct-task wrappers removed)
+void pgi_draw_debug_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
+void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state);
 
 auto pgi_significant_settings_change(PGISettings const & prev, PGISettings const & curr) -> bool;
 

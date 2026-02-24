@@ -56,40 +56,30 @@ inline daxa::ComputePipelineCompileInfo2 gen_luminace_average_pipeline_compile_i
     };
 };
 
-struct GenLuminanceHistogramTask : GenLuminanceHistogramH::Task
+inline void gen_luminance_histogram_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
+    auto const & AT = GenLuminanceHistogramH::Info::AT;
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_GEN_HIST">());
+    auto const offscreen_resolution = render_context->render_data.settings.render_target_size;
+    auto const dispatch_size = u32vec2{
+        (offscreen_resolution.x + COMPUTE_HISTOGRAM_WG_X - 1) / COMPUTE_HISTOGRAM_WG_X,
+        (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
+    };
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
+    GenLuminanceHistogramH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_GEN_HIST">());
+}
 
-    void callback(daxa::TaskInterface ti)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_GEN_HIST">());
-        auto const offscreen_resolution = render_context->render_data.settings.render_target_size;
-        auto const dispatch_size = u32vec2{
-            (offscreen_resolution.x + COMPUTE_HISTOGRAM_WG_X - 1) / COMPUTE_HISTOGRAM_WG_X,
-            (offscreen_resolution.y + COMPUTE_HISTOGRAM_WG_Y - 1) / COMPUTE_HISTOGRAM_WG_Y,
-        };
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_luminace_histogram_pipeline_compile_info().name));
-        GenLuminanceHistogramH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_GEN_HIST">());
-    }
-};
-
-struct GenLuminanceAverageTask : GenLuminanceAverageH::Task
+inline void gen_luminance_average_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_AVERAGE">());
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
-        GenLuminanceAverageH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({.x = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_AVERAGE">());
-    }
-};
+    auto const & AT = GenLuminanceAverageH::Info::AT;
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_AVERAGE">());
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_luminace_average_pipeline_compile_info().name));
+    GenLuminanceAverageH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({.x = 1});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"MISC","AUTO_EXPOSURE_AVERAGE">());
+}
 #endif

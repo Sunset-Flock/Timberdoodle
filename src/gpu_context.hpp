@@ -191,29 +191,6 @@ struct ShaderDebugDrawContext
     }
 };
 
-DAXA_DECL_TRANSFER_TASK_HEAD_BEGIN(ReadbackH)
-DAXA_TH_BUFFER(READ, globals); // Use globals as fake dependency for shader debug data.
-DAXA_DECL_TASK_HEAD_END
-
-struct ReadbackTask : ReadbackH::Task
-{
-    AttachmentViews views = {};
-    ShaderDebugDrawContext * shader_debug_context = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        u32 const index = ((shader_debug_context->frame_index) % MAX_GPU_FRAMES_IN_FLIGHT);
-        std::memcpy(&shader_debug_context->shader_debug_output, ti.device.buffer_host_address(shader_debug_context->readback_queue).value(), sizeof(ShaderDebugOutput));
-        // Set the currently recording frame to write its debug output to the slot we just read from.
-        ti.recorder.copy_buffer_to_buffer({
-            .src_buffer = shader_debug_context->buffer,
-            .dst_buffer = shader_debug_context->readback_queue,
-            .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
-            .dst_offset = sizeof(ShaderDebugOutput) * index,
-            .size = sizeof(ShaderDebugOutput),
-        });
-    }
-};
-
 struct GPUContext
 {
     GPUContext(Window const & window);

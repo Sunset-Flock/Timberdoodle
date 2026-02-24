@@ -24,25 +24,20 @@ static constexpr inline daxa::Format GBUFFER_SHADING_NORMAL_ROUGHNESS_FORMAT = d
 
 MAKE_COMPUTE_COMPILE_INFO(gen_gbuffer_pipeline_compile_info, "./src/rendering/tasks/gen_gbuffer.hlsl", "entry_gen_gbuffer")
 
-struct GenGbufferTask : GenGbufferH::Task
+inline void gen_gbuffer_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    
-    void callback(daxa::TaskInterface ti)
-    {
-        auto gpu_timer_scope = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_GBUFFER","SHADE_GBUFFER">());
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_gbuffer_pipeline_compile_info().name));
+    auto const & AT = GenGbufferH::Info::AT;
+    auto gpu_timer_scope = render_context->render_times.scoped_gpu_timer(ti.recorder, RenderTimes::index<"SHADE_GBUFFER","SHADE_GBUFFER">());
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(gen_gbuffer_pipeline_compile_info().name));
 
-        auto const info = ti.info(AT.face_normal_image).value();
-        GenGbufferPush push = {};
-        push.attachments = ti.attachment_shader_blob;
-        push.size = {static_cast<f32>(info.size.x), static_cast<f32>(info.size.y)};
-        push.inv_size = {1.0f / push.size.x, 1.0f / push.size.y};
-        ti.recorder.push_constant(push);
+    auto const info = ti.info(AT.face_normal_image).value();
+    GenGbufferPush push = {};
+    push.attachments = ti.attachment_shader_blob;
+    push.size = {static_cast<f32>(info.size.x), static_cast<f32>(info.size.y)};
+    push.inv_size = {1.0f / push.size.x, 1.0f / push.size.y};
+    ti.recorder.push_constant(push);
 
-        u32 const dispatch_x = round_up_div(info.size.x, GEN_GBUFFER_X);
-        u32 const dispatch_y = round_up_div(info.size.y, GEN_GBUFFER_Y);
-        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-    }
-};
+    u32 const dispatch_x = round_up_div(info.size.x, GEN_GBUFFER_X);
+    u32 const dispatch_y = round_up_div(info.size.y, GEN_GBUFFER_Y);
+    ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+}

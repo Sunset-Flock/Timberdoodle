@@ -1523,8 +1523,9 @@ auto pgi_draw_debug_probes_compile_info() -> daxa::RasterPipelineCompileInfo2
     return ret;
 }
 
-void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
+void pgi_draw_debug_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGIDrawDebugProbesH::Info::AT;
     auto & gpu_context = render_context->gpu_context;
     auto const colorImageSize = ti.info(AT.color_image).value().size;
     daxa::RenderPassBeginInfo render_pass_begin_info{
@@ -1571,8 +1572,9 @@ void PGIDrawDebugProbesTask::callback(daxa::TaskInterface ti)
     ti.recorder = std::move(render_cmd).end_renderpass();
 }
 
-void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
+void pgi_update_probe_texels_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGIUpdateProbeTexelsH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
     auto & gpu_context = render_context->gpu_context;
     ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(pgi_update_probe_texels_pipeline_compile_info().name));
@@ -1597,8 +1599,9 @@ void PGIUpdateProbeTexelsTask::callback(daxa::TaskInterface ti)
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBE_TEXELS">());
 }
 
-void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
+void pgi_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGIUpdateProbesH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     {
@@ -1615,8 +1618,9 @@ void PGIUpdateProbesTask::callback(daxa::TaskInterface ti)
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","UPDATE_PROBES">());
 }
 
-void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
+void pgi_pre_update_probes_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGIPreUpdateProbesH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
@@ -1636,8 +1640,9 @@ void PGIPreUpdateProbesTask::callback(daxa::TaskInterface ti)
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","PRE_UPDATE_PROBES">());
 }
 
-void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
+void pgi_trace_probe_rays_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGITraceProbeLightingH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
     auto & gpu_context = render_context->gpu_context;
     auto& pipeline = gpu_context->ray_tracing_pipelines.at(pgi_trace_probe_lighting_pipeline_compile_info().name);
@@ -1655,8 +1660,9 @@ void PGITraceProbeRaysTask::callback(daxa::TaskInterface ti)
     render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"PGI","TRACE_SHADE_RAYS">());
 }
 
-void PGIEvalScreenIrradianceTask::callback(daxa::TaskInterface ti)
+void pgi_eval_screen_irradiance_callback(daxa::TaskInterface ti, RenderContext* render_context, PGIState* pgi_state)
 {
+    auto const & AT = PGIEvalScreenIrradianceH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"PGI","EVAL_SCREEN_IRRADIANCE">());
     auto & gpu_context = render_context->gpu_context;
     auto & render_data = render_context->render_data;
@@ -2012,66 +2018,58 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
     daxa::TaskBufferView pgi_indirections = pgi_create_probe_indirections(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
     info.tg.clear_buffer({.buffer=pgi_indirections,.name="clear pgi indirections"});
     daxa::TaskImageView probe_info_copy = pgi_create_probe_info_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
-    info.tg.add_task(PGIPreUpdateProbesTask{
-        .views = PGIPreUpdateProbesTask::Views{
-            .globals = info.render_context->tgpu_render_data.view(),
-            .probe_info = info.pgi_state.probe_info_view,
-            .probe_info_copy = probe_info_copy,
-            .requests = info.pgi_state.cell_requests_view,
-            .probe_indirections = pgi_indirections,
-        },
-        .render_context = info.render_context,
-        .pgi_state = &info.pgi_state,
-    });
+    info.tg.add_task(daxa::HeadTask<PGIPreUpdateProbesH::Info>()
+            .head_views(PGIPreUpdateProbesH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_info = info.pgi_state.probe_info_view,
+                .probe_info_copy = probe_info_copy,
+                .requests = info.pgi_state.cell_requests_view,
+                .probe_indirections = pgi_indirections,
+            })
+            .executes(pgi_pre_update_probes_callback, info.render_context, &info.pgi_state));
     daxa::TaskImageView pgi_trace_result = pgi_create_trace_result_texture(info.tg, info.render_context->render_data.pgi_settings, info.pgi_state);
-    info.tg.add_task(PGITraceProbeRaysTask{
-        .views = PGITraceProbeRaysTask::Views{
-            .globals = info.render_context->tgpu_render_data.view(),
-            .probe_indirections = pgi_indirections,
-            .light_mask_volume = info.light_mask_volume,
-            .probe_color = info.pgi_state.probe_color_view,
-            .probe_visibility = info.pgi_state.probe_visibility_view,
-            .probe_info = info.pgi_state.probe_info_view,
-            .probe_requests = info.pgi_state.cell_requests_view,
-            .sky_transmittance = info.sky_transmittance,
-            .sky = info.sky,
-            .tlas = info.tlas,
-            .trace_result = pgi_trace_result,
-            .mesh_instances = info.mesh_instances,
-            .vsm_globals = info.vsm_globals,
-            .vsm_point_lights = info.vsm_point_lights,
-            .vsm_spot_lights = info.vsm_spot_lights,
-            .vsm_memory_block = info.vsm_memory_block,
-            .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
-        },
-        .render_context = info.render_context,
-        .pgi_state = &info.pgi_state,
-    });    
+    info.tg.add_task(daxa::HeadTask<PGITraceProbeLightingH::Info>()
+            .head_views(PGITraceProbeLightingH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .light_mask_volume = info.light_mask_volume,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_visibility = info.pgi_state.probe_visibility_view,
+                .probe_info = info.pgi_state.probe_info_view,
+                .probe_requests = info.pgi_state.cell_requests_view,
+                .sky_transmittance = info.sky_transmittance,
+                .sky = info.sky,
+                .tlas = info.tlas,
+                .trace_result = pgi_trace_result,
+                .mesh_instances = info.mesh_instances,
+                .vsm_globals = info.vsm_globals,
+                .vsm_point_lights = info.vsm_point_lights,
+                .vsm_spot_lights = info.vsm_spot_lights,
+                .vsm_memory_block = info.vsm_memory_block,
+                .vsm_point_spot_page_table = info.vsm_point_spot_page_table,
+            })
+            .executes(pgi_trace_probe_rays_callback, info.render_context, &info.pgi_state));
     //info.tg.copy_image_to_image({info.pgi_state.probe_info_view, probe_info_copy, "copy over probe info prev frame"});
-    info.tg.add_task(PGIUpdateProbesTask{
-        .views = PGIUpdateProbesTask::Views{
-            .globals = info.render_context->tgpu_render_data.view(),
-            .probe_indirections = pgi_indirections,
-            .probe_info = info.pgi_state.probe_info_view,
-            .probe_info_copy = probe_info_copy,
-            .trace_result = pgi_trace_result,
-            .requests = info.pgi_state.cell_requests_view,
-        },
-        .render_context = info.render_context,
-        .pgi_state = &info.pgi_state,
-    });
-    info.tg.add_task(PGIUpdateProbeTexelsTask{
-        .views = PGIUpdateProbeTexelsTask::Views{
-            .globals = info.render_context->tgpu_render_data.view(),
-            .probe_indirections = pgi_indirections,
-            .probe_color = info.pgi_state.probe_color_view,
-            .probe_visibility = info.pgi_state.probe_visibility_view,
-            .probe_info = info.pgi_state.probe_info_view,
-            .trace_result = pgi_trace_result,
-        },
-        .render_context = info.render_context,
-        .pgi_state = &info.pgi_state,
-    });
+    info.tg.add_task(daxa::HeadTask<PGIUpdateProbesH::Info>()
+            .head_views(PGIUpdateProbesH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .probe_info = info.pgi_state.probe_info_view,
+                .probe_info_copy = probe_info_copy,
+                .trace_result = pgi_trace_result,
+                .requests = info.pgi_state.cell_requests_view,
+            })
+            .executes(pgi_update_probes_callback, info.render_context, &info.pgi_state));
+    info.tg.add_task(daxa::HeadTask<PGIUpdateProbeTexelsH::Info>()
+            .head_views(PGIUpdateProbeTexelsH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .probe_indirections = pgi_indirections,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_visibility = info.pgi_state.probe_visibility_view,
+                .probe_info = info.pgi_state.probe_info_view,
+                .trace_result = pgi_trace_result,
+            })
+            .executes(pgi_update_probe_texels_callback, info.render_context, &info.pgi_state));
 
 
     TaskPGIUpdateOut ret = {};
@@ -2086,22 +2084,20 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
 auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & info) -> daxa::TaskImageView
 {
     auto pgi_screen_irrdiance = pgi_create_screen_irradiance(info.tg, info.render_context->render_data);
-    info.tg.add_task(PGIEvalScreenIrradianceTask{
-        .views = PGIEvalScreenIrradianceTask::Views{
-            .globals = info.render_context->tgpu_render_data.view(),
-            .debug_image = info.debug_image,
-            .clocks_image = info.clocks_image,
-            .main_cam_depth = info.view_camera_depth,
-            .main_cam_face_normals = info.view_camera_face_normal_image,
-            .main_cam_detail_normals = info.view_camera_detail_normal_image,
-            .probe_info = info.pgi_state.probe_info_view,
-            .probe_color = info.pgi_state.probe_color_view,
-            .probe_visibility = info.pgi_state.probe_visibility_view,
-            .probe_requests = info.pgi_state.cell_requests_view,
-            .irradiance_depth = pgi_screen_irrdiance,
-        },
-        .render_context = info.render_context,
-        .pgi_state = &info.pgi_state,
-    });
+    info.tg.add_task(daxa::HeadTask<PGIEvalScreenIrradianceH::Info>()
+            .head_views(PGIEvalScreenIrradianceH::Info::Views{
+                .globals = info.render_context->tgpu_render_data.view(),
+                .debug_image = info.debug_image,
+                .clocks_image = info.clocks_image,
+                .main_cam_depth = info.view_camera_depth,
+                .main_cam_face_normals = info.view_camera_face_normal_image,
+                .main_cam_detail_normals = info.view_camera_detail_normal_image,
+                .probe_info = info.pgi_state.probe_info_view,
+                .probe_color = info.pgi_state.probe_color_view,
+                .probe_visibility = info.pgi_state.probe_visibility_view,
+                .probe_requests = info.pgi_state.cell_requests_view,
+                .irradiance_depth = pgi_screen_irrdiance,
+            })
+            .executes(pgi_eval_screen_irradiance_callback, info.render_context, &info.pgi_state));
     return pgi_screen_irrdiance;
 }

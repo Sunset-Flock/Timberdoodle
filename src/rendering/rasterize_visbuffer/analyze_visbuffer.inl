@@ -34,25 +34,21 @@ struct AnalyzeVisbufferPush2
 
 MAKE_COMPUTE_COMPILE_INFO(analyze_visbufer_pipeline_compile_info, "./src/rendering/rasterize_visbuffer/analyze_visbuffer.hlsl", "main")
 
-struct AnalyzeVisBufferTask2 : AnalyzeVisbuffer2H::Task
+// Implemented inline because this file is included only where used.
+inline void analyze_visbuffer_callback2(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
-        auto [x, y, z] = ti.info(AT.visbuffer).value().size;
-        ti.recorder.push_constant(AnalyzeVisbufferPush2{
-            .attach = ti.attachment_shader_blob,
-            .size = {x, y},
-            .inv_size = {1.0f / float(x), 1.0f / float(y)},
-        });
-        auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
-        auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);
-        
-        render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
-        ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
-        render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
-    }
-};
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(analyze_visbufer_pipeline_compile_info().name));
+    auto [x, y, z] = ti.info(AnalyzeVisbuffer2H::Info::AT.visbuffer).value().size;
+    ti.recorder.push_constant(AnalyzeVisbufferPush2{
+        .attach = ti.attachment_shader_blob,
+        .size = {x, y},
+        .inv_size = {1.0f / float(x), 1.0f / float(y)},
+    });
+    auto const dispatch_x = round_up_div(x, ANALYZE_VIS_BUFFER_WORKGROUP_X * 2);
+    auto const dispatch_y = round_up_div(y, ANALYZE_VIS_BUFFER_WORKGROUP_Y * 2);
+    
+    render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
+    ti.recorder.dispatch({.x = dispatch_x, .y = dispatch_y, .z = 1});
+    render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::index<"VISBUFFER","ANALYZE">());
+}
 #endif

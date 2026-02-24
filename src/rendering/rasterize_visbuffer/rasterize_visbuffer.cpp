@@ -153,8 +153,8 @@ namespace raster_visbuf
             });
             auto visible_meshes_bitfield = daxa::NullTaskBuffer;
             info.tg.clear_buffer({.buffer = visible_meshlets_bitfield, .clear_value = 0});
-            info.tg.add_task(AnalyzeVisBufferTask2{
-                .views = AnalyzeVisBufferTask2::Views{
+            info.tg.add_task(daxa::HeadTask<AnalyzeVisbuffer2H::Info>()
+                .head_views(AnalyzeVisbuffer2H::Info::Views{
                     .globals = info.render_context->tgpu_render_data.view(),
                     .visbuffer = ret.main_camera_visbuffer,
                     .meshlet_instances = info.meshlet_instances,
@@ -163,9 +163,8 @@ namespace raster_visbuf
                     .visible_meshlets = info.visible_meshlet_instances,
                     .mesh_visibility_bitfield = visible_meshes_bitfield,
                     .debug_image = info.debug_image,
-                },
-                .render_context = info.render_context.get(),
-            });
+                })
+                .executes(analyze_visbuffer_callback2, info.render_context.get()));
         }
 
         if (info.render_context->render_data.settings.draw_from_observer)

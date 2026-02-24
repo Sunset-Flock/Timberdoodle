@@ -88,120 +88,116 @@ inline daxa::RasterPipelineCompileInfo2 draw_shader_debug_lines_pipeline_compile
     return ret;
 };
 
-struct DebugDrawTask : DebugDrawH::Task
+inline void debug_draw_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-    void callback(daxa::TaskInterface ti)
-    {
-        auto const colorImageSize = ti.info(AT.color_image).value().size;
-        daxa::RenderPassBeginInfo render_pass_begin_info{
-            .color_attachments = {
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.color_image).view_ids[0],
-                    .load_op = daxa::AttachmentLoadOp::LOAD,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
-                },
+    auto const & AT = DebugDrawH::Info::AT;
+    auto const colorImageSize = ti.info(AT.color_image).value().size;
+    daxa::RenderPassBeginInfo render_pass_begin_info{
+        .color_attachments = {
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.view(AT.color_image),
+                .load_op = daxa::AttachmentLoadOp::LOAD,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = daxa::ClearValue{std::array<u32, 4>{0, 0, 0, 0}},
             },
-            .depth_attachment =
-                daxa::RenderAttachmentInfo{
-                    .image_view = ti.get(AT.depth_image).view_ids[0],
-                    .load_op = daxa::AttachmentLoadOp::LOAD,
-                    .store_op = daxa::AttachmentStoreOp::STORE,
-                    .clear_value = daxa::DepthValue{0.0f, 0},
-                },
-            .render_area = daxa::Rect2D{.width = colorImageSize.x, .height = colorImageSize.y},
-        };
+        },
+        .depth_attachment =
+            daxa::RenderAttachmentInfo{
+                .image_view = ti.view(AT.depth_image),
+                .load_op = daxa::AttachmentLoadOp::LOAD,
+                .store_op = daxa::AttachmentStoreOp::STORE,
+                .clear_value = daxa::DepthValue{0.0f, 0},
+            },
+        .render_area = daxa::Rect2D{.width = colorImageSize.x, .height = colorImageSize.y},
+    };
 
-        auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
+    auto render_cmd = std::move(ti.recorder).begin_renderpass(render_pass_begin_info);
 
-        DebugDrawPush push{
-            .attachments = ti.attachment_shader_blob,
-            .draw_as_observer = render_context->render_data.settings.draw_from_observer,
-        };
+    DebugDrawPush push{
+        .attachments = ti.attachment_shader_blob,
+        .draw_as_observer = render_context->render_data.settings.draw_from_observer,
+    };
 
-        render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_lines_pipeline_compile_info().name));
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_LINE;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, line_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_CIRCLE;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_RECTANGLE;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_AABB;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_BOX;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_CONE;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, cone_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-        {
-            push.mode = DEBUG_OBJECT_DRAW_MODE_SPHERE;
-            render_cmd.push_constant(push);
-            render_cmd.draw_indirect({
-                .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
-                .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, sphere_draws),
-                .draw_count = 1,
-                .draw_command_stride = sizeof(DrawIndirectStruct),
-                .is_indexed = false,
-            });
-        }
-
-        ti.recorder = std::move(render_cmd).end_renderpass();
+    render_cmd.set_pipeline(*render_context->gpu_context->raster_pipelines.at(draw_shader_debug_lines_pipeline_compile_info().name));
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_LINE;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, line_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
     }
-};
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_CIRCLE;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, circle_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_RECTANGLE;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, rectangle_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_AABB;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, aabb_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_BOX;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, box_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_CONE;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, cone_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+    {
+        push.mode = DEBUG_OBJECT_DRAW_MODE_SPHERE;
+        render_cmd.push_constant(push);
+        render_cmd.draw_indirect({
+            .draw_command_buffer = render_context->gpu_context->shader_debug_context.buffer,
+            .indirect_buffer_offset = offsetof(ShaderDebugBufferHead, sphere_draws),
+            .draw_count = 1,
+            .draw_command_stride = sizeof(DrawIndirectStruct),
+            .is_indexed = false,
+        });
+    }
+
+    ti.recorder = std::move(render_cmd).end_renderpass();
+}
 
 #endif // #if __cplusplus

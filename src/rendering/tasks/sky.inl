@@ -65,40 +65,30 @@ inline daxa::ComputePipelineCompileInfo2 sky_into_cubemap_pipeline_compile_info(
     };
 }
 
-struct ComputeTransmittanceTask : ComputeTransmittanceH::Task
+inline void compute_transmittance_callback(daxa::TaskInterface ti, GPUContext * gpu_context)
 {
-    AttachmentViews views = {};
-    GPUContext * gpu_context = {};
+    auto const & AT = ComputeTransmittanceH::Info::AT;
+    auto const transmittance_size = ti.info(AT.transmittance).value().size;
+    auto const dispatch_size = u32vec2{
+        (transmittance_size.x + TRANSMITTANCE_X - 1) / TRANSMITTANCE_X,
+        (transmittance_size.y + TRANSMITTANCE_Y - 1) / TRANSMITTANCE_Y,
+    };
+    ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(compute_transmittance_pipeline_compile_info().name));
+    ComputeTransmittanceH::AttachmentShaderBlob push{};
+    push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
+}
 
-    void callback(daxa::TaskInterface ti)
-    {
-        auto const transmittance_size = ti.info(AT.transmittance).value().size;
-        auto const dispatch_size = u32vec2{
-            (transmittance_size.x + TRANSMITTANCE_X - 1) / TRANSMITTANCE_X,
-            (transmittance_size.y + TRANSMITTANCE_Y - 1) / TRANSMITTANCE_Y,
-        };
-        ti.recorder.set_pipeline(*gpu_context->compute_pipelines.at(compute_transmittance_pipeline_compile_info().name));
-        ComputeTransmittanceH::AttachmentShaderBlob push{};
-        push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({.x = dispatch_size.x, .y = dispatch_size.y});
-    }
-};
-
-struct ComputeMultiscatteringTask : ComputeMultiscatteringH::Task
+inline void compute_multiscattering_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    AttachmentViews views = {};
-    RenderContext * render_context = {};
-
-    void callback(daxa::TaskInterface ti)
-    {
-        auto const multiscattering_size = ti.info(AT.multiscattering).value().size;
-        ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
-        ComputeMultiscatteringH::AttachmentShaderBlob push = ti.attachment_shader_blob;
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({.x = multiscattering_size.x, .y = multiscattering_size.y});
-    }
-};
+    auto const & AT = ComputeMultiscatteringH::Info::AT;
+    auto const multiscattering_size = ti.info(AT.multiscattering).value().size;
+    ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(compute_multiscattering_pipeline_compile_info().name));
+    ComputeMultiscatteringH::AttachmentShaderBlob push = ti.attachment_shader_blob;
+    ti.recorder.push_constant(push);
+    ti.recorder.dispatch({.x = multiscattering_size.x, .y = multiscattering_size.y});
+}
 
 void compute_sky_task(daxa::TaskInterface ti, RenderContext * render_context)
 {
