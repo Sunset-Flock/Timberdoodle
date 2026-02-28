@@ -38,7 +38,6 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     if (pixel_depth == 0.0f)
     {
-        push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = float4(0,0,0,0);
         return;
     }
     
@@ -101,7 +100,8 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // - at shallow angles the kernel can become 1 pixel wide due to the gradient based shape, the wiggle breaks this up.
         const float2 pixel_index_wiggle = disc_noise * 0.5f; 
         const float2 sample_uv = sample_ndc.xy * 0.5f + 0.5f;
-        const uint2 sample_index = uint2(sample_uv * half_res_render_target_size + pixel_index_wiggle);
+        const int2 sample_index_i = clamp(int2(sample_uv * half_res_render_target_size + pixel_index_wiggle), int2(0, 0), int2(half_res_render_target_size) - 1);
+        const uint2 sample_index = uint2(sample_index_i);
 
         // Load sample data
         const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];

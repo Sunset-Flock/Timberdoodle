@@ -79,7 +79,7 @@ inline void rtgi_post_blur_diffuse_callback(daxa::TaskInterface ti, RenderContex
 inline void rtgi_upscale_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiUpscaleDiffuseH::Info::AT;
-    dispatch_image_relative(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE_DIFFUSE">(), rtgi_upscale_diffuse_compile_info().name);
+    dispatch_image_relative(RtgiUpscaleDiffusePush(), ti, render_context, AT.view_cam_depth, RTGI_UPSCALE_DIFFUSE_X, RenderTimes::index<"RTGI", "UPSCALE">(), rtgi_upscale_diffuse_compile_info().name);
 }
 
 ///

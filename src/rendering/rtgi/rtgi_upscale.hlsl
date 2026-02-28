@@ -104,8 +104,6 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 const float4 sample_vs_pre_div = mul(camera.inv_proj, float4(sample_ndc,1.0f));
                 const float3 sample_vs = -sample_vs_pre_div.xyz / sample_vs_pre_div.w;
                 gs_half_vs_positions[preload_index.x][preload_index.y] = float4(sample_vs, depth);
-
-                gs_half_samplecount[preload_index.x][preload_index.y] = push.attach.samplecount_half_res.get()[load_index];
             }
             GroupMemoryBarrierWithGroupSync();
         }
@@ -119,6 +117,8 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         {
             return;
         }
+
+        const float pixel_ws_size_rcp = rcp(ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth));
 
         // Tent 3x3 filter the preloaded values
         static const uint TENT_WIDTH = 3;
@@ -152,35 +152,34 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
                 // Calculate sample position
                 const float3 sample_vs = gs_half_vs_positions[sample_gs_index.x][sample_gs_index.y].xyz;
                 const float sample_depth = gs_half_vs_positions[sample_gs_index.x][sample_gs_index.y].w;
-                const float is_not_sky_weight = sample_depth == 0.0f ? 0.0f : 1.0f;
-                
-                const float samplecount = gs_half_samplecount[sample_gs_index.x][sample_gs_index.y];
 
                 // Calculate weights
                 const float tent_weight = tent_weights_x[row] * tent_weights_y[col];
-                const float geometry_weight = planar_surface_weight(inv_full_res_render_target_size, camera.near_plane, pixel_depth, position_vs, pixel_face_normal_vs, sample_vs, 3.0f);
+                const float geometry_weight = (planar_surface_distance(position_vs, pixel_face_normal_vs, sample_vs) * pixel_ws_size_rcp) < 3.0f;
                 const float normal_weight = square(square(max(0.0f, dot(sample_face_normal, pixel_face_normal))));
-                const float samplecount_weight = square(samplecount + 1.0f);
-                const float weight = is_not_sky_weight * tent_weight * geometry_weight * normal_weight * samplecount_weight;
+                const float weight = tent_weight * geometry_weight * normal_weight;
 
-                acc_diffuse += weight * sample_sh_y;
-                acc_diffuse2 += weight * sample_cocg;
-                acc_weight += weight;
-                acc_geo_weight += geometry_weight;
+                if (sample_depth != 0.0f)
+                {
+                    acc_diffuse += weight * sample_sh_y;
+                    acc_diffuse2 += weight * sample_cocg;
+                    acc_weight += weight;
+                    acc_geo_weight += geometry_weight;
 
-                // Fallback calculation:
-                const float vs_dst_weight = 1.0f * rcp( 1.0f + square(dot(position_vs - sample_vs, position_vs - sample_vs)));
-                const float fallback_weight = is_not_sky_weight * tent_weight * vs_dst_weight * (0.1f + max(0.0f, dot(sample_face_normal, pixel_face_normal)));
-                fallback_acc_diffuse += fallback_weight * sample_sh_y;
-                fallback_acc_diffuse2 += fallback_weight * sample_cocg;
-                fallback_acc_weight += fallback_weight;
+                    // Fallback calculation:
+                    const float vs_dst_weight = 1.0f * rcp( 1.0f + square(dot(position_vs - sample_vs, position_vs - sample_vs)));
+                    const float fallback_weight = tent_weight * vs_dst_weight * (0.1f + max(0.0f, dot(sample_face_normal, pixel_face_normal)));
+                    fallback_acc_diffuse += fallback_weight * sample_sh_y;
+                    fallback_acc_diffuse2 += fallback_weight * sample_cocg;
+                    fallback_acc_weight += fallback_weight;
+                }
             }
         }
 
         // Write upscaled diffuse:
         float4 upscaled_sh_y = float4( 0.0f, 0.0f, 0.0f, 0.0f );
         float2 upscaled_cocg = float2( 0.0f, 0.0f );
-        if (acc_weight >= 1.0f)
+        if (acc_weight >= 1.0f || 1)
         {
             upscaled_sh_y = acc_diffuse * rcp(acc_weight + 0.0000001f);
             upscaled_cocg = acc_diffuse2 * rcp(acc_weight + 0.0000001f);

@@ -42,7 +42,6 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     if (pixel_depth == 0.0f)
     {
-        push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index] = float4(0,0,0,0);
         return;
     }
     

@@ -70,7 +70,6 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
     const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;// - inv_half_res_render_target_size * 0.75;
     const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * half_res_render_target_size;
-    const float3 sv_pos_prev_frame = float3( sv_xy_prev_frame, ndc_prev_frame.z );
     const float3 primary_ray_prev_frame = normalize(world_position - camera_prev_frame.position);
 
     bool disocclusion = false;
@@ -94,7 +93,6 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
         const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
         const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * inv_half_res_render_target_size;
-        const float3 sv_pos_prev_frame = float3( sv_xy_prev_frame, ndc_prev_frame.z );
         const float3 primary_ray_prev_frame = normalize(world_position - previous_camera.position);
 
         // Load previous frame half res depth
