@@ -9,7 +9,6 @@ int main(int argc, char const * const * argv)
 #else
 int main(int argc, char const * const * argv)
 {
-
     Application app = Application();
     if (argc > 1)
     {

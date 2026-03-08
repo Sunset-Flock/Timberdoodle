@@ -26,7 +26,6 @@ inline void brdf_fg_callback(daxa::TaskInterface ti, RenderContext * render_cont
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(brdf_fg_compute_pipeline_info().name));
     BrdfFgH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
-    (void)AT;
     ti.recorder.dispatch({.x = 64 / 8, .y = 64 / 8});
     // render_context->render_times.end_gpu_timer(ti.recorder, RenderTimes::RAY_TRACED_AMBIENT_OCCLUSION);
 }

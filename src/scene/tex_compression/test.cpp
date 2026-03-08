@@ -47,15 +47,10 @@ void test_main()
 
         test_context.swapchain = test_context.device.create_swapchain({
             .native_window_info = daxa::NativeWindowInfoWin32{ .hwnd = glfwGetWin32Window(test_context.window->glfw_handle) },
-            .surface_format_selector = [](daxa::Format format, daxa::ColorSpace) -> i32
-            {
-                switch (format)
-                {
-                    case daxa::Format::R8G8B8A8_UNORM: return 80;
-                    case daxa::Format::B8G8R8A8_UNORM: return 60;
-                    default:                           return 0;
-                }
-            },
+            .surface_format = test_context.device.choose_swapchain_surface_format({
+                .native_window_info = daxa::NativeWindowInfoWin32{ .hwnd = glfwGetWin32Window(test_context.window->glfw_handle) },
+                .preferred_formats = std::array{daxa::SurfaceFormat{ .format = daxa::Format::B8G8R8A8_UNORM }},
+            }),
             .present_mode = daxa::PresentMode::IMMEDIATE,
             .image_usage = daxa::ImageUsageFlagBits::SHADER_STORAGE | daxa::ImageUsageFlagBits::TRANSFER_DST,
             .name = "GPU Compression test swapchain",
