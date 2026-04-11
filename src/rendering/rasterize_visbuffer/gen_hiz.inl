@@ -14,7 +14,7 @@
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenHizTH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, src)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, src)
 DAXA_TH_IMAGE_ID_MIP_ARRAY(READ_WRITE, REGULAR_2D, mips, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
@@ -49,7 +49,7 @@ struct GenHizPush
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenHizH2)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<float>, src)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<float>, src)
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ_WRITE, daxa::RWTexture2DIndex<float>, hiz, GEN_HIZ_LEVELS_PER_DISPATCH)
 DAXA_DECL_TASK_HEAD_END
 
@@ -108,6 +108,7 @@ inline void task_gen_hiz_single_pass(TaskGenHizSinglePassInfo const & info)
         .mip_level_count = mip_count,
         .name = std::string("hiz ") + std::string(RenderTimes::timing_name(info.render_time_index)),
     });
+    daxa::TaskImageView bloom_image = {};
     daxa::Task hiz_task = daxa::Task("GenHiz")
         .uses_head<GenHizH2::Info>()
         .head_views({

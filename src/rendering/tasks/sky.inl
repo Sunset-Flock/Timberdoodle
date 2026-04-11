@@ -26,22 +26,22 @@ DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ComputeMultiscatteringH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec3>, transmittance)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec3>, transmittance)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec3>, multiscattering)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ComputeSkyH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec3>, transmittance)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec3>, multiscattering)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec3>, transmittance)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec3>, multiscattering)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, sky)
 DAXA_DECL_TASK_HEAD_END
 #endif
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(SkyIntoCubemapH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, transmittance)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, transmittance)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, sky)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D_ARRAY, ibl_cube)
 DAXA_DECL_TASK_HEAD_END
 

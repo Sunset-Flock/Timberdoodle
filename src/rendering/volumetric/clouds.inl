@@ -35,10 +35,10 @@ struct RaymarchCloudVolumetricShadowMapPush
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RaymarchCloudsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(CloudVolumeInstancesBufferHead), cloud_volumes)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture3DId<daxa_f32vec2>, cloud_volumetric_shadow_map)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, transmittance)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::TextureCubeId<daxa_f32vec4>, sky_ibl)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture3DId<daxa_f32vec2>, cloud_volumetric_shadow_map)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, transmittance)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::TextureCubeId<daxa_f32vec4>, sky_ibl)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, clouds_raymarched_result)
 DAXA_DECL_TASK_HEAD_END
 
@@ -55,8 +55,8 @@ DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ComposeCloudsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), exposure)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, clouds_raymarched_result)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, view_cam_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, clouds_raymarched_result)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_depth)
 DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_f32vec3>, color_image)
 DAXA_DECL_TASK_HEAD_END
 

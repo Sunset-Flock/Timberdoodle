@@ -16,18 +16,18 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec3>, color_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, selected_mark_image)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_f32vec4>, ao_image)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, vis_image)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, pgi_screen_irrdiance)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32>, depth)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, pgi_screen_irrdiance)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, depth)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, debug_image)
 DAXA_TH_IMAGE_TYPED(READ, daxa::RWTexture2DId<daxa_u32>, clocks_image)
 DAXA_TH_IMAGE_ID(READ, REGULAR_2D, vsm_overdraw_debug)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, transmittance)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, sky)
-DAXA_TH_IMAGE_ID(SAMPLED, CUBE, sky_ibl)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, vsm_page_table)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, vsm_memory_block)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, overdraw_image)  // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, transmittance)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, sky)
+DAXA_TH_IMAGE_ID(SAMPLE, CUBE, sky_ibl)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D_ARRAY, vsm_page_table)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D_ARRAY, vsm_page_view_pos_row)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, vsm_memory_block)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, overdraw_image)  // OPTIONAL
 DAXA_TH_IMAGE_TYPED_MIP_ARRAY(READ, daxa::RWTexture2DArrayId<daxa_u32>, vsm_point_spot_page_table, 8)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), instantiated_meshlets)
@@ -42,13 +42,13 @@ DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(FreeWrappedPagesInfo), vsm_wrapped_pages
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUPointLight), point_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUSpotLight), spot_lights)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_irradiance)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec2>, pgi_visibility)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_info)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::RWTexture2DArrayId<daxa_u32>, pgi_requests)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DArrayId<daxa_f32vec4>, rtgi_per_pixel_diffuse) // OPTIONAL
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DId<daxa_f32vec4>, rtgi_debug_primary_trace) // OPTIONAL
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_u32vec4>, light_mask_volume)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_irradiance)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec2>, pgi_visibility)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, pgi_info)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::RWTexture2DArrayId<daxa_u32>, pgi_requests)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DArrayId<daxa_f32vec4>, rtgi_per_pixel_diffuse) // OPTIONAL
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32vec4>, rtgi_debug_primary_trace) // OPTIONAL
 DAXA_TH_TLAS_PTR(READ, tlas)
 DAXA_DECL_TASK_HEAD_END
 

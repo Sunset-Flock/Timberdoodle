@@ -15,19 +15,19 @@ DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), gl
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DIndex<daxa_f32vec4>, debug_image)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DIndex<daxa_u32>, clocks_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32>, half_res_sample_count)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32>, half_res_sample_count_history)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse_new)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, half_res_sample_count_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse_new)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, half_res_diffuse_accumulated)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse_history)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32vec2>, half_res_diffuse2_new)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec4>, half_res_diffuse_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, half_res_diffuse2_new)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, half_res_diffuse2_accumulated)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32vec2>, half_res_diffuse2_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32vec2>, half_res_diffuse2_history)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, half_res_statistics_accumulated)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_u32>, half_res_statistics_history)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32>, half_res_depth)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_f32>, half_res_depth_history)
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_u32>, half_res_normal)           // probably best to use face or smooth normal here
-DAXA_TH_IMAGE_TYPED(SAMPLED, daxa::Texture2DIndex<daxa_u32>, half_res_normal_history)   // probably best to use face or smooth normal here
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_statistics_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, half_res_depth)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, half_res_depth_history)
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_normal)           // probably best to use face or smooth normal here
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, half_res_normal_history)   // probably best to use face or smooth normal here
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiTemporalPush

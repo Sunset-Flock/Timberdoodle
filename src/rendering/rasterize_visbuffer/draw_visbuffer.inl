@@ -23,7 +23,7 @@ DAXA_DECL_RASTER_TASK_HEAD_BEGIN(DrawVisbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER(INDIRECT_COMMAND_READ | READ, draw_commands)
 // Used by observer to cull:
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)
 DAXA_TH_IMAGE_ID(READ_WRITE, REGULAR_2D, overdraw_image)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, vis_image)
@@ -34,7 +34,7 @@ DAXA_DECL_TASK_HEAD_END
 DAXA_DECL_TASK_HEAD_BEGIN(CullMeshletsDrawVisbufferH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 // Cull Attachments:
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, hiz)
 DAXA_TH_BUFFER_PTR(INDIRECT_COMMAND_READ | READ, daxa_u64, po2expansion)
 DAXA_TH_BUFFER_PTR(INDIRECT_COMMAND_READ | READ, daxa_u64, masked_po2expansion)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(FirstPassMeshletBitfield), first_pass_meshlet_bitfield)

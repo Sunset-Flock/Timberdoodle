@@ -15,9 +15,9 @@
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(ExpandMeshesToMeshletsH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshInstancesBufferHead), mesh_instances)
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D, hiz)                                                              // OPTIONAL
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, hip)                                                        // OPTIONAL
-DAXA_TH_IMAGE_ID(SAMPLED, REGULAR_2D_ARRAY, point_hip)                                                  // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D, hiz)                                                              // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D_ARRAY, hip)                                                        // OPTIONAL
+DAXA_TH_IMAGE_ID(SAMPLE, REGULAR_2D_ARRAY, point_hip)                                                  // OPTIONAL
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(FirstPassMeshletBitfield), first_pass_meshlet_bitfield) // OPTIONAL
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), opaque_expansion)
 DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(uint), masked_expansion)
