@@ -9,7 +9,6 @@
 
 [[vk::push_constant]] RtgiTemporalPush rtgi_denoise_diffuse_reproject_push;
 
-
 float apply_bilinear_custom_weights_soft_normalize( float s00, float s10, float s01, float s11, float4 w )
 {
     float max_v = 0.0f;
@@ -331,4 +330,8 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
     push.attach.half_res_statistics_accumulated.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
+
+    // debug_image_tile_draw(push.attach.debug_image.get(), 0, dtid, 2, accumulated_diffuse.wwww);
+    // debug_image_tile_draw(push.attach.debug_image.get(), 1, dtid, 2, reprojected_diffuse.wwww);
+    // debug_image_tile_draw(push.attach.debug_image.get(), 2, dtid, 2, new_diffuse.wwww);
 }

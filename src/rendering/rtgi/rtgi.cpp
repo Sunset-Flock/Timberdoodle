@@ -307,8 +307,8 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
         })
         .executes(rtgi_temporal_callback, &info.render_context));
 
-    auto rtgi_post_blur_diffuse_image = half_res_diffuse_history;
-    auto rtgi_post_blur_diffuse2_image = half_res_diffuse2_history;
+    auto rtgi_post_blur_diffuse_image = half_res_diffuse_history.current();
+    auto rtgi_post_blur_diffuse2_image = half_res_diffuse2_history.current();
     if (info.render_context.render_data.rtgi_settings.post_blur_enabled)
     {
         auto rtgi_post_blur_pass0_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_post_blur_pass0_diffuse_image");

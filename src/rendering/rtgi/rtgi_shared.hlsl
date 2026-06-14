@@ -5,6 +5,22 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
+void debug_image_tile_draw(RWTexture2D<float4> tex, uint slot, uint2 sv_position, uint resolution_scale, float4 color)
+{
+    uint width, height;
+    tex.GetDimensions(width, height);
+    const uint2 full_res = uint2(width, height);
+    const uint2 slot_size = full_res / 4;
+    const uint2 dst_in_slot = (sv_position * resolution_scale) / 4;
+    if (slot >= 16 || any(dst_in_slot >= slot_size))
+    {
+        return;
+    }
+    const uint2 slot_coord = uint2(slot % 4, slot / 4);
+    const uint2 dst_position = slot_coord * slot_size + dst_in_slot;
+    tex[dst_position] = color;
+}
+
 #define RTGI_FIREFLY_ENERGY_HACKS 1
 
 #define RTGI_MAX_FIREFLY_FACTOR (32.0f)

@@ -49,7 +49,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
 
-    const uint thread_seed = push.attach.globals.frame_index;
+    const uint thread_seed = push.attach.globals.frame_index + (dtid.x * 4567 + dtid.y) * 4567;
     rand_seed(thread_seed);
 
     // Load pixels diffuse before value, used for width estimation and fallback diffuse
@@ -124,15 +124,20 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // Variance guiding:
         // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
         // * improves shadowing contact detail
+        // * Variance guiding makes image too unstable, must improve heuristic. Currently the filter is too stochastic to properly use variance guiding.
         const float relative_sample_y_deviation = (max(1.0f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_std_dev + pixel_y * 0.00001f)) * 0.5f);
         const float relative_sample_y_weight = select(variance_guiding_enabled, 1.0f / relative_sample_y_deviation, 1.0f);
 
-        const float weight = geometric_weight * normal_weight * firefly_power * relative_sample_y_weight;
+        const float weight = geometric_weight * normal_weight * firefly_power;// * relative_sample_y_weight;
         
-        // if (all(dtid.xy == half_res_render_target_size/2))
-        // {
-        //     push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
-        // }
+        #if 0
+        if (all(dtid.xy == half_res_render_target_size/2))
+        {
+            // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
+            
+            debug_image_tile_draw(push.attach.debug_image.get(), 3, sample_index, 2, lerp(float4(0,1,0,1), float4(1,1,1,1), weight));
+        }
+        #endif
         
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample_value_depth == 0.0f;
