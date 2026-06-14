@@ -102,7 +102,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
     const float3 vs_position = mul(camera.view, float4(world_position, 1.0f)).xyz;
     const float3 vs_normal = mul(camera.view, float4(pixel_face_normal, 0.0f)).xyz;
-    const float pixel_ws_size_rcp = rcp(ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, depth));
+    const float pixel_ws_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, depth);
+    const float pixel_ws_size_rcp = rcp(pixel_ws_size);
 
     // Geometric mean is used to suppress fireflies
     float y_mean_geometric_acc = 0.0f;
@@ -113,13 +114,15 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float y_variance_acc = 0.0f;
     float y_max = 0.0f;
     float ray_length_mean_acc = 0.0f;
-    float sq_ray_length_mean_acc = 0.0f;
     float valid_footprint_samples = 0.0f;
 
     // The raw signal is pre blurredi in a star shape with 5 taps to conserve energy from the firefly filter.
     float4 star_blurred_diffuse_acc = float4(0,0,0,0);
     float2 star_blurred_diffuse2_acc = float2(0,0);
     float star_blurred_weight_acc = 0.0f;
+
+    const float max_visibility_pixel_range = 48.0f;
+    const float max_visibility_raylen = pixel_ws_size * max_visibility_pixel_range;
 
     [unroll]
     for (int x = -TOTAL_FILTER_REACH; x <= TOTAL_FILTER_REACH; ++x)
@@ -132,9 +135,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             load_idx = flip_oob_index(load_idx, max_index);
 
             const int2 preload_index = src_to_preload_index(load_idx, gid);
-            float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];                        // preloading via shared mem reduces perf, distribute loading onto multiply hw units
-            float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];                      // preloading via shared mem reduces perf, distribute loading onto multiply hw units
-            const float sample_ray_length = push.attach.ray_length_image.get()[load_idx];           // preloading via shared mem reduces perf, distribute loading onto multiply hw units
+            float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];                // preloading via shared mem reduces perf, distribute loading onto multiply hw units
+            float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];              // preloading via shared mem reduces perf, distribute loading onto multiply hw units
+            const float sample_ray_length = push.attach.ray_length_image.get()[load_idx];   // preloading via shared mem reduces perf, distribute loading onto multiply hw units
             const float4 preload_v = gs_sample_value_vs[preload_index.x][preload_index.y];
             const float3 sample_value_vs = preload_v.xyz;
             const float sample_depth = preload_v.w;
@@ -170,8 +173,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 y_mean_acc += sample_y * geometric_weight;
                 y_variance_acc += square(sample_y) * geometric_weight;
                 y_max = max(y_max, sample_y) * geometric_weight;
-                ray_length_mean_acc += sample_ray_length * geometric_weight;
-                sq_ray_length_mean_acc += square(sample_ray_length) * geometric_weight;
+                ray_length_mean_acc += square(min(1.0f, sample_ray_length * rcp(max_visibility_raylen))) * geometric_weight;
 
                 valid_footprint_samples += geometric_weight;
             }
@@ -212,17 +214,20 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float valid_footprint_relative = (valid_footprint_samples * rcp(INNER_FILTER_TAPS_TOTAL));
         footprint_quality = valid_footprint_relative;
 
-        float ray_length_mean = ray_length_mean_acc * rcp(valid_footprint_samples);
-        float squared_ray_length_mean = sq_ray_length_mean_acc * rcp(valid_footprint_samples);
-        const float ray_length_guide_factor = square(square(squared_ray_length_mean));
+        float ray_length_mean = square(square(ray_length_mean_acc * rcp(valid_footprint_samples)));
+        float raylength_firefly_filter_ceiling_factor = 1.0f;
         if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
         {
-            footprint_quality *= ray_length_guide_factor;
+            const float ray_length_foot_print_quality = ray_length_mean;
+            raylength_firefly_filter_ceiling_factor = min(1.0f, ray_length_mean + 0.2f);
+            footprint_quality *= ray_length_foot_print_quality;
         }
+    
+        // debug_image_tile_draw(push.attach.debug_image.get(), 8, dtid, float4(TurboColormap(pixel_footprint_quality), 2), 2);
 
         const float valid_geometric_samples_ceiling_factor = (valid_geometric_mean_samples / (GEOMETRIC_MEAN_TAPS_TOTAL));
         const float valid_footprint_samples_ceiling_factor = (valid_footprint_relative);
-        const float ceiling_factor = max(1.0f, push.attach.globals.rtgi_settings.firefly_filter_ceiling * valid_geometric_samples_ceiling_factor * valid_footprint_samples_ceiling_factor);
+        const float ceiling_factor = max(1.0f, push.attach.globals.rtgi_settings.firefly_filter_ceiling * valid_geometric_samples_ceiling_factor * valid_footprint_samples_ceiling_factor * raylength_firefly_filter_ceiling_factor);
         const float y_center_pixel_perceptual = linear_to_perceptual(filtered_diffuse.w);
         const float y_center_pixel = filtered_diffuse.w;
         const float y_ratio = (y_mean * ceiling_factor) / (EPSILON + y_center_pixel);

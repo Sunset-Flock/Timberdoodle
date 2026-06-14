@@ -77,6 +77,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float2 reprojected_diffuse2 = float2(0.0f, 0.0f);
     float reprojected_fast_temporal_mean = 0.0f;
     float reprojected_fast_temporal_variance = 0.0f;
+    float reprojected_footprint_quality = 0.0f;
     {
         // Load relevant global data
         CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
@@ -244,6 +245,14 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         }
         reprojected_fast_temporal_mean = reprojected_statistics_history[0];
         reprojected_fast_temporal_variance = reprojected_statistics_history[1];
+
+        // Footprint Quality History
+        const float4 footprint_quality_reprojected4 = push.attach.half_res_footprint_quality_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
+        reprojected_footprint_quality = apply_bilinear_custom_weights( footprint_quality_reprojected4.x, footprint_quality_reprojected4.y, footprint_quality_reprojected4.z, footprint_quality_reprojected4.w, sample_weights );
+        if (isnan(reprojected_footprint_quality))
+        {
+            reprojected_footprint_quality = 0.0f;
+        }
     }
     //disocclusion = true;
 
@@ -253,6 +262,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     // Load new diffuse data
     float4 new_diffuse = push.attach.half_res_diffuse_new.get()[dtid.xy];
     float2 new_diffuse2 = push.attach.half_res_diffuse2_new.get()[dtid.xy];
+    float new_footprint_quality = push.attach.footprint_quality_new.get()[dtid.xy];
 
     // Determine accumulated fast history
 
@@ -325,13 +335,13 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float4 accumulated_diffuse = disocclusion ? new_diffuse : lerp(reprojected_diffuse, new_diffuse, blend);
     float2 accumulated_diffuse2 = disocclusion ? new_diffuse2 : lerp(reprojected_diffuse2, new_diffuse2, co_cg_blend);
 
+    // Determine accumulated footprint quality
+    float accumulated_footprint_quality = disocclusion ? new_footprint_quality : lerp(reprojected_footprint_quality, new_footprint_quality, blend);
+
     // Write Textures
     push.attach.half_res_sample_count.get()[dtid.xy] = accumulated_sample_count;
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
     push.attach.half_res_statistics_accumulated.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
-
-    // debug_image_tile_draw(push.attach.debug_image.get(), 0, dtid, 2, accumulated_diffuse.wwww);
-    // debug_image_tile_draw(push.attach.debug_image.get(), 1, dtid, 2, reprojected_diffuse.wwww);
-    // debug_image_tile_draw(push.attach.debug_image.get(), 2, dtid, 2, new_diffuse.wwww);
+    push.attach.half_res_footprint_quality_accumulated.get()[dtid.xy] = accumulated_footprint_quality;
 }

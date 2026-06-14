@@ -194,6 +194,15 @@ func check_mark_selected(Texture2D<float> selecetd_mark, int2 size, int2 index, 
     mark_border = !self_marked && surrounding_area_at_least_one_marked;
 }
 
+float3 load_exposed_color(uint2 index)
+{
+    const float4 exposed_color = normal_push.attachments.color_image.get()[index];
+    const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+    const float4 debug_value = normal_push.attachments.debug_image.get()[index];
+    const float blend = clamp(debug_value.w - 1.0f, 0.0f, 1.0f);
+    return lerp(tonemapped_color, debug_value.rgb, square(blend));
+}
+
 [[vk::push_constant]] WriteSwapchainPush normal_push;
 [numthreads(WRITE_SWAPCHAIN_WG_X,WRITE_SWAPCHAIN_WG_Y,1)]
 void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
@@ -212,8 +221,8 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
         {
             for (uint x = 0; x < 2; ++x)
             {
-                const float4 exposed_color = push.attachments.color_image.get()[index * 2 + int2(x,y)];
-                const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+                const float3 tonemapped_color = load_exposed_color(index * 2 + int2(x,y));
+
                 color += tonemapped_color * 0.25f;
                 bool mark, mark_border;
                 check_mark_selected(push.attachments.selected_mark_image.get(), push.size, index, mark, mark_border);
@@ -224,15 +233,11 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     }
     else
     {
-        const float4 exposed_color = push.attachments.color_image.get()[index];
-        const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+        const float3 tonemapped_color = load_exposed_color(index);
         color = tonemapped_color;
 
         check_mark_selected(push.attachments.selected_mark_image.get(), push.size, index, mark_selected, mark_selected_border);
     }
-
-    float4 debug_color = DEBUG;//push.attachments.debug_image.get()[index];
-    color.rgb = mix(color.rgb, debug_color.rgb, debug_color.a);
 
     // Selected Mark Border:
     if (mark_selected_border)

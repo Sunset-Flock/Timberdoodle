@@ -169,11 +169,17 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "half_res_statistics_history_persistent",
     });
+    auto half_res_footprint_quality_history = info.tg.create_task_image({
+        .format = daxa::Format::R8_UNORM,
+        .size = half_res_image_size,
+        .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
+        .name = "half_res_footprint_quality_history_persistent",
+    });
 
     auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
     auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
     auto ray_length_image = info.tg.create_task_image({
-        .format = daxa::Format::R8_UNORM,
+        .format = daxa::Format::R16_SFLOAT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
             info.render_context.render_data.settings.render_target_size.y / 2,
@@ -304,6 +310,9 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
             .half_res_depth_history = half_res_depth_history,
             .half_res_normal = info.view_cam_half_res_face_normals,
             .half_res_normal_history = half_res_face_normal_history,
+            .footprint_quality_new = footprint_quality_image,
+            .half_res_footprint_quality_accumulated = half_res_footprint_quality_history.current(),
+            .half_res_footprint_quality_history = half_res_footprint_quality_history.previous(),
         })
         .executes(rtgi_temporal_callback, &info.render_context));
 
@@ -327,6 +336,7 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
                     .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
                     .temporal_moments = half_res_statistics_history,
                     .spatial_std_dev_image = spatial_std_dev_image,
+                    .footprint_quality_image = half_res_footprint_quality_history.current(),
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
 
@@ -346,6 +356,7 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
                     .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
                     .temporal_moments = half_res_statistics_history,
                     .spatial_std_dev_image = spatial_std_dev_image,
+                    .footprint_quality_image = half_res_footprint_quality_history.current(),
                 })
                 .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
     }

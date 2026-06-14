@@ -76,9 +76,14 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
 
-    const float temporal_stability = min(1.0f, pixel_samplecnt * rcp(12.0f));
+    const float temporal_stability_scale = 1.0f - min(1.0f, pixel_samplecnt * rcp(12.0f));
+    const float footprint_quality = push.attach.footprint_quality_image.get()[dtid.xy];
+    const float footprint_quality_blur_scale = (footprint_quality) * 0.5f;
+    const float blur_scale = clamp(temporal_stability_scale + footprint_quality_blur_scale, 0.0f, 1.0f);
 
-    const int filter_width = min(MAX_BLUR_WIDTH, int(lerp(8.0f, 3.0f, temporal_stability)));
+    const int filter_width = int(lerp(2.0f, MAX_BLUR_WIDTH, blur_scale));
+
+    // debug_image_tile_draw(push.attach.debug_image.get(), 12, dtid, float4(TurboColormap(footprint_quality_blur_scale), 2), 2);
 
     const float pixel_y = push.attach.rtgi_diffuse_before.get()[dtid.xy].w;
     const float pixel_y_spatial_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];

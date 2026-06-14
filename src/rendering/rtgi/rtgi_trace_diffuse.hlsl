@@ -160,7 +160,7 @@ void ray_gen()
             radiance_to_y_co_cg_sh((payload.color * VALUE_MULTIPLIER), sample_dir, sh_y_new, cocg_new);
             acc += sh_y_new * rcp(samples);
             acc2 += cocg_new * rcp(samples);
-            acc_ray_length += min(1.0f, payload.t) * rcp(samples);
+            acc_ray_length += payload.t * rcp(samples);
         }
 
         push.attach.diffuse_raw.get()[dtid.xy] = acc;
