@@ -28,48 +28,18 @@ ValueRemapFuncionDef(float2)
 ValueRemapFuncionDef(float3)
 ValueRemapFuncionDef(float4)
 
-struct RayAABBResult
-{
-    float near;
-    float far;
-};
-
-// Returns the near and far intersection points.
-// Ray missing the aabb is implied by (near >= far).
-func intersect_ray_with_aabb(
-    const float3 ray_origin,
-    const float3 ray_dir,
-    const float3 aabb_pos, // Center position of the AABB
-    const float3 aabb_size
-) -> RayAABBResult
-{
-    const float3 aabb_min = aabb_pos - (aabb_size * 0.5f);
-    const float3 aabb_max = aabb_pos + (aabb_size * 0.5f);
-
-    const float3 t_min = (aabb_min - ray_origin) / ray_dir;
-    const float3 t_max = (aabb_max - ray_origin) / ray_dir;
-    const float3 t1 = min(t_min, t_max);
-    const float3 t2 = max(t_min, t_max);
-    const float t_near = max(max(t1.x, t1.y), t1.z);
-    const float t_far = min(min(t2.x, t2.y), t2.z);
-
-    // t_near and t_far can be negative in the inverse of the view direction.
-    // To remove the side effect of reporting a false hit I max the t_near with 0.0f.
-    // This also has the added benefit of having near be as 0 when inside of the AABB.
-    return RayAABBResult(max(t_near, 0.0), t_far);
-}
-
 func debug_draw_step(
     const float3 step_start,
     const float3 step_end,
     const bool inside_cloud,
-    daxa_RWBufferPtr(ShaderDebugBufferHead) debug
+    daxa_RWBufferPtr(ShaderDebugBufferHead) debug,
+    const float3 sphere_color = float3(0.0f)
 ) -> void
 {
     // const float sphere_radius = length(step_end - step_start);
-    const float sphere_radius = 3.0;
-    const float3 debug_line_color = float3(1.0f, 0.0f, 0.0f);
-    const float3 debug_step_color = inside_cloud ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.5f, 0.0f);
+    const float sphere_radius = 1.0f;
+    const float3 debug_line_color = inside_cloud ? float3(0.0f, 1.0f, 0.0f) : float3(1.0f, 0.5f, 0.0f);
+    const float3 debug_step_color = sphere_color;
     ShaderDebugSphereDraw start_sphere_draw = {
         step_start,                                 // position
         sphere_radius,                              // radius
@@ -103,16 +73,23 @@ float erode_base_density(float in_value, float in_old_min)
 	return (clamped_normalized);
 }
 
+struct GetCloudDataInfo
+{
+    float3 cloud_aabb_relative_position;
+    CloudVolumeInstance * cloud_volume;
+    float to_camera_distance;
+};
+
+
 struct CloudData
 {
     float sdf;
-    float normalized_sdf;
     float density;
     float scaled_density;
     float eroded_density;
 };
 
-CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_aabb_scaled_size, float min_step_size, float to_camera_distm, CloudVolumeInstance * cloud_volume)
+CloudData get_cloud_data(const GetCloudDataInfo info)
 {
     let push = raymarch_clouds_push;
 
@@ -124,16 +101,11 @@ CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_a
         float sdf;
     };
 
-    // Absolute means position in bounds [(0, 0, 0);(cloud_scale, cloud_scale, cloud_scale)]
-    const float3 in_cloud_aabb_absolute_position = position - cloud_aabb_min;
-    // Relative means position in bounds [(0, 0, 0);(1, 1, 1)]
-    const float3 in_cloud_aabb_relative_position = in_cloud_aabb_absolute_position / cloud_aabb_scaled_size;
-
     CloudModelingData modeling_data;
 #if USE_COMPRESSED_FIELDS
 
-    float3 compressed_sdf = Texture3D<float3>::get(cloud_volume->cloud_sdf_texture).SampleLevel(
-        push.attach.globals.samplers.linear_clamp.get(), in_cloud_aabb_relative_position, 0
+    float3 compressed_sdf = Texture3D<float3>::get(info.cloud_volume->cloud_sdf_texture).SampleLevel(
+        push.attach.globals.samplers.linear_clamp.get(), info.cloud_aabb_relative_position, 0
     );
 
     modeling_data.sdf = ((dot(compressed_sdf, float3(0.96414679f, 0.03518212f, 0.00067109f)) * (512.0f + 32.0f)) - 32.0f);
@@ -144,22 +116,22 @@ CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_a
     }
     else
     {
-        float3 field_data = Texture3D<float3>::get(cloud_volume->cloud_data_texture).SampleLevel(
+        float3 field_data = Texture3D<float3>::get(info.cloud_volume->cloud_data_texture).SampleLevel(
             push.attach.globals.samplers.linear_clamp.get(),
-            float3(in_cloud_aabb_relative_position.xyz), 0,
+            float3(info.cloud_aabb_relative_position.xyz), 0,
         ).rgb;
 
-        // float3 field_data_0 = Texture3D<float3>::get(cloud_volume->compressed_field_data).SampleLevel(
+        // float3 field_data_0 = Texture3D<float3>::get(info.cloud_volume->compressed_field_data).SampleLevel(
         //     push.attach.globals.samplers.linear_clamp.get(),
-        //     float3(in_cloud_aabb_relative_position.xy, floor(in_cloud_aabb_relative_position.z * 64)), 0,
+        //     float3(info.cloud_aabb_relative_position.xy, floor(info.cloud_aabb_relative_position.z * 64)), 0,
         // ).rgb;
 
-        // float3 field_data_1 = Texture3D<float3>::get(cloud_volume->compressed_field_data).SampleLevel(
+        // float3 field_data_1 = Texture3D<float3>::get(info.cloud_volume->compressed_field_data).SampleLevel(
         //     push.attach.globals.samplers.linear_clamp.get(),
-        //     float3(in_cloud_aabb_relative_position.xy, ceil(in_cloud_aabb_relative_position.z * 64)), 0,
+        //     float3(info.cloud_aabb_relative_position.xy, ceil(info.cloud_aabb_relative_position.z * 64)), 0,
         // ).rgb;
 
-        // float3 field_data = lerp(field_data_0, field_data_1, frac(in_cloud_aabb_relative_position.z * 64));
+        // float3 field_data = lerp(field_data_0, field_data_1, frac(info.cloud_aabb_relative_position.z * 64));
 
         modeling_data.density = field_data.r;
         modeling_data.detail_type = field_data.g;
@@ -167,15 +139,14 @@ CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_a
     }
 
 #else
-    modeling_data = reinterpret<CloudModelingData, float4>(Texture3D<float4>::get(cloud_volume->cloud_data_texture).SampleLevel(
+    modeling_data = reinterpret<CloudModelingData, float4>(Texture3D<float4>::get(info.cloud_volume->cloud_data_texture).SampleLevel(
         push.attach.globals.samplers.linear_clamp.get(),
-        in_cloud_aabb_relative_position,
+        info.cloud_aabb_relative_position,
         0
     ).rgba);
 #endif
 
     modeling_data.sdf = modeling_data.sdf / 512.0f;
-
 
     modeling_data.density_scale = saturate(modeling_data.density_scale);
     modeling_data.detail_type = modeling_data.detail_type;
@@ -193,7 +164,7 @@ CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_a
     };
     const float3 noise_offset = float3(1.0f, 1.0f, 0.0f) * push.attach.globals.total_elapsed_us * 0.00000002;
     const NoiseData noise = reinterpret<NoiseData>(//float4(0.0f));
-        (Texture3D<float4>::get(cloud_volume->detail_noise_texture).SampleLevel(push.attach.globals.samplers.linear_repeat.get(), position * 0.0035 + noise_offset, 0, int3(0))));
+        (Texture3D<float4>::get(info.cloud_volume->detail_noise_texture).SampleLevel(push.attach.globals.samplers.linear_repeat.get(), info.cloud_aabb_relative_position * float3(512, 512, 64) * 0.08 + noise_offset, 0, int3(0))));
 
     if(density > 0.0f)
     {
@@ -214,20 +185,13 @@ CloudData get_cloud_data( float3 position, float3 cloud_aabb_min, float3 cloud_a
         // final_uprezzed_density = modeling_data.density;
     }
 
-
-    // I would really like an assert here - x and y should be the same and z should be smaller.
-    // I guess I could also do max(x, y, z) here but eh, I'll just hope the data come in correct format.
-    const float scaled_step_size = modeling_data.sdf * cloud_aabb_scaled_size.x;
-
-    const float clamped_step_size = max(min_step_size, scaled_step_size);
-
-    return CloudData(clamped_step_size, modeling_data.sdf, density, scaled_density, final_uprezzed_density);
+    return CloudData(modeling_data.sdf, density, scaled_density, final_uprezzed_density);
 }
 
 struct SecondaryTransmittance
 {
-    float3 clouds_trasmittance;
-    float3 atmosphere_trasmittance;
+    float3 clouds_transmittance;
+    float3 atmosphere_transmittance;
     float density;
 };
 
@@ -245,7 +209,7 @@ SecondaryTransmittance integrate_secondary_transmittance(float3 position, float 
 
         const float3 current_ray_pos = position + current_distance * sun_direction;
 
-        let cloud_data = get_cloud_data(current_ray_pos, cloud_aabb_min, cloud_aabb_scaled_size, 50.0f, 0.0f, cloud_volume);
+        let cloud_data = CloudData();//get_cloud_data(current_ray_pos, cloud_aabb_min, cloud_aabb_scaled_size, 50.0f, 0.0f, cloud_volume);
 
 #if defined(DEBUG_RAYMARCH)
             // Debug draws the step here.
@@ -327,6 +291,306 @@ float get_phase_value(const float cos_theta, const float extinction, const float
     return phase_value;
 }
 
+
+struct TraceCloudAABBIntersectionInfo
+{
+    float3 ray_origin;
+    float3 ray_direction;
+    AABB * cloud_instance_aabbs;
+    uint cloud_instance_count;
+};
+struct NearestCloudAABBIntersection
+{
+    uint cloud_instance_index;
+    float near_distance;
+    float far_distance;
+};
+
+NearestCloudAABBIntersection trace_nearest_cloud_aabb(TraceCloudAABBIntersectionInfo trace_info)
+{
+    NearestCloudAABBIntersection nearest_intersection;
+    nearest_intersection.cloud_instance_index = uint::maxValue;
+    nearest_intersection.near_distance = float::maxValue;
+    nearest_intersection.far_distance = float::minValue;
+
+    for(uint i = 0; i < trace_info.cloud_instance_count; ++i)
+    {
+        const AABB cloud_aabb = trace_info.cloud_instance_aabbs[i];
+        const RayAABBResult intersection = intersect_ray_with_aabb(
+            trace_info.ray_origin,
+            trace_info.ray_direction,
+            cloud_aabb
+        );
+
+        const bool ray_hit = (intersection.near < intersection.far);
+
+        if(ray_hit && intersection.near < nearest_intersection.near_distance)
+        {
+            nearest_intersection.near_distance = intersection.near;
+            nearest_intersection.far_distance = intersection.far;
+            nearest_intersection.cloud_instance_index = i;
+        }
+    }
+
+    return nearest_intersection;
+}
+
+struct CloudAABBRelativeRay
+{
+    float3 origin;
+    float3 direction;
+};
+
+struct WorldRay
+{
+    float3 origin;
+    float3 direction;
+};
+
+WorldRay cloud_aabb_relative_ray_to_world_ray(const CloudAABBRelativeRay relative_ray, const AABB cloud_aabb)
+{
+    const float3 cloud_aabb_min = cloud_aabb.center - cloud_aabb.size * 0.5f;
+    const float3 world_origin = cloud_aabb_min + relative_ray.origin * cloud_aabb.size;
+    const float3 world_direction = normalize(relative_ray.direction * cloud_aabb.size);
+    return WorldRay(world_origin, world_direction);
+};
+
+CloudAABBRelativeRay world_ray_to_cloud_aabb_relative_ray(const WorldRay world_ray, const AABB cloud_aabb)
+{
+    const float3 cloud_aabb_min = cloud_aabb.center - cloud_aabb.size * 0.5f;
+    const float3 relative_origin = (world_ray.origin - cloud_aabb_min) * rcp(cloud_aabb.size);
+    const float3 relative_direction = normalize(world_ray.direction * rcp(cloud_aabb.size));
+    return CloudAABBRelativeRay(relative_origin, relative_direction);
+};
+
+float cloud_aabb_relative_distance_to_world_distance(const float cloud_aabb_relative_distance, const AABB cloud_aabb, const float3 ray_direction)
+{
+    const float3 world_space_step = cloud_aabb.size * ray_direction;
+    const float world_space_step_length = length(world_space_step);
+    return cloud_aabb_relative_distance * world_space_step_length;
+}
+
+float world_distance_to_cloud_aabb_distance(const float world_distance, const AABB cloud_aabb, const float3 ray_direction)
+{
+    const float world_to_aabb_unit_step_length = length(ray_direction * rcp(cloud_aabb.size));
+    return world_distance * world_to_aabb_unit_step_length;
+}
+
+struct MarchCloudHitInfo
+{
+    CloudAABBRelativeRay ray;
+    float cloud_aabb_max_distance;
+    uint max_steps;
+
+    CloudVolumeInstance * instance;
+#if defined(DEBUG_RAYMARCH)
+    AABB * cloud_instance_aabb;
+#endif
+};
+
+float march_until_cloud_hit(const MarchCloudHitInfo trace_info)
+{
+    float cloud_aabb_relative_distance = 0.0f;
+    float steps = 0.0f;
+    for(uint step_count = 0; step_count < trace_info.max_steps; ++step_count)
+    {
+        steps = step_count;
+        if(cloud_aabb_relative_distance >= trace_info.cloud_aabb_max_distance) { break; }
+
+        const float3 current_ray_relative_pos = trace_info.ray.origin + cloud_aabb_relative_distance * trace_info.ray.direction;
+
+#if USE_COMPRESSED_FIELDS
+        const float3 compressed_sdf = Texture3D<float3>::get(trace_info.instance->cloud_sdf_texture)
+            .SampleLevel(raymarch_clouds_push.attach.globals.samplers.linear_clamp.get(), current_ray_relative_pos, 0);
+
+        const float sdf = dot(compressed_sdf, float3(0.96414679f, 0.03518212f, 0.00067109f));
+        const float renormalized_sdf = (sdf * (512.0f + 32.0f) - 32.0f) / 512.0f;
+#else // USE_COMPRESSED_FIELDS
+        const float sdf = Texture3D<float4>::get(trace_info.instance->cloud_data_texture)
+            .SampleLevel(raymarch_clouds_push.attach.globals.samplers.linear_clamp.get(), current_ray_relative_pos, 0).a;
+#endif
+        // The SDF is rescaled and stored to be between [0, 1] but the values going in are [512, -32].
+        // Thus anything over 32 / (512 + 32) is negative and so inside of a cloud;
+
+        if(renormalized_sdf <= -(0.0f / 512.0f)) { break; }
+        cloud_aabb_relative_distance += max(renormalized_sdf, 0.001f);
+#if defined(DEBUG_RAYMARCH)
+        {
+            const float3 step_start = cloud_aabb_relative_ray_to_world_ray(CloudAABBRelativeRay(current_ray_relative_pos, float3(0.0f)), *trace_info.cloud_instance_aabb).origin;
+            const float3 cloud_relative_new_ray_origin = trace_info.ray.origin + cloud_aabb_relative_distance * trace_info.ray.direction;
+            const float3 step_end = cloud_aabb_relative_ray_to_world_ray(CloudAABBRelativeRay(cloud_relative_new_ray_origin, float3(0.0f)), *trace_info.cloud_instance_aabb).origin;
+            const float3 sphere_color = max(renormalized_sdf, 0.001f) == renormalized_sdf ? float3(0.0f, 0.0f, 1.0f) : float3(1.0f, 0.0f, 0.0f);
+            debug_draw_step(step_start, step_end, false, raymarch_clouds_push.attach.globals.debug, sphere_color);
+        }
+#endif
+    }
+
+    return cloud_aabb_relative_distance;
+}
+
+struct SecondaryMarchThroughCloudInfo
+{
+    CloudAABBRelativeRay ray;
+    uint steps;
+
+    CloudVolumeInstance * instance;
+
+    float cloud_aabb_step_size;
+    float world_step_size;
+};
+
+struct SecondaryMarchThroughCloudResult
+{
+    float transmittance;
+    float density;
+};
+
+SecondaryMarchThroughCloudResult secondary_march_through_cloud(const SecondaryMarchThroughCloudInfo march_cloud_info)
+{
+    SecondaryMarchThroughCloudResult result;
+    result.transmittance = 1.0f;
+    result.density = 0.0f;
+
+    GetCloudDataInfo info;
+    info.cloud_volume = march_cloud_info.instance;
+    info.to_camera_distance = 0.0f;
+
+    float cloud_aabb_relative_distance_marched = 0.0f;
+
+    CloudData cloud_data;
+    for(uint step = 0; step < march_cloud_info.steps; ++step)
+    {
+        info.cloud_aabb_relative_position = march_cloud_info.ray.origin + march_cloud_info.ray.direction * cloud_aabb_relative_distance_marched;
+        cloud_data = get_cloud_data(info);
+        cloud_aabb_relative_distance_marched += march_cloud_info.cloud_aabb_step_size;
+
+        if(cloud_data.density == 0.0f) { break; }
+
+        const float extinction = cloud_data.density * march_cloud_info.instance->density_scale;
+        const float per_step_transmittance = exp(-extinction * march_cloud_info.world_step_size);
+        result.transmittance *= per_step_transmittance;
+        result.density += cloud_data.density;
+    }
+    return result;
+};
+
+struct PrimaryMarchThroughCloudInfo
+{
+    CloudAABBRelativeRay ray;
+    float cloud_aabb_max_distance;
+    float cloud_aabb_step_size;
+    float world_step_size;
+    float sun_dot;
+
+    float phase_value;
+
+    float3 sun_light;
+    float3 ambient_light;
+
+    SecondaryMarchThroughCloudInfo secondary_march_info;
+
+    CloudVolumeInstance * instance;
+    AABB * cloud_aabb;
+};
+
+struct PrimaryMarchThroughCloudResult
+{
+    float3 scattered_light;
+    float transmittance;
+    float cloud_aabb_relative_distance_marched;
+};
+
+PrimaryMarchThroughCloudResult primary_march_through_cloud(const PrimaryMarchThroughCloudInfo march_cloud_info)
+{
+    GetCloudDataInfo info;
+    info.cloud_volume = march_cloud_info.instance;
+    info.to_camera_distance = 0.0f;
+
+    PrimaryMarchThroughCloudResult result;
+    result.scattered_light = float3(0.0f);
+    result.transmittance = 1.0f;
+    result.cloud_aabb_relative_distance_marched = 0.0f;
+
+    const float bottom_atmosphere_offset = raymarch_clouds_push.attach.globals.sky_settings.atmosphere_bottom + BASE_HEIGHT_OFFSET;
+    const float3 world_secondary_ray_direction = cloud_aabb_relative_ray_to_world_ray(march_cloud_info.secondary_march_info.ray, *march_cloud_info.cloud_aabb).direction;
+    WorldRay world_ray = WorldRay(cloud_aabb_relative_ray_to_world_ray(march_cloud_info.ray, *march_cloud_info.cloud_aabb));
+
+    CloudData cloud_data;
+    bool hit_cloud = false;
+    for(uint step = 0; step < 512; ++step)
+    {
+        info.cloud_aabb_relative_position = march_cloud_info.ray.origin + march_cloud_info.ray.direction * result.cloud_aabb_relative_distance_marched;
+        cloud_data = get_cloud_data(info);
+
+        result.cloud_aabb_relative_distance_marched += march_cloud_info.cloud_aabb_step_size;
+
+        if(cloud_data.density == 0.0f) 
+        {
+            if(hit_cloud) { break; }
+            else          { continue; }
+        }
+        hit_cloud = true;
+
+        const float extinction = cloud_data.eroded_density * march_cloud_info.instance->density_scale;
+        const float scattering = extinction * march_cloud_info.instance->albedo;
+        const float per_step_transmittance = exp(-extinction * march_cloud_info.world_step_size);
+
+        SecondaryMarchThroughCloudInfo secondary_march_info = march_cloud_info.secondary_march_info;
+        secondary_march_info.ray.origin = info.cloud_aabb_relative_position;
+
+        const SecondaryMarchThroughCloudResult secondary_raymarch_result = secondary_march_through_cloud(secondary_march_info);
+
+        // ============================================== ATMOSPHERE TRANSMITTANCE =================================================
+        // ==================== TODO(saky) Remove this and fold it into the shadow volume grid once we have it =====================
+        float3 atmosphere_transmittance = float3(1.0f);
+        {
+            const float3 in_world_position = world_ray.origin + world_ray.direction * march_cloud_info.world_step_size * step;
+            const float3 atmosphere_position = (in_world_position * M_TO_KM_SCALE) + float3(0.0f, 0.0f, bottom_atmosphere_offset);
+            const float zenith_cos_angle = dot(world_secondary_ray_direction, normalize(atmosphere_position));
+
+            TransmittanceParams transmittance_lut_params = TransmittanceParams(length(atmosphere_position), zenith_cos_angle);
+            float2 transmittance_texture_uv = transmittance_lut_to_uv(
+                transmittance_lut_params,
+                raymarch_clouds_push.attach.globals.sky_settings.atmosphere_bottom,
+                raymarch_clouds_push.attach.globals.sky_settings.atmosphere_top
+            );
+
+            atmosphere_transmittance = raymarch_clouds_push.attach.transmittance.get().SampleLevel(
+                raymarch_clouds_push.attach.globals.samplers.linear_clamp.get(), transmittance_texture_uv, 0,).rgb;
+        }
+
+        const float3 primary_luminance = 1.0f * march_cloud_info.sun_light * march_cloud_info.phase_value * secondary_raymarch_result.transmittance * atmosphere_transmittance;
+        const float3 ambient_luminance = 1.0f * pow(max(1.0f - cloud_data.scaled_density, 0.0f), 1.0f) * march_cloud_info.ambient_light;
+
+        const float distance_factor = ValueRemap(cloud_data.sdf, -0.01, 0.0f, 0.1f, 0.25f);
+        const float ms_transmittance = exp(-secondary_raymarch_result.density * ValueRemap(march_cloud_info.sun_dot, 0.0f, 0.9f, 0.25f, distance_factor));
+        const float3 multiscattered_luminance = 0.2f * cloud_data.density * ms_transmittance * atmosphere_transmittance * march_cloud_info.sun_light;
+
+        const float3 luminance = primary_luminance + multiscattered_luminance + ambient_luminance;
+        const float3 luminance_times_scattering = luminance * scattering;
+
+        const float3 integrated_scattered_light = (luminance_times_scattering - (luminance_times_scattering * per_step_transmittance)) / max(extinction, 0.00001f);
+
+        result.scattered_light += integrated_scattered_light * result.transmittance;
+        result.transmittance *= per_step_transmittance;
+    }
+    return result;
+}
+
+bool cloud_volume_instance_complete(CloudVolumeInstance * instance)
+{
+    if (
+        instance->cloud_data_texture.is_empty() ||
+        instance->detail_noise_texture.is_empty()
+#if USE_COMPRESSED_FIELDS
+        || instance->cloud_sdf_texture.is_empty()
+#endif // USE_COMPRESSED_FIELDS
+    ) {
+        return false;
+    }
+    return true;
+}
+
 [shader("compute")]
 #if defined(DEBUG_RAYMARCH)
 [numthreads(RAYMARCH_CLOUDS_DEBUG_DISPATCH_X, RAYMARCH_CLOUDS_DEBUG_DISPATCH_Y)]
@@ -348,20 +612,6 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
         all(greaterThanEqual(pixel_index, float2(0.0f)));
 
     CloudVolumeInstancesBufferHead * cloud_volumes_head = push.attach.cloud_volumes;
-    CloudVolumeInstance * cloud_volume = &cloud_volumes_head->instances[0];
-    if (
-        cloud_volume->cloud_data_texture.is_empty() ||
-        cloud_volume->detail_noise_texture.is_empty()
-#if USE_COMPRESSED_FIELDS
-        || cloud_volume->cloud_sdf_texture.is_empty()
-#endif // USE_COMPRESSED_FIELDS
-    ) {
-        if(pixel_in_bounds)
-        {
-            push.attach.clouds_raymarched_result.get()[svdtid] = float4(0.0f, 0.0f, 0.0f, 1.0f);
-        }
-        return;
-    }
 
     rand_seed(asuint(svdtid.x + svdtid.y * 13136.1235f) * push.attach.globals.frame_index);
 
@@ -395,56 +645,113 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
         const float3 ray_origin = push.attach.globals.view_camera.position;
 #endif
         const float3 ray_direction = normalize(world_position - ray_origin);
-        const float3 sun_direction = push.attach.globals.sky_settings.sun_direction;
 
-        const float3 cloud_bottom_left_corner = mul(mat_4x3_to_4x4(cloud_volume.transform), float4(0.0f, 0.0f, 0.0f, 1.0f)).xyz;
-        const float3 cloud_top_right_corner = mul(mat_4x3_to_4x4(cloud_volume.transform), float4(1.0f, 1.0f, 1.0f, 1.0f)).xyz;
+        TraceCloudAABBIntersectionInfo trace_info;
+        trace_info.ray_origin = ray_origin;
+        trace_info.ray_direction = ray_direction;
+        trace_info.cloud_instance_aabbs = cloud_volumes_head->instance_aabbs;
+        trace_info.cloud_instance_count = cloud_volumes_head->count;
 
-        const float3 cloud_aabb_size = cloud_top_right_corner - cloud_bottom_left_corner;
-        const float3 cloud_aabb_position = cloud_bottom_left_corner + (cloud_aabb_size * 0.5f);
-
-        let intersection = intersect_ray_with_aabb(
-            ray_origin,
-            ray_direction,
-            cloud_aabb_position,
-            cloud_aabb_size
-        );
-
-        const float world_intersection_depth = length(world_position - ray_origin);
-        const float intersection_far_distance = min(intersection.far, world_intersection_depth);
+        const NearestCloudAABBIntersection intersection = trace_nearest_cloud_aabb(trace_info);
 
         float accumulated_transmittance = float(1.0f);
-        float3 accumualted_scattered_light = float3(0.0f, 0.0f, 0.0f);
+        float3 accumulated_scattered_light = float3(0.0f, 0.0f, 0.0f);
 
-        const bool hit = (intersection.near < intersection_far_distance);
-        if (hit) 
+        if (intersection.cloud_instance_index != uint::maxValue) 
         {
-            const float4 compressed_indirect_lighting = push.attach.sky_ibl.get().SampleLevel(
-                push.attach.globals.samplers.linear_clamp.get(),
-                sun_direction,
-                0);
+            let cloud_instance_aabb = cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index];
+            let cloud_instance = &cloud_volumes_head->instances[intersection.cloud_instance_index];
+            const CloudAABBRelativeRay cloud_relative_start_ray = world_ray_to_cloud_aabb_relative_ray(WorldRay(ray_origin + intersection.near_distance * ray_direction, ray_direction), cloud_instance_aabb);
+
+            const float3 sun_direction = push.attach.globals.sky_settings.sun_direction;
+            const float3 cloud_aabb_relative_sun_direction = normalize(sun_direction * rcp(cloud_instance_aabb.size));
+            const float4 compressed_indirect_lighting = push.attach.sky_ibl.get().SampleLevel(push.attach.globals.samplers.linear_clamp.get(), sun_direction, 0);
 
             const float3 ambient_light = compressed_indirect_lighting.rgb * compressed_indirect_lighting.a * PI * 1.0f;
-            const float3 ray_start = ray_origin + intersection.near * ray_direction;
+            const float3 sun_light = push.attach.globals.sky_settings.sun_brightness * sun_color.rgb;
 
-            const float end_distance = intersection_far_distance - intersection.near;
+            const float primary_ray_world_to_aabb_distance_scaling_factor = world_distance_to_cloud_aabb_distance(1.0f, cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index], ray_direction);
+            const float secondary_ray_world_to_aabb_distance_scaling_factor = world_distance_to_cloud_aabb_distance(1.0f, cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index], sun_direction);
+            // Trace until we either hit the end of the cloud AABB or we hit something in the scene.
+            const float world_intersection_depth = length(world_position - ray_origin);
+            const float ray_end_distance = min(intersection.far_distance, world_intersection_depth) - intersection.near_distance;
+            const float cloud_aabb_relative_end_distance = ray_end_distance * primary_ray_world_to_aabb_distance_scaling_factor;
 
-            const float3 sun_luminance = push.attach.globals.sky_settings.sun_brightness * sun_color.rgb;
+            MarchCloudHitInfo march_cloud_hit_info;
+            march_cloud_hit_info.ray = cloud_relative_start_ray;
+            march_cloud_hit_info.cloud_aabb_max_distance = cloud_aabb_relative_end_distance;
+            march_cloud_hit_info.max_steps = 512;
+            march_cloud_hit_info.instance = cloud_instance;
+#if defined(DEBUG_RAYMARCH)
+            march_cloud_hit_info.cloud_instance_aabb = &cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index];
+#endif
 
-            float current_distance = 0.0f;//rand() * 100.0f;
+            float cloud_aabb_relative_distance_along_ray = march_until_cloud_hit(march_cloud_hit_info);
 
-            // TODO: 
-            // Currently I:
-            //    1) take a sample of both the density and the SDF
-            //    2) integrate
-            //    3) move the raymarch forward
-            //
-            // Once the density and SDF are separated, I should:
-            //    1) sample the SDF
-            //    2) sample the density - probably in 2/3 of the step distance
-            //    3) integrate
-            //    4) move the raymarch forward
+#if defined(DEBUG_RAYMARCH)
+        {
+            const float3 step_start = cloud_aabb_relative_ray_to_world_ray(march_cloud_hit_info.ray, cloud_instance_aabb).origin;
+            const float3 cloud_relative_new_ray_origin = march_cloud_hit_info.ray.origin + march_cloud_hit_info.ray.direction * cloud_aabb_relative_distance_along_ray;
+            const float3 step_end = cloud_aabb_relative_ray_to_world_ray(CloudAABBRelativeRay(cloud_relative_new_ray_origin, float3(0.0f)), cloud_instance_aabb).origin;
+            debug_draw_step(step_start, step_end, false, push.attach.globals.debug);
+        }
+#endif
+            uint step_count = 0;
+            while(cloud_aabb_relative_distance_along_ray < cloud_aabb_relative_end_distance && accumulated_transmittance > 0.0f)
+            {
+                step_count += 1;
+                PrimaryMarchThroughCloudInfo march_through_cloud_info;
+                march_through_cloud_info.ray.direction = cloud_relative_start_ray.direction; 
+                march_through_cloud_info.ray.origin = cloud_relative_start_ray.origin + cloud_relative_start_ray.direction * cloud_aabb_relative_distance_along_ray;
+                march_through_cloud_info.cloud_aabb_step_size = 0.0035f;
+                march_through_cloud_info.world_step_size = march_through_cloud_info.cloud_aabb_step_size * rcp(primary_ray_world_to_aabb_distance_scaling_factor);
+                march_through_cloud_info.instance = cloud_instance;
+                march_through_cloud_info.phase_value = get_phase_value(dot(sun_direction, ray_direction), 1.0f, 1.0f);
+                march_through_cloud_info.sun_dot = dot(sun_direction, ray_direction);
+                march_through_cloud_info.sun_light = sun_light;
+                march_through_cloud_info.ambient_light = ambient_light;
+                march_through_cloud_info.cloud_aabb = &cloud_volumes_head->instance_aabbs[intersection.cloud_instance_index];
 
+                march_through_cloud_info.secondary_march_info.ray.direction = cloud_aabb_relative_sun_direction;
+                march_through_cloud_info.secondary_march_info.steps = push.attach.globals.volumetric_settings.secondary_steps;
+                march_through_cloud_info.secondary_march_info.instance = cloud_instance;
+                march_through_cloud_info.secondary_march_info.cloud_aabb_step_size = 0.004f;
+                march_through_cloud_info.secondary_march_info.world_step_size = march_through_cloud_info.secondary_march_info.cloud_aabb_step_size * rcp(secondary_ray_world_to_aabb_distance_scaling_factor);
+
+                const PrimaryMarchThroughCloudResult march_result = primary_march_through_cloud(march_through_cloud_info);
+                accumulated_scattered_light += march_result.scattered_light * accumulated_transmittance;
+                accumulated_transmittance *= march_result.transmittance;
+
+                // Advance for the distance we stepped through the cloud.
+                cloud_aabb_relative_distance_along_ray += march_result.cloud_aabb_relative_distance_marched;
+
+                // Calculate intersection with the next cloud inside of this cloud instance.
+                march_cloud_hit_info.ray.origin = cloud_relative_start_ray.origin + cloud_relative_start_ray.direction * cloud_aabb_relative_distance_along_ray;
+                march_cloud_hit_info.cloud_aabb_max_distance = cloud_aabb_relative_end_distance - cloud_aabb_relative_distance_along_ray;
+                const float dist_until_cloud_hit = march_until_cloud_hit(march_cloud_hit_info);
+                cloud_aabb_relative_distance_along_ray += dist_until_cloud_hit;
+
+#if defined(DEBUG_RAYMARCH)
+                {
+                    const float3 step_start = cloud_aabb_relative_ray_to_world_ray(march_through_cloud_info.ray, cloud_instance_aabb).origin;
+                    const float3 step_end = cloud_aabb_relative_ray_to_world_ray(march_cloud_hit_info.ray, cloud_instance_aabb).origin;
+                    debug_draw_step(step_start, step_end, true, push.attach.globals.debug);
+                }
+#endif
+
+#if defined(DEBUG_RAYMARCH)
+                {
+                    const float3 step_start = cloud_aabb_relative_ray_to_world_ray(march_cloud_hit_info.ray, cloud_instance_aabb).origin;
+                    const float3 cloud_relative_new_ray_origin = march_cloud_hit_info.ray.origin + march_cloud_hit_info.ray.direction * dist_until_cloud_hit;
+                    const float3 step_end = cloud_aabb_relative_ray_to_world_ray(CloudAABBRelativeRay(cloud_relative_new_ray_origin, float3(0.0f)), cloud_instance_aabb).origin;
+                    debug_draw_step(step_start, step_end, false, push.attach.globals.debug);
+                }
+#endif
+            }
+        }
+        push.attach.clouds_raymarched_result.get()[svdtid] = float4(accumulated_scattered_light, accumulated_transmittance);
+    }
+#if 0 
             const float cloud_albedo = cloud_volume->albedo;
             const float cloud_density_scale = cloud_volume->density_scale;
 
@@ -555,4 +862,5 @@ func entry_raymarch(uint2 svdtid : SV_DispatchThreadID)
 #endif
         push.attach.clouds_raymarched_result.get()[svdtid] = float4(accumualted_scattered_light, accumulated_transmittance);
     }
+#endif
 }

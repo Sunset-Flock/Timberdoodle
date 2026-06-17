@@ -1464,11 +1464,11 @@ auto Renderer::prepare_frame(
 
     if (render_context->visualize_clouds_bounds)
     {
-        for (u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.cloud_volume_instances.size(); ++cloud_volume)
+        for(u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.instances.size(); ++cloud_volume)
         {
-            auto const & volume = scene->current_frame_cloud_volume_instances.cloud_volume_instances.at(cloud_volume);
-            auto const bottom_left_corner = f32vec4(0.0f, 0.0f, 0.0f, 1.0f) * mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform));
-            auto const top_right_corner = f32vec4(1.0f, 1.0f, 1.0f, 1.0f) * mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform));
+            auto const & volume = scene->current_frame_cloud_volume_instances.instances.at(cloud_volume);
+            auto const bottom_left_corner = mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform)) * f32vec4(0.0f, 0.0f, 0.0f, 1.0f);
+            auto const top_right_corner = mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform)) * f32vec4(1.0f, 1.0f, 1.0f, 1.0f);
 
             ShaderDebugAABBDraw aabb_draw = {};
             aabb_draw.coord_space = DEBUG_SHADER_DRAW_COORD_SPACE_WORLDSPACE;

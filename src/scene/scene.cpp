@@ -14,6 +14,8 @@
 
 #include "../shader_shared/raytracing.inl"
 #include "../shader_shared/scene.inl"
+#include "../rendering/tasks/misc.hpp"
+
 #include "mesh_lod.hpp"
 
 Scene::Scene(daxa::Device device, GPUContext * gpu_context)
@@ -1547,24 +1549,40 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
             DBG_ASSERT_TRUE_M(r_ent->type == EntityType::CLOUD_VOLUME, "IMPOSSIBLE CASE! Only cloud volume entities can have cloud volume index");
             auto const & cloud_volume = _cloud_volumes.at(r_ent->cloud_volume_index.value());
 
-            CloudVolumeInstance cloud_volume_instance = {};
-            cloud_volume_instance.transform = std::bit_cast<daxa_f32mat4x3>(r_ent->combined_transform);
-            cloud_volume_instance.albedo = 1.0f;
-            cloud_volume_instance.density_scale = 0.1f;
-
-            cloud_volume_instance.cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-            cloud_volume_instance.cloud_sdf_texture = _material_texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-            cloud_volume_instance.detail_noise_texture = _material_texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-
-            cloud_volume_instance.texture_size = {0u, 0u, 0u};
-            if (_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+            // ===================================== Calculate instance AABB =======================================
             {
-                daxa::ImageId cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
-                daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
-                cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
+                const f32vec3 cloud_bottom_left_corner = s_cast<f32vec3>((mat_4x3_to_4x4(r_ent->combined_transform) * f32vec4(0.0f, 0.0f, 0.0f, 1.0f)));
+                const f32vec3 cloud_top_right_corner = s_cast<f32vec3>((mat_4x3_to_4x4(r_ent->combined_transform) * f32vec4(1.0f, 1.0f, 1.0f, 1.0f)));
+
+                f32vec3 const instance_aabb_size = cloud_top_right_corner - cloud_bottom_left_corner;
+                f32vec3 const instance_aabb_center = cloud_bottom_left_corner + (instance_aabb_size * f32vec3(0.5f));
+                ret.cloud_volume_instances.instance_aabbs.push_back({
+                    .center = std::bit_cast<daxa_f32vec3>(instance_aabb_center),
+                    .size = std::bit_cast<daxa_f32vec3>(instance_aabb_size),
+                });
             }
 
-            ret.cloud_volume_instances.cloud_volume_instances.push_back(cloud_volume_instance);
+            // ===================================== Fill out cloud instance data =======================================
+            {
+                CloudVolumeInstance cloud_volume_instance = {};
+                cloud_volume_instance.transform = std::bit_cast<daxa_f32mat4x3>(r_ent->combined_transform);
+                cloud_volume_instance.albedo = 1.0f;
+                cloud_volume_instance.density_scale = 0.1f;
+
+                cloud_volume_instance.cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_sdf_texture = _material_texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.detail_noise_texture = _material_texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+
+                cloud_volume_instance.texture_size = {0u, 0u, 0u};
+                if(_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+                {
+                    daxa::ImageId cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
+                    daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
+                    cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
+                }
+                ret.cloud_volume_instances.instances.push_back(cloud_volume_instance);
+            }
+
         }
 
         if (r_ent != nullptr && r_ent->light_index.has_value())
@@ -1726,14 +1744,25 @@ void Scene::write_gpu_mesh_instances_buffer(CPUMeshInstances const & cpu_mesh_in
 
 void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const & cpu_cloud_volume_instances)
 {
+    DBG_ASSERT_TRUE_M(cpu_cloud_volume_instances.instance_aabbs.size() == cpu_cloud_volume_instances.instances.size(),
+                      "Each cloud volume instance must have a corresponding AABB");
+
+    u32 const instance_count = s_cast<u32>(cpu_cloud_volume_instances.instances.size());
+
     // Calculate offsets into buffer and required size:
+    // The offsets are relative to the start of the buffer.
+    // Later they are added to the device address of the buffer to form the actual location.
     usize offset = {};
     CloudVolumeInstancesBufferHead buffer_head = {};
     offset += sizeof(CloudVolumeInstancesBufferHead);
 
+    buffer_head.count = instance_count;
+
+    buffer_head.instance_aabbs = offset;
+    offset += sizeof(AABB) * instance_count;
+
     buffer_head.instances = offset;
-    buffer_head.count = static_cast<u32>(cpu_cloud_volume_instances.cloud_volume_instances.size());
-    offset += sizeof(CloudVolumeInstance) * cpu_cloud_volume_instances.cloud_volume_instances.size();
+    offset += sizeof(CloudVolumeInstance) * instance_count;
     usize const required_size = offset;
 
     // TODO: Allocate this into a ring buffer.
@@ -1751,9 +1780,13 @@ void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const
     std::byte * host_address = _device.buffer_host_address(cloud_volume_instances_buffer.id()).value();
 
     // Write Buffer, add address on offsets and counts:
-    usize const cloud_volume_instances_size = sizeof(CloudVolumeInstance) * cpu_cloud_volume_instances.cloud_volume_instances.size();
-    std::memcpy(host_address + buffer_head.instances, cpu_cloud_volume_instances.cloud_volume_instances.data(), cloud_volume_instances_size);
+    usize const cloud_volume_aabbs_size = sizeof(AABB) * instance_count;
+    std::memcpy(host_address + buffer_head.instance_aabbs, cpu_cloud_volume_instances.instance_aabbs.data(), cloud_volume_aabbs_size);
 
+    usize const cloud_volume_instances_size = sizeof(CloudVolumeInstance) * instance_count;
+    std::memcpy(host_address + buffer_head.instances, cpu_cloud_volume_instances.instances.data(), cloud_volume_instances_size);
+
+    buffer_head.instance_aabbs += device_address;
     buffer_head.instances += device_address;
     std::memcpy(host_address, &buffer_head, sizeof(CloudVolumeInstancesBufferHead));
 }

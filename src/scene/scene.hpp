@@ -201,7 +201,8 @@ struct CPUMeshInstances
 
 struct CPUCloudVolumeInstaces
 {
-    std::vector<CloudVolumeInstance> cloud_volume_instances = {};
+    std::vector<AABB> instance_aabbs = {};
+    std::vector<CloudVolumeInstance> instances = {};
 };
 
 struct CPUSceneInstances

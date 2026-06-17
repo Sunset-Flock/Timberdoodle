@@ -3,6 +3,7 @@
 #include "daxa/daxa.inl"
 
 #include "shader_shared/shared.inl"
+#include "shader_shared/geometry.inl"
 
 func firstbitlow_uint4(uint4 v) -> uint
 {
@@ -317,6 +318,32 @@ int2 flip_oob_index(int2 index, int2 max_index)
     index.x = index.x > max_index.x ? (max_index.x - (index.x - max_index.x)) : index.x;
     index.y = index.y > max_index.y ? (max_index.y - (index.y - max_index.y)) : index.y;
     return index;
+}
+
+struct RayAABBResult
+{
+    float near;
+    float far;
+};
+
+// Returns the near and far intersection points.
+// Ray missing the aabb is implied by (near >= far).
+RayAABBResult intersect_ray_with_aabb( const float3 ray_origin, const float3 ray_dir, AABB aabb)
+{
+    const float3 aabb_min = aabb.center - (aabb.size * 0.5f);
+    const float3 aabb_max = aabb.center + (aabb.size * 0.5f);
+
+    const float3 t_min = (aabb_min - ray_origin) / ray_dir;
+    const float3 t_max = (aabb_max - ray_origin) / ray_dir;
+    const float3 t1 = min(t_min, t_max);
+    const float3 t2 = max(t_min, t_max);
+    const float t_near = max(max(t1.x, t1.y), t1.z);
+    const float t_far = min(min(t2.x, t2.y), t2.z);
+
+    // t_near and t_far can be negative in the inverse of the view direction.
+    // To remove the side effect of reporting a false hit I max the t_near with 0.0f.
+    // This also has the added benefit of having near be as 0 when inside of the AABB.
+    return RayAABBResult(max(t_near, 0.0), t_far);
 }
 
 /// ===== =====

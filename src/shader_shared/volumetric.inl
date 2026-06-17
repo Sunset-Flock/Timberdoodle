@@ -3,6 +3,7 @@
 #include "daxa/daxa.inl"
 
 #include "shared.inl"
+#include "geometry.inl"
 
 #define HENYEY_GREENSTEIN 0
 #define HENYEY_GREENSTEIN_OCTAVES 1
@@ -44,6 +45,7 @@ DAXA_DECL_BUFFER_PTR_ALIGN(CloudVolumeInstance, 8)
 struct CloudVolumeInstancesBufferHead
 {   
     daxa_u32 count;
+    daxa_BufferPtr(AABB) instance_aabbs;
     daxa_BufferPtr(CloudVolumeInstance) instances;
 };
 DAXA_DECL_BUFFER_PTR_ALIGN(CloudVolumeInstancesBufferHead, 8)
