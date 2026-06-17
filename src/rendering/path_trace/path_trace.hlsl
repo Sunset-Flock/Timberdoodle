@@ -556,7 +556,8 @@ void any_hit(inout GbufferRayPayload payload, in BuiltInTriangleIntersectionAttr
         push.attachments.attachments.mesh_instances,
         push.attachments.attachments.globals.scene.meshes,
         push.attachments.attachments.globals.scene.materials,
-        attr.barycentrics))
+        attr.barycentrics,
+        PrimitiveIndex(), InstanceID(), WorldRayOrigin(), WorldRayDirection(), RayTCurrent()))
     {
         IgnoreHit();
     }

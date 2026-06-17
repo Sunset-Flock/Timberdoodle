@@ -24,15 +24,29 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
     };
     push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
     auto const & diffuse_raw = ti.info(AT.diffuse_raw).value();
-    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
-    ti.recorder.set_pipeline(*rt_pipeline.pipeline);
-    ti.recorder.push_constant(push);
-    ti.recorder.trace_rays({
-        .width = diffuse_raw.size.x,
-        .height = diffuse_raw.size.y,
-        .depth = 1,
-        .shader_binding_table = rt_pipeline.sbt,
-    });
+    if (render_context->render_data.rtgi_settings.use_compute_trace)
+    {
+        auto const & pipeline = render_context->gpu_context->compute_pipelines.at(rtgi_trace_diffuse_compute_compile_info().name);
+        ti.recorder.set_pipeline(*pipeline);
+        ti.recorder.push_constant(push);
+        ti.recorder.dispatch({
+            round_up_div(diffuse_raw.size.x, 8u),
+            round_up_div(diffuse_raw.size.y, 8u),
+            1,
+        });
+    }
+    else
+    {
+        auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+        ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+        ti.recorder.push_constant(push);
+        ti.recorder.trace_rays({
+            .width = diffuse_raw.size.x,
+            .height = diffuse_raw.size.y,
+            .depth = 1,
+            .shader_binding_table = rt_pipeline.sbt,
+        });
+    }
 }
 
 template <typename TaskPush>

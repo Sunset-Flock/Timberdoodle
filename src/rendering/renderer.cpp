@@ -229,6 +229,7 @@ void Renderer::compile_pipelines()
         this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
     }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
+        {rtgi_trace_diffuse_compute_compile_info()},
         {rtgi_temporal_compile_info()},
         {rtgi_pre_filter_prepare_compile_info()},
         {rtgi_pre_blur_compile_info()},

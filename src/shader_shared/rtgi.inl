@@ -23,4 +23,5 @@ struct RtgiSettings
     daxa_i32 post_blur_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 upscale_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 sh_resolve_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 use_compute_trace TIDO_DEFAULT_VALUE(0);
 };

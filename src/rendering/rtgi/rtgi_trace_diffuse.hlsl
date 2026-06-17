@@ -67,12 +67,24 @@ func perceptual_to_linear(vector<float, N> v) -> vector<float, N>
     return exp(v) - 1.0f;
 }
 
-[shader("raygeneration")]
-void ray_gen()
+interface TraceRayInterface
+{
+    static void trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload);
+};
+
+struct RTPipelineTraceRay : TraceRayInterface
+{
+    static void trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload)
+    {
+        TraceRay(RaytracingAccelerationStructure::get(rtgi_trace_diffuse_push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
+    }
+}
+
+__generic<TRACE_FUNCTOR : TraceRayInterface>
+void shade_ray_gen(uint2 dtid)
 {
     let clk_start = clockARB();
     let push = rtgi_trace_diffuse_push;
-    const int2 dtid = DispatchRaysIndex().xy;
 
     const float depth = push.attach.view_cam_half_res_depth.get()[dtid];
     const float2 pixel_index = float2(dtid.xy * 2u) + 0.5f;
@@ -92,7 +104,7 @@ void ray_gen()
         ray.Direction = primary_ray;
 
         payload.color = float3(0,0,0);
-        TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), 0, ~0, 0, 0, 0, ray, payload);
+        TRACE_FUNCTOR::trace_and_shade(ray, 0, payload);
 
         float4 value = float4(payload.color, 1.0f);
         push.attach.diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
@@ -153,7 +165,7 @@ void ray_gen()
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
             const uint flags = {}; // RAY_FLAG_FORCE_OPAQUE; 
-            TraceRay(RaytracingAccelerationStructure::get(push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
+            TRACE_FUNCTOR::trace_and_shade(ray, flags, payload);
 
             float4 sh_y_new;
             float2 cocg_new;
@@ -181,6 +193,12 @@ void ray_gen()
     }
 }
 
+[shader("raygeneration")]
+void ray_gen()
+{
+    shade_ray_gen<RTPipelineTraceRay>(DispatchRaysIndex().xy);
+}
+
 [shader("anyhit")]
 void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
 {
@@ -191,7 +209,8 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
         push.attach.mesh_instances,
         push.attach.globals.scene.meshes,
         push.attach.globals.scene.materials,
-        attr.barycentrics))
+        attr.barycentrics,
+        PrimitiveIndex(), InstanceID(), WorldRayOrigin(), WorldRayDirection(), RayTCurrent()))
     {
         IgnoreHit();
     }

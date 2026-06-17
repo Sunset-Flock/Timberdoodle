@@ -97,7 +97,8 @@ void any_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes 
         push.attach.mesh_instances,
         push.attach.globals.scene.meshes,
         push.attach.globals.scene.materials,
-        attr.barycentrics))
+        attr.barycentrics,
+        PrimitiveIndex(), InstanceID(), WorldRayOrigin(), WorldRayDirection(), RayTCurrent()))
     {
         IgnoreHit();
     }

@@ -102,17 +102,16 @@ struct RtgiLightVisibilityTester : LightVisibilityTesterI
     }
 }
 
-[shader("closesthit")]
-void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primitive_index, uint geometry_index, uint instance_id, float3 origin, float3 ray_direction, float ray_t_current)
 {
     let push = rtgi_trace_diffuse_push;
 
     MeshInstance* mi = push.attach.mesh_instances.instances;
     TriangleGeometry tri_geo = rt_get_triangle_geo(
-        attr.barycentrics,
-        InstanceID(),
-        GeometryIndex(),
-        PrimitiveIndex(),
+        barycentrics,
+        instance_id,
+        geometry_index,
+        primitive_index,
         push.attach.globals.scene.meshes,
         push.attach.globals.scene.entity_to_meshgroup,
         push.attach.globals.scene.mesh_groups,
@@ -127,18 +126,18 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
     );
 
     #if RTGI_USE_PGI_RADIANCE_ON_HIT
-        if (RayTCurrent() > RTGI_PGI_RADIANCE_CACHE_TMIN || RTGI_PGI_RADIANCE_CACHE_TMIN == 0.0f)
+        if (ray_t_current > RTGI_PGI_RADIANCE_CACHE_TMIN || RTGI_PGI_RADIANCE_CACHE_TMIN == 0.0f)
         {
             const float3 sample_offset_direction = tri_point.face_normal;
             const float3 sample_direction = float3(0,0,0); // ignored with probe_relative_sample_dir
-            const float3 sample_position = RayTCurrent() * WorldRayDirection() + WorldRayOrigin();
+            const float3 sample_position = ray_t_current * ray_direction + origin;
 
             const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
 
             // PGI can not be trusted at short hit ranges as its very leaky for fine details.
             // Apply strong range based AO to the PGI radiance.
             const float indirect_ao_range = push.attach.globals.rtgi_settings.ao_range;
-            const float relative_ao_t = min(indirect_ao_range, RayTCurrent()) / indirect_ao_range;
+            const float relative_ao_t = min(indirect_ao_range, ray_t_current) / indirect_ao_range;
             const float ambient_occlusion = square(relative_ao_t) * pgi_enabled;
 
             PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
@@ -165,7 +164,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
 
         const float indirect_ao_range = push.attach.globals.rtgi_settings.ao_range;
         const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
-        const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - RayTCurrent()))/indirect_ao_range) * pgi_enabled;
+        const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - ray_t_current))/indirect_ao_range) * pgi_enabled;
 
         payload.color.rgb = shade_material<SHADING_QUALITY_HIGH>(
             push.attach.globals, 
@@ -173,7 +172,7 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
             push.attach.sky,
             material_point, 
             push.attach.globals.view_camera.position,
-            WorldRayDirection(), 
+            ray_direction, 
             light_vis_tester, 
             push.attach.light_mask_volume.get(),
             push.attach.pgi_irradiance.get(), 
@@ -185,19 +184,24 @@ void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttribu
         ).rgb;
     }
 
-    payload.t = RayTCurrent();
+    payload.t = ray_t_current;
 }
 
-[shader("miss")]
-void miss(inout RayPayload payload)
+[shader("closesthit")]
+void closest_hit(inout RayPayload payload, in BuiltInTriangleIntersectionAttributes attr)
+{
+    shade_closest_hit(payload, attr.barycentrics, PrimitiveIndex(), GeometryIndex(), InstanceID(), WorldRayOrigin(), WorldRayDirection(), RayTCurrent());
+}
+
+void shade_miss(inout RayPayload payload, float3 origin, float3 ray_direction, float ray_t_current)
 {
     let push = rtgi_trace_diffuse_push;
 
     if (!payload.skip_sky_shader)
     {
         #if RTGI_USE_PGI_RADIANCE_ON_MISS
-            const float3 sample_direction = WorldRayDirection();
-            const float3 sample_position = WorldRayOrigin() + RayTCurrent() * WorldRayDirection();
+            const float3 sample_direction = ray_direction;
+            const float3 sample_position = origin + ray_t_current * ray_direction;
 
             PGISampleInfo info = PGISampleInfo();
             info.request_mode = PGI_REQUEST_MODE_DIRECT;
@@ -217,8 +221,14 @@ void miss(inout RayPayload payload)
                 push.attach.pgi_requests.get()
             ).rgb;
         #else
-        payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, WorldRayDirection());
+        payload.color = shade_sky(push.attach.globals, push.attach.sky_transmittance, push.attach.sky, ray_direction);
         #endif
     }
     payload.t = 1000000000000.0f;
+}
+
+[shader("miss")]
+void miss(inout RayPayload payload)
+{
+    shade_miss(payload, WorldRayOrigin(), WorldRayDirection(), RayTCurrent());
 }

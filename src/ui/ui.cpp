@@ -730,6 +730,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Checkbox("Post Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
                 ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
                 ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
+                ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {

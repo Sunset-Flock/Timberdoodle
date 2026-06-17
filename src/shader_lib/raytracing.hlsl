@@ -318,13 +318,15 @@ func rt_is_alpha_hit(
     MeshInstancesBufferHead* mesh_instances,
     GPUMesh* meshes,
     GPUMaterial* materials,
-    float2 barycentrics
+    float2 barycentrics,
+    uint primitive_index,
+    uint instance_id,
+    float3 origin,
+    float3 ray_direction,
+    float ray_t_current
     ) -> bool
 {
-    const float3 hit_location = WorldRayOrigin() + WorldRayDirection() * RayTCurrent();
-    const uint primitive_index = PrimitiveIndex();
-    
-    const uint mesh_instance_index = InstanceID();
+    const uint mesh_instance_index = instance_id;
     MeshInstance* mesh_instance = mesh_instances.instances + mesh_instance_index;
     GPUMesh *mesh = meshes + mesh_instance->mesh_index;
     if ((mesh.vertex_uvs == Ptr<float2>(0)) || mesh.material_index == INVALID_MANIFEST_INDEX)
