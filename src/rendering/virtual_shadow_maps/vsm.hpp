@@ -135,7 +135,6 @@ inline std::array<daxa::RasterPipelineCompileInfo2, 2> cull_and_draw_point_pages
     vsm_cull_and_draw_point_pages_masked_pipeline_compile_info()};
 inline void invalidate_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = InvalidatePagesH::Info::AT;
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_invalidate_directional_pages_pipeline_compile_info().name));
     InvalidatePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
@@ -148,7 +147,6 @@ inline void invalidate_pages_callback(daxa::TaskInterface ti, RenderContext * re
 
 inline void free_wrapped_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = FreeWrappedPagesH::Info::AT;
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_free_wrapped_pages_pipeline_compile_info().name));
     FreeWrappedPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
@@ -159,7 +157,6 @@ inline void free_wrapped_pages_callback(daxa::TaskInterface ti, RenderContext * 
 
 inline void force_always_resident_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = ForceAlwaysResidentPagesH::Info::AT;
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_force_always_resident_pages_pipeline_compile_info().name));
 
     ForceAlwaysResidentPagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
@@ -173,8 +170,7 @@ inline void force_always_resident_pages_callback(daxa::TaskInterface ti, RenderC
 
 inline void mark_required_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = MarkRequiredPagesH::Info::AT;
-    auto const depth_resolution = ti.info(AT.g_buffer_depth).value().size;
+    auto const depth_resolution = ti.info(MarkRequiredPagesH::Info::AT.g_buffer_depth).value().size;
     auto const dispatch_size = u32vec2{
         (depth_resolution.x + MARK_REQUIRED_PAGES_X_DISPATCH - 1) / MARK_REQUIRED_PAGES_X_DISPATCH,
         (depth_resolution.y + MARK_REQUIRED_PAGES_Y_DISPATCH - 1) / MARK_REQUIRED_PAGES_Y_DISPATCH,
@@ -193,7 +189,6 @@ inline void mark_required_pages_callback(daxa::TaskInterface ti, RenderContext *
 
 inline void find_free_pages_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = FindFreePagesH::Info::AT;
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_find_free_pages_pipeline_compile_info().name));
     FindFreePagesH::AttachmentShaderBlob push = ti.attachment_shader_blob;
     ti.recorder.push_constant(push);
@@ -252,7 +247,6 @@ inline void gen_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderContext * r
 
 inline void gen_point_dirty_bit_hiz_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = GenPointDirtyBitHizH::Info::AT;
     render_context->render_times.start_gpu_timer(ti.recorder, RenderTimes::index<"VSM", "GEN_DIRY_BIT_HIZ_POINT_SPOT">());
     ti.recorder.set_pipeline(*render_context->gpu_context->compute_pipelines.at(vsm_gen_point_dirty_bit_hiz_pipeline_compile_info().name));
     auto const dispatch_x = round_up_div(VSM_POINT_SPOT_PAGE_TABLE_RESOLUTION, GEN_DIRTY_BIT_HIZ_X_WINDOW);
@@ -423,7 +417,6 @@ inline void clear_dirty_bit_callback(daxa::TaskInterface ti, RenderContext * ren
 
 inline void debug_virtual_page_table_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = DebugVirtualPageTableH::Info::AT;
     static constexpr auto dispatch_size = u32vec2{
         (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_X_DISPATCH - 1) / DEBUG_PAGE_TABLE_X_DISPATCH,
         (VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION + DEBUG_PAGE_TABLE_Y_DISPATCH - 1) / DEBUG_PAGE_TABLE_Y_DISPATCH,
@@ -437,7 +430,6 @@ inline void debug_virtual_page_table_callback(daxa::TaskInterface ti, RenderCont
 
 inline void debug_meta_memory_table_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = DebugMetaMemoryTableH::Info::AT;
     static constexpr auto dispatch_size = u32vec2{
         (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_X_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_X_DISPATCH,
         (VSM_META_MEMORY_TABLE_RESOLUTION + DEBUG_META_MEMORY_TABLE_Y_DISPATCH - 1) / DEBUG_META_MEMORY_TABLE_Y_DISPATCH,
@@ -451,7 +443,6 @@ inline void debug_meta_memory_table_callback(daxa::TaskInterface ti, RenderConte
 
 inline void get_debug_statistics_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = GetDebugStatisticsH::Info::AT;
     static constexpr auto dispatch_size = u32vec2{
         (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_X_DISPATCH - 1) / GET_DEBUG_STATISTICS_X_DISPATCH,
         (VSM_META_MEMORY_TABLE_RESOLUTION + GET_DEBUG_STATISTICS_Y_DISPATCH - 1) / GET_DEBUG_STATISTICS_Y_DISPATCH,
@@ -465,7 +456,6 @@ inline void get_debug_statistics_callback(daxa::TaskInterface ti, RenderContext 
 
 inline void recreate_shadow_map_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
-    auto const & AT = RecreateShadowMapH::Info::AT;
     const u32vec2 dispatch_size = u32vec2{
         round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_X_DISPATCH),
         round_up_div(VSM_DIRECTIONAL_TEXTURE_RESOLUTION, RECREATE_SHADOW_MAP_Y_DISPATCH),
