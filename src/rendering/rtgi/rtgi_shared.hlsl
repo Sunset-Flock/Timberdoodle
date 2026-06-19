@@ -30,15 +30,10 @@ void debug_image_tile_draw(RWTexture2D<float4> tex, uint slot, uint2 sv_position
     if (slot == ~0u)
     {
         const uint2 dst_position = sv_position * resolution_scale;
-        const uint2 tile_size = uint2(resolution_scale, resolution_scale);
         for (uint y = 0; y < resolution_scale; ++y)
         {
             for (uint x = 0; x < resolution_scale; ++x)
             {
-                if (enable_rounding && debug_image_tile_is_cutoff(uint2(x, y), tile_size, TILE_EDGE_CUTOFF, TILE_CORNER_RADIUS))
-                {
-                    continue;
-                }
                 const uint2 dst = dst_position + uint2(x, y);
                 if (all(dst < full_res))
                 {

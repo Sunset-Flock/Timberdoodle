@@ -99,6 +99,7 @@ struct TasksRtgiInfo
     daxa::TaskImageView clocks_image = {};
     daxa::TaskImageView view_cam_half_res_depth = {};
     daxa::TaskImageView view_cam_half_res_face_normals = {};
+    daxa::TaskImageView view_cam_half_res_albedo = {};
     daxa::TaskImageView view_cam_depth = {};
     daxa::TaskImageView view_cam_face_normals = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};

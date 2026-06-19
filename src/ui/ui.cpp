@@ -714,23 +714,29 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 {
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
                 }
+                ImGui::SeparatorText("General");
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
+                ImGui::SeparatorText("Trace");
                 ImGui::SliderFloat("AO Range", &render_data.rtgi_settings.ao_range, 0.0f, 4.0f);
                 ImGui::SliderInt("Ray Samples", &render_data.rtgi_settings.ray_samples, 1, 16);
-                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
-                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
-                ImGui::Checkbox("Pre Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
-                ImGui::SliderFloat("Pre Blur Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
-                ImGui::Checkbox("Pre Blur Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_variance_guiding));
-                ImGui::Checkbox("Pre Blur Ray Length Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_length_guiding));
+                ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
+                ImGui::SeparatorText("Temporal");
                 ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
                 ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_firefly_filter_enabled));
+                ImGui::SeparatorText("Spatial General");
+                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                ImGui::Checkbox("Pre Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
                 ImGui::Checkbox("Post Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
                 ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
                 ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
-                ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
+                ImGui::SeparatorText("Spatial Config");
+                ImGui::Checkbox("Ray Length Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_length_guiding));
+                ImGui::Checkbox("Surface Detail Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.surface_detail_guiding));
+                ImGui::Checkbox("Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_variance_guiding));
+                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
+                ImGui::SliderFloat("Pre Blur Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {

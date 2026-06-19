@@ -40,6 +40,9 @@ static const int GEOMETRIC_MEAN_TAPS_TOTAL = FILTER_TAPS_TOTAL - STAR_BLUR_TAPS;
 static const int PRELOAD_SIZE_X = RTGI_PRE_BLUR_PREPARE_X + TOTAL_FILTER_REACH * 2;
 static const int PRELOAD_SIZE_Y = RTGI_PRE_BLUR_PREPARE_X + TOTAL_FILTER_REACH * 2;
 groupshared float4 gs_sample_value_vs[PRELOAD_SIZE_X][PRELOAD_SIZE_Y]; // .xyz = sample vs space pos, .w = depth
+// Full PRELOAD_SIZE (20x20) gives a 2-pixel border, supporting stride 1 and stride 2 gradients
+// RGB packed as R8G8B8 in the low 24 bits of a uint
+groupshared uint gs_albedo_rgb_grad[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];
 
 func src_to_preload_index(int2 src_index, int2 gid) -> int2
 {
@@ -47,11 +50,14 @@ func src_to_preload_index(int2 src_index, int2 gid) -> int2
     return clamp(src_index - src_group_base_index, int2(0,0), int2(PRELOAD_SIZE_X-1, PRELOAD_SIZE_Y-1));
 }
 
+    func unpack_rgb(uint p) -> float3 { return float3(p & 0xFF, (p >> 8) & 0xFF, (p >> 16) & 0xFF) * (1.0f / 255.0f); }
+
 [shader("compute")]
 [numthreads(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y,1)]
 func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
 {
     let push = rtgi_pre_filter_prepare_push;
+    RWTexture2D<float4> dbg = push.attach.debug_image.get();
 
     // Load and precalculate constants
     CameraInfo *camera = &push.attach.globals->view_camera;
@@ -82,11 +88,18 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                     const float4 sample_value_vs_pre_div = mul(camera.inv_proj, float4(sample_value_ndc, 1.0f));
                     const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
                     gs_sample_value_vs[in_preload_index.x][in_preload_index.y] = float4(sample_value_vs, preload_depth);
+
+                    const float3 grad_alb = sqrt(push.attach.view_cam_half_res_albedo.get()[clamped_src_index].rgb);
+                    const uint3 grad_alb_q = (uint3)(saturate(grad_alb) * 255.0f + 0.5f);
+                    gs_albedo_rgb_grad[in_preload_index.x][in_preload_index.y] = grad_alb_q.r | (grad_alb_q.g << 8) | (grad_alb_q.b << 16);
                 }
             }
         }
     }
-    GroupMemoryBarrierWithGroupSync();
+    GroupMemoryBarrierWithGroupSync(); // preload visible
+
+    // gs_albedo_rgb_grad is fully written — center pixel sits at gtid + TOTAL_FILTER_REACH in the 20x20 tile
+    const int2 grad_idx = int2(gtid) + TOTAL_FILTER_REACH;
 
     // Load Pixel Data
     const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
@@ -116,12 +129,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float ray_length_mean_acc = 0.0f;
     float valid_footprint_samples = 0.0f;
 
+    float3 albedo_mean_acc = float3(0.0f, 0.0f, 0.0f);
+
+    // Per-pixel albedo gradient estimation: accumulate |neighbor_alb - center_alb| from groupshared
+    const float3 pp_center_alb = unpack_rgb(gs_albedo_rgb_grad[grad_idx.x][grad_idx.y]);
+    float pp_alb_diff_acc = 0.0f;
+    float pp_alb_diff_count = 0.0f;
+
     // The raw signal is pre blurredi in a star shape with 5 taps to conserve energy from the firefly filter.
     float4 star_blurred_diffuse_acc = float4(0,0,0,0);
     float2 star_blurred_diffuse2_acc = float2(0,0);
     float star_blurred_weight_acc = 0.0f;
 
-    const float max_visibility_pixel_range = 48.0f;
+    const float max_visibility_pixel_range = 64.0f;
     const float max_visibility_raylen = pixel_ws_size * max_visibility_pixel_range;
 
     [unroll]
@@ -135,6 +155,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             load_idx = flip_oob_index(load_idx, max_index);
 
             const int2 preload_index = src_to_preload_index(load_idx, gid);
+            const float3 pp_neighbor_alb = unpack_rgb(gs_albedo_rgb_grad[preload_index.x][preload_index.y]);
+            pp_alb_diff_acc += dot(abs(pp_neighbor_alb - pp_center_alb), (1.0f).xxx);
+            pp_alb_diff_count += 1.0f;
             float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];                // preloading via shared mem reduces perf, distribute loading onto multiply hw units
             float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];              // preloading via shared mem reduces perf, distribute loading onto multiply hw units
             const float sample_ray_length = push.attach.ray_length_image.get()[load_idx];   // preloading via shared mem reduces perf, distribute loading onto multiply hw units
@@ -175,10 +198,32 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 y_max = max(y_max, sample_y) * geometric_weight;
                 ray_length_mean_acc += square(min(1.0f, sample_ray_length * rcp(max_visibility_raylen))) * geometric_weight;
 
+                const float3 sample_albedo = push.attach.view_cam_half_res_albedo.get()[load_idx].rgb;
+                albedo_mean_acc += sample_albedo * geometric_weight;
+
                 valid_footprint_samples += geometric_weight;
             }
         }
     }
+
+    const float FOOTPRINT_RCP = rcp(valid_footprint_samples + 1e-8f);
+    const float3 albedo_mean = albedo_mean_acc * FOOTPRINT_RCP;
+
+
+    // Surface Detail Heuristic:
+    let rtgi = push.attach.globals->rtgi_settings;
+
+    // Brightness score: bright surfaces suppress gradient guiding
+    // Very bright surfaces reveal denoising artifacts even with high surface detail.
+    const float albedo_lum   = dot(albedo_mean, float3(0.2126f, 0.7152f, 0.1722f));
+    const float bright_score = square(albedo_lum);  // Square causes mostly really bright albedos to have an effect.
+    const float min_grad   = bright_score;
+
+    // Per-pixel smoothness: local albedo variation across the filter neighborhood
+    const float pp_mean_alb_diff = pp_alb_diff_acc / (pp_alb_diff_count + 3.0f + 1e-8f);
+    const float pp_grad_score = square(lerp(min_grad, 1.0f, 1.0f - sqrt(pp_mean_alb_diff)));
+    const float per_pixel_smoothness = rtgi.surface_detail_guiding != 0 ? pp_grad_score : 1.0f;
+    const float per_pixel_super_smoothness = max(0.0f, per_pixel_smoothness - 0.9f) * 10.0f;
 
     float y_std_dev = 1.0f;
     float firefly_energy_factor = 1.0f;
@@ -214,20 +259,12 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float valid_footprint_relative = (valid_footprint_samples * rcp(INNER_FILTER_TAPS_TOTAL));
         footprint_quality = valid_footprint_relative;
 
-        float ray_length_mean = square(square(ray_length_mean_acc * rcp(valid_footprint_samples)));
-        float raylength_firefly_filter_ceiling_factor = 1.0f;
-        if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
-        {
-            const float ray_length_foot_print_quality = ray_length_mean;
-            raylength_firefly_filter_ceiling_factor = min(1.0f, ray_length_mean + 0.2f);
-            footprint_quality *= ray_length_foot_print_quality;
-        }
-    
-        // debug_image_tile_draw(push.attach.debug_image.get(), 8, dtid, float4(TurboColormap(pixel_footprint_quality), 2), 2);
-
         const float valid_geometric_samples_ceiling_factor = (valid_geometric_mean_samples / (GEOMETRIC_MEAN_TAPS_TOTAL));
         const float valid_footprint_samples_ceiling_factor = (valid_footprint_relative);
-        const float ceiling_factor = max(1.0f, push.attach.globals.rtgi_settings.firefly_filter_ceiling * valid_geometric_samples_ceiling_factor * valid_footprint_samples_ceiling_factor * raylength_firefly_filter_ceiling_factor);
+        const float ceiling_factor = max(1.0f, 
+            push.attach.globals.rtgi_settings.firefly_filter_ceiling * 
+            valid_geometric_samples_ceiling_factor * 
+            valid_footprint_samples_ceiling_factor);
         const float y_center_pixel_perceptual = linear_to_perceptual(filtered_diffuse.w);
         const float y_center_pixel = filtered_diffuse.w;
         const float y_ratio = (y_mean * ceiling_factor) / (EPSILON + y_center_pixel);
@@ -243,12 +280,22 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             filtered_diffuse2 *= adjustment_factor;
             firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, adjustment_factor);
         }
-
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,0)] = float4(ray_length_guide_factor, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(0,1)] = float4(ray_length_guide_factor, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,0)] = float4(ray_length_guide_factor, 0, 0, 0);
-        // push.attach.debug_image.get()[dtid * 2 + uint2(1,1)] = float4(ray_length_guide_factor, 0, 0, 0);
     } 
+
+    float ray_length_mean = ray_length_mean_acc * rcp(valid_footprint_samples);
+    float raylength_filter_guide = 1.0f;
+    if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
+    {     
+        const float min_guide_value = clamp(square(square(per_pixel_smoothness)), 0.05f, 0.5f);
+        raylength_filter_guide = lerp(min_guide_value, 1.0f, square(square(ray_length_mean)));
+    }
+
+    footprint_quality = min(footprint_quality, min(raylength_filter_guide, per_pixel_smoothness));
+
+    // debug_image_tile_draw(dbg, 0,  dtid, float4(TurboColormap(per_pixel_smoothness), 2.0f), 2);
+    // debug_image_tile_draw(dbg, 0,  dtid, float4((raylength_filter_guide).xxx, 2.0f), 2);
+    // debug_image_tile_draw(dbg, 1,  dtid, float4(TurboColormap(footprint_quality), 2.0f), 2);
+    // debug_image_tile_draw(dbg, 2,  dtid, float4((footprint_quality).xxx, 2.0f), 2);
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;

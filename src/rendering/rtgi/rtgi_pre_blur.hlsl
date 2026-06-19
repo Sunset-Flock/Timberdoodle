@@ -60,7 +60,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float pixel_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
 
-    const bool variance_guiding_enabled = push.attach.globals.rtgi_settings.pre_blur_variance_guiding != 0;
+    const bool variance_guiding_enabled = true;
 
     // Footprint Quality Scaling
     // * for a low quality footprint, most far radius samples will be rejected -> poor temporal stability

@@ -269,6 +269,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .diffuse2_raw = trace_diffuse2_image,
                 .ray_length_image = ray_length_image,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals,
+                .view_cam_half_res_albedo = info.view_cam_half_res_albedo,
                 .pre_filtered_diffuse_image = pre_filtered_diffuse_image,
                 .pre_filtered_diffuse2_image = pre_filtered_diffuse2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
