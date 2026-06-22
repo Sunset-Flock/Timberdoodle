@@ -200,7 +200,7 @@ float3 load_exposed_color(uint2 index)
     const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
     const float4 debug_value = normal_push.attachments.debug_image.get()[index];
     const float blend = clamp(debug_value.w - 1.0f, 0.0f, 1.0f);
-    return lerp(tonemapped_color, debug_value.rgb, square(blend));
+    return lerp(tonemapped_color, square(debug_value.rgb), square(blend));
 }
 
 [[vk::push_constant]] WriteSwapchainPush normal_push;

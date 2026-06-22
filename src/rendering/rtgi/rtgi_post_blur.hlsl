@@ -4,7 +4,6 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
-#include "shader_lib/pack_unpack.hlsl"
 #include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiPostBlurPush rtgi_post_blur_push;
@@ -76,21 +75,16 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
 
-    const float temporal_stability_scale = 1.0f - min(1.0f, pixel_samplecnt * rcp(12.0f));
-    const float footprint_quality = push.attach.footprint_quality_image.get()[dtid.xy];
-    const float blur_scale = clamp(temporal_stability_scale + footprint_quality, 0.0f, 1.0f);
+    const float temporal_stability_scale = 1.0f - saturate(pixel_samplecnt * rcp(12.0f));
+    const float filter_guide = push.attach.filter_guide_image.get()[dtid.xy];
+    const float blur_scale = lerp(filter_guide, 1.0f, temporal_stability_scale);
 
     const int filter_width = int(lerp(1.0f, MAX_BLUR_WIDTH, blur_scale));
 
-    // debug_image_tile_draw(push.attach.debug_image.get(), 12, dtid, float4(TurboColormap(footprint_quality_blur_scale), 2), 2);
-
     const float pixel_y = push.attach.rtgi_diffuse_before.get()[dtid.xy].w;
-    const float pixel_y_spatial_std_dev = push.attach.spatial_std_dev_image.get()[dtid.xy];
-    const float2 pixel_temporal_moments = unpack_2x16f_uint(push.attach.temporal_moments.get()[dtid.xy]);
-    const float pixel_temporal_relative_variance = pixel_temporal_moments.y;
-    const float pixel_temporal_variance = pixel_temporal_relative_variance * pixel_y;
-    const float pixel_temporal_std_dev = sqrt(pixel_temporal_variance);
-    const float pixel_y_std_dev = lerp(pixel_y_spatial_std_dev, pixel_temporal_std_dev, min(1.0f, pixel_samplecnt * rcp(4)));
+    // statistics_image: .x=fast_mean .y=fast_rel_var .z=slow_mean .w=slow_rel_var
+    const float4 pixel_statistics = push.attach.statistics_image.get()[dtid.xy];
+    const float slow_relative_std_dev = sqrt(pixel_statistics.w);
 
     for (int i = -filter_width; i <= filter_width; ++i)
     {
@@ -120,14 +114,14 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
         const float gauss_weight = get_gaussian_weight(float(abs(i))/float(filter_width));
         const float sample_count_weight = (sample_value_samplecnt + 1); // hides disocclusion flicker
 
-        // Variance guiding:
-        // * improves shadowing contact detail
-        // * anything before two std deviations is weighted 1.0f, past that it decreases by 1 / (1.0f + y_difference)
-        // * turn down the y difference based on temporal stability, the result of the temporal pass is too noisy for a few frames to rely on variance guiding
-        const float relative_sample_y_deviation = max(0.1f, max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y_std_dev + pixel_y * 0.0001f) * 0.1f);
-        const float relative_sample_y_weight = 1;//1.0f / relative_sample_y_deviation;
+        // One-sided luminance clamp: samples darker than center pass freely (valid shadows),
+        // samples brighter than center are penalized — prevents bright background from bleeding
+        // into darker foreground without penalising shadowed foreground samples.
+        const float brightness_excess = max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y + 1e-4f);
+        const float one_sided_luminance_weight = push.attach.globals.rtgi_settings.post_blur_variance_guiding ?
+            exp(-brightness_excess / (4.0f * slow_relative_std_dev + 1e-4f)) : 1.0f;
 
-        const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * relative_sample_y_weight;
+        const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * one_sided_luminance_weight;
         
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample_value_depth == 0.0f;

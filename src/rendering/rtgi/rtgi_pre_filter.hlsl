@@ -42,7 +42,7 @@ static const int PRELOAD_SIZE_Y = RTGI_PRE_BLUR_PREPARE_X + TOTAL_FILTER_REACH *
 groupshared float4 gs_sample_value_vs[PRELOAD_SIZE_X][PRELOAD_SIZE_Y]; // .xyz = sample vs space pos, .w = depth
 // Full PRELOAD_SIZE (20x20) gives a 2-pixel border, supporting stride 1 and stride 2 gradients
 // RGB packed as R8G8B8 in the low 24 bits of a uint
-groupshared uint gs_albedo_rgb_grad[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];
+groupshared uint gs_albedo_rgb[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];
 
 func src_to_preload_index(int2 src_index, int2 gid) -> int2
 {
@@ -89,16 +89,16 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                     const float3 sample_value_vs = sample_value_vs_pre_div.xyz * rcp(sample_value_vs_pre_div.w);
                     gs_sample_value_vs[in_preload_index.x][in_preload_index.y] = float4(sample_value_vs, preload_depth);
 
-                    const float3 grad_alb = sqrt(push.attach.view_cam_half_res_albedo.get()[clamped_src_index].rgb);
-                    const uint3 grad_alb_q = (uint3)(saturate(grad_alb) * 255.0f + 0.5f);
-                    gs_albedo_rgb_grad[in_preload_index.x][in_preload_index.y] = grad_alb_q.r | (grad_alb_q.g << 8) | (grad_alb_q.b << 16);
+                    const float3 alb = push.attach.view_cam_half_res_albedo.get()[clamped_src_index].rgb;
+                    const uint3 alb_q = (uint3)(saturate(alb) * 255.0f + 0.5f);
+                    gs_albedo_rgb[in_preload_index.x][in_preload_index.y] = alb_q.r | (alb_q.g << 8) | (alb_q.b << 16);
                 }
             }
         }
     }
     GroupMemoryBarrierWithGroupSync(); // preload visible
 
-    // gs_albedo_rgb_grad is fully written — center pixel sits at gtid + TOTAL_FILTER_REACH in the 20x20 tile
+    // gs_albedo_rgb is fully written — center pixel sits at gtid + TOTAL_FILTER_REACH in the 20x20 tile
     const int2 grad_idx = int2(gtid) + TOTAL_FILTER_REACH;
 
     // Load Pixel Data
@@ -126,22 +126,25 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     float y_mean_acc = 0.0f;
     float y_variance_acc = 0.0f;
     float y_max = 0.0f;
-    float ray_length_mean_acc = 0.0f;
+    float ray_shortness_acc = 0.0f;
     float valid_footprint_samples = 0.0f;
 
     float3 albedo_mean_acc = float3(0.0f, 0.0f, 0.0f);
 
     // Per-pixel albedo gradient estimation: accumulate |neighbor_alb - center_alb| from groupshared
-    const float3 pp_center_alb = unpack_rgb(gs_albedo_rgb_grad[grad_idx.x][grad_idx.y]);
+    const float3 pp_center_alb = unpack_rgb(gs_albedo_rgb[grad_idx.x][grad_idx.y]);
     float pp_alb_diff_acc = 0.0f;
     float pp_alb_diff_count = 0.0f;
+    // Coefficient of variation accumulators (same 3x3 window)
+    float pp_alb_lum_acc = 0.0f;
+    float pp_alb_lum_sq_acc = 0.0f;
 
     // The raw signal is pre blurredi in a star shape with 5 taps to conserve energy from the firefly filter.
     float4 star_blurred_diffuse_acc = float4(0,0,0,0);
     float2 star_blurred_diffuse2_acc = float2(0,0);
     float star_blurred_weight_acc = 0.0f;
 
-    const float max_visibility_pixel_range = 64.0f;
+    const float max_visibility_pixel_range = 32.0f * 1.25f; // Should roughly match 1.5x the max denoiser width (currently always around 32.0f).
     const float max_visibility_raylen = pixel_ws_size * max_visibility_pixel_range;
 
     [unroll]
@@ -155,9 +158,6 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             load_idx = flip_oob_index(load_idx, max_index);
 
             const int2 preload_index = src_to_preload_index(load_idx, gid);
-            const float3 pp_neighbor_alb = unpack_rgb(gs_albedo_rgb_grad[preload_index.x][preload_index.y]);
-            pp_alb_diff_acc += dot(abs(pp_neighbor_alb - pp_center_alb), (1.0f).xxx);
-            pp_alb_diff_count += 1.0f;
             float4 sample_diffuse = push.attach.diffuse_raw.get()[load_idx];                // preloading via shared mem reduces perf, distribute loading onto multiply hw units
             float2 sample_diffuse2 = push.attach.diffuse2_raw.get()[load_idx];              // preloading via shared mem reduces perf, distribute loading onto multiply hw units
             const float sample_ray_length = push.attach.ray_length_image.get()[load_idx];   // preloading via shared mem reduces perf, distribute loading onto multiply hw units
@@ -196,47 +196,46 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 y_mean_acc += sample_y * geometric_weight;
                 y_variance_acc += square(sample_y) * geometric_weight;
                 y_max = max(y_max, sample_y) * geometric_weight;
-                ray_length_mean_acc += square(min(1.0f, sample_ray_length * rcp(max_visibility_raylen))) * geometric_weight;
+                // double square the ray shortness (ranges from 0-1) to promote small values in sum. Later we take sqrt(sqrt(acc*weight_sum)) to get a scaled average of ray shortness.
+                ray_shortness_acc += square(square(square(1.0f - min(1.0f, sample_ray_length * rcp(max_visibility_raylen))))) * geometric_weight;
 
                 const float3 sample_albedo = push.attach.view_cam_half_res_albedo.get()[load_idx].rgb;
                 albedo_mean_acc += sample_albedo * geometric_weight;
 
                 valid_footprint_samples += geometric_weight;
+
+                if (geometric_weight > 0.0f)
+                {
+                    const float3 pp_neighbor_alb = unpack_rgb(gs_albedo_rgb[preload_index.x][preload_index.y]);
+                    pp_alb_diff_acc += dot(abs(pp_neighbor_alb - pp_center_alb), (1.0f / 3.0f).xxx);
+                    pp_alb_diff_count += 1.0f;
+                    const float pp_neighbor_lum = dot(pp_neighbor_alb, float3(0.2126f, 0.7152f, 0.1722f));
+                    pp_alb_lum_acc += pp_neighbor_lum;
+                    pp_alb_lum_sq_acc += square(pp_neighbor_lum);
+                }
             }
         }
     }
 
-    const float FOOTPRINT_RCP = rcp(valid_footprint_samples + 1e-8f);
-    const float3 albedo_mean = albedo_mean_acc * FOOTPRINT_RCP;
-
-
-    // Surface Detail Heuristic:
     let rtgi = push.attach.globals->rtgi_settings;
 
-    // Brightness score: bright surfaces suppress gradient guiding
-    // Very bright surfaces reveal denoising artifacts even with high surface detail.
-    const float albedo_lum   = dot(albedo_mean, float3(0.2126f, 0.7152f, 0.1722f));
-    const float bright_score = square(albedo_lum);  // Square causes mostly really bright albedos to have an effect.
-    const float min_grad   = bright_score;
-
-    // Per-pixel smoothness: local albedo variation across the filter neighborhood
-    const float pp_mean_alb_diff = pp_alb_diff_acc / (pp_alb_diff_count + 3.0f + 1e-8f);
-    const float pp_grad_score = square(lerp(min_grad, 1.0f, 1.0f - sqrt(pp_mean_alb_diff)));
-    const float per_pixel_smoothness = rtgi.surface_detail_guiding != 0 ? pp_grad_score : 1.0f;
-    const float per_pixel_super_smoothness = max(0.0f, per_pixel_smoothness - 0.9f) * 10.0f;
-
-    float y_std_dev = 1.0f;
-    float firefly_energy_factor = 1.0f;
+    // --- Footprint Quality ---
     float footprint_quality = 1.0f;
-    float4 filtered_diffuse = float4(0.0f, 0.0f, 0.0f, 0.0f);
-    float2 filtered_diffuse2 = float2(0.0f, 0.0f);
     {
-        const float EPSILON = 0.00000001f;
+        footprint_quality = valid_footprint_samples * rcp(float(INNER_FILTER_TAPS_TOTAL));
+    }
 
+    // --- Firefly Filter ---
+    float4 filtered_diffuse;
+    float2 filtered_diffuse2;
+    float firefly_energy_factor = 1.0f;
+    float y_std_dev;
+    {
+        const float EPSILON = 1e-8f;
         const float4 star_blurred_diffuse = star_blurred_diffuse_acc * rcp(star_blurred_weight_acc + EPSILON);
         const float2 star_blurred_diffuse2 = star_blurred_diffuse2_acc * rcp(star_blurred_weight_acc + EPSILON);
 
-        if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)
+        if (rtgi.firefly_filter_enabled != 0)
         {
             filtered_diffuse = star_blurred_diffuse;
             filtered_diffuse2 = star_blurred_diffuse2;
@@ -249,57 +248,58 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
         const float y_mean = y_mean_acc * rcp(valid_footprint_samples);
         const float y_variance = (y_variance_acc * rcp(valid_footprint_samples)) - square(y_mean);
-        const float y_variance_relative = (y_variance) / (y_mean + EPSILON);
         y_std_dev = sqrt(y_variance);
-        const float y_std_dev_relative = y_std_dev / y_mean;
 
-        const float y_mean_perceptual = y_mean_geometric_acc * rcp(valid_geometric_mean_samples);
-        const float y_mean_geometric = perceptual_to_linear(y_mean_perceptual);
+        const float y_mean_geometric = perceptual_to_linear(y_mean_geometric_acc * rcp(valid_geometric_mean_samples));
+        const float ceiling_factor = max(1.0f,
+            rtgi.firefly_filter_ceiling *
+            (valid_geometric_mean_samples / float(GEOMETRIC_MEAN_TAPS_TOTAL)) *
+            footprint_quality);
+        const float geometric_y_clamp_factor = min((y_mean_geometric * ceiling_factor) / (EPSILON + filtered_diffuse.w), 1.0f);
 
-        const float valid_footprint_relative = (valid_footprint_samples * rcp(INNER_FILTER_TAPS_TOTAL));
-        footprint_quality = valid_footprint_relative;
-
-        const float valid_geometric_samples_ceiling_factor = (valid_geometric_mean_samples / (GEOMETRIC_MEAN_TAPS_TOTAL));
-        const float valid_footprint_samples_ceiling_factor = (valid_footprint_relative);
-        const float ceiling_factor = max(1.0f, 
-            push.attach.globals.rtgi_settings.firefly_filter_ceiling * 
-            valid_geometric_samples_ceiling_factor * 
-            valid_footprint_samples_ceiling_factor);
-        const float y_center_pixel_perceptual = linear_to_perceptual(filtered_diffuse.w);
-        const float y_center_pixel = filtered_diffuse.w;
-        const float y_ratio = (y_mean * ceiling_factor) / (EPSILON + y_center_pixel);
-        const float y_geometric_ratio = (y_mean_geometric * ceiling_factor) / (EPSILON + y_center_pixel);
-        const float y_geometric_perceptual_ratio = (y_mean_perceptual * ceiling_factor) / (EPSILON + y_center_pixel_perceptual);
-        const float linear_y_clamp_factor = min(y_ratio, 1.0f);
-        const float geometric_y_clamp_factor = min(y_geometric_ratio, 1);
-
-        const float adjustment_factor = geometric_y_clamp_factor;
-        if (push.attach.globals.rtgi_settings.firefly_filter_enabled != 0)
+        if (rtgi.firefly_filter_enabled != 0)
         {
-            filtered_diffuse *= adjustment_factor;
-            filtered_diffuse2 *= adjustment_factor;
-            firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, adjustment_factor);
+            filtered_diffuse  *= geometric_y_clamp_factor;
+            filtered_diffuse2 *= geometric_y_clamp_factor;
+            firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, geometric_y_clamp_factor);
         }
-    } 
-
-    float ray_length_mean = ray_length_mean_acc * rcp(valid_footprint_samples);
-    float raylength_filter_guide = 1.0f;
-    if (push.attach.globals.rtgi_settings.pre_blur_ray_length_guiding != 0)
-    {     
-        const float min_guide_value = clamp(square(square(per_pixel_smoothness)), 0.05f, 0.5f);
-        raylength_filter_guide = lerp(min_guide_value, 1.0f, square(square(ray_length_mean)));
     }
 
-    footprint_quality = min(footprint_quality, min(raylength_filter_guide, per_pixel_smoothness));
+    // --- Surface Detail ---
+    float surface_detail_guide = 1.0f;
+    if (rtgi.surface_detail_guiding != 0)
+    {
+        const float boost = 1.0f;
+        const float pp_lum_mean = pp_alb_lum_acc / (pp_alb_diff_count + 1e-8f);
+        const float pp_lum_sq_mean = pp_alb_lum_sq_acc / (pp_alb_diff_count + 1e-8f);
+        const float pp_lum_variance = max(0.0f, pp_lum_sq_mean - square(pp_lum_mean));
+        const float pp_lim_std_dev = sqrt(pp_lum_variance);
 
-    // debug_image_tile_draw(dbg, 0,  dtid, float4(TurboColormap(per_pixel_smoothness), 2.0f), 2);
-    // debug_image_tile_draw(dbg, 0,  dtid, float4((raylength_filter_guide).xxx, 2.0f), 2);
-    // debug_image_tile_draw(dbg, 1,  dtid, float4(TurboColormap(footprint_quality), 2.0f), 2);
-    // debug_image_tile_draw(dbg, 2,  dtid, float4((footprint_quality).xxx, 2.0f), 2);
+        // In practice, the linear covaraince is too localized of a value here. Use sqrt to re-scale the covariance to be less effected by super strong gradients.
+        const float surface_albedo_cv = saturate(boost * (pp_lim_std_dev / max(pp_lum_mean, 0.05f)));
+        surface_detail_guide = 1.0f - sqrt(surface_albedo_cv);
+    }
+
+    // --- Raylength Guide ---
+    float raylength_filter_guide = 1.0f;
+    if (rtgi.pre_blur_ray_length_guiding != 0)
+    {
+        const float ray_shortness_mean = sqrt(sqrt(sqrt(ray_shortness_acc * rcp(valid_footprint_samples))));
+        // For more detailed surfaces the raylength guide is allowed to scale down further.
+        // For very smooth surfaces scaling down too much causes residual noise.
+        const float super_smooth_scale = clamp(surface_detail_guide, 0.0f, 0.25f) * 4.0f;
+        const float min_guide_value = lerp(0.0f, 0.33f, super_smooth_scale);
+        raylength_filter_guide = lerp(1.0f, min_guide_value, ray_shortness_mean);
+    }
+
+    // --- Filter Guide ---
+    const float filter_guide = raylength_filter_guide * surface_detail_guide * footprint_quality;
+
+    //debug_image_tile_draw(push.attach.debug_image.get(), 0, dtid, float4(TurboColormap(filter_guide), 2.0f), 2);
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;
     push.attach.firefly_factor_image.get()[dtid] = min(1.0f, firefly_energy_factor * (1.0f / RTGI_MAX_FIREFLY_FACTOR));
     push.attach.spatial_std_dev_image.get()[dtid] = y_std_dev;
-    push.attach.footprint_quality_image.get()[dtid] = footprint_quality;
+    push.attach.filter_guide_image.get()[dtid] = filter_guide;
 }

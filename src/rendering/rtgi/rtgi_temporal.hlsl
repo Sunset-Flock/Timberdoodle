@@ -4,7 +4,6 @@
 
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
-#include "shader_lib/pack_unpack.hlsl"
 #include "rtgi_shared.hlsl"
 
 [[vk::push_constant]] RtgiTemporalPush rtgi_denoise_diffuse_reproject_push;
@@ -77,7 +76,9 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float2 reprojected_diffuse2 = float2(0.0f, 0.0f);
     float reprojected_fast_temporal_mean = 0.0f;
     float reprojected_fast_temporal_variance = 0.0f;
-    float reprojected_footprint_quality = 0.0f;
+    float reprojected_slow_mean = 0.0f;
+    float reprojected_slow_relative_variance = 0.0f;
+    float reprojected_filter_guide = 0.0f;
     {
         // Load relevant global data
         CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
@@ -230,28 +231,26 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
             reprojected_diffuse2 = {};
         }
 
-        // Fast Mean Fast Varaince History
-        const uint4 packed_statistics_history_samples = push.attach.half_res_statistics_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
-        float2 statistics_history_samples[4] = {
-            unpack_2x16f_uint(packed_statistics_history_samples[0]),
-            unpack_2x16f_uint(packed_statistics_history_samples[1]),
-            unpack_2x16f_uint(packed_statistics_history_samples[2]),
-            unpack_2x16f_uint(packed_statistics_history_samples[3]),
-        };
-        float2 reprojected_statistics_history = apply_bilinear_custom_weights( statistics_history_samples[0], statistics_history_samples[1], statistics_history_samples[2], statistics_history_samples[3], sample_weights );
-        if (any(isnan(reprojected_statistics_history)))
-        {
-            reprojected_statistics_history = {};
-        }
-        reprojected_fast_temporal_mean = reprojected_statistics_history[0];
-        reprojected_fast_temporal_variance = reprojected_statistics_history[1];
+        // Statistics History (f16x4): .x=fast_mean .y=fast_rel_var .z=slow_mean .w=slow_rel_var
+        const float4 stat_r = push.attach.statistics_image_history.get().GatherRed(  linear_clamp_s, reproject_gather_uv ).wzxy;
+        const float4 stat_g = push.attach.statistics_image_history.get().GatherGreen( linear_clamp_s, reproject_gather_uv ).wzxy;
+        const float4 stat_b = push.attach.statistics_image_history.get().GatherBlue(  linear_clamp_s, reproject_gather_uv ).wzxy;
+        const float4 stat_a = push.attach.statistics_image_history.get().GatherAlpha( linear_clamp_s, reproject_gather_uv ).wzxy;
+        reprojected_fast_temporal_mean     = apply_bilinear_custom_weights( stat_r[0], stat_r[1], stat_r[2], stat_r[3], sample_weights );
+        reprojected_fast_temporal_variance = apply_bilinear_custom_weights( stat_g[0], stat_g[1], stat_g[2], stat_g[3], sample_weights );
+        reprojected_slow_mean              = apply_bilinear_custom_weights( stat_b[0], stat_b[1], stat_b[2], stat_b[3], sample_weights );
+        reprojected_slow_relative_variance = apply_bilinear_custom_weights( stat_a[0], stat_a[1], stat_a[2], stat_a[3], sample_weights );
+        if (isnan(reprojected_fast_temporal_mean))     reprojected_fast_temporal_mean = 0.0f;
+        if (isnan(reprojected_fast_temporal_variance)) reprojected_fast_temporal_variance = 0.0f;
+        if (isnan(reprojected_slow_mean))              reprojected_slow_mean = 0.0f;
+        if (isnan(reprojected_slow_relative_variance)) reprojected_slow_relative_variance = 0.0f;
 
-        // Footprint Quality History
-        const float4 footprint_quality_reprojected4 = push.attach.half_res_footprint_quality_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
-        reprojected_footprint_quality = apply_bilinear_custom_weights( footprint_quality_reprojected4.x, footprint_quality_reprojected4.y, footprint_quality_reprojected4.z, footprint_quality_reprojected4.w, sample_weights );
-        if (isnan(reprojected_footprint_quality))
+        // Filter Guide History
+        const float4 filter_guide_reprojected4 = push.attach.half_res_filter_guide_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
+        reprojected_filter_guide = apply_bilinear_custom_weights( filter_guide_reprojected4.x, filter_guide_reprojected4.y, filter_guide_reprojected4.z, filter_guide_reprojected4.w, sample_weights );
+        if (isnan(reprojected_filter_guide))
         {
-            reprojected_footprint_quality = 0.0f;
+            reprojected_filter_guide = 0.0f;
         }
     }
     //disocclusion = true;
@@ -260,9 +259,11 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float accumulated_sample_count = disocclusion ? 0u : min(push.attach.globals.rtgi_settings.history_frames, reprojected_sample_count + 1.0f);
 
     // Load new diffuse data
-    float4 new_diffuse = push.attach.half_res_diffuse_new.get()[dtid.xy];
-    float2 new_diffuse2 = push.attach.half_res_diffuse2_new.get()[dtid.xy];
-    float new_footprint_quality = push.attach.footprint_quality_new.get()[dtid.xy];
+    const bool diffuse_pre_blurred_present = !push.attach.half_res_diffuse_new.index.is_empty();
+    
+    float4 new_diffuse = diffuse_pre_blurred_present ? push.attach.half_res_diffuse_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse_new.get()[dtid.xy];
+    float2 new_diffuse2 = diffuse_pre_blurred_present ? push.attach.half_res_diffuse2_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse2_new.get()[dtid.xy];
+    float new_filter_guide = push.attach.filter_guide_new.get()[dtid.xy];
 
     // Determine accumulated fast history
 
@@ -276,28 +277,26 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float fast_std_dev_relative = 0.0f;
     if (push.attach.globals.rtgi_settings.temporal_fast_history_enabled)
     {
-        const float reprojected_fast_std_dev = sqrt(reprojected_fast_temporal_variance);
-
         // Temporal Fast History inspired by [DD2018: Tomasz Stachowiak - Stochastic all the things](https://www.youtube.com/watch?v=MyTOGHqyquU)
-        const float fast_mean_blend_factor = (1.0f / (1.0f + min(accumulated_sample_count, FAST_HISTORY_FRAMES)));
+        const float fast_blend_factor = (1.0f / (1.0f + min(accumulated_sample_count, FAST_HISTORY_FRAMES)));
 
-        const float fast_variance_history_frames = 4.0f;
-        const float fast_variance_blend_factor = (1.0f / (1.0f + min(accumulated_sample_count, fast_variance_history_frames)));
-        
         // Fast History only stores brightness to save space.
         const float new_fast_brightness = new_diffuse.w;
-        // Perceptual lerp uses power scaling to give lower values more weight.
-        // For normal accumulation this causes too much variance.
-        // But for the fast mean we want high reactivity to changes to dark.
-        accumulated_fast_mean = lerp(reprojected_fast_temporal_mean, new_fast_brightness, fast_mean_blend_factor);
+        accumulated_fast_mean = lerp(reprojected_fast_temporal_mean, new_fast_brightness, fast_blend_factor);
 
-        // Variance is stored in relative units.
-        // This makes its much more usable than raw radiance variance as fp16 is not precise enough for small values otherwise.
-        const float new_fast_relative_variance = square(abs(accumulated_fast_mean - new_fast_brightness) / accumulated_fast_mean);
-        accumulated_fast_relative_variance = lerp(reprojected_fast_temporal_variance, new_fast_relative_variance, fast_variance_blend_factor);
+        // Relative variance EMA: point estimate uses OLD (reprojected) mean so the residual is
+        // computed before the mean shifts — unbiased and dimensionless (fp16-safe at any radiance scale).
+        // Clamped to 4.0 (2σ) to prevent fp16 overflow when the mean is uninitialized (zero).
+        const float old_mean_safe = max(reprojected_fast_temporal_mean, 1e-6f);
+        const float new_relative_variance_point = min(square((new_fast_brightness - reprojected_fast_temporal_mean) / old_mean_safe), 4.0f);
+        accumulated_fast_relative_variance = lerp(reprojected_fast_temporal_variance, new_relative_variance_point, fast_blend_factor);
         fast_std_dev_relative = sqrt(accumulated_fast_relative_variance);
-        const float accumulated_relative_std_dev = sqrt(accumulated_fast_relative_variance);
-        fast_variance_scaling = square(1.0f + accumulated_relative_std_dev * 2);
+
+        // Recompute the original "wrong" point estimate (uses post-update mean) to drive fast_variance_scaling,
+        // preserving the original adaptation model exactly.
+        const float wrong_point_estimate = min(square(abs(accumulated_fast_mean - new_fast_brightness) / max(accumulated_fast_mean, 1e-6f)), 4.0f);
+        const float adaptation_relative_variance = lerp(reprojected_fast_temporal_variance, wrong_point_estimate, fast_blend_factor);
+        fast_variance_scaling = square(1.0f + sqrt(adaptation_relative_variance) * 2);
 
         const float slow_history_mean = reprojected_diffuse.w;
         const float slow_to_fast_mean_ratio = max(slow_history_mean, accumulated_fast_mean) / (min(slow_history_mean, accumulated_fast_mean) + 0.00000001f);
@@ -306,10 +305,9 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     }
 
     // Temporal firefly filter:
-    if (accumulated_sample_count > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled) 
+    if (accumulated_sample_count > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled)
     {
-        const float fast_relative_std_dev = sqrt(reprojected_fast_temporal_variance);
-        const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + fast_relative_std_dev * 0.5f) / new_diffuse.w;
+        const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + sqrt(reprojected_fast_temporal_variance) * 0.5f) / new_diffuse.w;
         const float clamp_factor = min(1.0f, brightness_ratio);
         new_diffuse = new_diffuse * clamp_factor;
         new_diffuse2 = new_diffuse2 * clamp_factor;
@@ -320,8 +318,8 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float history_confidence = accumulated_sample_count;
     if (accumulated_sample_count > FAST_HISTORY_FRAMES)
     {
-        history_confidence *= fast_mean_diff_scaling;                                                         // decreased confidence based on relative difference
-        history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increases conficende based on temporal variance
+        history_confidence *= fast_mean_diff_scaling;                                                         // decreased confidence based on relative difference between fast and slow mean
+        history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increased confidence when variance is high (signal is changing, trust history less)
     }
     float blend = 1.0f / (1.0f + history_confidence);
     float co_cg_blend = 1.0f / (1.0f + history_confidence);
@@ -335,13 +333,22 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float4 accumulated_diffuse = disocclusion ? new_diffuse : lerp(reprojected_diffuse, new_diffuse, blend);
     float2 accumulated_diffuse2 = disocclusion ? new_diffuse2 : lerp(reprojected_diffuse2, new_diffuse2, co_cg_blend);
 
-    // Determine accumulated footprint quality
-    float accumulated_footprint_quality = disocclusion ? new_footprint_quality : lerp(reprojected_footprint_quality, new_footprint_quality, blend);
+    // Determine accumulated filter guide
+    float accumulated_filter_guide = disocclusion ? new_filter_guide : lerp(reprojected_filter_guide, new_filter_guide, max(0.033f, blend)); // just enough to make it temporally stable
+
+    // Slow statistics — same blend as color, tracks temporal mean/variance of the accumulated signal.
+    // Uses pre-filtered (pre-blur bypassed) luma for a sharper variance signal.
+    const float new_luma = push.attach.pre_filtered_diffuse_new.get()[dtid.xy].w;
+    const float slow_old_mean_safe = max(reprojected_slow_mean, 1e-6f);
+    const float slow_new_relative_variance = min(square((new_luma - reprojected_slow_mean) / slow_old_mean_safe), 4.0f);
+    const float accumulated_slow_mean = disocclusion ? new_luma : lerp(reprojected_slow_mean, new_luma, blend);
+    const float slow_variance_blend = max(blend, 1.0f / 8.0f);
+    const float accumulated_slow_relative_variance = disocclusion ? slow_new_relative_variance : lerp(reprojected_slow_relative_variance, slow_new_relative_variance, slow_variance_blend);
 
     // Write Textures
     push.attach.half_res_sample_count.get()[dtid.xy] = accumulated_sample_count;
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
-    push.attach.half_res_statistics_accumulated.get()[dtid] = pack_2x16f_uint(float2(accumulated_fast_mean, accumulated_fast_relative_variance));
-    push.attach.half_res_footprint_quality_accumulated.get()[dtid.xy] = accumulated_footprint_quality;
+    push.attach.statistics_image_accumulated.get()[dtid] = float4(accumulated_fast_mean, accumulated_fast_relative_variance, accumulated_slow_mean, accumulated_slow_relative_variance);
+    push.attach.half_res_filter_guide_accumulated.get()[dtid.xy] = accumulated_filter_guide;
 }

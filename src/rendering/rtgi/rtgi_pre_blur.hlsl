@@ -62,29 +62,27 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     const bool variance_guiding_enabled = true;
 
-    // Footprint Quality Scaling
-    // * for a low quality footprint, most far radius samples will be rejected -> poor temporal stability
-    // * a lot quality footprint indicates complex geometry -> large radius will lead to overblur
-    // * scaling down the radius for low quality footprints increases temporal stability and reduces light leak.
-    const float pixel_footprint_quality = square(push.attach.footprint_quality_image.get()[dtid.xy]);
+    // Filter guide is squared here for two reasons.
+    // 1. the filter is stochastic, so we must make sure many samples actually hit something usable, this means scaling down a lot on geometric detail (contained in filter guide)
+    // 2. Low frequency noise on low detail noise is exponentially more perceptable than on low detail surfaces, so we scale the guide (containing surface detail)
+    const float pixel_filter_guide = square(square(push.attach.filter_guide_image.get()[dtid.xy]));
 
-    // debug_image_tile_draw(push.attach.debug_image.get(), 8, dtid, float4(TurboColormap(pixel_footprint_quality), 2), 2);
+    //debug_image_tile_draw(push.attach.debug_image.get(), 1, dtid, float4(TurboColormap(pixel_filter_guide), 2), 2);
 
-    float px_size = ws_pixel_size(inv_half_res_render_target_size, camera.near_plane, pixel_depth);
-    float px_size_radius_scale = 1.0f / (px_size * 25.0f);
-    float blur_radius = max(2.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * px_size_radius_scale * pixel_footprint_quality);
+    float blur_radius = max(2.0f, push.attach.globals.rtgi_settings.pre_blur_base_width * pixel_filter_guide);
+    //debug_image_tile_draw(push.attach.debug_image.get(), 2, dtid, float4((blur_radius).xxx, 2), 2);
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
     // so we bias the normal to face the camera more.
-    const float ss_gradient_view_bias = 0.1;
+    const float ss_gradient_view_bias = 0.01f;
     const float3 biased_vs_normal = lerp(vs_normal, float3(0,0,1), ss_gradient_view_bias);
     const float2 ss_gradient = float2(
         sin(acos(biased_vs_normal.x)),
         sin(acos(biased_vs_normal.y)),
     ) * inv_half_res_render_target_size;
 
-    uint samples = 8u;
+    uint samples = lerp(8.0f, 16.0f, pixel_filter_guide);
 
     float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy];
     const float pixel_y = blurred_accum.w;
@@ -132,12 +130,12 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
         const float weight = geometric_weight * normal_weight * firefly_power;// * relative_sample_y_weight;
         
-        #if 0
+        #if 1
         if (all(dtid.xy == half_res_render_target_size/2))
         {
             // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
             
-            debug_image_tile_draw(push.attach.debug_image.get(), 3, sample_index, lerp(float4(0,1,0,1), float4(1,1,1,1), weight), 2);
+            debug_image_tile_draw(push.attach.debug_image.get(), -1, sample_index, lerp(float4(0,1,0,2), float4(1,1,1,2), weight), 2);
         }
         #endif
         
