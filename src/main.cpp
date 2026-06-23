@@ -1,7 +1,7 @@
 #include "application.hpp"
 
 #if 0
-#include "tex_compression/test.hpp"
+#include "scene/optimizers/test.hpp"
 int main(int argc, char const * const * argv)
 {
     test_main();

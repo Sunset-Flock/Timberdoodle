@@ -43,9 +43,9 @@ GPUContext::GPUContext(Window const & window)
               device_info.max_allowed_buffers = 1u << 17u;
               device_info.max_allowed_acceleration_structures = 1u << 17u;
               device_info.name = "Timberdoodle";
-              device_info.physical_device_index = 1;
+            //   device_info.physical_device_index = 1;
 
-              //device_info = this->instance.choose_device(required_implicit, device_info);
+              device_info = this->instance.choose_device(required_implicit, device_info);
 
               fmt::println("Choosen GPU: {}", reinterpret_cast<char const * const>(&this->instance.list_devices_properties()[device_info.physical_device_index].device_name));
 

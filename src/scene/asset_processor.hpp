@@ -8,7 +8,8 @@
 #include "../timberdoodle.hpp"
 #include "../gpu_context.hpp"
 #include "../shader_shared/geometry.inl"
-#include "openvdb_loader.hpp"
+#include "importers/openvdb_importer.hpp"
+#include "optimizers/image_optimizer.hpp" // TextureMaterialType + image cook types (moved out of here)
 #include <ktx.h>
 
 using namespace tido::types;
@@ -42,15 +43,6 @@ struct TidoVolumetricCloudDataHeader
     i32vec3 field_extents;
 
     u32 field_count;
-};
-
-enum struct TextureMaterialType
-{
-    NONE,
-    DIFFUSE,
-    DIFFUSE_OPACITY,
-    NORMAL,
-    ROUGHNESS_METALNESS,
 };
 
 struct AssetProcessor
@@ -169,16 +161,9 @@ struct AssetProcessor
         bool secondary_texture = {};
         bool compressed_bc5_rg = {};
     };
-    struct LoadTextureInfo
-    {
-        std::filesystem::path asset_path = {};
-        fastgltf::Asset * asset;
-        u32 gltf_texture_index = {};
-        u32 gltf_image_index = {};
-        u32 texture_manifest_index = {};
-        TextureMaterialType texture_material_type = {};
-    };
-    auto load_texture(LoadTextureInfo const & info) -> AssetLoadResultCode;
+    // NOTE: glTF image -> texture loading (load_raw_image / load_image) moved out of AssetProcessor:
+    // raw loading lives in the importer (part 1), compression in the optimizer (part 2), and the GPU
+    // upload in the streamer.
 
     struct LoadCloudVolumetricDataInfo
     {
@@ -188,55 +173,17 @@ struct AssetProcessor
     };
     auto load_cloud_volumetric_data(LoadCloudVolumetricDataInfo const & info) -> AssetLoadResultCode;
 
-    struct MeshLodGroupUploadInfo
-    {
-        std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
-        u32 lod_count = {};
-        u32 mesh_lod_manifest_index = {};
-    };
-    struct LoadMeshLodGroupInfo
-    {
-        std::filesystem::path asset_path = {};
-        fastgltf::Asset * asset;
-        u32 gltf_mesh_index = {};
-        u32 gltf_primitive_index = {};
-        u32 global_material_manifest_offset = {};
-        u32 mesh_lod_manifest_index = {};
-        // MUST BE VALID MATERIAL INDEX
-        // REPLACE WITH DEFAULT MATERIAL BEFORE PASSING INDEX HERE!
-        u32 material_manifest_index = {};
-    };
     /**
-     * THREADSAFETY:
-     * * internally synchronized, can be called on multiple threads in parallel.
-     */
-    auto load_mesh(LoadMeshLodGroupInfo const & info) -> AssetLoadResultCode;
-
-    /**
-     * Loads all unloded meshes and material textures for the given scene.
-     * THREADSAFETY:
-     * * internally synchronized, can be called on multiple threads in parallel.
-     */
-    // auto load_all(Scene & scene) -> AssetLoadResultCode;
-
-    /**
-     * NOTE:
-     * After loading meshes and textures they are NOT on the gpu yet!
-     * They also lack some processing that will be done on the gpu!
-     * This function records gpu commands that will:
-     * 1. upload cpu processed mesh and texture data
-     * 2. process the mesh and texture data
-     * 3. upadte the mesh and texture manifest on the gpu
-     * 4. memory barrier all following read commands on the queue
+     * Collects the cloud-volume textures that finished loading since the last call so the scene can make
+     * them resident. NOTE: gltf meshes/textures no longer flow through here - they go straight into the
+     * scene manifest (Scene::set_mesh_runtime / Scene::add_texture). Only the not-yet-ported cloud volume
+     * path still queues here.
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel
-     * * fully blocks, it makes no sense to parallelize this function
      * * optimally called once a frame
-     * * should not be called in parallel with load_texture and load_mesh
      */
     struct LoadedResources
     {
-        std::vector<MeshLodGroupUploadInfo> uploaded_meshes = {};
         std::vector<LoadedTextureInfo> uploaded_textures = {};
     };
     auto collect_loaded_resources() -> LoadedResources;
@@ -251,9 +198,7 @@ struct AssetProcessor
 
     daxa::Device _device = {};
     // TODO: Replace with lockless queue.
-    std::vector<MeshLodGroupUploadInfo> _upload_mesh_queue = {};
     std::vector<LoadedTextureInfo> _upload_texture_queue = {};
 
-    std::unique_ptr<std::mutex> _mesh_upload_mutex = std::make_unique<std::mutex>();
     std::unique_ptr<std::mutex> _texture_upload_mutex = std::make_unique<std::mutex>();
 };

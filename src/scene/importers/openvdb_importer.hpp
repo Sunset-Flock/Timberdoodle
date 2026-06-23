@@ -1,8 +1,8 @@
 #pragma once
 #include <filesystem>
 
-#include "../timberdoodle.hpp"
-#include "../multithreading/thread_pool.hpp"
+#include "../../timberdoodle.hpp"
+#include "../../multithreading/thread_pool.hpp"
 using namespace tido::types;
 
 struct VDBGridInfo

@@ -3,7 +3,7 @@
 #include "camera.hpp"
 #include "scene/scene.hpp"
 #include "scene/asset_processor.hpp"
-#include "scene/openvdb_loader.hpp"
+#include "scene/importers/openvdb_importer.hpp"
 
 
 struct ApplicationState

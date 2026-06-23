@@ -2,8 +2,9 @@
 
 #include <optional>
 #include <variant>
+#include <mutex>
+#include <span>
 
-#include <fastgltf/types.hpp>
 #include "../timberdoodle.hpp"
 
 #include "../shader_shared/geometry.inl"
@@ -41,16 +42,11 @@ struct TextureManifestEntry
 
     // The type is determined by the materials that reference it.
     TextureMaterialType type = {};
-    u32 gltf_asset_manifest_index = {};
-    u32 asset_local_index = {};
-    u32 asset_local_image_index = {};
     // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
     std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
     std::optional<daxa::ImageId> runtime_texture = {};
-    // This is used for separate oppacity mask when we generate one
-    std::optional<daxa::ImageId> secondary_runtime_texture = {};
     std::string name = {};
 
     auto loaded() const -> bool{ return runtime_texture.has_value(); }
@@ -67,15 +63,11 @@ struct MaterialManifestEntry
     std::optional<TextureInfo> opacity_mask_info = {};
     std::optional<TextureInfo> normal_info = {};
     std::optional<TextureInfo> roughness_metalness_info = {};
-    u32 gltf_asset_manifest_index = {};
-    u32 asset_local_index = {};
     bool alpha_discard_enabled = {};
     bool double_sided = {};
     bool blend_enabled = {};
     bool normal_compressed_bc5_rg = {}; 
     bool is_metal = {}; 
-    // Did we just load alpha texture this frame
-    bool alpha_dirty = {};
     f32vec3 base_color = {};
     f32vec3 emissive_color = {};
     std::string name = {};
@@ -83,13 +75,9 @@ struct MaterialManifestEntry
 
 struct MeshLodGroupManifestEntry
 {
-    u32 gltf_asset_manifest_index = {};
-    u32 asset_local_mesh_index = {};
-    u32 asset_local_primitive_index = {};
     u32 mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
     std::string name = {}; // TODO(pahrens): fill out.
-
     struct Runtime
     {
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
@@ -105,9 +93,7 @@ struct MeshGroupManifestEntry
 {
     u32 mesh_lod_group_manifest_indices_array_offset = {};
     u32 mesh_lod_group_count = {};
-    u32 gltf_asset_manifest_index = {};
-    u32 asset_local_index = {};
-    u32 loaded_mesh_lod_groups = {}; 
+    u32 loaded_mesh_lod_groups = {};
     bool fully_loaded_last_frame = {};
     daxa::BlasId blas = {};
     std::string name = {};
@@ -143,6 +129,33 @@ struct CloudVolume
     u32 detail_noise_texture_manifest_index = {};
 };
 
+// A thread-safe list of manifest indices that changed (were added, or had their runtime data updated)
+// since the last GPU manifest sync. Every manifest that is mirrored on the GPU owns one; importers
+// mark indices from worker threads as they populate the scene, and record_gpu_manifest_update drains
+// it to re-upload exactly those entries (instead of assuming a contiguous tail of new entries).
+// Manifests that are not shared with the GPU (e.g. the texture manifest) do not need one.
+struct DirtyManifestList
+{
+    // Records that `index` changed. Safe to call concurrently from multiple importer threads.
+    void mark(u32 index)
+    {
+        std::lock_guard<std::mutex> lock{*_mutex};
+        _indices.push_back(index);
+    }
+    // Moves the accumulated indices out and leaves the list empty. Called by the GPU sync.
+    auto drain() -> std::vector<u32>
+    {
+        std::lock_guard<std::mutex> lock{*_mutex};
+        std::vector<u32> out = std::move(_indices);
+        _indices.clear();
+        return out;
+    }
+
+    std::vector<u32> _indices = {};
+    // unique_ptr so the owning Scene stays movable (std::mutex is not movable), matching _manifest_mutex.
+    std::unique_ptr<std::mutex> _mutex = std::make_unique<std::mutex>();
+};
+
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
 
@@ -174,20 +187,6 @@ struct RenderEntity
     std::string name = {};
     std::optional<u32> light_index = {};
     bool dirty = {};
-};
-
-struct GltfAssetManifestEntry
-{
-    std::filesystem::path path = {};
-    std::unique_ptr<fastgltf::Asset> gltf_asset = {};
-    /// @brief  Offsets of the gltf asset local indices that is applied when storing the data into the global manifest.
-    ///         For example, when a meshgroup has asset_local_index = 4 it is the 5th meshgroup in its gltf asset. 
-    ///         meshgroup.asset_local_index + mesh_group_manifest_offset then gives the global index into the meshgroup manifest
-    u32 texture_manifest_offset = {};
-    u32 material_manifest_offset = {};
-    u32 mesh_group_manifest_offset = {};
-    u32 mesh_manifest_offset = {};
-    RenderEntityId root_render_entity = {};
 };
 
 using RenderEntitySlotMap = tido::SlotMap<RenderEntity>;
@@ -236,7 +235,6 @@ struct Scene
 
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
-    std::vector<u32> dirty_material_entry_indices = {};
     struct ModifiedEntityInfo
     {
         RenderEntityId entity = {};
@@ -271,21 +269,20 @@ struct Scene
     static constexpr u32 _gpu_tlas_build_scratch_buffer_size = 1u << 24u;
     static constexpr u32 _indirections_count = (1 << 26);
     static constexpr u32 MAX_MESH_BLAS_BUILDS_PER_FRAME = 64;
-    std::vector<GltfAssetManifestEntry> _gltf_asset_manifest = {};
-    std::vector<TextureManifestEntry> _material_texture_manifest = {};
+    // Root entity of each imported asset's entity sub-tree (file-agnostic; replaces the old per-file session list).
+    std::vector<RenderEntityId> _root_render_entities = {};
+    std::vector<TextureManifestEntry> _material_texture_manifest = {}; // CPU-only: not mirrored on the GPU, so no dirty list.
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
     std::vector<u32> _mesh_lod_group_manifest_indices = {};
     std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
+    // Per GPU-resident manifest: the indices changed since the last GPU sync (see DirtyManifestList).
+    DirtyManifestList _dirty_material_manifest = {};
+    DirtyManifestList _dirty_mesh_lod_group_manifest = {};
+    DirtyManifestList _dirty_mesh_group_manifest = {};
     std::vector<PointLight> _point_lights = {};
     std::vector<SpotLight> _spot_lights = {};
     std::vector<CloudVolume> _cloud_volumes = {};
-    // Count the added meshes and meshgroups when loading.
-    // Used to do the initialization of these on the gpu when recording manifest update.
-    u32 _new_mesh_lod_group_manifest_entries = {};
-    u32 _new_mesh_group_manifest_entries = {};
-    u32 _new_material_manifest_entries = {};
-    u32 _new_texture_manifest_entries = {};
 
     std::vector<u32> _cloud_volumes_requesting_load = {};
 
@@ -327,11 +324,34 @@ struct Scene
     };
     auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
+    /// --- Generic, format-agnostic scene builder API ---
+    // Each add_* appends a fully-built (format-neutral) entry and returns its global manifest index.
+    // Importers reference already-added entries by these returned indices (never by a captured base
+    // offset), so multiple importers can populate the scene concurrently. All adds are internally
+    // synchronized via _manifest_mutex; the scene maintains all cross-references (texture<->material
+    // back-refs, mesh<->mesh-group links).
+    std::unique_ptr<std::mutex> _manifest_mutex = std::make_unique<std::mutex>();
+    auto add_texture(TextureManifestEntry texture) -> u32;
+    auto add_material(MaterialManifestEntry material) -> u32;
+    auto add_mesh(MeshLodGroupManifestEntry mesh) -> u32;
+    // Adds a mesh group over the given (already-added) mesh manifest indices. Fills the group's
+    // index range + count and back-links each mesh to this group.
+    auto add_mesh_group(MeshGroupManifestEntry mesh_group, std::span<u32 const> mesh_manifest_indices) -> u32;
+    auto add_point_light(PointLight light) -> u32;
+    auto add_spot_light(SpotLight light) -> u32;
+    auto add_entity(RenderEntity entity) -> RenderEntityId;
+
+    // Fills an already-added mesh's runtime (GPU-resident) data once it has been cooked + made resident,
+    // and marks it dirty so the next record_gpu_manifest_update uploads it. Thread-safe: importers call
+    // this from worker threads. Mirrors how add_texture hands a resident texture straight to the scene.
+    void set_mesh_runtime(u32 mesh_lod_manifest_index, std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> const & lods, u32 lod_count);
+
     auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
 
     struct RecordGPUManifestUpdateInfo
     {
-        std::span<const AssetProcessor::MeshLodGroupUploadInfo> uploaded_meshes = {};
+        // Cloud volume textures still arrive via the AssetProcessor queue (their load path is not yet
+        // ported); gltf meshes/textures now go straight into the manifest via set_mesh_runtime/add_texture.
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
     auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;

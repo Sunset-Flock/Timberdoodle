@@ -222,67 +222,11 @@ void Application::update()
         app_state.desired_scene_path.clear();
     }
 
-    // TODO(msakmary) HACKY - fix this
-    // ===== Saky's Ball =====
-    {
-        static f32 total_time = 0.0f;
-        total_time += app_state.delta_time;
-
-        // {
-        //     RenderEntity * r_ent = _scene->_render_entities.slot(app_state.root_id);
-        //     auto transform = mat_4x3_to_4x4(r_ent->transform);
-        //     transform = glm::rotate(transform, glm::radians(90.0f), f32vec3(1.0f, 0.0f, 0.0f));
-
-        //     r_ent->transform = transform;
-        //     _scene->_dirty_render_entities.push_back(app_state.root_id);
-        // }
-
-        auto * dynamic_ball_ent = _scene->_render_entities.slot(app_state.dynamic_ball);
-        // if (dynamic_ball_ent)
-        if (false)
-        {
-            auto prev_transform = mat_4x3_to_4x4(dynamic_ball_ent->transform);
-
-            auto new_position = f32vec4{
-                std::sin(total_time) * 100.0f,
-                std::cos(total_time) * 100.0f,
-                prev_transform[3].z,
-                1.0f};
-            auto curr_transform = prev_transform;
-            curr_transform[3] = new_position;
-
-            dynamic_ball_ent->transform = curr_transform;
-            _scene->_dirty_render_entities.push_back(app_state.dynamic_ball);
-        }
-
-        if(app_state.decompose_bistro) 
-        {
-            for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
-            {
-                RenderEntity * r_ent = _scene->_render_entities.slot_by_index(entity_i);
-                if(r_ent->mesh_group_manifest_index.has_value())// && strstr(r_ent->name.c_str(), "StreetLight"))
-                {
-                    auto transform = mat_4x3_to_4x4(r_ent->transform);
-
-                    transform = transform * glm::inverse(mat_4x3_to_4x4(_scene->_render_entities.slot(r_ent->parent.value())->combined_transform));
-                    transform = glm::rotate(transform, glm::radians(sin(total_time * 0.00001f) * 50.0f), glm::normalize(glm::vec3(0.0, 1.0, 0.0)));
-                    transform = transform * mat_4x3_to_4x4(_scene->_render_entities.slot(r_ent->parent.value())->combined_transform);
-
-                    r_ent->transform = transform;
-                    _scene->_dirty_render_entities.push_back(_scene->_render_entities.id_from_index(entity_i));
-                }
-            }
-        }
-    }
-    // ===== Saky's Ball =====
-
     // ===== Process Render Entities, Generate Mesh Instances =====
 
     auto const scene_instances = _scene->process_entities(_renderer->render_context->render_data);
     _scene->current_frame_mesh_instances = scene_instances.mesh_instances;
     _scene->current_frame_cloud_volume_instances = scene_instances.cloud_volume_instances;
-
-    // ===== Process Render Entities, Generate Mesh Instances =====
 
     // ===== Update GPU Scene Buffers =====
 
@@ -295,7 +239,6 @@ void Application::update()
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
     
     cmd_lists.at(cmd_list_count++) = _scene->record_gpu_manifest_update({
-        .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
@@ -381,7 +324,6 @@ Application::~Application()
     _threadpool.reset();
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
     auto manifest_update_commands = _scene->record_gpu_manifest_update({
-        .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     auto cmd_lists = std::array{std::move(manifest_update_commands)};

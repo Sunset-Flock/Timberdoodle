@@ -1,4 +1,4 @@
-#include "openvdb_loader.hpp"
+#include "openvdb_importer.hpp"
 
 #include <fstream>
 #if TIDO_BUILT_WITH_UTILS_VDB_LOADER

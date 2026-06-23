@@ -166,7 +166,6 @@ inline auto size_of_meshlet_instance_buffer() -> daxa::usize
 
 struct GPUMeshGroup
 {
-    daxa_BufferPtr(daxa_u32) mesh_lod_group_indices;
     daxa_u32 mesh_lod_group_count;
     daxa_u32 padd;
 };

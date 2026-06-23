@@ -316,6 +316,7 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
 
 void UIEngine::ui_scene_graph(Scene const & scene)
 {
+#if 0
     if (scene._gltf_asset_manifest.empty())
     {
         return;
@@ -398,6 +399,7 @@ void UIEngine::ui_scene_graph(Scene const & scene)
         }
     }
     scene_graph.end(began);
+#endif
 }
 
 void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationState & app_state)
