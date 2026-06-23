@@ -65,7 +65,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     // Filter guide is squared here for two reasons.
     // 1. the filter is stochastic, so we must make sure many samples actually hit something usable, this means scaling down a lot on geometric detail (contained in filter guide)
     // 2. Low frequency noise on low detail noise is exponentially more perceptable than on low detail surfaces, so we scale the guide (containing surface detail)
-    const float pixel_filter_guide = square(square(push.attach.filter_guide_image.get()[dtid.xy]));
+    const float pixel_filter_guide = (square(push.attach.filter_guide_image.get()[dtid.xy]));
 
     //debug_image_tile_draw(push.attach.debug_image.get(), 1, dtid, float4(TurboColormap(pixel_filter_guide), 2), 2);
 
@@ -130,7 +130,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
         const float weight = geometric_weight * normal_weight * firefly_power;// * relative_sample_y_weight;
         
-        #if 1
+        #if 0
         if (all(dtid.xy == half_res_render_target_size/2))
         {
             // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);

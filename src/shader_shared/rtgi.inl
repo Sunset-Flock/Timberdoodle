@@ -13,7 +13,7 @@ struct RtgiSettings
     daxa_i32 firefly_filter_enabled TIDO_DEFAULT_VALUE(1);
     daxa_f32 firefly_filter_ceiling TIDO_DEFAULT_VALUE(16.0f);
     daxa_i32 pre_blur_enabled TIDO_DEFAULT_VALUE(1);
-    daxa_f32 pre_blur_base_width TIDO_DEFAULT_VALUE(32);
+    daxa_f32 pre_blur_base_width TIDO_DEFAULT_VALUE(96);
     daxa_i32 pre_blur_ray_length_guiding TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_accumulation_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 temporal_fast_history_enabled TIDO_DEFAULT_VALUE(1);
@@ -25,4 +25,6 @@ struct RtgiSettings
     daxa_i32 sh_resolve_enabled TIDO_DEFAULT_VALUE(1);
     daxa_i32 use_compute_trace TIDO_DEFAULT_VALUE(0);
     daxa_i32 surface_detail_guiding TIDO_DEFAULT_VALUE(1);
+    daxa_i32 firefly_star_blur_enabled TIDO_DEFAULT_VALUE(1);
+    daxa_i32 firefly_energy_compensation_enabled TIDO_DEFAULT_VALUE(1);
 };

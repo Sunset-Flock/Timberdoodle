@@ -232,7 +232,7 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     }
     if (widget_property_viewer)
     {
-        property_viewer.render(scene_interface, scene, render_context);
+        property_viewer.render(scene_interface, scene, render_context, app_state.camera_controller);
     }
     if (demo_window)
     {
@@ -408,6 +408,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
     {
         ImGui::SeparatorText("General settings");
         {
+            if (ImGui::Button("Take Screenshot (F1)")) { app_state.request_screenshot = true; }
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
             ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
@@ -725,16 +726,19 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
                 ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
                 ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_firefly_filter_enabled));
-                ImGui::SeparatorText("Spatial General");
+                ImGui::SeparatorText("Spatial Filters");
                 ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                ImGui::Checkbox("Firefly Star Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_star_blur_enabled));
+                ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_energy_compensation_enabled));
                 ImGui::Checkbox("Pre Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
                 ImGui::Checkbox("Post Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
                 ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
                 ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
-                ImGui::SeparatorText("Spatial Config");
-                ImGui::Checkbox("Ray Length Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_length_guiding));
+                ImGui::SeparatorText("Spatial Filter Guiding");
+                ImGui::Checkbox("Geometric Proximity Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_length_guiding));
                 ImGui::Checkbox("Surface Detail Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.surface_detail_guiding));
-                ImGui::Checkbox("Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_variance_guiding));
+                ImGui::Checkbox("Temporal Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_variance_guiding));
+                ImGui::SeparatorText("Spatial Filter Config");
                 ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
                 ImGui::SliderFloat("Pre Blur Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
             }

@@ -10,3 +10,5 @@ compile_commands.json
 spv/
 spv_raw/
 tg_dbg_cache/
+screenshots/
+src/rendering/rtgi/showcase_images/*

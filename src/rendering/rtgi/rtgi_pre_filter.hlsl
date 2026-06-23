@@ -235,7 +235,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float4 star_blurred_diffuse = star_blurred_diffuse_acc * rcp(star_blurred_weight_acc + EPSILON);
         const float2 star_blurred_diffuse2 = star_blurred_diffuse2_acc * rcp(star_blurred_weight_acc + EPSILON);
 
-        if (rtgi.firefly_filter_enabled != 0)
+        const bool use_star_blur = rtgi.firefly_filter_enabled != 0 && rtgi.firefly_star_blur_enabled != 0;
+        if (use_star_blur)
         {
             filtered_diffuse = star_blurred_diffuse;
             filtered_diffuse2 = star_blurred_diffuse2;
@@ -261,7 +262,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         {
             filtered_diffuse  *= geometric_y_clamp_factor;
             filtered_diffuse2 *= geometric_y_clamp_factor;
-            firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, geometric_y_clamp_factor);
+            if (rtgi.firefly_energy_compensation_enabled != 0)
+            {
+                firefly_energy_factor = 1.0f / max(1.0f / RTGI_MAX_FIREFLY_FACTOR, geometric_y_clamp_factor);
+            }
         }
     }
 
@@ -294,8 +298,6 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
     // --- Filter Guide ---
     const float filter_guide = raylength_filter_guide * surface_detail_guide * footprint_quality;
-
-    //debug_image_tile_draw(push.attach.debug_image.get(), 0, dtid, float4(TurboColormap(filter_guide), 2.0f), 2);
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;

@@ -9,6 +9,7 @@
 #include "../../timberdoodle.hpp"
 #include "../../scene/scene.hpp"
 #include "../../rendering/scene_renderer_context.hpp"
+#include "../../camera.hpp"
 
 namespace tido
 {
@@ -18,7 +19,7 @@ namespace tido
         {
             PropertyViewer() = default;
             PropertyViewer(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
-            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context);
+            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, CameraController & camera);
 
             i32 selected = {};
             daxa::ImGuiRenderer * renderer = {};

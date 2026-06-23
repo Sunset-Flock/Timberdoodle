@@ -46,6 +46,10 @@ struct Renderer
     daxa::ExternalTaskBuffer visible_mesh_instances = {};
     daxa::ExternalTaskBuffer exposure_state = {};
     daxa::BufferId general_readback_buffer = {};
+    daxa::BufferId screenshot_readback_buf = {};
+    bool screenshot_pending = false;
+    u32 screenshot_width = 0;
+    u32 screenshot_height = 0;
 
     std::vector<daxa::ExternalTaskBuffer> buffers = {};
     // Images:

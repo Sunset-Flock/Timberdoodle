@@ -318,8 +318,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float history_confidence = accumulated_sample_count;
     if (accumulated_sample_count > FAST_HISTORY_FRAMES)
     {
-        history_confidence *= fast_mean_diff_scaling;                                                         // decreased confidence based on relative difference between fast and slow mean
-        history_confidence = min(accumulated_sample_count * 2, history_confidence * fast_variance_scaling);   // increased confidence when variance is high (signal is changing, trust history less)
+        history_confidence = min(accumulated_sample_count * 2.0f, history_confidence * fast_variance_scaling * fast_mean_diff_scaling);
     }
     float blend = 1.0f / (1.0f + history_confidence);
     float co_cg_blend = 1.0f / (1.0f + history_confidence);

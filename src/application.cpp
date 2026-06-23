@@ -4,6 +4,213 @@
 #include <fmt/format.h>
 
 #include <intrin.h>
+#include <png.h>
+#include <chrono>
+#include <ctime>
+#include <filesystem>
+
+#define DISABLE_EMISSIVE_BALLS 1
+
+static void save_screenshot_png(std::filesystem::path const & path, u8 const * bgra_data, u32 width, u32 height)
+{
+    std::filesystem::create_directories(path.parent_path());
+
+    FILE * fp = nullptr;
+    fopen_s(&fp, path.string().c_str(), "wb");
+    if (!fp) { fmt::print("[Screenshot] Failed to open file: {}\n", path.string()); return; }
+
+    png_structp png = png_create_write_struct(PNG_LIBPNG_VER_STRING, nullptr, nullptr, nullptr);
+    if (!png) { fclose(fp); return; }
+    png_infop info = png_create_info_struct(png);
+    if (!info) { png_destroy_write_struct(&png, nullptr); fclose(fp); return; }
+    if (setjmp(png_jmpbuf(png))) { png_destroy_write_struct(&png, &info); fclose(fp); return; }
+
+    png_init_io(png, fp);
+    png_set_IHDR(png, info, width, height, 8, PNG_COLOR_TYPE_RGB, PNG_INTERLACE_NONE, PNG_COMPRESSION_TYPE_DEFAULT, PNG_FILTER_TYPE_DEFAULT);
+    png_write_info(png, info);
+
+    // swapchain is B8G8R8A8 — write as RGB swapping B and R, dropping A
+    std::vector<u8> row(width * 3u);
+    for (u32 y = 0; y < height; ++y)
+    {
+        u8 const * src = bgra_data + y * width * 4u;
+        for (u32 x = 0; x < width; ++x)
+        {
+            row[x * 3 + 0] = src[x * 4 + 2]; // R ← B
+            row[x * 3 + 1] = src[x * 4 + 1]; // G
+            row[x * 3 + 2] = src[x * 4 + 0]; // B ← R
+        }
+        png_write_row(png, row.data());
+    }
+
+    png_write_end(png, nullptr);
+    png_destroy_write_struct(&png, &info);
+    fclose(fp);
+    fmt::print("[Screenshot] Saved to: {}\n", path.string());
+}
+
+static auto create_sphere_gpu_mesh(daxa::Device & device, u32 material_index) -> GPUMesh
+{
+    constexpr float SPHERE_PI = 3.14159265358979323846f;
+    constexpr int STACKS = 8;
+    constexpr int SLICES = 12;
+    constexpr float R = 1.0f;
+
+    std::vector<glm::vec3> positions;
+    std::vector<glm::vec3> normals;
+    std::vector<u32> indices;
+
+    for (int s = 0; s <= STACKS; ++s)
+    {
+        float const phi = (float(s) / STACKS) * SPHERE_PI;
+        for (int sl = 0; sl <= SLICES; ++sl)
+        {
+            float const theta = (float(sl) / SLICES) * 2.0f * SPHERE_PI;
+            float const nx = std::sin(phi) * std::cos(theta);
+            float const ny = std::cos(phi);
+            float const nz = std::sin(phi) * std::sin(theta);
+            positions.push_back({nx * R, ny * R, nz * R});
+            normals.push_back({nx, ny, nz});
+        }
+    }
+
+    for (int s = 0; s < STACKS; ++s)
+    {
+        for (int sl = 0; sl < SLICES; ++sl)
+        {
+            u32 const i0 = s * (SLICES + 1) + sl;
+            u32 const i1 = i0 + 1;
+            u32 const i2 = i0 + (SLICES + 1);
+            u32 const i3 = i2 + 1;
+            indices.push_back(i0); indices.push_back(i1); indices.push_back(i2);
+            indices.push_back(i1); indices.push_back(i3); indices.push_back(i2);
+        }
+    }
+
+    size_t const max_meshlets = meshopt_buildMeshletsBound(
+        indices.size(), MAX_VERTICES_PER_MESHLET, MAX_TRIANGLES_PER_MESHLET);
+    std::vector<meshopt_Meshlet> meshlets(max_meshlets);
+    std::vector<u32> indirect_vertices(max_meshlets * MAX_VERTICES_PER_MESHLET);
+    std::vector<u8> micro_indices_u8(max_meshlets * MAX_TRIANGLES_PER_MESHLET * 3);
+
+    size_t const meshlet_count = meshopt_buildMeshlets(
+        meshlets.data(), indirect_vertices.data(), micro_indices_u8.data(),
+        indices.data(), indices.size(),
+        &positions[0].x, positions.size(), sizeof(glm::vec3),
+        MAX_VERTICES_PER_MESHLET, MAX_TRIANGLES_PER_MESHLET, 0.0f);
+
+    auto const & last_ml = meshlets[meshlet_count - 1];
+    indirect_vertices.resize(last_ml.vertex_offset + last_ml.vertex_count);
+    size_t const micro_size = last_ml.triangle_offset + ((last_ml.triangle_count * 3u + 3u) & ~3u);
+    micro_indices_u8.resize(micro_size);
+    meshlets.resize(meshlet_count);
+
+    std::vector<BoundingSphere> meshlet_bounds(meshlet_count);
+    std::vector<AABB> meshlet_aabbs(meshlet_count);
+
+    for (size_t mi = 0; mi < meshlet_count; ++mi)
+    {
+        auto const & ml = meshlets[mi];
+        meshopt_Bounds const raw = meshopt_computeMeshletBounds(
+            &indirect_vertices[ml.vertex_offset], &micro_indices_u8[ml.triangle_offset],
+            ml.triangle_count, &positions[0].x, positions.size(), sizeof(glm::vec3));
+        meshlet_bounds[mi] = {
+            .center = daxa_f32vec3{raw.center[0], raw.center[1], raw.center[2]},
+            .radius = raw.radius,
+        };
+
+        glm::vec3 ml_min = positions[indirect_vertices[ml.vertex_offset]];
+        glm::vec3 ml_max = ml_min;
+        for (u32 v = 1; v < ml.vertex_count; ++v)
+        {
+            glm::vec3 const p = positions[indirect_vertices[ml.vertex_offset + v]];
+            ml_min = glm::min(ml_min, p);
+            ml_max = glm::max(ml_max, p);
+        }
+        glm::vec3 const c = (ml_min + ml_max) * 0.5f;
+        meshlet_aabbs[mi] = {
+            .center = daxa_f32vec3{c.x, c.y, c.z},
+            .size = daxa_f32vec3{ml_max.x - ml_min.x, ml_max.y - ml_min.y, ml_max.z - ml_min.z},
+        };
+    }
+
+    AABB mesh_aabb;
+    {
+        glm::vec3 mesh_min = positions[0], mesh_max = positions[0];
+        for (auto const & p : positions) { mesh_min = glm::min(mesh_min, p); mesh_max = glm::max(mesh_max, p); }
+        glm::vec3 const c = (mesh_min + mesh_max) * 0.5f;
+        mesh_aabb = {
+            .center = daxa_f32vec3{c.x, c.y, c.z},
+            .size = daxa_f32vec3{mesh_max.x - mesh_min.x, mesh_max.y - mesh_min.y, mesh_max.z - mesh_min.z},
+        };
+    }
+    BoundingSphere const bsphere = { .center = mesh_aabb.center, .radius = R };
+
+    u64 const total_size =
+        sizeof(Meshlet) * meshlet_count +
+        sizeof(BoundingSphere) * meshlet_count +
+        sizeof(AABB) * meshlet_count +
+        sizeof(u8) * micro_indices_u8.size() +
+        sizeof(u32) * indirect_vertices.size() +
+        sizeof(u32) * indices.size() +
+        sizeof(glm::vec3) * positions.size() +
+        sizeof(glm::vec3) * normals.size();
+
+    GPUMesh mesh = {};
+    mesh.material_index = material_index;
+    mesh.meshlet_count = static_cast<u32>(meshlet_count);
+    mesh.vertex_count = static_cast<u32>(positions.size());
+    mesh.primitive_count = static_cast<u32>(indices.size() / 3);
+    mesh.lod_error = 0.0f;
+    mesh.aabb = mesh_aabb;
+    mesh.bounding_sphere = bsphere;
+
+    mesh.mesh_buffer = std::bit_cast<daxa_BufferId>(device.create_buffer({
+        .size = static_cast<daxa::usize>(total_size),
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "procedural_sphere_mesh",
+    }));
+
+    daxa::BufferId const buf = std::bit_cast<daxa::BufferId>(mesh.mesh_buffer);
+    daxa::DeviceAddress const bda = device.buffer_device_address(buf).value();
+    std::byte * const ptr = device.buffer_host_address(buf).value();
+
+    u64 off = 0;
+    mesh.meshlets = bda + off;
+    std::memcpy(ptr + off, meshlets.data(), sizeof(Meshlet) * meshlet_count);
+    off += sizeof(Meshlet) * meshlet_count;
+
+    mesh.meshlet_bounds = bda + off;
+    std::memcpy(ptr + off, meshlet_bounds.data(), sizeof(BoundingSphere) * meshlet_count);
+    off += sizeof(BoundingSphere) * meshlet_count;
+
+    mesh.meshlet_aabbs = bda + off;
+    std::memcpy(ptr + off, meshlet_aabbs.data(), sizeof(AABB) * meshlet_count);
+    off += sizeof(AABB) * meshlet_count;
+
+    mesh.micro_indices = bda + off;
+    std::memcpy(ptr + off, micro_indices_u8.data(), sizeof(u8) * micro_indices_u8.size());
+    off += sizeof(u8) * micro_indices_u8.size();
+
+    mesh.indirect_vertices = bda + off;
+    std::memcpy(ptr + off, indirect_vertices.data(), sizeof(u32) * indirect_vertices.size());
+    off += sizeof(u32) * indirect_vertices.size();
+
+    mesh.primitive_indices = bda + off;
+    std::memcpy(ptr + off, indices.data(), sizeof(u32) * indices.size());
+    off += sizeof(u32) * indices.size();
+
+    mesh.vertex_uvs = 0;
+
+    mesh.vertex_positions = bda + off;
+    std::memcpy(ptr + off, positions.data(), sizeof(glm::vec3) * positions.size());
+    off += sizeof(glm::vec3) * positions.size();
+
+    mesh.vertex_normals = bda + off;
+    std::memcpy(ptr + off, normals.data(), sizeof(glm::vec3) * normals.size());
+
+    return mesh;
+}
 
 auto load_stbn2D(AssetProcessor & asset_processor) -> daxa::ImageId
 {
@@ -80,6 +287,96 @@ Application::Application()
         .name = "Default cloud volume",
     });
     _scene->_dirty_render_entities.push_back(cloud_entity_id);
+
+#if !DISABLE_EMISSIVE_BALLS
+    {
+        const u32 material_index = static_cast<u32>(_scene->_material_manifest.size());
+        _scene->_material_manifest.push_back({
+            .base_color = f32vec3{1.0f, 0.8f, 0.4f},
+            .emissive_color = f32vec3{40.0f, 20.0f, 2.0f},
+            .name = "Emissive Ball Material",
+        });
+        _scene->_new_material_manifest_entries += 1;
+
+        const u32 lod_group_index = static_cast<u32>(_scene->_mesh_lod_group_manifest.size());
+        const u32 mesh_group_index = static_cast<u32>(_scene->_mesh_group_manifest.size());
+        const u32 lod_group_indices_offset = static_cast<u32>(_scene->_mesh_lod_group_manifest_indices.size());
+
+        _scene->_mesh_lod_group_manifest.push_back({
+            .mesh_group_manifest_index = mesh_group_index,
+            .material_index = material_index,
+            .name = "Emissive Ball Lod Group",
+        });
+        _scene->_new_mesh_lod_group_manifest_entries += 1;
+        _scene->_mesh_lod_group_manifest_indices.push_back(lod_group_index);
+
+        _scene->_mesh_group_manifest.push_back({
+            .mesh_lod_group_manifest_indices_array_offset = lod_group_indices_offset,
+            .mesh_lod_group_count = 1,
+            .name = "Emissive Ball Mesh Group",
+        });
+        _scene->_new_mesh_group_manifest_entries += 1;
+
+        AssetProcessor::MeshLodGroupUploadInfo upload_info = {};
+        upload_info.lods[0] = create_sphere_gpu_mesh(_gpu_context->device, material_index);
+        upload_info.lod_count = 1;
+        upload_info.mesh_lod_manifest_index = lod_group_index;
+        _pending_mesh_uploads.push_back(upload_info);
+
+        const f32vec3 initial_pos = f32vec3{0.0f, 26.0f, 3.0f};
+        app_state.emissive_ball = _scene->_render_entities.create_slot({
+            .transform = glm::mat4x3(glm::translate(glm::identity<glm::mat4x4>(), initial_pos)),
+            .mesh_group_manifest_index = mesh_group_index,
+            .type = EntityType::MESHGROUP,
+            .name = "Emissive Flying Ball",
+        });
+        _scene->_dirty_render_entities.push_back(app_state.emissive_ball);
+    }
+
+    {
+        const u32 material_index2 = static_cast<u32>(_scene->_material_manifest.size());
+        _scene->_material_manifest.push_back({
+            .base_color = f32vec3{1.0f, 0.5f, 0.8f},
+            .emissive_color = f32vec3{40.0f, 5.0f, 25.0f},
+            .name = "Emissive Ball2 Material",
+        });
+        _scene->_new_material_manifest_entries += 1;
+
+        const u32 lod_group_index2 = static_cast<u32>(_scene->_mesh_lod_group_manifest.size());
+        const u32 mesh_group_index2 = static_cast<u32>(_scene->_mesh_group_manifest.size());
+        const u32 lod_group_indices_offset2 = static_cast<u32>(_scene->_mesh_lod_group_manifest_indices.size());
+
+        _scene->_mesh_lod_group_manifest.push_back({
+            .mesh_group_manifest_index = mesh_group_index2,
+            .material_index = material_index2,
+            .name = "Emissive Ball2 Lod Group",
+        });
+        _scene->_new_mesh_lod_group_manifest_entries += 1;
+        _scene->_mesh_lod_group_manifest_indices.push_back(lod_group_index2);
+
+        _scene->_mesh_group_manifest.push_back({
+            .mesh_lod_group_manifest_indices_array_offset = lod_group_indices_offset2,
+            .mesh_lod_group_count = 1,
+            .name = "Emissive Ball2 Mesh Group",
+        });
+        _scene->_new_mesh_group_manifest_entries += 1;
+
+        AssetProcessor::MeshLodGroupUploadInfo upload_info2 = {};
+        upload_info2.lods[0] = create_sphere_gpu_mesh(_gpu_context->device, material_index2);
+        upload_info2.lod_count = 1;
+        upload_info2.mesh_lod_manifest_index = lod_group_index2;
+        _pending_mesh_uploads.push_back(upload_info2);
+
+        const f32vec3 initial_pos2 = f32vec3{0.0f, 26.0f, 3.0f};
+        app_state.emissive_ball2 = _scene->_render_entities.create_slot({
+            .transform = glm::mat4x3(glm::translate(glm::identity<glm::mat4x4>(), initial_pos2)),
+            .mesh_group_manifest_index = mesh_group_index2,
+            .type = EntityType::MESHGROUP,
+            .name = "Emissive Flying Ball 2",
+        });
+        _scene->_dirty_render_entities.push_back(app_state.emissive_ball2);
+    }
+#endif // !DISABLE_EMISSIVE_BALLS
 
     struct CompPipelinesTask : Task
     {
@@ -197,14 +494,32 @@ auto Application::run() -> i32
                 auto end_time_taken_cpu_renderer_prepare = std::chrono::steady_clock::now();
                 app_state.time_taken_cpu_renderer_prepare = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_prepare - start_time_taken_cpu_renderer_prepare).count() / 1'000'000.0f;
             }
+            _renderer->screenshot_pending = app_state.request_screenshot;
+            app_state.request_screenshot = false;
+
             if (execute_frame)
             {
                 auto start_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
-                _renderer->main_task_graph.execute({ 
+                _renderer->main_task_graph.execute({
                     .debug_ui = &_ui_engine->main_task_graph_debug_ui,
                  });
                 auto end_time_taken_cpu_renderer_record = std::chrono::steady_clock::now();
                 app_state.time_taken_cpu_renderer_record = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_record - start_time_taken_cpu_renderer_record).count() / 1'000'000.0f;
+            }
+
+            if (_renderer->screenshot_pending)
+            {
+                _gpu_context->device.wait_idle();
+                auto const * data = _gpu_context->device.buffer_host_address_as<u8>(_renderer->screenshot_readback_buf).value();
+                std::time_t const t = std::time(nullptr);
+                std::tm tm_buf = {};
+                localtime_s(&tm_buf, &t);
+                char time_str[32];
+                std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
+                save_screenshot_png(
+                    std::filesystem::path("screenshots") / fmt::format("screenshot_{}.png", time_str),
+                    data, _renderer->screenshot_width, _renderer->screenshot_height);
+                _renderer->screenshot_pending = false;
             }
         }
         _gpu_context->device.collect_garbage();
@@ -255,7 +570,44 @@ void Application::update()
             _scene->_dirty_render_entities.push_back(app_state.dynamic_ball);
         }
 
-        if(app_state.decompose_bistro) 
+#if !DISABLE_EMISSIVE_BALLS
+        // Animate emissive flying balls — each on a local circle whose center itself orbits
+        {
+            const f32 local_radius  = 10.0f;
+            const f32 local_speed   = 0.5f;
+            const f32 orbit_radius  = 8.0f;
+            const f32 orbit_speed   = 0.15f;
+            const f32 center_y      = 0.0f;
+            const f32 height        = 3.0f;
+
+            auto ball_pos = [&](f32 orbit_phase, f32 local_phase) -> f32vec3
+            {
+                const f32 cx = std::cos(total_time * orbit_speed + orbit_phase) * orbit_radius;
+                const f32 cy = center_y + std::sin(total_time * orbit_speed + orbit_phase) * orbit_radius;
+                return f32vec3{
+                    cx + std::cos(total_time * local_speed + local_phase) * local_radius,
+                    cy + std::sin(total_time * local_speed + local_phase) * local_radius,
+                    height,
+                };
+            };
+
+            RenderEntity * ball_ent = _scene->_render_entities.slot(app_state.emissive_ball);
+            if (ball_ent)
+            {
+                ball_ent->transform = glm::mat4x3(glm::translate(glm::identity<glm::mat4x4>(), ball_pos(0.0f, 0.0f)));
+                _scene->_dirty_render_entities.push_back(app_state.emissive_ball);
+            }
+
+            RenderEntity * ball_ent2 = _scene->_render_entities.slot(app_state.emissive_ball2);
+            if (ball_ent2)
+            {
+                ball_ent2->transform = glm::mat4x3(glm::translate(glm::identity<glm::mat4x4>(), ball_pos(3.14159265f, 3.14159265f)));
+                _scene->_dirty_render_entities.push_back(app_state.emissive_ball2);
+            }
+        }
+#endif // !DISABLE_EMISSIVE_BALLS
+
+        if(app_state.decompose_bistro)
         {
             for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
             {
@@ -293,7 +645,10 @@ void Application::update()
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
-    
+    for (auto & pending : _pending_mesh_uploads)
+        asset_data_upload_info.uploaded_meshes.push_back(pending);
+    _pending_mesh_uploads.clear();
+
     cmd_lists.at(cmd_list_count++) = _scene->record_gpu_manifest_update({
         .uploaded_meshes = asset_data_upload_info.uploaded_meshes,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
@@ -340,6 +695,7 @@ void Application::update()
             app_state.cinematic_camera.override_keyframe;
         if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
         if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
+        if (_window->key_just_pressed(GLFW_KEY_F1)) { app_state.request_screenshot = true; }
         if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
         {
             _renderer->gpu_context->shader_debug_context.detector_window_position = {

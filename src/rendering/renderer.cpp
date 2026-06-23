@@ -169,6 +169,10 @@ Renderer::~Renderer()
     {
         this->gpu_context->device.destroy_buffer(general_readback_buffer);
     }
+    if (!screenshot_readback_buf.is_empty())
+    {
+        this->gpu_context->device.destroy_buffer(screenshot_readback_buf);
+    }
     for (auto const & [name, rt_pipe] : this->gpu_context->ray_tracing_pipelines)
     {
         if (!rt_pipe.sbt_buffer.is_empty())
@@ -383,6 +387,18 @@ void Renderer::recreate_framebuffer()
         new_info.size = {render_context->render_data.settings.render_target_size.x, render_context->render_data.settings.render_target_size.y, 1};
         timg.set_image(this->gpu_context->device.create_image(new_info));
     }
+
+    if (!screenshot_readback_buf.is_empty())
+    {
+        gpu_context->device.destroy_buffer(screenshot_readback_buf);
+    }
+    screenshot_width = static_cast<u32>(window->size.x);
+    screenshot_height = static_cast<u32>(window->size.y);
+    screenshot_readback_buf = gpu_context->device.create_buffer({
+        .size = screenshot_width * screenshot_height * 4u,
+        .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
+        .name = "screenshot readback buffer",
+    });
 }
 
 void Renderer::clear_select_buffers()
@@ -1214,6 +1230,21 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         })
         .executes(write_swapchain_debug_callback, render_context.get()));
 #endif
+
+    tg.add_task(daxa::InlineTask::Transfer("screenshot capture")
+            .reads(swapchain_image)
+            .executes(
+                [=, this](daxa::TaskInterface ti)
+                {
+                    if (!this->screenshot_pending) return;
+                    auto const img_id = ti.id(swapchain_image.view());
+                    auto const img_size = ti.info(swapchain_image.view()).value().size;
+                    ti.recorder.copy_image_to_buffer({
+                        .src_image = img_id,
+                        .image_extent = {img_size.x, img_size.y, 1},
+                        .dst_buffer = this->screenshot_readback_buf,
+                    });
+                }));
 
     tg.add_task(daxa::InlineTask{"ImGui Draw"}
             .color_attachment.reads_writes(swapchain_image)

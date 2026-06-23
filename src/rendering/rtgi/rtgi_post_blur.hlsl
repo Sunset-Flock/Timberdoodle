@@ -77,7 +77,10 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float temporal_stability_scale = 1.0f - saturate(pixel_samplecnt * rcp(12.0f));
     const float filter_guide = push.attach.filter_guide_image.get()[dtid.xy];
+    //debug_image_tile_draw(push.attach.debug_image.get(), -1, dtid, float4(TurboColormap(filter_guide), 2.0f), 2);
     const float blur_scale = lerp(filter_guide, 1.0f, temporal_stability_scale);
+
+    // debug_image_tile_draw(push.attach.debug_image.get(), -1, dtid, float4(TurboColormap(filter_guide), 2.0f), 2);
 
     const int filter_width = int(lerp(1.0f, MAX_BLUR_WIDTH, blur_scale));
 

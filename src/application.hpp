@@ -49,5 +49,6 @@ private:
     std::unique_ptr<UIEngine> _ui_engine = {};
     std::unique_ptr<Renderer> _renderer = {};
     std::unique_ptr<ThreadPool> _threadpool = {};
+    std::vector<AssetProcessor::MeshLodGroupUploadInfo> _pending_mesh_uploads = {};
     ApplicationState app_state = {};
 };

@@ -14,7 +14,7 @@ namespace tido
         {
         }
 
-        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context)
+        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, CameraController & camera)
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -269,6 +269,53 @@ namespace tido
                             ImGui::Unindent(12);
                         }
                     };
+                    auto camera_position_settings = [&camera]()
+                    {
+                        if (ImGui::CollapsingHeader("Camera Position"))
+                        {
+                            ImGui::Indent(12);
+
+                            ImGui::InputFloat3("position", &camera.position.x);
+                            if (ImGui::InputFloat3("forward", &camera.forward.x, "%.4f", ImGuiInputTextFlags_EnterReturnsTrue))
+                            {
+                                auto const fwd = glm::normalize(camera.forward);
+                                camera.pitch   = glm::degrees(-std::asin(glm::clamp(fwd.z, -1.0f, 1.0f)));
+                                camera.yaw     = glm::degrees(std::atan2(fwd.y, -fwd.x)) + 90.0f;
+                                camera.forward = fwd;
+                            }
+
+                            if (ImGui::Button("Copy to clipboard"))
+                            {
+                                auto const str = fmt::format("{} {} {} {} {} {}",
+                                    camera.position.x, camera.position.y, camera.position.z,
+                                    camera.forward.x,  camera.forward.y,  camera.forward.z);
+                                ImGui::SetClipboardText(str.c_str());
+                            }
+
+                            ImGui::SameLine();
+
+                            static std::array<char, 256> paste_buf = {};
+                            f32 const apply_w = ImGui::CalcTextSize("Apply").x + ImGui::GetStyle().FramePadding.x * 2.0f;
+                            ImGui::SetNextItemWidth(ImGui::GetContentRegionAvail().x - apply_w - ImGui::GetStyle().ItemSpacing.x);
+                            ImGui::InputText("##cam_paste", paste_buf.data(), paste_buf.size());
+                            ImGui::SameLine();
+                            if (ImGui::Button("Apply"))
+                            {
+                                f32 px, py, pz, fx, fy, fz;
+                                if (std::sscanf(paste_buf.data(), "%f %f %f %f %f %f", &px, &py, &pz, &fx, &fy, &fz) == 6)
+                                {
+                                    camera.position = {px, py, pz};
+                                    auto const fwd = glm::normalize(f32vec3{fx, fy, fz});
+                                    camera.pitch   = glm::degrees(-std::asin(glm::clamp(fwd.z, -1.0f, 1.0f)));
+                                    camera.yaw     = glm::degrees(std::atan2(fwd.y, -fwd.x)) + 90.0f;
+                                    camera.forward = fwd;
+                                }
+                            }
+
+                            ImGui::Unindent(12);
+                        }
+                    };
+
                     ImGui::PushStyleColor(ImGuiCol_HeaderHovered, {0.0, 0.0, 0.0, 0.0});
                     ImGui::PushStyleColor(ImGuiCol_HeaderActive, {0.0, 0.0, 0.0, 0.0});
                     ImGui::PushStyleColor(ImGuiCol_Header, {0.0, 0.0, 0.0, 0.0});
@@ -281,6 +328,12 @@ namespace tido
                     ImGui::Dummy({2, 0});
                     ImGui::SameLine();
                     draw_with_bg_rect(histogram_settings, 8, bg_3);
+
+                    ImGui::Dummy({0, 1});
+                    ImGui::Dummy({2, 0});
+                    ImGui::SameLine();
+                    draw_with_bg_rect(camera_position_settings, 8, bg_3);
+
                     ImGui::PopStyleColor(3);
                 }
                 ImGui::EndChild();
