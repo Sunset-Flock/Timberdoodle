@@ -2,6 +2,7 @@
 
 #include <string>
 #include <daxa/utils/imgui.hpp>
+#include "../multithreading/thread_pool.hpp"
 
 #include "../window.hpp"
 #include "../shader_shared/geometry.inl"
@@ -50,6 +51,7 @@ struct Renderer
     bool screenshot_pending = false;
     u32 screenshot_width = 0;
     u32 screenshot_height = 0;
+    std::shared_ptr<Task> screenshot_write_task = {};
 
     std::vector<daxa::ExternalTaskBuffer> buffers = {};
     // Images:

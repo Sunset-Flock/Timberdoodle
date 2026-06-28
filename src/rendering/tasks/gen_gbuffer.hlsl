@@ -138,37 +138,57 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
             gs_face_normals[gtid.x + 1][gtid.y + 1]
         };
 
-#if 1
-        const float4 scaled_depths = square(depths);
-        const float avg_scaled_depth = sqrt(dot(scaled_depths, 1.0f) * 0.25f);
-        const float4 scaled_depth_differnces = abs(depths - avg_scaled_depth);
+        // Decode normals for all 4 pixels.
+        float3 normals_ws[4];
+        [unroll]
+        for (uint i = 0; i < 4; ++i)
+            normals_ws[i] = uncompress_normal_octahedral_32(normals[i]);
+
+        // Score each non-sky pixel by how many others share a similar normal (dot > 0.9, ~26°).
+        // Sky pixels (depth==0) score 0 and are only chosen when all four are sky.
+        // Ties broken by closest depth (reversed-Z: larger value = closer to camera).
+        int normal_score[4] = {0, 0, 0, 0};
+        [unroll]
+        for (uint i = 0; i < 4; ++i)
+        {
+            if (depths[i] == 0.0f) continue;
+            [unroll]
+            for (uint j = 0; j < 4; ++j)
+            {
+                if (depths[j] != 0.0f && dot(normals_ws[i], normals_ws[j]) > 0.9f)
+                    normal_score[i]++;
+            }
+        }
+
+        // Primary: depth (reversed-Z — larger = closer). When depths are within 5% of the
+        // closest, normal score dominates; then depth breaks remaining ties.
+        float max_depth = 0.0f;
+        [unroll]
+        for (uint i = 0; i < 4; ++i)
+            max_depth = max(max_depth, depths[i]);
+        const float depth_close_threshold = max_depth * 0.05f;
+
         int best_depth_index = 0;
         [unroll]
         for (uint i = 1; i < 4; ++i)
         {
-            if (scaled_depth_differnces[i] < scaled_depth_differnces[best_depth_index])
-            {
-                best_depth_index = i;
-            }
+            if (depths[i] == 0.0f) continue;
+            if (depths[best_depth_index] == 0.0f) { best_depth_index = i; continue; }
+
+            const bool i_close    = (max_depth - depths[i])               <= depth_close_threshold;
+            const bool best_close = (max_depth - depths[best_depth_index]) <= depth_close_threshold;
+
+            const bool prefer_i =
+                ( i_close && !best_close) ||
+                ( i_close &&  best_close && normal_score[i] > normal_score[best_depth_index]) ||
+                ( i_close &&  best_close && normal_score[i] == normal_score[best_depth_index] && depths[i] > depths[best_depth_index]) ||
+                (!i_close && !best_close && depths[i] > depths[best_depth_index]);
+
+            if (prefer_i) best_depth_index = i;
         }
-        
+
         float closest_depth = depths[best_depth_index];
         uint closest_face_normal = normals[best_depth_index];
-
-#else
-
-        float closest_depth = 0.0f;
-        uint closest_face_normal = 0u;
-        for (uint i = 0; i < 4; ++i)
-        {
-            if (depths[i] > closest_depth)
-            {
-                closest_depth = depths[i];
-                closest_face_normal = normals[i];
-            }
-        }
-
-#endif
 
         push.attachments.half_res_depth_image.get()[half_out_idx] = closest_depth;
         push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;

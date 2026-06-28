@@ -24,7 +24,7 @@ namespace RenderTimes
 {
     static constexpr inline u32 INVALID_RENDER_TIME_INDEX = ~0u;
 
-    static constexpr inline u32 GROUP_SIZE_MAX = 16;
+    static constexpr inline u32 GROUP_SIZE_MAX = 24;
     static constexpr inline u32 GROUP_COUNT_MAX = 16;
     using TimingName = std::string_view;
     struct GroupNames
@@ -100,10 +100,21 @@ namespace RenderTimes
             {
                 "TRACE",
                 "PRE_FILTER",
-                "PRE_BLUR",
+                "PRE_BLUR0",
+                "PRE_BLUR1",
+                "PRE_BLUR2",
+                "PRE_BLUR3",
                 "TEMPORAL_ACCUMULATION",
                 "POST_BLUR_VERTICAL",
                 "POST_BLUR_HORIZONTAL",
+                "POST_BLUR_ATROUS0",
+                "POST_BLUR_ATROUS1",
+                "POST_BLUR_ATROUS2",
+                "POST_BLUR_ATROUS3",
+                "POST_BLUR_ATROUS4",
+                "POST_BLUR_ATROUS5",
+                "POST_BLUR_ATROUS6",
+                "POST_BLUR_ATROUS7",
                 "UPSCALE",
             },
         },

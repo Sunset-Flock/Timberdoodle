@@ -7,8 +7,8 @@
 #include "../../shader_shared/globals.inl"
 #include "../../shader_shared/scene.inl"
 
-#define RTGI_PRE_BLUR_PREPARE_X 16
-#define RTGI_PRE_BLUR_PREPARE_Y 16
+#define RTGI_PRE_BLUR_PREPARE_X 8
+#define RTGI_PRE_BLUR_PREPARE_Y 8
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(RtgiPreFilterH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
@@ -23,8 +23,8 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec4>, pre_filtered_di
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_f32vec2>, pre_filtered_diffuse2_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, firefly_factor_image)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, spatial_std_dev_image)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, filter_guide_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, spatial_std_dev_image)
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, filter_guide_image)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPreFilterPush

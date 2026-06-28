@@ -232,9 +232,11 @@ Here the the filger guide with combined geometric proximity and surface detail g
 
 Unlike the geometric proximity and surface detail guides — which control the filter radius — variance guiding does not change the width of the post-blur at all. It changes the per-sample weight inside the filter based on how much the sample's luminance deviates from the center pixel.
 
-The idea is straightforward: the post-blur accumulates a slow temporal variance of luma over the full history. High variance at a pixel means its lighting is noisy or genuinely varying — the sample should be treated skeptically. The weighting is one-sided: samples brighter than the center pixel are penalized relative to the slow standard deviation, while samples darker than the center pass through freely. This asymmetry is intentional — a dark sample blending into a bright region is a valid shadow, and suppressing it would brighten shadow edges. A bright sample bleeding into a dark region is far more likely to be residual noise or a leaking bright background.
+Variance guiding is explicitly not the primary spatial guide. The reason is a hard constraint: it requires temporally accumulated, already-converged variance. That variance is computed from the slow history and takes many frames to stabilize — on the first frame after a disocclusion, or any time history is young, the variance estimate is unreliable noise. Using it aggressively in those conditions would cause the filter to flicker visibly as the variance itself thrashes from frame to frame. It simply cannot do the heavy lifting that the geometric proximity and surface detail guides handle from frame zero.
 
-In practice variance guiding cannot function as a primary guide. Used aggressively it causes the image to boil — the variance itself is noisy enough frame to frame that the weighting flickers visibly. What it does well, and cheaply, is act as a final fine-tune sharpener on dark areas where the post-blur would otherwise over-blend: deep shadow contact regions, distant shadowed geometry, corners where the filter tends to pull in bright surrounding samples. In those areas the one-sided clamp quietly prevents the brightest neighborhood samples from contributing, keeping the shadows crisp without affecting stable well-lit regions at all. The effect is visible in the sponza comparisons below — distant shadow boundaries that smear together without it stay distinctly separated, and contact shadow detail in the foreground is tighter.
+Instead it kicks in after a few frames as a final sharpener, once the slow variance has had time to settle. Its role at that point is narrow but useful: the post-blur accumulates a slow temporal variance of luma over the full history, and the guiding is one-sided — samples brighter than the center pixel are penalized relative to the slow standard deviation, while samples darker than the center pass through freely. This asymmetry is intentional — a dark sample blending into a bright region is a valid shadow, and suppressing it would brighten shadow edges. A bright sample bleeding into a dark region is far more likely to be residual noise or a leaking bright background.
+
+What variance guiding does well at that stage, and cheaply, is act as a final fine-tune sharpener on dark areas where the post-blur would otherwise over-blend: deep shadow contact regions, distant shadowed geometry, corners where the filter tends to pull in bright surrounding samples. In those areas the one-sided clamp quietly prevents the brightest neighborhood samples from contributing, keeping the shadows crisp without affecting stable well-lit regions at all. The effect is visible in the sponza comparisons below — distant shadow boundaries that smear together without it stay distinctly separated, and contact shadow detail in the foreground is tighter.
 
 ```hlsl
 // In the temporal pass: accumulate slow relative variance (same fp16 trick as fast history —
@@ -248,12 +250,18 @@ accumulated_slow_relative_variance = lerp(
 ```hlsl
 // In the post-blur: one-sided luminance weight per tap
 const float slow_relative_std_dev = sqrt(pixel_statistics.w);  // .w = slow_rel_var
-const float brightness_excess = max(0.0f, sample_sh_y.w - pixel_y) / (pixel_y + 1e-4f);
-const float one_sided_luminance_weight =
-    exp(-brightness_excess / (4.0f * slow_relative_std_dev + 1e-4f));
+
+// Ramp variance influence in over frames 4–12; below 4 the variance estimate is too
+// young to trust and the guide contributes nothing.
+const float variance_guide_ramp = saturate((accumulated_sample_count - 4.0f) / 8.0f);
+
+// Fold the ramp into the tolerance: at ramp=0 max_allowed_y == pixel_y and every
+// sample passes at weight 1 (guide inactive). At ramp=1 the full std_dev tolerance applies.
+const float max_allowed_y = pixel_y * (1.0f + 4.0f * slow_relative_std_dev * variance_guide_ramp);
+const float one_sided_luminance_weight = min(1.0f, max_allowed_y / (sample_sh_y.w + 1e-4f));
 ```
 
-The exponential falloff means samples within the variance tolerance pass at near-full weight, and only outliers are suppressed — it degrades gracefully and never hard-rejects a sample.
+Samples at or below the tolerance pass at weight 1; samples brighter than the ceiling are suppressed with a 1/x falloff — cheap (one divide, one min) and never hard-rejects a sample. The ramp ensures the guide has zero influence for the first four frames while the slow variance is still settling, then linearly reaches full strength by frame 12.
 
 Without variance guiding (shadows in distance blend together, contact details soft):
 
@@ -273,7 +281,11 @@ The post-blur uses a separable horizontal/vertical split to keep costs low. At s
 
 The pre-blur runs before temporal accumulation and uses a different filter that does not have this limitation. It blurs the firefly-filtered signal with a wide radius, absorbing the low-frequency noise before it ever enters the temporal accumulator. Disoccluded pixels arrive already smoothed and temporal accumulation only needs to handle the residual, which it converges on in far fewer frames. The overall temporal stability also improves — a smoother incoming signal means less variance for the accumulator to fight in every frame, not just on disocclusions.
 
-The pre-blur filter is stochastic and anisotropic. Samples are drawn from a disc around each pixel, but the disc is stretched and oriented along the surface normal projected into screen space — a surface seen at a shallow angle gets a kernel that follows its orientation rather than cutting across it. With only 8–16 samples the kernel is far too sparse to avoid aliasing on its own, but since it runs before temporal accumulation those sparse samples are amortized over many frames.
+The pre-blur filter is stochastic and anisotropic. Samples are drawn from a disc around each pixel, but the disc is stretched and oriented along the surface normal projected into screen space — a surface seen at a shallow angle gets a kernel that follows its orientation rather than cutting across it. With only 8–32 samples the kernel is far too sparse to avoid aliasing on its own, but since it runs before temporal accumulation those sparse samples are amortized over many frames.
+
+The image below visualizes the filter kernel for a single center pixel on the side of a shop viewed at an angle — the white dots show the sample taps. The oval shape is the anisotropy in action: the kernel stretches along the surface rather than sampling uniformly in screen space. The tap count here is 255 for visualization purposes only; in practice 8–32 taps are sufficient and the temporal accumulator fills in the rest over subsequent frames.
+
+![pre-blur kernel visualized — anisotropic oval on shop wall viewed at angle](showcase_images/bistro%20series%205%203.png)
 
 The filter guide is squared before being applied to the radius (`square(filter_guide)`). The base radius is set for the absolute worst case — a completely flat, untextured surface, where low-frequency noise is maximally visible and there is nothing to mask it. That worst-case radius is massive, 100–200 pixels. With a linear scale, even moderately textured surfaces would still receive a very large radius, losing detail unnecessarily. Squaring the guide makes it shrink much faster away from 1: a guide value of 0.5 gives only 0.25 of the full radius rather than half. This means even a small amount of surface detail drives the radius down dramatically, preserving detail that would otherwise be lost to the enormous worst-case blur. The clean flat face of a shop wall gets the full radius; anything with texture collapses to a tight kernel almost immediately.
 
@@ -326,6 +338,8 @@ Without pre-blur (camera moving left, pillar reveals disoccluded shop — low-fr
 With pre-blur (same motion — disocclusion resolves quite clearly within the first few frames):
 
 ![screenshot](showcase_images/bistro%20series%202%201.png)
+
+The pre-blur result is noticeably brighter than the basic denoised image. This is not a mistake — it is energy compensation, explained next.
 
 **Energy recovery**
 

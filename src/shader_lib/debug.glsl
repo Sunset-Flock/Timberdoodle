@@ -107,3 +107,57 @@ void debug_draw_sphere(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, Shade
     {                                                                                              \
         debugPrintfEXT("index out of bounds: %i, range: [%i,%i]\n", INDEX, MIN_INDEX, MAX_INDEX);  \
     }                                                                                              
+
+    
+// Returns true if the pixel at `local` (within a tile of size `tile_size`) lies outside a
+// rounded rectangle that is inset from the tile edges by `cutoff`, with corner radius `corner_radius`.
+// Used to give each debug tile a slight gap and rounded corners so adjacent tiles are visually separated.
+bool debug_image_tile_is_cutoff(uint2 local, uint2 tile_size, float cutoff, float corner_radius)
+{
+    const float2 pixel_center = float2(local) + 0.5f;
+    const float2 half_size = float2(tile_size) * 0.5f;
+    const float2 p = pixel_center - half_size;
+    const float2 q = abs(p) - (half_size - cutoff - corner_radius);
+    const float dist = length(max(q, float2(0.0f, 0.0f))) - corner_radius;
+    return dist > 0.0f;
+}
+
+void debug_image_tile_draw(RWTexture2D<float4> tex, uint slot, uint2 sv_position, float4 color, uint resolution_scale = 1, bool enable_rounding = true)
+{
+    // Small, fixed-size rounding/cutoff (a few pixels total) applied to each tile's footprint.
+    const float TILE_EDGE_CUTOFF = 2.0f;
+    const float TILE_CORNER_RADIUS = 4.0f;
+
+    uint width, height;
+    tex.GetDimensions(width, height);
+    const uint2 full_res = uint2(width, height);
+    if (slot == ~0u)
+    {
+        const uint2 dst_position = sv_position * resolution_scale;
+        for (uint y = 0; y < resolution_scale; ++y)
+        {
+            for (uint x = 0; x < resolution_scale; ++x)
+            {
+                const uint2 dst = dst_position + uint2(x, y);
+                if (all(dst < full_res))
+                {
+                    tex[dst] = color;
+                }
+            }
+        }
+        return;
+    }
+    const uint2 slot_size = full_res / 4;
+    const uint2 dst_in_slot = (sv_position * resolution_scale) / 4;
+    if (slot >= 16 || any(dst_in_slot >= slot_size))
+    {
+        return;
+    }
+    if (enable_rounding && debug_image_tile_is_cutoff(dst_in_slot, slot_size, TILE_EDGE_CUTOFF, TILE_CORNER_RADIUS))
+    {
+        return;
+    }
+    const uint2 slot_coord = uint2(slot % 4, slot / 4);
+    const uint2 dst_position = slot_coord * slot_size + dst_in_slot;
+    tex[dst_position] = color;
+}

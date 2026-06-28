@@ -22,6 +22,7 @@ struct ApplicationState
     bool reset_observer = false;
     bool decompose_bistro = false;
     bool request_screenshot = false;
+    bool screenshot_writing = false;
     u32 frame_index = 0;
     f32 delta_time = 0.016666f;
     u64 total_elapsed_us = 0;

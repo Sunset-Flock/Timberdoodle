@@ -5,62 +5,9 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
-// Returns true if the pixel at `local` (within a tile of size `tile_size`) lies outside a
-// rounded rectangle that is inset from the tile edges by `cutoff`, with corner radius `corner_radius`.
-// Used to give each debug tile a slight gap and rounded corners so adjacent tiles are visually separated.
-bool debug_image_tile_is_cutoff(uint2 local, uint2 tile_size, float cutoff, float corner_radius)
-{
-    const float2 pixel_center = float2(local) + 0.5f;
-    const float2 half_size = float2(tile_size) * 0.5f;
-    const float2 p = pixel_center - half_size;
-    const float2 q = abs(p) - (half_size - cutoff - corner_radius);
-    const float dist = length(max(q, float2(0.0f, 0.0f))) - corner_radius;
-    return dist > 0.0f;
-}
-
-void debug_image_tile_draw(RWTexture2D<float4> tex, uint slot, uint2 sv_position, float4 color, uint resolution_scale = 1, bool enable_rounding = true)
-{
-    // Small, fixed-size rounding/cutoff (a few pixels total) applied to each tile's footprint.
-    const float TILE_EDGE_CUTOFF = 2.0f;
-    const float TILE_CORNER_RADIUS = 4.0f;
-
-    uint width, height;
-    tex.GetDimensions(width, height);
-    const uint2 full_res = uint2(width, height);
-    if (slot == ~0u)
-    {
-        const uint2 dst_position = sv_position * resolution_scale;
-        for (uint y = 0; y < resolution_scale; ++y)
-        {
-            for (uint x = 0; x < resolution_scale; ++x)
-            {
-                const uint2 dst = dst_position + uint2(x, y);
-                if (all(dst < full_res))
-                {
-                    tex[dst] = color;
-                }
-            }
-        }
-        return;
-    }
-    const uint2 slot_size = full_res / 4;
-    const uint2 dst_in_slot = (sv_position * resolution_scale) / 4;
-    if (slot >= 16 || any(dst_in_slot >= slot_size))
-    {
-        return;
-    }
-    if (enable_rounding && debug_image_tile_is_cutoff(dst_in_slot, slot_size, TILE_EDGE_CUTOFF, TILE_CORNER_RADIUS))
-    {
-        return;
-    }
-    const uint2 slot_coord = uint2(slot % 4, slot / 4);
-    const uint2 dst_position = slot_coord * slot_size + dst_in_slot;
-    tex[dst_position] = color;
-}
-
 #define RTGI_FIREFLY_ENERGY_HACKS 1
 
-#define RTGI_MAX_FIREFLY_FACTOR (32.0f)
+#define RTGI_USE_QUAD 1
 
 #define RTGI_USE_POISSON_DISC 0
 
@@ -95,8 +42,7 @@ func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth)
 
 func planar_surface_distance(float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
 {
-    const float plane_distance = dot(other_vs_position - vs_position, vs_normal);
-    return plane_distance;
+    return dot(other_vs_position - vs_position, vs_normal);
 }
 
 func planar_surface_distance_ws(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
@@ -117,25 +63,41 @@ func planar_surface_weight(float2 inv_render_target_size, float near_plane, floa
     return validity;
 }
 
-// geometry weight used as a hard cutoff when reprojecting temporal data
-// returns 1 when the given points are likely to be the same geometry
-func surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
-    float threshold_scale = 2.0f, // a larger factor leads to more bleeding across edges but also less noise on small details
+// Plane-distance similarity test between two surface points — no world-space distance cap.
+// Returns 1 when both points lie within threshold_scale pixels of each other's tangent planes.
+func surface_similarity(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
+    float threshold_scale = 2.0f,
+) -> float
+{
+    const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
+    const float plane_distance_threshold = pixel_size * threshold_scale;
+    const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
+    const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
+    return step(plane_distanceA, plane_distance_threshold) * step(plane_distanceB, plane_distance_threshold);
+}
+
+func same_surface_weight(const float rcp_ws_pixel_size, const float3 a_pos, const float3 a_norm, const float3 b_pos, const float3 b_norm, const float px_threshold = 1.2f) -> float
+{
+    const float within_acceptable_plane_dist_a = 1.0f - saturate(planar_surface_distance(a_pos, a_norm, b_pos) * rcp(px_threshold) * rcp_ws_pixel_size);
+    const float within_acceptable_plane_dist_b = 1.0f - saturate(planar_surface_distance(b_pos, b_norm, a_pos) * rcp(px_threshold) * rcp_ws_pixel_size);
+    return within_acceptable_plane_dist_a * within_acceptable_plane_dist_b;
+}
+
+// Same as surface_similarity but also rejects pairs of points that share a plane yet are
+// far apart in world space — guards against accidental coplanar matches across large distances.
+func surface_weight_dist_limited(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
+    float threshold_scale = 2.0f,
 ) -> float
 {
     const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
     const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
     const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
-    const float distance = abs(distance(vs_position, other_vs_position));
+    const float dist            = abs(distance(vs_position, other_vs_position));
     const float plane_distance_threshold = pixel_size * threshold_scale;
-    // In rare cases, two pixels will accidentally lie on the same plane but are actually far away from each other.
-    // The distance test rejects those cases.
-    const float dist_threshold = pixel_size * 32.0f * threshold_scale; 
-    const float validity = 
-        step(distance, dist_threshold) *
-        step(plane_distanceA, plane_distance_threshold) * 
-        step(plane_distanceB, plane_distance_threshold);
-    return validity;
+    const float dist_threshold           = pixel_size * 32.0f * threshold_scale;
+    return step(dist, dist_threshold) *
+           step(plane_distanceA, plane_distance_threshold) *
+           step(plane_distanceB, plane_distance_threshold);
 }
 func depth_distances4(
     float2 inv_render_target_size, 
@@ -201,6 +163,19 @@ static const float3 g_Poisson8[8] =
 float get_gaussian_weight( float r )
 {
     return exp( -0.66f * square(r * 2.71828182846f * 0.5f) ); // assuming r is normalized to 1
+}
+
+// Filter guide: R16_UINT packing — upper 8 bits = geometric scale [0,1], lower 8 bits = surface detail [0,1]
+// Both channels are sRGB-compressed for better precision at low values (where guiding matters most).
+func srgb_encode(float c) -> float { return c <= 0.0031308f ? 12.92f * c : 1.055f * pow(c, 1.0f / 2.4f) - 0.055f; }
+func srgb_decode(float c) -> float { return c <= 0.04045f ? c / 12.92f : pow((c + 0.055f) / 1.055f, 2.4f); }
+
+func pack_filter_guide(float geometric) -> uint {
+    return uint(round(srgb_encode(saturate(geometric)) * 65535.0f));
+}
+
+func unpack_filter_guide(uint packed) -> float {
+    return srgb_decode(float(packed) * (1.0f / 65535.0f));
 }
 
 float3 linear_to_y_co_cg( float3 color )

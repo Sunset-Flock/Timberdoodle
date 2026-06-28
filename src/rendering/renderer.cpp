@@ -68,6 +68,7 @@ Renderer::Renderer(
     Window * window, GPUContext * gpu_context, Scene * scene, AssetProcessor * asset_manager, daxa::ImGuiRenderer * imgui_renderer, UIEngine * ui_engine)
     : render_context{std::make_unique<RenderContext>(gpu_context)}, window{window}, gpu_context{gpu_context}, scene{scene}, asset_manager{asset_manager}, imgui_renderer{imgui_renderer}, ui_engine{ui_engine}
 {
+    render_context->render_data.rtgi_settings = rtgi_default_settings();
     meshlet_instances = create_task_buffer(gpu_context, size_of_meshlet_instance_buffer(), "meshlet_instances", "meshlet_instances_a");
     visible_mesh_instances = create_task_buffer(gpu_context, sizeof(VisibleMeshesList), "visible_mesh_instances", "visible_mesh_instances");
     exposure_state = create_task_buffer(gpu_context, sizeof(AutoExposureState), "exposure state", "exposure_state");
@@ -238,6 +239,7 @@ void Renderer::compile_pipelines()
         {rtgi_pre_filter_prepare_compile_info()},
         {rtgi_pre_blur_compile_info()},
         {rtgi_post_blur_compile_info()},
+        {rtgi_atrous_post_blur_compile_info()},
         {rtgi_upscale_diffuse_compile_info()},
         {gen_hiz_pipeline_compile_info2()},
         {pgi_update_probe_texels_pipeline_compile_info()},
@@ -1371,7 +1373,10 @@ auto Renderer::prepare_frame(
     bool const rtgi_settings_changed =
         render_context->render_data.rtgi_settings.enabled != render_context->prev_rtgi_settings.enabled ||
         render_context->render_data.rtgi_settings.pre_blur_enabled != render_context->prev_rtgi_settings.pre_blur_enabled ||
-        render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled;
+        render_context->render_data.rtgi_settings.pre_blur_iterations != render_context->prev_rtgi_settings.pre_blur_iterations ||
+        render_context->render_data.rtgi_settings.post_blur_enabled != render_context->prev_rtgi_settings.post_blur_enabled ||
+        render_context->render_data.rtgi_settings.post_blur_mode != render_context->prev_rtgi_settings.post_blur_mode ||
+        render_context->render_data.rtgi_settings.post_blur_atrous_iterations != render_context->prev_rtgi_settings.post_blur_atrous_iterations;
     bool const light_settings_changed = lights_significant_settings_change(render_context->render_data.light_settings, render_context->prev_light_settings);
     bool const pgi_settings_changed = pgi_significant_settings_change(render_context->prev_pgi_settings, render_context->render_data.pgi_settings);
     bool const sky_settings_changed = render_context->render_data.sky_settings != render_context->prev_sky_settings;

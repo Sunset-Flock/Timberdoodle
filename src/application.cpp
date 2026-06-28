@@ -49,6 +49,15 @@ static void save_screenshot_png(std::filesystem::path const & path, u8 const * b
     fmt::print("[Screenshot] Saved to: {}\n", path.string());
 }
 
+struct ScreenshotWriteTask : Task
+{
+    std::filesystem::path path = {};
+    std::vector<u8> pixels = {};
+    u32 width = {};
+    u32 height = {};
+    void callback(u32, u32) override { save_screenshot_png(path, pixels.data(), width, height); }
+};
+
 static auto create_sphere_gpu_mesh(daxa::Device & device, u32 material_index) -> GPUMesh
 {
     constexpr float SPHERE_PI = 3.14159265358979323846f;
@@ -494,7 +503,11 @@ auto Application::run() -> i32
                 auto end_time_taken_cpu_renderer_prepare = std::chrono::steady_clock::now();
                 app_state.time_taken_cpu_renderer_prepare = std::chrono::duration_cast<FpMicroSeconds>(end_time_taken_cpu_renderer_prepare - start_time_taken_cpu_renderer_prepare).count() / 1'000'000.0f;
             }
-            _renderer->screenshot_pending = app_state.request_screenshot;
+            bool const screenshot_write_in_progress =
+                _renderer->screenshot_write_task &&
+                _renderer->screenshot_write_task->not_finished > 0;
+            app_state.screenshot_writing = screenshot_write_in_progress;
+            _renderer->screenshot_pending = app_state.request_screenshot && !screenshot_write_in_progress;
             app_state.request_screenshot = false;
 
             if (execute_frame)
@@ -516,9 +529,20 @@ auto Application::run() -> i32
                 localtime_s(&tm_buf, &t);
                 char time_str[32];
                 std::strftime(time_str, sizeof(time_str), "%Y%m%d_%H%M%S", &tm_buf);
-                save_screenshot_png(
-                    std::filesystem::path("screenshots") / fmt::format("screenshot_{}.png", time_str),
-                    data, _renderer->screenshot_width, _renderer->screenshot_height);
+                auto task = std::make_shared<ScreenshotWriteTask>();
+                task->chunk_count = 1;
+                task->not_finished = 1;
+                auto const & cam = app_state.camera_controller;
+                task->path = std::filesystem::path("screenshots") / fmt::format(
+                    "screenshot_{}_pos{:.1f},{:.1f},{:.1f}_rot{:.2f},{:.2f}.png",
+                    time_str,
+                    cam.position.x, cam.position.y, cam.position.z,
+                    cam.yaw, cam.pitch);
+                task->pixels = std::vector<u8>(data, data + _renderer->screenshot_width * _renderer->screenshot_height * 4u);
+                task->width = _renderer->screenshot_width;
+                task->height = _renderer->screenshot_height;
+                _renderer->screenshot_write_task = task;
+                _threadpool->async_dispatch(task, TaskPriority::LOW);
                 _renderer->screenshot_pending = false;
             }
         }

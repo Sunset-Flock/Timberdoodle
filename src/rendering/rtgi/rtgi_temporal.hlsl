@@ -31,6 +31,7 @@ float apply_bilinear_custom_weights_soft_normalize( float s00, float s10, float 
 func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
 {
     let push = rtgi_denoise_diffuse_reproject_push;
+    let rtgi_settings = push.attach.globals.rtgi_settings;
     if (any(dtid.xy >= push.size))
     {
         return;
@@ -79,6 +80,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float reprojected_slow_mean = 0.0f;
     float reprojected_slow_relative_variance = 0.0f;
     float reprojected_filter_guide = 0.0f;
+    float reprojected_log_geo_mean = 0.0f;
     {
         // Load relevant global data
         CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
@@ -153,10 +155,10 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
                     texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
                 };
                 surface_weights = {
-                    surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 1),
-                    surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 1),
-                    surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 1),
-                    surface_weight(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 1),
+                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 1),
+                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 1),
+                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 1),
+                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 1),
                 };
                 surface_weights[0] *= depth_reprojected4[0] != 0.0f;
                 surface_weights[1] *= depth_reprojected4[1] != 0.0f;
@@ -245,25 +247,31 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         if (isnan(reprojected_slow_mean))              reprojected_slow_mean = 0.0f;
         if (isnan(reprojected_slow_relative_variance)) reprojected_slow_relative_variance = 0.0f;
 
-        // Filter Guide History
-        const float4 filter_guide_reprojected4 = push.attach.half_res_filter_guide_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
-        reprojected_filter_guide = apply_bilinear_custom_weights( filter_guide_reprojected4.x, filter_guide_reprojected4.y, filter_guide_reprojected4.z, filter_guide_reprojected4.w, sample_weights );
-        if (isnan(reprojected_filter_guide))
-        {
-            reprojected_filter_guide = 0.0f;
-        }
+        // Filter Guide History: GatherRed on R16_UINT — single channel packed
+        const uint4 fg4 = push.attach.half_res_filter_guide_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
+        const float fg0 = unpack_filter_guide(fg4.x);
+        const float fg1 = unpack_filter_guide(fg4.y);
+        const float fg2 = unpack_filter_guide(fg4.z);
+        const float fg3 = unpack_filter_guide(fg4.w);
+        reprojected_filter_guide = apply_bilinear_custom_weights( fg0, fg1, fg2, fg3, sample_weights );
+        if (isnan(reprojected_filter_guide)) { reprojected_filter_guide = 0.0f; }
+
+        // Temporal geometric mean history (log-space R16_SFLOAT)
+        const float4 gm4 = push.attach.temporal_geometric_mean_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
+        reprojected_log_geo_mean = apply_bilinear_custom_weights( gm4[0], gm4[1], gm4[2], gm4[3], sample_weights );
+        if (isnan(reprojected_log_geo_mean)) { reprojected_log_geo_mean = 0.0f; }
     }
     //disocclusion = true;
 
     // Determine accumulated sample count
-    float accumulated_sample_count = disocclusion ? 0u : min(push.attach.globals.rtgi_settings.history_frames, reprojected_sample_count + 1.0f);
+    float accumulated_sample_count = disocclusion ? 0u : min(rtgi_settings.history_frames, reprojected_sample_count + 1.0f);
 
     // Load new diffuse data
     const bool diffuse_pre_blurred_present = !push.attach.half_res_diffuse_new.index.is_empty();
     
     float4 new_diffuse = diffuse_pre_blurred_present ? push.attach.half_res_diffuse_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse_new.get()[dtid.xy];
     float2 new_diffuse2 = diffuse_pre_blurred_present ? push.attach.half_res_diffuse2_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse2_new.get()[dtid.xy];
-    float new_filter_guide = push.attach.filter_guide_new.get()[dtid.xy];
+    float new_filter_guide = unpack_filter_guide(push.attach.filter_guide_new.get()[dtid.xy]);
 
     // Determine accumulated fast history
 
@@ -275,7 +283,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float accumulated_fast_mean = 0.0f;
     float accumulated_fast_relative_variance = 0.0f;
     float fast_std_dev_relative = 0.0f;
-    if (push.attach.globals.rtgi_settings.temporal_fast_history_enabled)
+    if (rtgi_settings.temporal_fast_history_enabled)
     {
         // Temporal Fast History inspired by [DD2018: Tomasz Stachowiak - Stochastic all the things](https://www.youtube.com/watch?v=MyTOGHqyquU)
         const float fast_blend_factor = (1.0f / (1.0f + min(accumulated_sample_count, FAST_HISTORY_FRAMES)));
@@ -296,7 +304,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         // preserving the original adaptation model exactly.
         const float wrong_point_estimate = min(square(abs(accumulated_fast_mean - new_fast_brightness) / max(accumulated_fast_mean, 1e-6f)), 4.0f);
         const float adaptation_relative_variance = lerp(reprojected_fast_temporal_variance, wrong_point_estimate, fast_blend_factor);
-        fast_variance_scaling = square(1.0f + sqrt(adaptation_relative_variance) * 2);
+        fast_variance_scaling = square(1.0f + sqrt(adaptation_relative_variance) * rtgi_settings.temporal_variance_fast_history_blend);
 
         const float slow_history_mean = reprojected_diffuse.w;
         const float slow_to_fast_mean_ratio = max(slow_history_mean, accumulated_fast_mean) / (min(slow_history_mean, accumulated_fast_mean) + 0.00000001f);
@@ -305,24 +313,24 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     }
 
     // Temporal firefly filter:
-    if (accumulated_sample_count > FAST_HISTORY_FRAMES && push.attach.globals.rtgi_settings.temporal_fast_history_enabled && push.attach.globals.rtgi_settings.temporal_firefly_filter_enabled)
+    if (accumulated_sample_count > FAST_HISTORY_FRAMES && rtgi_settings.temporal_fast_history_enabled && rtgi_settings.temporal_firefly_filter_enabled)
     {
-        const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + sqrt(reprojected_fast_temporal_variance) * 0.5f) / new_diffuse.w;
+        const float brightness_ratio = reprojected_fast_temporal_mean * (1.0f + sqrt(reprojected_fast_temporal_variance) * rtgi_settings.temporal_firefly_std_dev_clamp) / new_diffuse.w;
         const float clamp_factor = min(1.0f, brightness_ratio);
         new_diffuse = new_diffuse * clamp_factor;
         new_diffuse2 = new_diffuse2 * clamp_factor;
     }
 
-    const float max_sample_count = push.attach.globals.rtgi_settings.history_frames;
+    const float max_sample_count = rtgi_settings.history_frames;
     // Accumulate Color
     float history_confidence = accumulated_sample_count;
     if (accumulated_sample_count > FAST_HISTORY_FRAMES)
     {
-        history_confidence = min(accumulated_sample_count * 2.0f, history_confidence * fast_variance_scaling * fast_mean_diff_scaling);
+        history_confidence = min(accumulated_sample_count * 1.0f, history_confidence * fast_variance_scaling * fast_mean_diff_scaling);
     }
     float blend = 1.0f / (1.0f + history_confidence);
-    float co_cg_blend = 1.0f / (1.0f + history_confidence);
-    if (!push.attach.globals.rtgi_settings.temporal_accumulation_enabled)
+    float co_cg_blend = blend;
+    if (!rtgi_settings.temporal_accumulation_enabled)
     {
         blend = 1.0f;
         co_cg_blend = 1.0f;
@@ -335,6 +343,8 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     // Determine accumulated filter guide
     float accumulated_filter_guide = disocclusion ? new_filter_guide : lerp(reprojected_filter_guide, new_filter_guide, max(0.033f, blend)); // just enough to make it temporally stable
 
+    // debug_image_tile_draw(push.attach.debug_image.get(), 0, dtid, float4(TurboColormap(accumulated_sample_count * rcp(64)), 2.0f), 2);
+
     // Slow statistics — same blend as color, tracks temporal mean/variance of the accumulated signal.
     // Uses pre-filtered (pre-blur bypassed) luma for a sharper variance signal.
     const float new_luma = push.attach.pre_filtered_diffuse_new.get()[dtid.xy].w;
@@ -344,10 +354,15 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     const float slow_variance_blend = max(blend, 1.0f / 8.0f);
     const float accumulated_slow_relative_variance = disocclusion ? slow_new_relative_variance : lerp(reprojected_slow_relative_variance, slow_new_relative_variance, slow_variance_blend);
 
+    // Temporal geometric mean: EMA of log(luma) — same blend as slow_mean
+    const float new_log_luma = log(max(new_luma, 1e-6f));
+    const float accumulated_log_geo_mean = disocclusion ? new_log_luma : lerp(reprojected_log_geo_mean, new_log_luma, blend);
+
     // Write Textures
     push.attach.half_res_sample_count.get()[dtid.xy] = accumulated_sample_count;
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
     push.attach.statistics_image_accumulated.get()[dtid] = float4(accumulated_fast_mean, accumulated_fast_relative_variance, accumulated_slow_mean, accumulated_slow_relative_variance);
-    push.attach.half_res_filter_guide_accumulated.get()[dtid.xy] = accumulated_filter_guide;
+    push.attach.half_res_filter_guide_accumulated.get()[dtid.xy] = pack_filter_guide(accumulated_filter_guide);
+    push.attach.temporal_geometric_mean_accumulated.get()[dtid.xy] = accumulated_log_geo_mean;
 }

@@ -47,6 +47,7 @@ func perceptual_lerp(float3 a, float3 b, float v) -> float3
 func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)
 {
     let push = rtgi_upscale_diffuse_push;
+    let rtgi_settings = push.attach.globals.rtgi_settings;
 
     // Precalculate constants
     CameraInfo* camera = &push.attach.globals->view_camera;
@@ -190,14 +191,14 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
             upscaled_cocg = fallback_acc_diffuse2 * rcp(fallback_acc_weight + 0.0000001f);
         }
 
-        if (!push.attach.globals.rtgi_settings.upscale_enabled)
+        if (!rtgi_settings.upscale_enabled)
         {
             const int2 sample_gs_index = in_group_id/2 + int2(1,1);
             upscaled_sh_y = gs_half_diffuse_preload[sample_gs_index.x][sample_gs_index.y];
             upscaled_cocg = gs_half_diffuse2_preload[sample_gs_index.x][sample_gs_index.y];
         }
 
-        if (push.attach.globals.rtgi_settings.sh_resolve_enabled)
+        if (rtgi_settings.sh_resolve_enabled)
         {
             upscaled_diffuse = sh_resolve_diffuse(upscaled_sh_y, upscaled_cocg, pixel_detail_normal);
         }
