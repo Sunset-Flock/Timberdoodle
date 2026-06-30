@@ -176,7 +176,7 @@ struct AssetProcessor
     /**
      * Collects the cloud-volume textures that finished loading since the last call so the scene can make
      * them resident. NOTE: gltf meshes/textures no longer flow through here - they go straight into the
-     * scene manifest (Scene::set_mesh_runtime / Scene::add_texture). Only the not-yet-ported cloud volume
+     * scene manifest (Scene::add_mesh / Scene::add_texture). Only the not-yet-ported cloud volume
      * path still queues here.
      * THREADSAFETY:
      * * internally synchronized, can be called on multiple threads in parallel

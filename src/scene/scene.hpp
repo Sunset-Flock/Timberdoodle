@@ -83,6 +83,11 @@ struct MeshLodGroupManifestEntry
     u32 mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
     std::string name = {}; // TODO(pahrens): fill out.
+    // Reference to the cooked .tido artifact (descriptor + per-LOD offset table + path). The streamer
+    // reads this to make `runtime` resident; kept so the mesh can be re-streamed (loaded/unloaded) later
+    // without the source file. Attached at add_mesh time (the mesh is added only after it is cooked).
+    // Mirrors TextureManifestEntry.
+    TidoMeshCookResult cooked_artifact = {};
     struct Runtime
     {
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
@@ -172,6 +177,25 @@ struct TextureStreamTask : Task
     TidoTextureCookResult artifact = {};
     u32 texture_manifest_index = {};
     daxa::ImageId result = {};
+    std::atomic<bool> finished = false;
+
+    void callback(u32 chunk_index, u32 thread_index) override;
+};
+
+// An async mesh residency job. update_scene spawns one per newly requested mesh: on a worker thread it
+// reads the cooked .tido off disk and uploads each LOD into its per-LOD GPU buffer (the streamer).
+// update_scene polls `finished` each frame; once set it publishes `result` as the mesh's runtime and
+// marks the mesh-lod-group manifest dirty so the GPU sync uploads it + does the BLAS / mesh-group
+// completeness bookkeeping. Mirrors TextureStreamTask.
+struct MeshStreamTask : Task
+{
+    daxa::Device device = {};
+    // Copied (not referenced) so it stays valid if _mesh_lod_group_manifest reallocates mid-stream.
+    TidoMeshCookResult artifact = {};
+    u32 mesh_lod_manifest_index = {};
+    u32 material_manifest_index = {};
+    std::string name = {};
+    MeshLodGroupUploadInfo result = {};
     std::atomic<bool> finished = false;
 
     void callback(u32 chunk_index, u32 thread_index) override;
@@ -307,6 +331,12 @@ struct Scene
     DirtyManifestList _dirty_material_texture_manifest = {};
     // Texture stream jobs currently in flight (spawned by update_scene, collected once finished).
     std::vector<std::shared_ptr<TextureStreamTask>> _inflight_texture_streams = {};
+    // Mesh-lod-group indices whose cooked artifact still needs streaming in (separate from the GPU-sync
+    // dirty list above: this only drives async residency). update_scene drains it to spawn stream tasks;
+    // a finished stream then marks _dirty_mesh_lod_group_manifest so the GPU sync uploads the real data.
+    DirtyManifestList _dirty_mesh_lod_group_streaming = {};
+    // Mesh stream jobs currently in flight (spawned by update_scene, collected once finished).
+    std::vector<std::shared_ptr<MeshStreamTask>> _inflight_mesh_streams = {};
     std::vector<PointLight> _point_lights = {};
     std::vector<SpotLight> _spot_lights = {};
     std::vector<CloudVolume> _cloud_volumes = {};
@@ -368,21 +398,15 @@ struct Scene
     auto add_spot_light(SpotLight light) -> u32;
     auto add_entity(RenderEntity entity) -> RenderEntityId;
 
-    // Makes an already-added mesh resident: Scene drives the streamer to pack + upload the cooked
-    // ProcessedMesh (importers hand over cooked CPU data, not GPU handles), stores the runtime, and
-    // marks it dirty so the next update_scene uploads it. Thread-safe: importers call this from worker
-    // threads. Mirrors how add_texture queues a texture for streaming from its cooked artifact.
-    void set_mesh_runtime(MakeResidentMeshInfo const & info);
-
     auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
 
     struct UpdateSceneInfo
     {
-        // Used to spawn async texture-streaming jobs (reading cooked .tido off disk). May be null (e.g.
-        // at shutdown after the pool is gone) - then no new streams are spawned this call.
+        // Used to spawn async texture- and mesh-streaming jobs (reading cooked .tido off disk). May be
+        // null (e.g. at shutdown after the pool is gone) - then no new streams are spawned this call.
         ThreadPool * thread_pool = {};
         // Cloud volume textures still arrive via the AssetProcessor queue (their load path is not yet
-        // ported); gltf meshes/textures now go straight into the manifest via set_mesh_runtime/add_texture.
+        // ported); gltf meshes/textures now go straight into the manifest via add_mesh/add_texture.
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
     // Streams in newly added textures, collects finished streams (publishing their runtime image + re-

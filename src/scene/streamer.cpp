@@ -96,68 +96,74 @@ auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & ar
 
 auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info) -> MeshLodGroupUploadInfo
 {
-    ProcessedMesh const & processed = info.processed;
+    TidoMeshCookResult const & artifact = info.artifact;
     MeshLodGroupUploadInfo ret = {};
-    ret.lod_count = processed.lod_count;
+    ret.lod_count = artifact.descriptor.lod_count;
     ret.mesh_lod_manifest_index = info.mesh_lod_manifest_index;
 
-    // Pack each cooked LOD into a single GPU mesh buffer (mirrors the GPUMesh BDA layout).
-    for (u32 lod = 0; lod < processed.lod_count; ++lod)
-    {
-        ProcessedMeshLod const & cooked = processed.lods[lod];
-        bool const lod_has_uv = !cooked.vertex_uvs.empty();
+    // Read the whole .tido data file. Each LOD's blob offset/size in the descriptor is absolute from
+    // byte 0 of this file, so a LOD blob maps directly onto the staging upload with no rebasing.
+    std::ifstream ifs{artifact.tido_path, std::ios::binary | std::ios::ate};
+    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_mesh: failed to open .tido '{}'", artifact.tido_path.string()).c_str());
+    std::streamsize const file_size = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    std::vector<std::byte> file_data(s_cast<usize>(file_size));
+    ifs.read(r_cast<char *>(file_data.data()), file_size);
+    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_mesh: failed to read .tido '{}'", artifact.tido_path.string()).c_str());
 
-        u64 total_mesh_buffer_size =
-            sizeof(Meshlet) * cooked.meshlets.size() +
-            sizeof(BoundingSphere) * cooked.meshlet_bounds.size() +
-            sizeof(AABB) * cooked.meshlet_aabbs.size() +
-            sizeof(u8) * cooked.micro_indices.size() +
-            sizeof(u32) * cooked.indirect_vertices.size() +
-            sizeof(u32) * cooked.primitive_indices.size() +
-            sizeof(daxa_f32vec3) * cooked.vertex_positions.size() +
-            sizeof(daxa_f32vec3) * cooked.vertex_normals.size();
-        if (lod_has_uv)
-        {
-            total_mesh_buffer_size += sizeof(daxa_f32vec2) * cooked.vertex_uvs.size();
-        }
+    // Upload each LOD into its own GPU mesh buffer. The .tido blob is already laid out in GPUMesh BDA
+    // order, so the whole blob is copied in verbatim and the per-array sub-pointers are wired from the
+    // descriptor's element counts (same order write_mesh_tido packed them).
+    for (u32 lod = 0; lod < artifact.descriptor.lod_count; ++lod)
+    {
+        TidoMeshLodDescriptor const & desc = artifact.lods[lod];
+        bool const lod_has_uv = desc.has_uv != 0;
 
         GPUMesh mesh = {};
-        mesh.lod_error = cooked.lod_error;
-        mesh.aabb = cooked.aabb;
-        mesh.bounding_sphere = cooked.bounding_sphere;
+        mesh.lod_error = desc.lod_error;
+        mesh.aabb = desc.aabb;
+        mesh.bounding_sphere = desc.bounding_sphere;
 
         mesh.mesh_buffer = device.create_buffer({
-            .size = s_cast<daxa::usize>(total_mesh_buffer_size),
+            .size = s_cast<daxa::usize>(desc.blob_byte_size),
             .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
             .name = info.name + "." + std::to_string(lod),
         });
         daxa::DeviceAddress const mesh_bda = device.buffer_device_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
         auto mesh_gpu_mem_ptr = device.buffer_host_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
+        // The blob is contiguous and already in BDA order; copy it in one shot.
+        DBG_ASSERT_TRUE_M(desc.blob_offset + desc.blob_byte_size <= file_data.size(), "make_resident_mesh: LOD blob out of .tido bounds");
+        std::memcpy(mesh_gpu_mem_ptr, file_data.data() + desc.blob_offset, s_cast<usize>(desc.blob_byte_size));
+
+        // Carve out the per-array BDA sub-pointers by walking the blob in pack order. meshlet_bounds /
+        // meshlet_aabbs share meshlet_count; vertex_positions / vertex_normals (and vertex_uvs when
+        // present) share vertex_count.
         u64 accumulated_offset = 0;
-        auto pack = [&](auto & dst_ptr_field, void const * src, u64 byte_size)
+        auto sub_ptr = [&](u64 byte_size) -> daxa::DeviceAddress
         {
-            dst_ptr_field = mesh_bda + accumulated_offset;
-            std::memcpy(mesh_gpu_mem_ptr + accumulated_offset, src, byte_size);
+            daxa::DeviceAddress const address = mesh_bda + accumulated_offset;
             accumulated_offset += byte_size;
+            return address;
         };
-        pack(mesh.meshlets, cooked.meshlets.data(), sizeof(Meshlet) * cooked.meshlets.size());
-        pack(mesh.meshlet_bounds, cooked.meshlet_bounds.data(), sizeof(BoundingSphere) * cooked.meshlet_bounds.size());
-        pack(mesh.meshlet_aabbs, cooked.meshlet_aabbs.data(), sizeof(AABB) * cooked.meshlet_aabbs.size());
-        pack(mesh.micro_indices, cooked.micro_indices.data(), sizeof(u8) * cooked.micro_indices.size());
-        pack(mesh.indirect_vertices, cooked.indirect_vertices.data(), sizeof(u32) * cooked.indirect_vertices.size());
-        pack(mesh.primitive_indices, cooked.primitive_indices.data(), sizeof(u32) * cooked.primitive_indices.size());
-        pack(mesh.vertex_positions, cooked.vertex_positions.data(), sizeof(daxa_f32vec3) * cooked.vertex_positions.size());
+        mesh.meshlets = sub_ptr(sizeof(Meshlet) * desc.meshlet_count);
+        mesh.meshlet_bounds = sub_ptr(sizeof(BoundingSphere) * desc.meshlet_count);
+        mesh.meshlet_aabbs = sub_ptr(sizeof(AABB) * desc.meshlet_count);
+        mesh.micro_indices = sub_ptr(sizeof(u8) * desc.micro_indices_count);
+        mesh.indirect_vertices = sub_ptr(sizeof(u32) * desc.indirect_vertices_count);
+        mesh.primitive_indices = sub_ptr(sizeof(u32) * desc.primitive_indices_count);
+        mesh.vertex_positions = sub_ptr(sizeof(daxa_f32vec3) * desc.vertex_count);
         if (lod_has_uv)
         {
-            pack(mesh.vertex_uvs, cooked.vertex_uvs.data(), sizeof(daxa_f32vec2) * cooked.vertex_uvs.size());
+            mesh.vertex_uvs = sub_ptr(sizeof(daxa_f32vec2) * desc.vertex_count);
         }
-        pack(mesh.vertex_normals, cooked.vertex_normals.data(), sizeof(daxa_f32vec3) * cooked.vertex_normals.size());
+        mesh.vertex_normals = sub_ptr(sizeof(daxa_f32vec3) * desc.vertex_count);
+        DBG_ASSERT_TRUE_M(accumulated_offset == desc.blob_byte_size, "make_resident_mesh: LOD sub-pointer walk did not consume the whole blob");
 
         mesh.material_index = info.material_manifest_index;
-        mesh.meshlet_count = s_cast<u32>(cooked.meshlets.size());
-        mesh.vertex_count = cooked.vertex_count;
-        mesh.primitive_count = cooked.primitive_count;
+        mesh.meshlet_count = desc.meshlet_count;
+        mesh.vertex_count = desc.vertex_count;
+        mesh.primitive_count = desc.primitive_count;
 
         ret.lods[lod] = mesh;
     }

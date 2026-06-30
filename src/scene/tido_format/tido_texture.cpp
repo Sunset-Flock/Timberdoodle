@@ -2,9 +2,9 @@
 
 #include <fstream>
 #include <algorithm>
-#include <cctype>
 
-#include "../optimizers/image_optimizer.hpp" // full CookedImageData (forward-declared in the header)
+#include "tido_util.hpp"
+#include "../optimizers/image_optimizer.hpp" // full ProcessedImage (forward-declared in the header)
 
 namespace
 {
@@ -84,42 +84,12 @@ auto subresource_byte_size(FormatBlockInfo const & block, u32 width, u32 height,
     return blocks_x * blocks_y * mip_d * block.bytes_per_block;
 }
 
-// Turn an arbitrary asset name into a safe file stem (gltf image names can be empty or contain
-// characters that are not valid in a path).
-auto sanitize_stem(std::string const & name) -> std::string
-{
-    std::string out;
-    out.reserve(name.size());
-    for (char const c : name)
-    {
-        bool const ok = std::isalnum(s_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.';
-        out.push_back(ok ? c : '_');
-    }
-    // Drop a trailing extension (e.g. ".png") so the stem is clean.
-    auto const dot = out.find_last_of('.');
-    if (dot != std::string::npos) { out.erase(dot); }
-    if (out.empty()) { out = "unnamed"; }
-    return out;
-}
-
-// 64-bit FNV-1a over the cooked bytes. Disambiguates same-named (or unnamed) images and makes the
-// write idempotent for identical content.
-auto content_hash(std::span<std::byte const> data) -> u64
-{
-    u64 hash = 0xcbf29ce484222325ull;
-    for (std::byte const b : data)
-    {
-        hash ^= s_cast<u64>(s_cast<u8>(b));
-        hash *= 0x100000001b3ull;
-    }
-    return hash;
-}
 } // namespace
 
-auto write_texture_tido(CookedImageData const & cooked, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>
+auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>
 {
-    auto const & image_info = cooked.image_info;
-    u32 const mip_count = cooked.mips_to_copy;
+    auto const & image_info = processed.image_info;
+    u32 const mip_count = processed.mips_to_copy;
     u32 const array_layers = image_info.array_layer_count;
     u32 const width = image_info.size.x;
     u32 const height = image_info.size.y;
@@ -135,7 +105,7 @@ auto write_texture_tido(CookedImageData const & cooked, std::filesystem::path co
     std::error_code ec = {};
     std::filesystem::create_directories(cache_dir, ec); // ignore "already exists"; the open below reports real failures
 
-    std::string const stem = fmt::format("{}_{:016x}", sanitize_stem(name), content_hash(cooked.src_data));
+    std::string const stem = fmt::format("{}_{:016x}", tido_sanitize_stem(name), tido_fnv1a(processed.src_data));
     std::filesystem::path const tido_path = cache_dir / (stem + ".tido");
 
     // Build the .tido payload mip-major, coarse-first; all (single) layers of a mip are contiguous.
@@ -143,18 +113,18 @@ auto write_texture_tido(CookedImageData const & cooked, std::filesystem::path co
     // ((mip_count - 1 - mip) * array_layers + layer) - the mip flip maps the coarsest mip to block 0.
     std::vector<TidoSubresourceEntry> subresources(s_cast<usize>(array_layers) * mip_count);
     std::vector<std::byte> payload = {};
-    payload.reserve(cooked.src_data.size());
+    payload.reserve(processed.src_data.size());
 
     for (i64 mip = s_cast<i64>(mip_count) - 1; mip >= 0; --mip)
     {
         for (u32 layer = 0; layer < array_layers; ++layer)
         {
             u64 const size = subresource_byte_size(block, width, height, depth, s_cast<u32>(mip));
-            u64 const src_offset = cooked.mip_copy_offsets[mip];
-            DBG_ASSERT_TRUE_M(src_offset + size <= cooked.src_data.size(), "write_texture_tido: subresource out of source bounds");
+            u64 const src_offset = processed.mip_copy_offsets[mip];
+            DBG_ASSERT_TRUE_M(src_offset + size <= processed.src_data.size(), "write_texture_tido: subresource out of source bounds");
 
             u64 const dst_offset = payload.size();
-            payload.insert(payload.end(), cooked.src_data.begin() + src_offset, cooked.src_data.begin() + src_offset + size);
+            payload.insert(payload.end(), processed.src_data.begin() + src_offset, processed.src_data.begin() + src_offset + size);
 
             u32 const subresource_index = (mip_count - 1u - s_cast<u32>(mip)) * array_layers + layer;
             subresources[subresource_index] = {.offset = dst_offset, .byte_size = s_cast<u32>(size)};

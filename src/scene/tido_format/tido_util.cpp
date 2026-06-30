@@ -1,0 +1,30 @@
+#include "tido_util.hpp"
+
+#include <cctype>
+
+auto tido_fnv1a(std::span<std::byte const> bytes) -> u64
+{
+    u64 hash = 0xcbf29ce484222325ull;
+    for (std::byte const b : bytes)
+    {
+        hash ^= s_cast<u64>(s_cast<u8>(b));
+        hash *= 0x100000001b3ull;
+    }
+    return hash;
+}
+
+auto tido_sanitize_stem(std::string const & name) -> std::string
+{
+    std::string out;
+    out.reserve(name.size());
+    for (char const c : name)
+    {
+        bool const ok = std::isalnum(s_cast<unsigned char>(c)) || c == '_' || c == '-' || c == '.';
+        out.push_back(ok ? c : '_');
+    }
+    // Drop a trailing extension (e.g. ".png") so the stem is clean.
+    auto const dot = out.find_last_of('.');
+    if (dot != std::string::npos) { out.erase(dot); }
+    if (out.empty()) { out = "unnamed"; }
+    return out;
+}

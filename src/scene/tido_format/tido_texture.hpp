@@ -10,10 +10,9 @@
 #include "../../timberdoodle.hpp"
 using namespace tido::types;
 
-// Defined in optimizers/image_optimizer.hpp. Forward-declared here (instead of included) so that
-// image_optimizer.hpp can include this header to use TidoTextureCookResult as optimize_image's return
-// type without an include cycle. tido_texture.cpp includes image_optimizer.hpp for the full type.
-struct CookedImageData;
+// Defined in optimizers/image_optimizer.hpp. Forward-declared here (instead of included) to keep this
+// header light; tido_texture.cpp includes image_optimizer.hpp for the full type.
+struct ProcessedImage;
 
 /// --- .tido texture format (writer) ---
 /// The cooked, runtime-ready on-disk form of a texture. See "Texture .tido format.md" in the design
@@ -73,7 +72,8 @@ struct TidoTextureCookResult
 // matching how the other asset paths are resolved).
 inline std::filesystem::path const TIDO_ASSET_CACHE_DIR = "tido_asset_cache";
 
-// Writes <cache_dir>/<name>.tido (raw data, mip-major coarse-first) from already-cooked image memory
-// and returns its descriptor + subresource offset table. Does NOT write the .tido_cache manifest yet
-// (that is aggregated per imported file in a later step). Returns std::nullopt on an IO failure.
-auto write_texture_tido(CookedImageData const & cooked, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>;
+// Writes <cache_dir>/<name>.tido (raw data, mip-major coarse-first) from an already-processed image and
+// returns its descriptor + subresource offset table. Does NOT write the .tido_cache manifest yet (that
+// is aggregated per imported file in a later step). Mirrors write_mesh_tido. Returns std::nullopt on an
+// IO failure.
+auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>;

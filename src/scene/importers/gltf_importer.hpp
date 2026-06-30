@@ -2,12 +2,14 @@
 
 #include <filesystem>
 #include <memory>
+#include <optional>
 #include <variant>
 #include <vector>
 
 #include <fastgltf/types.hpp>
 
 #include "../scene.hpp"
+#include "../tido_format/tido_cache.hpp"
 
 /// --- glTF Importer ---
 /// The ONLY place fastgltf lives. Parses a glTF/GLB file and translates it into the generic scene
@@ -34,11 +36,9 @@ struct GltfImporter
     Scene::LoadManifestInfo const & info;
 
     std::filesystem::path file_path = {};
-    // Owned by the importer for its whole lifetime. import() waits for the cook tasks (which borrow
-    // it) before returning, so they can never outlive it — no shared ownership needed.
+    // Owned by the importer for its whole lifetime. load_images / load_meshes wait for the cook tasks
+    // (which borrow it) before returning, so they can never outlive it — no shared ownership needed.
     fastgltf::Asset asset;
-    // Mesh cook tasks dispatched during import; import() blocks on these before returning.
-    std::vector<std::shared_ptr<Task>> mesh_cook_tasks = {};
 
     // Suffix for naming this import's root entity (file-agnostic running count, not a manifest offset).
     u32 import_index = {};
@@ -51,36 +51,40 @@ struct GltfImporter
     std::vector<u32> image_manifest_indices = {};
     std::vector<u32> material_manifest_indices = {};
     std::vector<u32> mesh_group_manifest_indices = {};
+    // Keyed [gltf mesh-group index][in-group primitive index] -> that mesh's manifest index (or
+    // INVALID_MANIFEST_INDEX if its cook failed). Filled by load_meshes (a mesh is added only after it is
+    // cooked); read by translate_mesh_groups to build each group over its already-added meshes. The mesh
+    // analog of image_manifest_indices (nested because a gltf mesh-group owns a list of primitives).
+    std::vector<std::vector<u32>> mesh_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
-    // Every cooked texture artifact this import produced or read from the cache, recorded into the
-    // .tido_cache. cache_dirty is false when every texture was served from an up-to-date cache (so the
-    // existing .tido_cache is already correct and need not be rewritten).
+    // Every cooked texture / mesh artifact this import produced or read from the cache, recorded into
+    // the shared .tido_cache. cache_dirty is false when every artifact was served from an up-to-date
+    // cache (so the existing .tido_cache is already correct and need not be rewritten). Both lists are
+    // gathered single-threaded after the cook tasks finish (each task stores its own result), so no
+    // locking is needed.
     std::vector<TidoTextureCookResult> cooked_texture_artifacts = {};
+    std::vector<TidoMeshCookResult> cooked_mesh_artifacts = {};
     bool cache_dirty = true;
 
-    // Collected during mesh translation so the async cook can be dispatched without storing glTF
-    // identity in the manifests (the cook still needs the asset-local indices).
-    struct PendingMeshLoad
-    {
-        u32 mesh_manifest_index = {};
-        u32 gltf_mesh_index = {};
-        u32 gltf_primitive_index = {};
-        u32 material_manifest_index = {};
-    };
-    std::vector<PendingMeshLoad> pending_mesh_loads = {};
+    // The shared .tido_cache for this source file, loaded once by load_cache and reused by load_images +
+    // load_meshes to serve hits. cache_valid is true only when its key matches the current cook (version
+    // + mtime).
+    std::optional<TidoCache> loaded_cache = {};
+    bool cache_valid = false;
 
     auto parse() -> std::optional<Scene::LoadManifestErrorCode>;
     void collect_referenced_images();
+    // Loads the shared .tido_cache + sets cache_valid (before load_images / load_meshes use it).
+    void load_cache();
     void load_images();
-    // Writes the .tido_cache manifest recording the cook key + all cooked texture artifacts.
+    void load_meshes();
+    // Writes the .tido_cache manifest recording the cook key + all cooked texture AND mesh artifacts.
     void write_cache_manifest();
     void translate_materials();
-    void translate_meshes_and_mesh_groups();
+    void translate_mesh_groups();
     auto translate_entities() -> RenderEntityId;
     auto translate_light(fastgltf::Light const & light) -> u32;
-
-    void dispatch_async_mesh_loads();
 
     auto gltf_texture_to_image_index(u32 gltf_texture_index) -> std::optional<u32>;
 };

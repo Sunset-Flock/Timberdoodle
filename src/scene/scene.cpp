@@ -227,10 +227,19 @@ auto Scene::add_material(MaterialManifestEntry material) -> u32
 
 auto Scene::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
 {
+    // Mirrors add_texture: records the entry (cooked artifact already attached) and marks it for async
+    // streaming. The GPU upload happens later, driven by update_scene. We also mark the GPU-resident mesh
+    // manifest so its slot is initialized now (zeroed -> "not loaded yet") until the stream publishes the
+    // real data. Entries without a cooked artifact are not queued for streaming.
     std::lock_guard<std::mutex> lock{*_manifest_mutex};
     u32 const index = s_cast<u32>(_mesh_lod_group_manifest.size());
+    bool const needs_streaming = !mesh.cooked_artifact.tido_path.empty();
     _mesh_lod_group_manifest.push_back(std::move(mesh));
     _dirty_mesh_lod_group_manifest.mark(index);
+    if (needs_streaming)
+    {
+        _dirty_mesh_lod_group_streaming.mark(index);
+    }
     return index;
 }
 
@@ -252,18 +261,16 @@ auto Scene::add_mesh_group(MeshGroupManifestEntry mesh_group, std::span<u32 cons
     return group_index;
 }
 
-void Scene::set_mesh_runtime(MakeResidentMeshInfo const & info)
+void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Scene owns residency: pack + upload the cooked mesh through the streamer here (the importer no
-    // longer touches the GPU). Done before taking the manifest lock so the GPU work does not block
-    // concurrent manifest appends.
-    MeshLodGroupUploadInfo const upload = make_resident_mesh(_device, info);
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    _mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
-        .lods = upload.lods,
-        .lod_count = upload.lod_count,
-    };
-    _dirty_mesh_lod_group_manifest.mark(upload.mesh_lod_manifest_index);
+    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
+    result = make_resident_mesh(device, MakeResidentMeshInfo{
+        .artifact = artifact,
+        .mesh_lod_manifest_index = mesh_lod_manifest_index,
+        .material_manifest_index = material_manifest_index,
+        .name = name,
+    });
+    finished.store(true, std::memory_order_release);
 }
 
 auto Scene::add_point_light(PointLight light) -> u32
@@ -428,6 +435,44 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
         }
     }
 
+    // --- Mesh residency (async) --- (mirrors the texture residency above)
+    // 1. Collect finished mesh streams: publish the uploaded GPUMesh array as the entry's runtime and
+    //    mark the mesh-lod-group manifest dirty so the GPU sync below uploads the real data and does the
+    //    BLAS-build + mesh-group completeness bookkeeping (the runtime.has_value() branch there).
+    for (auto it = _inflight_mesh_streams.begin(); it != _inflight_mesh_streams.end();)
+    {
+        MeshStreamTask & task = **it;
+        if (!task.finished.load(std::memory_order_acquire))
+        {
+            ++it;
+            continue;
+        }
+        MeshLodGroupUploadInfo const & upload = task.result;
+        _mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
+            .lods = upload.lods,
+            .lod_count = upload.lod_count,
+        };
+        _dirty_mesh_lod_group_manifest.mark(upload.mesh_lod_manifest_index);
+        it = _inflight_mesh_streams.erase(it);
+    }
+    // 2. Spawn a stream task for every newly requested mesh. (No-op without a thread pool, e.g. shutdown.)
+    if (info.thread_pool != nullptr)
+    {
+        for (u32 const mesh_index : _dirty_mesh_lod_group_streaming.drain())
+        {
+            MeshLodGroupManifestEntry const & entry = _mesh_lod_group_manifest.at(mesh_index);
+            auto task = std::make_shared<MeshStreamTask>();
+            task->chunk_count = 1;
+            task->device = _device;
+            task->artifact = entry.cooked_artifact;
+            task->mesh_lod_manifest_index = mesh_index;
+            task->material_manifest_index = entry.material_index.value_or(INVALID_MANIFEST_INDEX);
+            task->name = entry.name;
+            info.thread_pool->async_dispatch(task, TaskPriority::LOW);
+            _inflight_mesh_streams.push_back(std::move(task));
+        }
+    }
+
     auto recorder = _device.create_command_recorder({});
     /// TODO: Make buffers resize.
 
@@ -568,8 +613,8 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
 
     // Sync each dirty mesh-lod-group's GPU state. A mesh is dirtied twice over its life: when it is
     // added (no runtime yet -> we upload zeroed GPUMesh/GPUMeshLodGroup slots) and when its cooked data
-    // is made resident via set_mesh_runtime (-> we upload the real data and do the load bookkeeping).
-    // Dedup so a mesh added + loaded within the same frame is processed (and load-counted) exactly once.
+    // becomes resident (an async mesh stream finishes -> we upload the real data and do the load
+    // bookkeeping). Dedup so a mesh added + loaded within the same frame is processed (load-counted) once.
     if (!dirty_mesh_lod_groups.empty())
     {
         std::vector<u32> unique_dirty_meshes = dirty_mesh_lod_groups;
@@ -1210,7 +1255,9 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
         _dirty_mesh_lod_group_manifest.drain();
         _dirty_mesh_group_manifest.drain();
         _dirty_material_texture_manifest.drain();
+        _dirty_mesh_lod_group_streaming.drain();
         // In-flight stream tasks reference manifest indices that are about to be invalid; drop them.
         _inflight_texture_streams.clear();
+        _inflight_mesh_streams.clear();
     }
 }

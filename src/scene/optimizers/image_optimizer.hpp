@@ -9,15 +9,15 @@
 #include <daxa/daxa.hpp>
 
 #include "../../timberdoodle.hpp"
-#include "../tido_format/tido_texture.hpp" // TidoTextureCookResult (optimize_image's cooked-artifact return)
 using namespace tido::types;
 
 /// --- Image Optimizer ---
 /// Generic image cook (part 2 of texture loading). Takes the raw image data produced by an importer
 /// (decoded pixels or a basis-compressed KTX2 container) and produces the GPU-ready, compressed CPU
-/// memory. It does NOT create a daxa image - it returns the optimized memory, which the caller (the
-/// streamer / the function adding the texture to the manifest) uploads to make resident. Mirrors the
-/// geometry optimizer: raw CPU in -> cooked CPU out, no GPU work, no source-format knowledge.
+/// memory (a ProcessedImage). It does NOT write the .tido and does NOT create a daxa image - the caller
+/// writes the cooked memory out with write_texture_tido (part 3) and the streamer makes it resident.
+/// Mirrors the geometry optimizer exactly: optimize_mesh -> ProcessedMesh, process_image -> ProcessedImage;
+/// raw CPU in -> processed CPU out, no GPU work, no source-format knowledge.
 
 // How an image is used; determines the block-compression format the optimizer targets.
 enum struct TextureMaterialType
@@ -50,8 +50,9 @@ struct OptimizeImageInfo
     std::string name = {};
 };
 
-// --- Optimizer output: GPU-ready compressed memory + the info needed to create/upload the image ---
-struct CookedImageData
+// --- Optimizer output: GPU-ready compressed CPU memory + the info needed to write/upload the image ---
+// The image analog of ProcessedMesh: the cooked, in-memory result, before it is written to a .tido.
+struct ProcessedImage
 {
     std::vector<std::byte> src_data = {};
     daxa::ImageInfo image_info = {};
@@ -63,11 +64,10 @@ enum struct ImageOptimizeError
 {
     FAILED_TO_PROCESS_KTX,
     FAILED_TO_DECODE_PNG,
-    FAILED_TO_WRITE_TIDO,
 };
 
-// Turn raw source bytes into a cooked, on-disk .tido texture artifact. Decodes/transcodes/compresses
-// per the source format (PNG -> decode (-> BC compression, TODO); KTX2 -> basis transcode to BCn),
-// writes the .tido data file, and returns its descriptor + subresource offset table + path. The raw
-// pixel bytes are NOT returned: the streamer makes the texture resident by reading the .tido from disk.
-auto optimize_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, TidoTextureCookResult>;
+// Turn raw source bytes into GPU-ready cooked CPU memory. Decodes/transcodes/compresses per the source
+// format (PNG -> decode (-> BC compression, TODO); KTX2 -> basis transcode to BCn) and returns the
+// processed image. Does NOT write the .tido: the caller writes it with write_texture_tido (mirrors
+// optimize_mesh, whose result is written by write_mesh_tido).
+auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>;
