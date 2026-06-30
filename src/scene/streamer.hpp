@@ -21,7 +21,7 @@ using namespace tido::types;
 auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & artifact) -> daxa::ImageId;
 
 // The GPU-resident result of a cooked mesh: the per-LOD GPUMesh array (each packed into its own BDA
-// buffer) plus the manifest slot it belongs to. Consumed by Scene::record_gpu_manifest_update, which
+// buffer) plus the manifest slot it belongs to. Consumed by Scene::update_scene, which
 // copies it into the GPU mesh manifest and tracks mesh-group completeness.
 struct MeshLodGroupUploadInfo
 {

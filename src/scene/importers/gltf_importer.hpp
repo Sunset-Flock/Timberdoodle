@@ -53,6 +53,11 @@ struct GltfImporter
     std::vector<u32> mesh_group_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
+    // Every cooked texture artifact this import produced or read from the cache, recorded into the
+    // .tido_cache. cache_dirty is false when every texture was served from an up-to-date cache (so the
+    // existing .tido_cache is already correct and need not be rewritten).
+    std::vector<TidoTextureCookResult> cooked_texture_artifacts = {};
+    bool cache_dirty = true;
 
     // Collected during mesh translation so the async cook can be dispatched without storing glTF
     // identity in the manifests (the cook still needs the asset-local indices).
@@ -68,6 +73,8 @@ struct GltfImporter
     auto parse() -> std::optional<Scene::LoadManifestErrorCode>;
     void collect_referenced_images();
     void load_images();
+    // Writes the .tido_cache manifest recording the cook key + all cooked texture artifacts.
+    void write_cache_manifest();
     void translate_materials();
     void translate_meshes_and_mesh_groups();
     auto translate_entities() -> RenderEntityId;

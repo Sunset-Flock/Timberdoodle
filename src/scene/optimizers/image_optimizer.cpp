@@ -299,5 +299,8 @@ auto optimize_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimiz
         DEBUG_MSG(fmt::format("[ERROR][optimize_image] Failed to write .tido for image '{}'", info.name));
         return ImageOptimizeError::FAILED_TO_WRITE_TIDO;
     }
+    DEBUG_MSG(fmt::format("[optimize_image] cooked '{}' -> {} ({}x{}, {} mips) -> '{}'",
+        info.name, s_cast<u32>(cooked.image_info.format), cooked.image_info.size.x, cooked.image_info.size.y,
+        cooked.mips_to_copy, tido_result.value().tido_path.string()));
     return std::move(tido_result.value());
 }

@@ -13,6 +13,11 @@
 #include "../optimizers/image_optimizer.hpp"
 #include "../optimizers/geometry_optimizer.hpp"
 #include "../streamer.hpp"
+#include "../tido_format/tido_cache.hpp"
+
+// Bumped whenever the importer's cook output or the .tido layout changes; stamped into every
+// .tido_cache this importer writes so a stale cache (older version) is detected and re-cooked (T5).
+static constexpr u32 GLTF_IMPORTER_VERSION = 1;
 
 // =================== Mesh extraction: glTF accessors -> format-neutral RawMesh ====================
 // The only place that reads glTF vertex/index accessors. Mirrors the texture part-1 (load_raw_image):
@@ -349,8 +354,10 @@ auto GltfImporter::import() -> std::variant<RenderEntityId, Scene::LoadManifestE
 
     // Pass 1: resolve each used texture to its image; find which images are referenced (+ their type).
     collect_referenced_images();
-    // Pass 2: add + load/optimize every referenced image; returns once they are all loaded.
+    // Pass 2: add + load/optimize every referenced image; returns once they are all cooked.
     load_images();
+    // Persist the cook: record the key + all cooked texture artifacts into the .tido_cache (textures only).
+    write_cache_manifest();
     // Pass 3: a material's images are now loaded, so its entry is complete -> add it.
     translate_materials();
     // Meshes reference materials (added above); entities reference mesh groups (added below).
@@ -487,12 +494,10 @@ void GltfImporter::load_images()
             std::filesystem::path asset_path = {};
             u32 gltf_image_index = {};
             TextureMaterialType type = {};
-            daxa::Device device = {};
         };
 
         TaskInfo info = {};
         // Outputs, valid iff `succeeded`.
-        daxa::ImageId image = {};
         TidoTextureCookResult cooked_artifact = {};
         bool succeeded = {};
 
@@ -513,7 +518,8 @@ void GltfImporter::load_images()
                 return;
             }
             // Part 2: optimizer decodes/transcodes/compresses and writes the cooked .tido data file,
-            // returning the artifact reference (descriptor + subresource offset table + path).
+            // returning the artifact reference (descriptor + subresource offset table + path). The GPU
+            // upload is NOT done here: Scene::add_texture drives the streamer to make it resident.
             auto cooked_ret = optimize_image(raw.value());
             if (std::holds_alternative<ImageOptimizeError>(cooked_ret))
             {
@@ -522,15 +528,66 @@ void GltfImporter::load_images()
                 return;
             }
             cooked_artifact = std::move(std::get<TidoTextureCookResult>(cooked_ret));
-            // Make resident on the GPU (streamer) by reading the cooked .tido back from disk.
-            image = make_resident_image(info.device, cooked_artifact);
             succeeded = true;
         };
     };
 
     image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
 
-    // Dispatch a cook for every referenced image (skip the unreferenced ones found in pass 1).
+    // Stable per-image cache key (source identity). Recomputed identically on re-import so a valid
+    // cache can be hit without cooking. Name + gltf index makes it unique within this file.
+    auto image_cache_key = [&](u32 gltf_image_index) -> u64
+    {
+        return tido_hash(fmt::format("{}#{}", asset.images[gltf_image_index].name.c_str(), gltf_image_index));
+    };
+
+    // Records a cooked texture (fresh cook or cache hit) into the .tido_cache collection + the scene
+    // manifest (which queues it for async streaming). cache_key must already be set on the artifact.
+    auto add_cooked_texture = [&](u32 gltf_image_index, TidoTextureCookResult artifact)
+    {
+        cooked_texture_artifacts.push_back(artifact);
+        u32 const image_manifest_index = scene.add_texture(TextureManifestEntry{
+            .type = image_types.at(gltf_image_index),
+            .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
+            .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
+            .name = asset.images[gltf_image_index].name.c_str(),
+        });
+        image_manifest_indices.at(gltf_image_index) = image_manifest_index;
+    };
+
+    // Load this source file's cache and accept it only if its key matches the current cook (importer
+    // version + source mtime). On a match, referenced images are reconstructed from it - no cooking.
+    TidoCacheKey const current_key = tido_make_cache_key(file_path, GLTF_IMPORTER_VERSION);
+    std::optional<TidoTextureCache> cache = read_texture_cache(TIDO_ASSET_CACHE_DIR / tido_cache_file_name(current_key.source_hash));
+    bool const cache_valid = cache.has_value() &&
+        cache->key.importer_version == current_key.importer_version &&
+        cache->key.source_hash == current_key.source_hash &&
+        cache->key.source_modified == current_key.source_modified;
+
+    if (cache_valid)
+    {
+        DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': texture cache hit ({} entries) - skipping cook",
+            info.asset_name.string(), cache->index.size()));
+    }
+    else if (!cache.has_value())
+    {
+        DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': no texture cache - cooking textures",
+            info.asset_name.string()));
+    }
+    else
+    {
+        // Cache present but stale: report which part of the key changed.
+        char const * reason =
+            cache->key.importer_version != current_key.importer_version ? "importer version changed" :
+            cache->key.source_modified != current_key.source_modified   ? "source file modified" :
+                                                                          "source hash mismatch";
+        DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': texture cache stale ({}) - recooking",
+            info.asset_name.string(), reason));
+    }
+
+    // For each referenced image (skip the unreferenced ones found in pass 1): serve it from the cache
+    // if present, else dispatch a cook task.
+    u32 cached_count = 0;
     std::vector<std::shared_ptr<LoadImageTask>> image_cook_tasks = {};
     for (u32 i = 0; i < s_cast<u32>(asset.images.size()); ++i)
     {
@@ -538,18 +595,26 @@ void GltfImporter::load_images()
         {
             continue; // Unreferenced image - do not cook or add it.
         }
+        if (cache_valid)
+        {
+            if (auto cached = cache->lookup(image_cache_key(i)); cached.has_value())
+            {
+                add_cooked_texture(i, std::move(cached.value())); // cache hit: skip cooking.
+                ++cached_count;
+                continue;
+            }
+        }
         auto task = std::make_shared<LoadImageTask>(LoadImageTask::TaskInfo{
             .asset = &asset,
             .asset_path = file_path,
             .gltf_image_index = i,
             .type = image_types.at(i),
-            .device = scene._device,
         });
         info.thread_pool->async_dispatch(task, TaskPriority::LOW);
         image_cook_tasks.push_back(std::move(task));
     }
 
-    // Wait for all cooks, then add each optimized image to the manifest with its result.
+    // Wait for the freshly cooked images, key them, and add them.
     for (auto const & task : image_cook_tasks)
     {
         info.thread_pool->block_on(task);
@@ -558,14 +623,35 @@ void GltfImporter::load_images()
             continue;
         }
         u32 const gltf_image_index = task->info.gltf_image_index;
-        u32 const image_manifest_index = scene.add_texture(TextureManifestEntry{
-            .type = image_types.at(gltf_image_index),
-            .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
-            .runtime_texture = task->image,           // Already cooked + resident: immediately streamable.
-            .cooked_artifact = std::move(task->cooked_artifact), // .tido reference for later re-streaming.
-            .name = asset.images[gltf_image_index].name.c_str(),
-        });
-        image_manifest_indices.at(gltf_image_index) = image_manifest_index;
+        task->cooked_artifact.cache_key = image_cache_key(gltf_image_index);
+        add_cooked_texture(gltf_image_index, std::move(task->cooked_artifact));
+    }
+
+    // Only (re)write the cache if we cooked something; a full cache hit is already on disk and current.
+    cache_dirty = !image_cook_tasks.empty() || !cache_valid;
+
+    DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': {} textures ({} from cache, {} cooked)",
+        info.asset_name.string(), cached_count + s_cast<u32>(image_cook_tasks.size()), cached_count, image_cook_tasks.size()));
+}
+
+void GltfImporter::write_cache_manifest()
+{
+    // Nothing to do if every texture came from an already-current cache.
+    if (!cache_dirty) { return; }
+    // Key the cache on the source path + its modified time + the hardcoded importer version, and record
+    // every cooked texture artifact. The file is named by the hashed source path so a future import can
+    // find it deterministically (T5). IO failure is non-fatal: the cook already ran this session.
+    TidoCacheKey const key = tido_make_cache_key(file_path, GLTF_IMPORTER_VERSION);
+    std::filesystem::path const cache_path = TIDO_ASSET_CACHE_DIR / tido_cache_file_name(key.source_hash);
+    if (write_texture_cache(cache_path, key, cooked_texture_artifacts))
+    {
+        DEBUG_MSG(fmt::format("[GltfImporter::write_cache_manifest] wrote {} texture entries to '{}'",
+            cooked_texture_artifacts.size(), cache_path.string()));
+    }
+    else
+    {
+        DEBUG_MSG(fmt::format("[WARN][GltfImporter::write_cache_manifest] failed to write .tido_cache for '{}'",
+            file_path.string()));
     }
 }
 
@@ -842,7 +928,6 @@ void GltfImporter::dispatch_async_mesh_loads()
             u32 gltf_primitive_index = {};
             u32 mesh_lod_manifest_index = {};
             u32 material_manifest_index = {};
-            daxa::Device device = {};
             Scene * scene = {};
         };
 
@@ -865,16 +950,15 @@ void GltfImporter::dispatch_async_mesh_loads()
             }
             // Part 2: cook the raw streams into the runtime form (optimizer).
             ProcessedMesh const processed = optimize_mesh(raw.value());
-            // Part 3: pack + upload each cooked LOD to the GPU (streamer).
-            MeshLodGroupUploadInfo const upload = make_resident_mesh(info.device, {
+            // Hand the cooked mesh to the scene; set_mesh_runtime drives the streamer to pack + upload it
+            // and marks it dirty so the next update_scene uploads it. The importer does no
+            // GPU work itself (mirrors add_texture streaming a texture in from its cooked artifact).
+            info.scene->set_mesh_runtime({
                 .processed = processed,
                 .mesh_lod_manifest_index = info.mesh_lod_manifest_index,
                 .material_manifest_index = info.material_manifest_index,
                 .name = std::string(info.asset->meshes[info.gltf_mesh_index].name.c_str()) + "." + std::to_string(info.gltf_primitive_index),
             });
-            // Hand the resident mesh straight to the scene: sets its runtime data + marks it dirty so the
-            // next record_gpu_manifest_update uploads it (mirrors add_texture handing over a resident texture).
-            info.scene->set_mesh_runtime(upload.mesh_lod_manifest_index, upload.lods, upload.lod_count);
         };
     };
 
@@ -887,7 +971,6 @@ void GltfImporter::dispatch_async_mesh_loads()
             .gltf_primitive_index = pending.gltf_primitive_index,
             .mesh_lod_manifest_index = pending.mesh_manifest_index,
             .material_manifest_index = pending.material_manifest_index,
-            .device = scene._device,
             .scene = &scene,
         });
         info.thread_pool->async_dispatch(task, TaskPriority::LOW);

@@ -179,10 +179,26 @@ auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::varia
 
 auto Scene::add_texture(TextureManifestEntry texture) -> u32
 {
+    // add_texture stays cheap + non-blocking: it only records the entry and marks it for streaming.
+    // The actual GPU upload happens asynchronously, driven by update_scene (which spawns the stream
+    // task and later publishes the resident image). Entries without a cooked artifact (e.g. cloud
+    // volumes, made resident elsewhere) are not queued.
     std::lock_guard<std::mutex> lock{*_manifest_mutex};
     u32 const index = s_cast<u32>(_material_texture_manifest.size());
+    bool const needs_streaming = !texture.cooked_artifact.tido_path.empty();
     _material_texture_manifest.push_back(std::move(texture));
+    if (needs_streaming)
+    {
+        _dirty_material_texture_manifest.mark(index);
+    }
     return index;
+}
+
+void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+{
+    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
+    result = make_resident_image(device, artifact);
+    finished.store(true, std::memory_order_release);
 }
 
 auto Scene::add_material(MaterialManifestEntry material) -> u32
@@ -236,14 +252,18 @@ auto Scene::add_mesh_group(MeshGroupManifestEntry mesh_group, std::span<u32 cons
     return group_index;
 }
 
-void Scene::set_mesh_runtime(u32 mesh_lod_manifest_index, std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> const & lods, u32 lod_count)
+void Scene::set_mesh_runtime(MakeResidentMeshInfo const & info)
 {
+    // Scene owns residency: pack + upload the cooked mesh through the streamer here (the importer no
+    // longer touches the GPU). Done before taking the manifest lock so the GPU work does not block
+    // concurrent manifest appends.
+    MeshLodGroupUploadInfo const upload = make_resident_mesh(_device, info);
     std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    _mesh_lod_group_manifest.at(mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
-        .lods = lods,
-        .lod_count = lod_count,
+    _mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
+        .lods = upload.lods,
+        .lod_count = upload.lod_count,
     };
-    _dirty_mesh_lod_group_manifest.mark(mesh_lod_manifest_index);
+    _dirty_mesh_lod_group_manifest.mark(upload.mesh_lod_manifest_index);
 }
 
 auto Scene::add_point_light(PointLight light) -> u32
@@ -371,8 +391,43 @@ for (u32 cloud_volume_manifest_index : scene._cloud_volumes_requesting_load)
 scene._cloud_volumes_requesting_load.clear();
 }
 
-auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList
+auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableCommandList
 {
+    // --- Texture residency (async) ---
+    // 1. Collect finished texture streams: publish each resident image as the texture's runtime, and
+    //    re-mark the materials referencing it dirty so their GPUMaterial picks up the resolved id below.
+    for (auto it = _inflight_texture_streams.begin(); it != _inflight_texture_streams.end();)
+    {
+        TextureStreamTask & task = **it;
+        if (!task.finished.load(std::memory_order_acquire))
+        {
+            ++it;
+            continue;
+        }
+        TextureManifestEntry & texture = _material_texture_manifest.at(task.texture_manifest_index);
+        texture.runtime_texture = task.result;
+        for (TextureManifestEntry::MaterialManifestIndex const & ref : texture.material_manifest_indices)
+        {
+            _dirty_material_manifest.mark(ref.material_manifest_index);
+        }
+        it = _inflight_texture_streams.erase(it);
+    }
+    // 2. Spawn a stream task for every newly dirtied texture. (No-op if there is no thread pool, e.g.
+    //    at shutdown - those textures simply never become resident, which is fine.)
+    if (info.thread_pool != nullptr)
+    {
+        for (u32 const texture_index : _dirty_material_texture_manifest.drain())
+        {
+            auto task = std::make_shared<TextureStreamTask>();
+            task->chunk_count = 1;
+            task->device = _device;
+            task->artifact = _material_texture_manifest.at(texture_index).cooked_artifact;
+            task->texture_manifest_index = texture_index;
+            info.thread_pool->async_dispatch(task, TaskPriority::LOW);
+            _inflight_texture_streams.push_back(std::move(task));
+        }
+    }
+
     auto recorder = _device.create_command_recorder({});
     /// TODO: Make buffers resize.
 
@@ -1154,5 +1209,8 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
         _dirty_material_manifest.drain();
         _dirty_mesh_lod_group_manifest.drain();
         _dirty_mesh_group_manifest.drain();
+        _dirty_material_texture_manifest.drain();
+        // In-flight stream tasks reference manifest indices that are about to be invalid; drop them.
+        _inflight_texture_streams.clear();
     }
 }

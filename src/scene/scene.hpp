@@ -14,6 +14,7 @@
 #include "../multithreading/thread_pool.hpp"
 #include "asset_processor.hpp"
 #include "tido_format/tido_texture.hpp"
+#include "streamer.hpp"
 using namespace tido::types;
 
 struct CPUMeshInstanceCounts
@@ -135,7 +136,7 @@ struct CloudVolume
 
 // A thread-safe list of manifest indices that changed (were added, or had their runtime data updated)
 // since the last GPU manifest sync. Every manifest that is mirrored on the GPU owns one; importers
-// mark indices from worker threads as they populate the scene, and record_gpu_manifest_update drains
+// mark indices from worker threads as they populate the scene, and update_scene drains
 // it to re-upload exactly those entries (instead of assuming a contiguous tail of new entries).
 // Manifests that are not shared with the GPU (e.g. the texture manifest) do not need one.
 struct DirtyManifestList
@@ -158,6 +159,22 @@ struct DirtyManifestList
     std::vector<u32> _indices = {};
     // unique_ptr so the owning Scene stays movable (std::mutex is not movable), matching _manifest_mutex.
     std::unique_ptr<std::mutex> _mutex = std::make_unique<std::mutex>();
+};
+
+// An async texture residency job. update_scene spawns one per newly dirtied texture: on a worker
+// thread it reads the cooked .tido off disk and uploads it to the GPU (the streamer). update_scene
+// polls `finished` each frame; once set it publishes `result` as the texture's runtime image and
+// re-marks the materials referencing that texture dirty so their GPUMaterial gets the resolved id.
+struct TextureStreamTask : Task
+{
+    daxa::Device device = {};
+    // Copied (not referenced) so it stays valid if _material_texture_manifest reallocates mid-stream.
+    TidoTextureCookResult artifact = {};
+    u32 texture_manifest_index = {};
+    daxa::ImageId result = {};
+    std::atomic<bool> finished = false;
+
+    void callback(u32 chunk_index, u32 thread_index) override;
 };
 
 struct RenderEntity;
@@ -275,7 +292,7 @@ struct Scene
     static constexpr u32 MAX_MESH_BLAS_BUILDS_PER_FRAME = 64;
     // Root entity of each imported asset's entity sub-tree (file-agnostic; replaces the old per-file session list).
     std::vector<RenderEntityId> _root_render_entities = {};
-    std::vector<TextureManifestEntry> _material_texture_manifest = {}; // CPU-only: not mirrored on the GPU, so no dirty list.
+    std::vector<TextureManifestEntry> _material_texture_manifest = {};
     std::vector<MaterialManifestEntry> _material_manifest = {};
     std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
     std::vector<u32> _mesh_lod_group_manifest_indices = {};
@@ -284,6 +301,12 @@ struct Scene
     DirtyManifestList _dirty_material_manifest = {};
     DirtyManifestList _dirty_mesh_lod_group_manifest = {};
     DirtyManifestList _dirty_mesh_group_manifest = {};
+    // Texture indices whose cooked artifact still needs streaming in. update_scene drains this to spawn
+    // async stream tasks; it is not a GPU-resident manifest itself (textures reach the GPU only as
+    // ImageIds inside GPUMaterial), but it drives the residency + the material re-dirtying.
+    DirtyManifestList _dirty_material_texture_manifest = {};
+    // Texture stream jobs currently in flight (spawned by update_scene, collected once finished).
+    std::vector<std::shared_ptr<TextureStreamTask>> _inflight_texture_streams = {};
     std::vector<PointLight> _point_lights = {};
     std::vector<SpotLight> _spot_lights = {};
     std::vector<CloudVolume> _cloud_volumes = {};
@@ -345,20 +368,26 @@ struct Scene
     auto add_spot_light(SpotLight light) -> u32;
     auto add_entity(RenderEntity entity) -> RenderEntityId;
 
-    // Fills an already-added mesh's runtime (GPU-resident) data once it has been cooked + made resident,
-    // and marks it dirty so the next record_gpu_manifest_update uploads it. Thread-safe: importers call
-    // this from worker threads. Mirrors how add_texture hands a resident texture straight to the scene.
-    void set_mesh_runtime(u32 mesh_lod_manifest_index, std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> const & lods, u32 lod_count);
+    // Makes an already-added mesh resident: Scene drives the streamer to pack + upload the cooked
+    // ProcessedMesh (importers hand over cooked CPU data, not GPU handles), stores the runtime, and
+    // marks it dirty so the next update_scene uploads it. Thread-safe: importers call this from worker
+    // threads. Mirrors how add_texture queues a texture for streaming from its cooked artifact.
+    void set_mesh_runtime(MakeResidentMeshInfo const & info);
 
     auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
 
-    struct RecordGPUManifestUpdateInfo
+    struct UpdateSceneInfo
     {
+        // Used to spawn async texture-streaming jobs (reading cooked .tido off disk). May be null (e.g.
+        // at shutdown after the pool is gone) - then no new streams are spawned this call.
+        ThreadPool * thread_pool = {};
         // Cloud volume textures still arrive via the AssetProcessor queue (their load path is not yet
         // ported); gltf meshes/textures now go straight into the manifest via set_mesh_runtime/add_texture.
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
-    auto record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info) -> daxa::ExecutableCommandList;
+    // Streams in newly added textures, collects finished streams (publishing their runtime image + re-
+    // marking referencing materials dirty), then records the GPU manifest updates for the frame.
+    auto update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableCommandList;
 
     auto create_mesh_acceleration_structures() -> daxa::ExecutableCommandList;
     void build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas);

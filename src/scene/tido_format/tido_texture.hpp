@@ -21,32 +21,12 @@ struct CookedImageData;
 ///   <stem>.tido        - raw texel/block data only, no header. Subresources are laid out mip-major,
 ///                        coarse-first (all array layers of one mip are contiguous so a single
 ///                        VkCopyBufferToImage uploads a whole mip level).
-///   <stem>.tido_cache  - metadata sidecar: header + descriptor + the subresource offset table that
-///                        tells a reader where each subresource lives inside the .tido. (Writing the
-///                        cache manifest is a later step; for now the optimizer writes the .tido data
-///                        file and returns this metadata so it can be persisted then.)
+///   <name>.tido_cache - per-imported-file manifest recording the cook key + every cooked texture's
+///                        descriptor + subresource offset table + .tido path. Defined in tido_cache.hpp.
 
-inline constexpr u32 TIDO_CACHE_VERSION = 1;
-
-// Which kind of streamable blob a .tido_cache describes. Lets a reader verify it opened the right
-// file. Extended later (collider, cpu_mesh, audio, ...).
-enum struct StreamableBlobType : u8
-{
-    TEXTURE = 0,
-    MESH = 1,
-};
-
-// First struct in a .tido_cache. version stays the first field so header changes never break the
-// version check (mirrors TidoVolumetricCloudDataHeader's convention).
-struct TidoCacheHeader
-{
-    std::array<char, 4> magic = {'T', 'I', 'D', 'C'};
-    u32 version = TIDO_CACHE_VERSION;
-    u8 blob_type = s_cast<u8>(StreamableBlobType::TEXTURE);
-    std::array<u8, 3> _pad = {};
-};
-
-// Fixed texture description following the header in a .tido_cache.
+// Fixed texture description: extents + format + mip/layer counts. Stored per texture in the cache
+// manifest; everything else about the cooked texture is derivable from it (see tido_format_is_bc5_rg,
+// the 3D/cube deduction in the streamer, etc.).
 struct TidoTextureDescriptor
 {
     u32 format = {};       // daxa::Format == VkFormat (see static_assert below)
@@ -78,9 +58,12 @@ inline auto tido_format_is_bc5_rg(u32 format) -> bool
     return f == daxa::Format::BC5_UNORM_BLOCK || f == daxa::Format::BC5_SNORM_BLOCK;
 }
 
-// The cooked metadata produced alongside the .tido data file. Persisted into the .tido_cache later.
+// The cooked metadata produced alongside the .tido data file. Persisted into the .tido_cache.
 struct TidoTextureCookResult
 {
+    // Stable per-artifact lookup key (hash of the texture's source identity). Used as the key of the
+    // .tido_cache index so an importer can find this entry by recomputing the key from the source.
+    u64 cache_key = {};
     TidoTextureDescriptor descriptor = {};
     std::vector<TidoSubresourceEntry> subresources = {}; // size == array_layers * mip_count
     std::filesystem::path tido_path = {};                // the written .tido data file

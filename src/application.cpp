@@ -238,7 +238,8 @@ void Application::update()
 
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
     
-    cmd_lists.at(cmd_list_count++) = _scene->record_gpu_manifest_update({
+    cmd_lists.at(cmd_list_count++) = _scene->update_scene({
+        .thread_pool = _threadpool.get(),
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
@@ -323,7 +324,9 @@ Application::~Application()
 {
     _threadpool.reset();
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
-    auto manifest_update_commands = _scene->record_gpu_manifest_update({
+    // Thread pool is gone here: update_scene won't spawn new texture streams, just flushes GPU updates.
+    auto manifest_update_commands = _scene->update_scene({
+        .thread_pool = nullptr,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
     auto cmd_lists = std::array{std::move(manifest_update_commands)};

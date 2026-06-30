@@ -47,6 +47,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/optimizers/geometry_optimizer.cpp"
     "src/scene/optimizers/image_optimizer.cpp"
     "src/scene/tido_format/tido_texture.cpp"
+    "src/scene/tido_format/tido_cache.cpp"
     "src/scene/optimizers/test.cpp"
     "src/rendering/rasterize_visbuffer/rasterize_visbuffer.cpp"
     "src/rendering/rtgi/rtgi.cpp"
