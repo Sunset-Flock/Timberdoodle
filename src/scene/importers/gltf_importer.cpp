@@ -493,7 +493,7 @@ void GltfImporter::load_images()
         TaskInfo info = {};
         // Outputs, valid iff `succeeded`.
         daxa::ImageId image = {};
-        bool compressed_bc5_rg = {};
+        TidoTextureCookResult cooked_artifact = {};
         bool succeeded = {};
 
         LoadImageTask(TaskInfo const & info)
@@ -512,7 +512,8 @@ void GltfImporter::load_images()
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
                 return;
             }
-            // Part 2: optimizer decodes/transcodes/compresses into GPU-ready memory.
+            // Part 2: optimizer decodes/transcodes/compresses and writes the cooked .tido data file,
+            // returning the artifact reference (descriptor + subresource offset table + path).
             auto cooked_ret = optimize_image(raw.value());
             if (std::holds_alternative<ImageOptimizeError>(cooked_ret))
             {
@@ -520,16 +521,14 @@ void GltfImporter::load_images()
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
                 return;
             }
-            CookedImageData const & cooked = std::get<CookedImageData>(cooked_ret);
-            // Make resident on the GPU (streamer).
-            image = make_resident_image(info.device, cooked);
-            compressed_bc5_rg = cooked.compressed_bc5_rg;
+            cooked_artifact = std::move(std::get<TidoTextureCookResult>(cooked_ret));
+            // Make resident on the GPU (streamer) by reading the cooked .tido back from disk.
+            image = make_resident_image(info.device, cooked_artifact);
             succeeded = true;
         };
     };
 
     image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
-    image_compressed_bc5.assign(asset.images.size(), false);
 
     // Dispatch a cook for every referenced image (skip the unreferenced ones found in pass 1).
     std::vector<std::shared_ptr<LoadImageTask>> image_cook_tasks = {};
@@ -561,12 +560,12 @@ void GltfImporter::load_images()
         u32 const gltf_image_index = task->info.gltf_image_index;
         u32 const image_manifest_index = scene.add_texture(TextureManifestEntry{
             .type = image_types.at(gltf_image_index),
-            .material_manifest_indices = {},      // Back-refs are filled by Scene::add_material (pass 3).
-            .runtime_texture = task->image,       // Already cooked + resident: immediately streamable.
+            .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
+            .runtime_texture = task->image,           // Already cooked + resident: immediately streamable.
+            .cooked_artifact = std::move(task->cooked_artifact), // .tido reference for later re-streaming.
             .name = asset.images[gltf_image_index].name.c_str(),
         });
         image_manifest_indices.at(gltf_image_index) = image_manifest_index;
-        image_compressed_bc5.at(gltf_image_index) = task->compressed_bc5_rg;
     }
 }
 
@@ -587,7 +586,6 @@ void GltfImporter::translate_materials()
         std::optional<MaterialManifestEntry::TextureInfo> opacity_texture_info = {};
         std::optional<MaterialManifestEntry::TextureInfo> normal_texture_info = {};
         std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
-        bool normal_compressed_bc5_rg = false;
         if (material.pbrData.baseColorTexture.has_value())
         {
             u32 const manifest_index = image_manifest_index_of(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
@@ -598,8 +596,6 @@ void GltfImporter::translate_materials()
         {
             u32 const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.normalTexture.value().textureIndex)).value();
             normal_texture_info = {.tex_manifest_index = image_manifest_indices.at(gltf_image_index), .sampler_index = 0};
-            // The cook (pass 2) already determined the normal's compression - the material entry is complete.
-            normal_compressed_bc5_rg = image_compressed_bc5.at(gltf_image_index);
         }
         if (material.pbrData.metallicRoughnessTexture.has_value())
         {
@@ -614,7 +610,6 @@ void GltfImporter::translate_materials()
             .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask,
             .double_sided = material.doubleSided,
             .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
-            .normal_compressed_bc5_rg = normal_compressed_bc5_rg,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
             .emissive_color = f32vec3(material.emissiveFactor[0] * material.emissiveStrength, material.emissiveFactor[1] * material.emissiveStrength, material.emissiveFactor[2] * material.emissiveStrength),
             .name = material.name.c_str(),

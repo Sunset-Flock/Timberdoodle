@@ -13,6 +13,7 @@
 #include "../slot_map.hpp"
 #include "../multithreading/thread_pool.hpp"
 #include "asset_processor.hpp"
+#include "tido_format/tido_texture.hpp"
 using namespace tido::types;
 
 struct CPUMeshInstanceCounts
@@ -47,6 +48,10 @@ struct TextureManifestEntry
     // So the GPUMaterial Need to be updated when the texture changes.
     std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
     std::optional<daxa::ImageId> runtime_texture = {};
+    // Reference to the cooked .tido artifact (descriptor + subresource offset table + path). The
+    // streamer reads this to make runtime_texture resident; kept so the texture can be re-streamed
+    // (loaded/unloaded) later without the source file. Empty for non-gltf textures (e.g. cloud volumes).
+    TidoTextureCookResult cooked_artifact = {};
     std::string name = {};
 
     auto loaded() const -> bool{ return runtime_texture.has_value(); }
@@ -66,8 +71,7 @@ struct MaterialManifestEntry
     bool alpha_discard_enabled = {};
     bool double_sided = {};
     bool blend_enabled = {};
-    bool normal_compressed_bc5_rg = {}; 
-    bool is_metal = {}; 
+    bool is_metal = {};
     f32vec3 base_color = {};
     f32vec3 emissive_color = {};
     std::string name = {};

@@ -53,9 +53,6 @@ struct GltfImporter
     std::vector<u32> mesh_group_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
-    // Per gltf image: whether the cook compressed it as BC5 (a normal-map property the material
-    // needs). Filled in load_images from the cook result so the material entry is complete.
-    std::vector<bool> image_compressed_bc5 = {};
 
     // Collected during mesh translation so the async cook can be dispatched without storing glTF
     // identity in the manifests (the cook still needs the asset-local indices).

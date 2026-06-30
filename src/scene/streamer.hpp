@@ -7,19 +7,18 @@
 
 #include "../timberdoodle.hpp"
 #include "../shader_shared/geometry.inl"
-#include "optimizers/image_optimizer.hpp"
 #include "optimizers/geometry_optimizer.hpp"
+#include "tido_format/tido_texture.hpp"
 using namespace tido::types;
 
 /// --- Streamer ---
-/// Makes cooked artifacts resident on the GPU. For now this is just the image + mesh upload paths
-/// lifted out of AssetProcessor; it grows into the full .tido streaming back-end later.
+/// Makes cooked artifacts resident on the GPU. Textures are streamed in from their cooked .tido data
+/// file (it no longer receives the raw pixel bytes in memory); meshes are still uploaded from the
+/// in-memory cooked form. This grows into the full .tido streaming back-end later.
 
-// Uploads cooked image memory into one array layer of an existing daxa image.
-void upload_texture(daxa::Device & device, CookedImageData const & cooked, daxa::ImageId image, u32 layer = 0u);
-
-// Creates a resident daxa image from cooked image memory and uploads it.
-auto make_resident_image(daxa::Device & device, CookedImageData const & cooked) -> daxa::ImageId;
+// Creates a resident daxa image described by the cooked artifact and uploads its texel data, read
+// back from the artifact's .tido file on disk. Reads every subresource (full residency for now).
+auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & artifact) -> daxa::ImageId;
 
 // The GPU-resident result of a cooked mesh: the per-LOD GPUMesh array (each packed into its own BDA
 // buffer) plus the manifest slot it belongs to. Consumed by Scene::record_gpu_manifest_update, which

@@ -1,11 +1,42 @@
 #include "streamer.hpp"
 
 #include <cstring>
+#include <fstream>
+#include <vector>
 
-void upload_texture(daxa::Device & device, CookedImageData const & cooked, daxa::ImageId image, u32 layer)
+auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & artifact) -> daxa::ImageId
 {
-    auto cr = device.create_command_recorder({.name = "upload image"});
+    TidoTextureDescriptor const & desc = artifact.descriptor;
 
+    // Read the whole .tido data file. The subresource offsets in the artifact are absolute from byte 0
+    // of this file, so it maps directly onto the staging buffer with no rebasing.
+    std::ifstream ifs{artifact.tido_path, std::ios::binary | std::ios::ate};
+    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_image: failed to open .tido '{}'", artifact.tido_path.string()).c_str());
+    std::streamsize const file_size = ifs.tellg();
+    ifs.seekg(0, std::ios::beg);
+    std::vector<std::byte> file_data(s_cast<usize>(file_size));
+    ifs.read(r_cast<char *>(file_data.data()), file_size);
+    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_image: failed to read .tido '{}'", artifact.tido_path.string()).c_str());
+
+    // 3D vs 2D/array/cube is deduced from the extents/layer count, not stored: a depth > 1 means a 3D
+    // texture; an array_layers that is a multiple of 6 is a cubemap (gets the cube-compatible flag).
+    bool const is_3d = desc.depth > 1;
+    bool const is_cube = !is_3d && desc.array_layers != 0 && (desc.array_layers % 6 == 0);
+
+    daxa::ImageInfo const image_info = {
+        .flags = is_cube ? daxa::ImageCreateFlagBits::COMPATIBLE_CUBE : daxa::ImageCreateFlagBits::NONE,
+        .dimensions = is_3d ? 3u : 2u,
+        .format = std::bit_cast<daxa::Format>(desc.format),
+        .size = {desc.width, desc.height, desc.depth},
+        .mip_level_count = desc.mip_count,
+        .array_layer_count = desc.array_layers,
+        .sample_count = 1,
+        .usage = daxa::ImageUsageFlagBits::SHADER_SAMPLED | daxa::ImageUsageFlagBits::TRANSFER_DST,
+        .name = artifact.tido_path.filename().string(),
+    };
+    daxa::ImageId image = device.create_image(image_info);
+
+    auto cr = device.create_command_recorder({.name = "upload image"});
     cr.pipeline_image_barrier({
         .dst_access = daxa::AccessConsts::TRANSFER_WRITE,
         .image = image,
@@ -13,30 +44,37 @@ void upload_texture(daxa::Device & device, CookedImageData const & cooked, daxa:
     });
 
     daxa::BufferId staging_buffer = device.create_buffer({
-        .size = cooked.src_data.size(),
+        .size = s_cast<daxa::usize>(file_size),
         .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_SEQUENTIAL_WRITE,
         .name = "upload image",
     });
     cr.destroy_buffer_deferred(staging_buffer);
-    std::memcpy(device.buffer_host_address(staging_buffer).value(), cooked.src_data.data(), cooked.src_data.size());
+    std::memcpy(device.buffer_host_address(staging_buffer).value(), file_data.data(), s_cast<usize>(file_size));
 
-    daxa::ImageInfo image_info = device.image_info(image).value();
-    for (u32 mip = 0; mip < cooked.mips_to_copy; ++mip)
+    // One copy per subresource. The buffer_offset is the subresource's offset within the .tido (==
+    // within the staging buffer). image_extent is in texels even for block-compressed formats.
+    for (u32 mip = 0; mip < desc.mip_count; ++mip)
     {
-        u32 width = std::max(1u, image_info.size.x >> mip);
-        u32 height = std::max(1u, image_info.size.y >> mip);
-        u32 depth = std::max(1u, image_info.size.z >> mip);
-        cr.copy_buffer_to_image({
-            .src_buffer = staging_buffer,
-            .buffer_offset = cooked.mip_copy_offsets[mip],
-            .dst_image = image,
-            .image_slice = {
-                .mip_level = mip,
-                .base_array_layer = layer,
-            },
-            .image_offset = {0, 0, 0},
-            .image_extent = {width, height, depth},
-        });
+        u32 const width = std::max(1u, desc.width >> mip);
+        u32 const height = std::max(1u, desc.height >> mip);
+        u32 const depth = std::max(1u, desc.depth >> mip);
+        for (u32 layer = 0; layer < desc.array_layers; ++layer)
+        {
+            // Table is in storage order (coarse-first); see TidoSubresourceEntry indexing.
+            u32 const subresource_index = (desc.mip_count - 1u - mip) * desc.array_layers + layer;
+            TidoSubresourceEntry const & entry = artifact.subresources.at(subresource_index);
+            cr.copy_buffer_to_image({
+                .src_buffer = staging_buffer,
+                .buffer_offset = entry.offset,
+                .dst_image = image,
+                .image_slice = {
+                    .mip_level = mip,
+                    .base_array_layer = layer,
+                },
+                .image_offset = {0, 0, 0},
+                .image_extent = {width, height, depth},
+            });
+        }
     }
 
     cr.pipeline_image_barrier({
@@ -52,12 +90,7 @@ void upload_texture(daxa::Device & device, CookedImageData const & cooked, daxa:
         }),
     });
     device.collect_garbage();
-}
 
-auto make_resident_image(daxa::Device & device, CookedImageData const & cooked) -> daxa::ImageId
-{
-    daxa::ImageId image = device.create_image(cooked.image_info);
-    upload_texture(device, cooked, image);
     return image;
 }
 

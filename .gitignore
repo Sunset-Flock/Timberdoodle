@@ -10,3 +10,4 @@ compile_commands.json
 spv/
 spv_raw/
 tg_dbg_cache/
+tido_asset_cache/

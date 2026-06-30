@@ -8,6 +8,8 @@
 #include <ktx.h>
 #include <png.h>
 
+#include "../tido_format/tido_texture.hpp"
+
 namespace
 {
 enum struct ChannelDataType
@@ -237,7 +239,6 @@ auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType ty
         .memory_flags = {},
         .name = std::move(name),
     };
-    ret.compressed_bc5_rg = transcode_format == KTX_TTF_BC5_RG;
     ret.mips_to_copy = texture->numLevels;
     for (u32 mip = 0; mip < texture->numLevels; ++mip)
     {
@@ -260,12 +261,16 @@ auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType ty
 }
 } // namespace
 
-auto optimize_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, CookedImageData>
+auto optimize_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, TidoTextureCookResult>
 {
+    std::variant<ImageOptimizeError, CookedImageData> cooked_ret = ImageOptimizeError::FAILED_TO_DECODE_PNG;
     switch (info.format)
     {
         case ImageFileFormat::KTX2:
-            return ktx_transcode(info.data, info.type, info.name);
+        {
+            cooked_ret = ktx_transcode(info.data, info.type, info.name);
+            break;
+        }
         case ImageFileFormat::PNG:
         {
             bool const load_as_srgb = info.type == TextureMaterialType::DIFFUSE;
@@ -274,8 +279,25 @@ auto optimize_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimiz
             {
                 return ImageOptimizeError::FAILED_TO_DECODE_PNG;
             }
-            return pixels_to_cooked(decoded.value(), info.name);
+            cooked_ret = pixels_to_cooked(decoded.value(), info.name);
+            break;
         }
     }
-    return ImageOptimizeError::FAILED_TO_DECODE_PNG;
+
+    if (std::holds_alternative<ImageOptimizeError>(cooked_ret))
+    {
+        return std::get<ImageOptimizeError>(cooked_ret);
+    }
+
+    // Persist the cooked texture as a .tido data file (T4.2) and return its cooked-artifact reference
+    // (descriptor + subresource offset table + path). The raw pixel bytes stay only on disk now - the
+    // streamer makes the texture resident by reading the .tido back (T4.3/T4.4).
+    CookedImageData const & cooked = std::get<CookedImageData>(cooked_ret);
+    auto tido_result = write_texture_tido(cooked, TIDO_ASSET_CACHE_DIR, info.name);
+    if (!tido_result.has_value())
+    {
+        DEBUG_MSG(fmt::format("[ERROR][optimize_image] Failed to write .tido for image '{}'", info.name));
+        return ImageOptimizeError::FAILED_TO_WRITE_TIDO;
+    }
+    return std::move(tido_result.value());
 }

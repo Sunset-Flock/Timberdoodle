@@ -611,6 +611,14 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             return _material_texture_manifest.at(info.value().tex_manifest_index).runtime_texture.value_or(daxa::ImageId{});
         };
 
+        // The normal map's BC5 encoding is deduced from its cooked texture format, not tracked through
+        // the import: the shader needs to know whether to reconstruct Z from a two-channel normal map.
+        auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> bool
+        {
+            if (!info.has_value()) { return false; }
+            return tido_format_is_bc5_rg(_material_texture_manifest.at(info.value().tex_manifest_index).cooked_artifact.descriptor.format);
+        };
+
         for (u32 i = 0; i < dirty_material_count; ++i)
         {
             u32 const material_manifest_idx = dirty_materials[i];
@@ -621,7 +629,7 @@ auto Scene::record_gpu_manifest_update(RecordGPUManifestUpdateInfo const & info)
             gpu_material.normal_texture_id = resolve_texture_id(material.normal_info).default_view();
             gpu_material.roughnes_metalness_id = resolve_texture_id(material.roughness_metalness_info).default_view();
             gpu_material.alpha_discard_enabled = material.alpha_discard_enabled;
-            gpu_material.normal_compressed_bc5_rg = material.normal_compressed_bc5_rg;
+            gpu_material.normal_compressed_bc5_rg = normal_is_bc5_rg(material.normal_info);
             gpu_material.base_color = std::bit_cast<daxa_f32vec3>(material.base_color);
             gpu_material.emissive_color = std::bit_cast<daxa_f32vec3>(material.emissive_color);
             gpu_material.double_sided_enabled = material.double_sided;
