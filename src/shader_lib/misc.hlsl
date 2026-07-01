@@ -178,7 +178,7 @@ uint compress_normal_octahedral_32( in float3 nor )
 
 float3 uncompress_normal_octahedral_32( uint data )
 {
-    uint2 iv = uint2( data, data>>16u ) & 65535u; 
+    uint2 iv = uint2( data, data>>16u ) & 65535u;
     float2 v = float2(iv)/32767.5 - 1.0;
     float3 nor = float3(v, 1.0 - abs(v.x) - abs(v.y));
     float t = max(-nor.z,0.0);
@@ -186,6 +186,7 @@ float3 uncompress_normal_octahedral_32( uint data )
     nor.y += (nor.y>0.0)?-t:t;
     return normalize( nor );
 }
+
 
 float2 map_octahedral(float3 nor) {
     const float fac = 1.0f / (abs(nor.x) + abs(nor.y) + abs(nor.z));

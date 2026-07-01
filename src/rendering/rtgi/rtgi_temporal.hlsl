@@ -39,37 +39,19 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
 
     // Load and precalculate constants
     const CameraInfo camera = push.attach.globals->view_camera;
-    const CameraInfo camera_prev_frame = push.attach.globals->view_camera_prev_frame;
     const float2 half_res_render_target_size = push.attach.globals.settings.render_target_size.xy >> 1;
     const float2 inv_half_res_render_target_size = rcp(half_res_render_target_size);
     const uint2 halfres_pixel_index = dtid;
-    const float2 sv_xy = float2(halfres_pixel_index) + 0.5f;
 
-    // Load half res depth and normal
-    const float pixel_depth = push.attach.half_res_depth.get()[halfres_pixel_index];
-    const float pixel_vs_depth = linearise_depth(pixel_depth, camera.near_plane);
-    const float3 pixel_face_normal = uncompress_normal_octahedral_32(push.attach.half_res_normal.get()[halfres_pixel_index]);
+    const PixelData pixel = calc_pixel_data(dtid, inv_half_res_render_target_size, camera, push.attach.half_res_depth.get(), push.attach.half_res_normal.get());
+    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, pixel.ndc.z);
+    const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
-    if (pixel_depth == 0.0f)
+    if (pixel.ndc.z == 0.0f)
     {
         push.attach.half_res_sample_count.get()[halfres_pixel_index] = 0;
         return;
     }
-
-    // Calculate pixel positions in cur and prev frame
-    const float3 sv_pos = float3(sv_xy, pixel_depth);
-    const float2 uv = sv_xy * inv_half_res_render_target_size;
-    const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
-    const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
-    const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
-    const float3 world_position_prev_frame = world_position; // No support for dynamic object motion vectors yet.
-    const float4 view_position_prev_frame_pre_div = mul(camera_prev_frame.view, float4(world_position_prev_frame, 1.0f));
-    const float3 view_position_prev_frame = -view_position_prev_frame_pre_div.xyz / view_position_prev_frame_pre_div.w;
-    const float4 ndc_prev_frame_pre_div = mul(camera_prev_frame.view_proj, float4(world_position_prev_frame, 1.0f));
-    const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
-    const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;// - inv_half_res_render_target_size * 0.75;
-    const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * half_res_render_target_size;
-    const float3 primary_ray_prev_frame = normalize(world_position - camera_prev_frame.position);
 
     bool disocclusion = false;
     float reprojected_sample_count = 0;
@@ -85,18 +67,10 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         // Load relevant global data
         CameraInfo* previous_camera = &push.attach.globals->view_camera_prev_frame;
 
-        // Calculate pixel positions in cur and prev frame
-        const float3 ndc = float3(uv * 2.0f - 1.0f, pixel_depth);
-        const float4 world_position_pre_div = mul(camera.inv_view_proj, float4(ndc, 1.0f));
-        const float3 world_position = world_position_pre_div.xyz / world_position_pre_div.w;
-        const float3 expected_world_position_prev_frame = world_position; // No support for dynamic object motion vectors yet.
-        const float4 view_position_prev_frame_pre_div = mul(previous_camera.view, float4(expected_world_position_prev_frame, 1.0f));
-        const float3 view_position_prev_frame = -view_position_prev_frame_pre_div.xyz / view_position_prev_frame_pre_div.w;
+        const float3 expected_world_position_prev_frame = pixel.position_ws;
         const float4 ndc_prev_frame_pre_div = mul(previous_camera.view_proj, float4(expected_world_position_prev_frame, 1.0f));
         const float3 ndc_prev_frame = ndc_prev_frame_pre_div.xyz / ndc_prev_frame_pre_div.w;
         const float2 uv_prev_frame = ndc_prev_frame.xy * 0.5f + 0.5f;
-        const float2 sv_xy_prev_frame = ( ndc_prev_frame.xy * 0.5f + 0.5f ) * inv_half_res_render_target_size;
-        const float3 primary_ray_prev_frame = normalize(world_position - previous_camera.position);
 
         // Load previous frame half res depth
         const Bilinear bilinear_filter_at_prev_pos = get_bilinear_filter( saturate( uv_prev_frame ), half_res_render_target_size );
@@ -117,21 +91,14 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
                 uncompress_normal_octahedral_32(face_normals_packed_reprojected4.z),
                 uncompress_normal_octahedral_32(face_normals_packed_reprojected4.w),
             };
-            // Normal weights cause too much dis-occlusion on fine detailed geometry!
-            float4 normal_weights = {
-                1,//dot(other_face_normals[0], pixel_face_normal) > -0.3f,
-                1,//dot(other_face_normals[1], pixel_face_normal) > -0.3f,
-                1,//dot(other_face_normals[2], pixel_face_normal) > -0.3f,
-                1,//dot(other_face_normals[3], pixel_face_normal) > -0.3f,
-            };
+            // Note: hard normal weights (dot(other, pixel.normal) > -0.3) cause too much
+            // dis-occlusion on fine detailed geometry, so only the soft normal_similarity is used.
             normal_similarity = {
-                normal_similarity_weight(other_face_normals[0], pixel_face_normal),
-                normal_similarity_weight(other_face_normals[1], pixel_face_normal),
-                normal_similarity_weight(other_face_normals[2], pixel_face_normal),
-                normal_similarity_weight(other_face_normals[3], pixel_face_normal),
+                calc_similar_normal_weight(other_face_normals[0], pixel.normal_ws),
+                calc_similar_normal_weight(other_face_normals[1], pixel.normal_ws),
+                calc_similar_normal_weight(other_face_normals[2], pixel.normal_ws),
+                calc_similar_normal_weight(other_face_normals[3], pixel.normal_ws),
             };
-            // normalize normal weights so it does not interact with SAMPLE_WEIGHT_DISSOCCLUSION_THRESHOLD.
-            normal_weights;// *= rcp(normal_weights.x + normal_weights.y + normal_weights.z + normal_weights.w + 0.001f);
 
             // high quality geometric weights
             float4 surface_weights = float4( 0.0f, 0.0f, 0.0f, 0.0f );
@@ -155,10 +122,10 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
                     texel_ws_prev_frame_pre_div[3].xyz / texel_ws_prev_frame_pre_div[3].w,
                 };
                 surface_weights = {
-                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[0], other_face_normals[0], 1),
-                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[1], other_face_normals[1], 1),
-                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[2], other_face_normals[2], 1),
-                    surface_weight_dist_limited(inv_half_res_render_target_size, camera.near_plane, pixel_depth, expected_world_position_prev_frame, pixel_face_normal, texel_ws_prev_frame[3], other_face_normals[3], 1),
+                    calc_similar_surface_weight_dist_limited(pixel_width_ws_rcp, expected_world_position_prev_frame, pixel.normal_ws, texel_ws_prev_frame[0], other_face_normals[0], 2),
+                    calc_similar_surface_weight_dist_limited(pixel_width_ws_rcp, expected_world_position_prev_frame, pixel.normal_ws, texel_ws_prev_frame[1], other_face_normals[1], 2),
+                    calc_similar_surface_weight_dist_limited(pixel_width_ws_rcp, expected_world_position_prev_frame, pixel.normal_ws, texel_ws_prev_frame[2], other_face_normals[2], 2),
+                    calc_similar_surface_weight_dist_limited(pixel_width_ws_rcp, expected_world_position_prev_frame, pixel.normal_ws, texel_ws_prev_frame[3], other_face_normals[3], 2),
                 };
                 surface_weights[0] *= depth_reprojected4[0] != 0.0f;
                 surface_weights[1] *= depth_reprojected4[1] != 0.0f;
@@ -166,7 +133,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
                 surface_weights[3] *= depth_reprojected4[3] != 0.0f;
             }
 
-            occlusion = surface_weights * in_screen * normal_weights;
+            occlusion = surface_weights * in_screen;
         }
 
         float4 sample_weights = get_bilinear_custom_weights( bilinear_filter_at_prev_pos, occlusion * normal_similarity );
@@ -247,13 +214,8 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
         if (isnan(reprojected_slow_mean))              reprojected_slow_mean = 0.0f;
         if (isnan(reprojected_slow_relative_variance)) reprojected_slow_relative_variance = 0.0f;
 
-        // Filter Guide History: GatherRed on R16_UINT — single channel packed
-        const uint4 fg4 = push.attach.half_res_filter_guide_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
-        const float fg0 = unpack_filter_guide(fg4.x);
-        const float fg1 = unpack_filter_guide(fg4.y);
-        const float fg2 = unpack_filter_guide(fg4.z);
-        const float fg3 = unpack_filter_guide(fg4.w);
-        reprojected_filter_guide = apply_bilinear_custom_weights( fg0, fg1, fg2, fg3, sample_weights );
+        const float4 fg4 = push.attach.half_res_filter_guide_history.get().GatherRed( linear_clamp_s, reproject_gather_uv ).wzxy;
+        reprojected_filter_guide = apply_bilinear_custom_weights( fg4.x, fg4.y, fg4.z, fg4.w, sample_weights );
         if (isnan(reprojected_filter_guide)) { reprojected_filter_guide = 0.0f; }
 
         // Temporal geometric mean history (log-space R16_SFLOAT)
@@ -271,7 +233,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     
     float4 new_diffuse = diffuse_pre_blurred_present ? push.attach.half_res_diffuse_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse_new.get()[dtid.xy];
     float2 new_diffuse2 = diffuse_pre_blurred_present ? push.attach.half_res_diffuse2_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse2_new.get()[dtid.xy];
-    float new_filter_guide = unpack_filter_guide(push.attach.filter_guide_new.get()[dtid.xy]);
+    float new_filter_guide = push.attach.filter_guide_new.get()[dtid.xy];
 
     // Determine accumulated fast history
 
@@ -326,7 +288,7 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     float history_confidence = accumulated_sample_count;
     if (accumulated_sample_count > FAST_HISTORY_FRAMES)
     {
-        history_confidence = min(accumulated_sample_count * 1.0f, history_confidence * fast_variance_scaling * fast_mean_diff_scaling);
+        history_confidence = min(accumulated_sample_count * 2.0f, history_confidence * fast_variance_scaling * fast_mean_diff_scaling);
     }
     float blend = 1.0f / (1.0f + history_confidence);
     float co_cg_blend = blend;
@@ -355,14 +317,19 @@ func entry_reproject_halfres(uint2 dtid : SV_DispatchThreadID)
     const float accumulated_slow_relative_variance = disocclusion ? slow_new_relative_variance : lerp(reprojected_slow_relative_variance, slow_new_relative_variance, slow_variance_blend);
 
     // Temporal geometric mean: EMA of log(luma) — same blend as slow_mean
-    const float new_log_luma = log(max(new_luma, 1e-6f));
-    const float accumulated_log_geo_mean = disocclusion ? new_log_luma : lerp(reprojected_log_geo_mean, new_log_luma, blend);
+    float new_log_luma = push.attach.geometric_mean_new.get()[dtid.xy];
+    const bool invalid_new_log_luma = isinf(new_log_luma);
+    if (invalid_new_log_luma)
+    {
+        new_log_luma = 0.0f;
+    }
+    const float accumulated_log_geo_mean = disocclusion ? new_log_luma : lerp(reprojected_log_geo_mean, new_log_luma, invalid_new_log_luma ? 0.0f : blend);
 
     // Write Textures
     push.attach.half_res_sample_count.get()[dtid.xy] = accumulated_sample_count;
     push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = accumulated_diffuse;
     push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = accumulated_diffuse2;
     push.attach.statistics_image_accumulated.get()[dtid] = float4(accumulated_fast_mean, accumulated_fast_relative_variance, accumulated_slow_mean, accumulated_slow_relative_variance);
-    push.attach.half_res_filter_guide_accumulated.get()[dtid.xy] = pack_filter_guide(accumulated_filter_guide);
+    push.attach.half_res_filter_guide_accumulated.get()[dtid.xy] = accumulated_filter_guide;
     push.attach.temporal_geometric_mean_accumulated.get()[dtid.xy] = accumulated_log_geo_mean;
 }

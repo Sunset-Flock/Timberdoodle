@@ -387,23 +387,8 @@ Application::Application()
     }
 #endif // !DISABLE_EMISSIVE_BALLS
 
-    struct CompPipelinesTask : Task
-    {
-        Renderer * renderer = {};
-        CompPipelinesTask(Renderer * renderer)
-            : renderer{renderer} { chunk_count = 1; }
-
-        virtual void callback([[maybe_unused]]u32 chunk_index, [[maybe_unused]]u32 thread_index) override
-        {
-            // TODO: hook up parameters.
-            renderer->compile_pipelines();
-        }
-    };
-
-    auto comp_pipelines_task = std::make_shared<CompPipelinesTask>(_renderer.get());
-
-    _threadpool->async_dispatch(comp_pipelines_task);
-    _threadpool->block_on(comp_pipelines_task);
+    // compile_pipelines internally fans out per-pipeline work across the thread pool.
+    _renderer->compile_pipelines(*_threadpool);
 
     app_state.last_time_point = app_state.startup_time_point = std::chrono::steady_clock::now();
     _renderer->render_context->render_times.enable_render_times = true;

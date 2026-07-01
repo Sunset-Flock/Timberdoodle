@@ -729,12 +729,26 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 {
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
                 }
+                ImGui::PushID("General");
                 ImGui::SeparatorText("General");
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
+                ImGui::PopID();
+                ImGui::PushID("Trace");
                 ImGui::SeparatorText("Trace");
                 ImGui::SliderFloat("AO Range", &render_data.rtgi_settings.ao_range, 0.0f, 4.0f);
                 ImGui::SliderInt("Ray Samples", &render_data.rtgi_settings.ray_samples, 1, 16);
                 ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
+                ImGui::PopID();
+                ImGui::PushID("Prefilter");
+                ImGui::SeparatorText("Prefilter");
+                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
+                ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
+                ImGui::Checkbox("Firefly Center Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_center_blur_enabled));
+                ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_energy_compensation_enabled));
+                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
+                ImGui::PopID();
+                ImGui::PushID("Temporal");
                 ImGui::SeparatorText("Temporal");
                 ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
                 ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
@@ -743,28 +757,24 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderFloat("Temporal Firefly Std Dev Clamp", &render_data.rtgi_settings.temporal_firefly_std_dev_clamp, 0.0f, 8.0f);
                 ImGui::SliderFloat("Temporal Variance Fast History Blend", &render_data.rtgi_settings.temporal_variance_fast_history_blend, 0.0f, 8.0f);
                 ImGui::Checkbox("Temporal Noise Animation", reinterpret_cast<bool *>(&render_data.rtgi_settings.animate_noise));
-                ImGui::SeparatorText("Prefilter");
-                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
-                ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
-                ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
-                ImGui::Checkbox("Firefly Star Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_star_blur_enabled));
-                ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_energy_compensation_enabled));
-                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
+                ImGui::PopID();
+                ImGui::PushID("Pre Blur");
                 ImGui::SeparatorText("Pre Blur");
-                ImGui::Checkbox("Pre Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
-                ImGui::Checkbox("Pre Blur Geometric Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_geometric_guiding));
-                ImGui::SliderFloat("Geometric Guide Floor", &render_data.rtgi_settings.geometric_guide_floor, 0.0f, 1.0f);
-                ImGui::Checkbox("Pre Blur Geometric Mean Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_geometric_mean_guiding));
-                ImGui::SliderFloat("Pre Blur Geometric Mean Guiding Factor", &render_data.rtgi_settings.pre_blur_geometric_mean_guiding_factor, 0.0f, 2.0f);
-                ImGui::SliderFloat("Pre Blur Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
-                ImGui::SliderInt("Pre Blur Sample Count Min", &render_data.rtgi_settings.pre_blur_sample_count_min, 1, 32);
-                ImGui::SliderInt("Pre Blur Sample Count Max", &render_data.rtgi_settings.pre_blur_sample_count_max, 1, 32);
-                ImGui::SliderInt("Pre Blur Iterations", &render_data.rtgi_settings.pre_blur_iterations, 1, 4);
+                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
+                ImGui::Checkbox("Raylength Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_raylength_guiding));
+                ImGui::SliderFloat("Raylength Guide Floor", &render_data.rtgi_settings.raylength_guide_floor, 0.0f, 1.0f);
+                ImGui::Checkbox("Geometric Luma Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.geometric_luma_guiding));
+                ImGui::SliderFloat("Geometric Luma Guiding Factor", &render_data.rtgi_settings.geometric_luma_guiding_factor, 0.0f, 2.0f);
+                ImGui::SliderFloat("Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
+                ImGui::SliderInt("Sample Count", &render_data.rtgi_settings.pre_blur_sample_count, 1, 32);
+                ImGui::SliderInt("Iterations", &render_data.rtgi_settings.pre_blur_iterations, 1, 4);
+                ImGui::PopID();
+                ImGui::PushID("Post Blur");
                 ImGui::SeparatorText("Post Blur");
-                ImGui::Checkbox("Post Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
-                ImGui::Checkbox("Post Blur Geometric Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_geometric_guiding));
-                ImGui::Checkbox("Post Blur Geometric Mean Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_geometric_mean_guiding));
-                ImGui::SliderFloat("Post Blur Geometric Mean Guiding Factor", &render_data.rtgi_settings.post_blur_geometric_mean_guiding_factor, 0.0f, 2.0f);
+                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
+                ImGui::Checkbox("Raylength Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_raylength_guiding));
+                ImGui::Checkbox("Geometric Luma Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_geometric_luma_guiding));
+                ImGui::SliderFloat("Geometric Luma Guiding Factor", &render_data.rtgi_settings.post_blur_geometric_luma_guiding_factor, 0.0f, 2.0f);
                 ImGui::Checkbox("Temporal Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_variance_guiding));
                 ImGui::Checkbox("Disocclusion Blur", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_disocclusion_blur_enabled));
                 ImGui::RadioButton("Bilateral", &render_data.rtgi_settings.post_blur_mode, 0);
@@ -776,12 +786,16 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 }
                 else
                 {
-                    ImGui::SliderInt("Post Blur Stride", &render_data.rtgi_settings.post_blur_stride, 1, 8);
-                    ImGui::SliderInt("Post Blur Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
+                    ImGui::SliderInt("Stride", &render_data.rtgi_settings.post_blur_stride, 1, 8);
+                    ImGui::SliderInt("Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
                 }
+                ImGui::PopID();
+                ImGui::PushID("Other");
                 ImGui::SeparatorText("Other");
                 ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
                 ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
+                ImGui::InputFloat("Rays Percentage", &render_data.rtgi_settings.ray_percentage);
+                ImGui::PopID();
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {

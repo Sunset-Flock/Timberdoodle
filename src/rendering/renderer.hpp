@@ -22,7 +22,8 @@ struct Renderer
     Renderer(Window *window, GPUContext *gpu_context, Scene *scene, AssetProcessor *asset_manager, daxa::ImGuiRenderer *imgui_renderer, UIEngine * ui_engine);
     ~Renderer();
 
-    void compile_pipelines();
+    void compile_pipelines(ThreadPool & thread_pool);
+    void reload_pipelines_parallel();
     void recreate_framebuffer();
     void clear_select_buffers();
     void window_resized();
@@ -38,6 +39,8 @@ struct Renderer
         f32 const delta_time,
         u64 const total_elapsed_us) -> bool;
     void readback_statistics(daxa::TaskGraph & tg);
+
+    ThreadPool * thread_pool = nullptr;
 
     daxa::ImageId stbn2d = {};
     daxa::ImageId stbnCosDir = {};

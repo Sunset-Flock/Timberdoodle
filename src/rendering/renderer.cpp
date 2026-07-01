@@ -196,16 +196,43 @@ Renderer::~Renderer()
     this->gpu_context->device.collect_garbage();
 }
 
-void Renderer::compile_pipelines()
+// Adapter task used to drive daxa's blocking_parallel_for with Timberdoodle's ThreadPool.
+struct DaxaParallelCompileTask : Task
 {
-    auto add_if_not_present = [&](auto & map, auto & list, auto compile_info)
+    void * daxa_task_user_data = {};
+    void (*daxa_task_fn)(void *, daxa::u32, daxa::u32) = {};
+    void callback(u32 chunk_index, u32 thread_index) override
     {
-        if (!map.contains(compile_info.name))
-        {
-            list.push_back(compile_info);
-        }
-    };
+        daxa_task_fn(daxa_task_user_data, chunk_index, thread_index);
+    }
+};
 
+static daxa::PipelineManagerParallelInfo make_pipeline_parallel_info(ThreadPool & thread_pool)
+{
+    return daxa::PipelineManagerParallelInfo{
+        .user_data = &thread_pool,
+        .blocking_parallel_for = [](void * pool_ptr, daxa::u32 count, void * task_user_data, void (*task_fn)(void *, daxa::u32, daxa::u32))
+        {
+            auto & pool = *static_cast<ThreadPool *>(pool_ptr);
+            auto task = std::make_shared<DaxaParallelCompileTask>();
+            task->daxa_task_user_data = task_user_data;
+            task->daxa_task_fn        = task_fn;
+            task->chunk_count         = count;
+            pool.blocking_dispatch(task);
+        },
+        // +1: blocking_dispatch also uses the calling thread as a worker.
+        .worker_thread_count = thread_pool.thread_count() + 1,
+        .print_user_data = nullptr,
+        .print_fn = [](void *, char const * msg, daxa::u32, daxa::u32, daxa::u32)
+        {
+            std::cout << msg << "\n";
+        },
+    };
+}
+
+void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
+{
+    thread_pool = &in_thread_pool;
     std::vector<daxa::RasterPipelineCompileInfo2> rasters = {
         {draw_visbuffer_mesh_shader_pipelines[0]},
         {draw_visbuffer_mesh_shader_pipelines[1]},
@@ -218,21 +245,6 @@ void Renderer::compile_pipelines()
         {draw_shader_debug_lines_pipeline_compile_info()},
         {pgi_draw_debug_probes_compile_info()},
     };
-    for (auto info : rasters)
-    {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_raster_pipeline2(info);
-        if (compilation_result.value()->is_valid())
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
-        }
-        else
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                             compilation_result.message())
-                      << std::endl;
-        }
-        this->gpu_context->raster_pipelines[info.name] = compilation_result.value();
-    }
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
         {rtgi_trace_diffuse_compute_compile_info()},
         {rtgi_temporal_compile_info()},
@@ -286,56 +298,72 @@ void Renderer::compile_pipelines()
         {raymarch_clouds_debug_compile_info()},
         {compose_clouds_compile_info()},
     };
-    for (auto const & info : computes)
-    {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_compute_pipeline2(info);
-        if (compilation_result.value()->is_valid())
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
-        }
-        else
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                             compilation_result.message())
-                      << std::endl;
-        }
-        this->gpu_context->compute_pipelines[info.name] = compilation_result.value();
-    }
-
-    std::vector<daxa::RayTracingPipelineCompileInfo2> ray_tracing = {
+    std::vector<daxa::RayTracingPipelineCompileInfo2> ray_tracings = {
         {ray_trace_ao_rt_pipeline_info()},
         {pgi_trace_probe_lighting_pipeline_compile_info()},
         {reference_path_trace_rt_pipeline_info()},
         {rtgi_trace_diffuse_compile_info()},
     };
-    for (auto const & info : ray_tracing)
+
+    auto batch = gpu_context->pipeline_manager.compile_pipelines_parallel(
+        std::move(computes), std::move(rasters), std::move(ray_tracings),
+        make_pipeline_parallel_info(in_thread_pool));
+
+    // Store results into gpu_context maps (serial; all parallel work is done).
+    for (auto & r : batch.compute)
     {
-        auto compilation_result = this->gpu_context->pipeline_manager.add_ray_tracing_pipeline2(info);
-        if (compilation_result.value()->is_valid())
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] SUCCESFULLY compiled pipeline {}", info.name) << std::endl;
-        }
-        else
-        {
-            std::cout << fmt::format("[Renderer::compile_pipelines()] FAILED to compile pipeline {} with message \n {}", info.name,
-                             compilation_result.message())
-                      << std::endl;
-        }
-        this->gpu_context->ray_tracing_pipelines[info.name].pipeline = compilation_result.value();
-        auto sbt_info = gpu_context->ray_tracing_pipelines[info.name].pipeline->create_default_sbt();
-        this->gpu_context->ray_tracing_pipelines[info.name].sbt = sbt_info.table;
-        this->gpu_context->ray_tracing_pipelines[info.name].sbt_buffer = sbt_info.buffer;
+        if (!r.value()) { std::cout << fmt::format("[compile_pipelines] FAILED compute (null): {}\n", r.message()); continue; }
+        std::string const name{r.value()->info().name.c_str()};
+        if (!r.value()->is_valid())
+            std::cout << fmt::format("[compile_pipelines] FAIL {} : {}\n", name, r.message());
+        gpu_context->compute_pipelines[name] = r.value();
+    }
+    for (auto & r : batch.raster)
+    {
+        if (!r.value()) { std::cout << fmt::format("[compile_pipelines] FAILED raster (null): {}\n", r.message()); continue; }
+        std::string const name{r.value()->info().name.c_str()};
+        if (!r.value()->is_valid())
+            std::cout << fmt::format("[compile_pipelines] FAIL {} : {}\n", name, r.message());
+        gpu_context->raster_pipelines[name] = r.value();
+    }
+    for (auto & r : batch.ray_tracing)
+    {
+        if (!r.value()) { std::cout << fmt::format("[compile_pipelines] FAILED rt (null): {}\n", r.message()); continue; }
+        std::string const name{r.value()->info().name.c_str()};
+        if (!r.value()->is_valid())
+            std::cout << fmt::format("[compile_pipelines] FAIL {} : {}\n", name, r.message());
+        gpu_context->ray_tracing_pipelines[name].pipeline = r.value();
+        auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
+        gpu_context->ray_tracing_pipelines[name].sbt        = sbt_info.table;
+        gpu_context->ray_tracing_pipelines[name].sbt_buffer = sbt_info.buffer;
     }
 
     while (!gpu_context->pipeline_manager.all_pipelines_valid())
     {
-        auto const result = gpu_context->pipeline_manager.reload_all();
-        if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
-        {
-            std::cout << daxa::get<daxa::PipelineReloadError>(result).message << std::endl;
-        }
+        reload_pipelines_parallel();
         using namespace std::literals;
         std::this_thread::sleep_for(30ms);
+    }
+}
+
+void Renderer::reload_pipelines_parallel()
+{
+    auto const result = gpu_context->pipeline_manager.reload_all_parallel(
+        make_pipeline_parallel_info(*thread_pool));
+    if (daxa::holds_alternative<daxa::PipelineReloadError>(result))
+    {
+        std::cout << daxa::get<daxa::PipelineReloadError>(result).message << std::endl;
+    }
+    if (daxa::holds_alternative<daxa::PipelineReloadSuccess>(result))
+    {
+        // Rebuild SBTs for any reloaded ray tracing pipelines.
+        for (auto & [name, pipe] : gpu_context->ray_tracing_pipelines)
+        {
+            gpu_context->device.destroy_buffer(pipe.sbt_buffer);
+            auto sbt_info = pipe.pipeline->create_default_sbt();
+            pipe.sbt        = sbt_info.table;
+            pipe.sbt_buffer = sbt_info.buffer;
+        }
     }
 }
 
@@ -1311,7 +1339,8 @@ auto Renderer::prepare_frame(
 
         /// THIS SHOULD BE DONE SOMEWHERE ELSE!
         {
-            auto reloaded_result = gpu_context->pipeline_manager.reload_all();
+            auto const reloaded_result = gpu_context->pipeline_manager.reload_all_parallel(
+                make_pipeline_parallel_info(*thread_pool));
             if (auto reload_err = daxa::get_if<daxa::PipelineReloadError>(&reloaded_result))
             {
                 std::cout << "Failed to reload " << reload_err->message << '\n';
@@ -1319,12 +1348,12 @@ auto Renderer::prepare_frame(
             if (auto _ = daxa::get_if<daxa::PipelineReloadSuccess>(&reloaded_result))
             {
                 std::cout << "Successfully reloaded!\n";
-                for (auto [name, pipe] : gpu_context->ray_tracing_pipelines)
+                for (auto & [name, pipe] : gpu_context->ray_tracing_pipelines)
                 {
                     this->gpu_context->device.destroy_buffer(pipe.sbt_buffer);
-                    auto sbt_info = gpu_context->ray_tracing_pipelines[name].pipeline->create_default_sbt();
-                    this->gpu_context->ray_tracing_pipelines[name].sbt = sbt_info.table;
-                    this->gpu_context->ray_tracing_pipelines[name].sbt_buffer = sbt_info.buffer;
+                    auto sbt_info = pipe.pipeline->create_default_sbt();
+                    pipe.sbt        = sbt_info.table;
+                    pipe.sbt_buffer = sbt_info.buffer;
                 }
             }
         }

@@ -48,6 +48,7 @@ struct ThreadPool
     void blocking_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
     void async_dispatch(std::shared_ptr<Task> task, TaskPriority priority = TaskPriority::LOW);
     void block_on(std::shared_ptr<Task> task);
+    u32 thread_count() const { return static_cast<u32>(worker_threads.size()); }
 
   private:
     struct SharedData

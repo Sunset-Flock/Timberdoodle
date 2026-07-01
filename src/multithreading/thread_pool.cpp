@@ -71,35 +71,36 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
     }
 
     shared_data->work_available.notify_all();
-    // Contribute to finishing this task from this thread
-    u32 current_chunk_index = 0;
-    bool worked_on_last_chunk = false;
-    while (current_chunk_index != NO_MORE_CHUNKS_CODE)
+    // Process chunk 0 on this thread.
+    task->started += 1;
+    lock.unlock();
+    task->callback(0, EXTERNAL_THREAD_INDEX);
+    lock.lock();
+    task->not_finished -= 1;
+    if (task->not_finished == 0) { shared_data->work_done.notify_all(); return; }
+
+    // Our task isn't done yet. Keep stealing and processing any available work from the
+    // queue until it finishes. Processing any chunk (not just ours) prevents deadlock when
+    // nested blocking_dispatch calls are in flight — all threads stay productive instead of
+    // sleeping while their sub-tasks are stuck behind other work in the queue.
+    while (task->not_finished != 0)
     {
-        task->started += 1;
-
-        lock.unlock();
-        task->callback(current_chunk_index, EXTERNAL_THREAD_INDEX);
-        lock.lock();
-
-        task->not_finished -= 1;
-        bool more_chunks_in_queue = (task->started != task->chunk_count);
-        if (more_chunks_in_queue)
+        bool const has_high = !shared_data->high_priority_tasks.empty();
+        bool const has_low  = !shared_data->low_priority_tasks.empty();
+        if (!has_high && !has_low)
         {
-            current_chunk_index = selected_queue.front().chunk_index;
-            selected_queue.pop_front();
+            shared_data->work_done.wait(lock, [&]{ return task->not_finished == 0; });
+            return;
         }
-        else { current_chunk_index = NO_MORE_CHUNKS_CODE; }
-
-        worked_on_last_chunk = (task->not_finished == 0);
-    }
-
-    if (!worked_on_last_chunk)
-    {
-        // This thread was not the last one working on this task, therefore we wait here to be notified once
-        // the last worker thread processing this task is done
-        shared_data->work_done.wait(lock, [&]
-            { return task->not_finished == 0; });
+        auto & steal_queue = has_high ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
+        TaskChunk chunk = std::move(steal_queue.front());
+        steal_queue.pop_front();
+        chunk.task->started += 1;
+        lock.unlock();
+        chunk.task->callback(chunk.chunk_index, EXTERNAL_THREAD_INDEX);
+        lock.lock();
+        chunk.task->not_finished -= 1;
+        if (chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
     }
 }
 

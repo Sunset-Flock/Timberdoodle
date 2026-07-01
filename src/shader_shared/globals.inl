@@ -77,6 +77,7 @@ struct RenderGlobalData
     AoSettings ao_settings;
     RtgiSettings rtgi_settings;
     GlobalSamplers samplers;
+
     daxa_RWBufferPtr(ShaderDebugBufferHead) debug;
     daxa_RWBufferPtr(ReadbackValues) readback;
 };

@@ -123,7 +123,7 @@ Ray length is normalized against a maximum visibility distance — the world-spa
 
 ```hlsl
 // Maximum ray length that the filter could ever reach — anything beyond is "open space"
-const float max_visibility_raylen = pixel_ws_size * max_filter_radius_pixels;
+const float max_visibility_raylen = pixel_width_ws * max_filter_radius_pixels;
 
 // Per tap in the inner loop: accumulate shortness with L8 power to promote short rays
 const float shortness = 1.0f - min(1.0f, sample_ray_length * rcp(max_visibility_raylen));

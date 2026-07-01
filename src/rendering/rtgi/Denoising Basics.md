@@ -145,7 +145,7 @@ func surface_weight(float2 inv_render_target_size, float near_plane, float depth
     float3 other_vs_position, float3 other_vs_normal,
     float threshold_scale = 2.0f) -> float
 {
-    const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
+    const float pixel_size = get_pixel_width_ws(inv_render_target_size, near_plane, depth);
     const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
     const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
     const float dist            = abs(distance(vs_position, other_vs_position));
@@ -157,7 +157,7 @@ func surface_weight(float2 inv_render_target_size, float near_plane, float depth
 }
 ```
 
-The threshold scales with `ws_pixel_size` — the world-space size of one pixel at the current depth — so the cutoff automatically tightens for close geometry and loosens for distant geometry.
+The threshold scales with `get_pixel_width_ws` — the world-space size of one pixel at the current depth — so the cutoff automatically tightens for close geometry and loosens for distant geometry.
 
 A normal similarity weight is multiplied in on top to catch two surfaces meeting at a shallow angle, which the plane test alone would pass.
 

@@ -17,8 +17,10 @@
 #define GOLDEN_RATIO 1.6181
 #define PI 3.1415926535897932384626433832795
 
-#define STBN_SIZE uint3(64,64,32)
-#define STBN_GRID_SIZE uint3(64,64,32)
+#define STBN_ENABLED 0
+#define STBN_WDITH 128
+#define STBN_SIZE uint3(STBN_WDITH,STBN_WDITH,32)
+#define STBN_GRID_SIZE uint3(STBN_WDITH,STBN_WDITH,32)
 
 float2 rand_stbn2d(Texture2DArray<float4> stbn2d_image, uint2 pixel, int frame)
 {
@@ -131,7 +133,7 @@ void shade_ray_gen(uint2 dtid)
 
     if(depth > 0.0f)
     {
-        const float ws_px_size = ws_pixel_size(push.attach.globals.settings.render_target_size_inv * 0.5f, camera.near_plane, depth);
+        const float ws_px_size = calc_pixel_width_ws(push.attach.globals.settings.render_target_size_inv * 0.5f, camera.near_plane, depth);
 
         const int samples = rtgi_settings.ray_samples;
         for (uint i = 0; i < samples; ++i)
@@ -146,10 +148,15 @@ void shade_ray_gen(uint2 dtid)
             // const float3 importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
             
             float3 importance_rand_hemi_sample;
-            if (true)
+            if (STBN_ENABLED)
             {
+                const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0u;
+                const uint thread_seed =
+                    frame_seed +
+                    i * prime_shift1;
+                rand_seed(thread_seed);
                 // importance_rand_hemi_sample = rand_cosine_sample_hemi_stbn( pixel_index );
-                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0);
+                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0) + rand());
             }
             else
             {

@@ -12,24 +12,23 @@ auto rtgi_default_settings() -> RtgiSettings
         .firefly_filter_ceiling               = 24.0f,
         .firefly_clamp_mode                   = 0,
         .pre_blur_enabled                     = 1,
-        .pre_blur_geometric_guiding           = 1,
-        .pre_blur_geometric_mean_guiding      = 1,
-        .pre_blur_geometric_mean_guiding_factor = 1.4f,
+        .pre_blur_raylength_guiding           = 1,
+        .geometric_luma_guiding      = 1,
+        .geometric_luma_guiding_factor = 0.7f,
         .pre_blur_base_width                  = 64.0f,
-        .pre_blur_sample_count_min            = 10,
-        .pre_blur_sample_count_max            = 10,
+        .pre_blur_sample_count                = 10,
         .pre_blur_iterations                  = 2,
         .temporal_accumulation_enabled        = 1,
         .temporal_fast_history_enabled        = 1,
         .temporal_firefly_filter_enabled      = 1,
-        .temporal_firefly_std_dev_clamp       = 1.0f,
+        .temporal_firefly_std_dev_clamp       = 2.0f,
         .temporal_variance_fast_history_blend = 2.0f,
         .history_frames                       = 64,
         .post_blur_enabled                    = 1,
-        .post_blur_geometric_guiding          = 1,
-        .post_blur_geometric_mean_guiding     = 0,
-        .post_blur_geometric_mean_guiding_factor = 0.7f,
-        .geometric_guide_floor                = 0.2f,
+        .post_blur_raylength_guiding          = 1,
+        .post_blur_geometric_luma_guiding     = 0,
+        .post_blur_geometric_luma_guiding_factor = 0.7f,
+        .raylength_guide_floor                = 0.2f,
         .post_blur_mode                       = 0,
         .post_blur_variance_guiding           = 1,
         .post_blur_disocclusion_blur_enabled  = 1,
@@ -39,7 +38,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .upscale_enabled                      = 1,
         .sh_resolve_enabled                   = 1,
         .use_compute_trace                    = 0,
-        .firefly_star_blur_enabled            = 1,
+        .firefly_center_blur_enabled          = 1,
         .firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
     };
@@ -48,7 +47,7 @@ auto rtgi_default_settings() -> RtgiSettings
 #include "rtgi_pre_blur.inl"
 #include "rtgi_temporal.inl"
 #include "rtgi_post_blur.inl"
-#include "rtgi_upscale.inl" 
+#include "rtgi_upscale.inl"
 
 ///
 /// === Callbacks ===
@@ -98,7 +97,16 @@ inline void dispatch_image_relative(TaskPush push, daxa::TaskInterface ti, Rende
     auto gpu_timer = render_context->render_times.scoped_gpu_timer(ti.recorder, render_time);
     auto const dst_image_size = ti.info(dst_image).value().size;
     ti.recorder.set_pipeline(*(render_context->gpu_context->compute_pipelines.at(compute_pipeline_name)));
-    push.attach = ti.attachment_shader_blob;
+    if constexpr (std::is_same_v<decltype(push.attach), daxa::DeviceAddress>)
+    {
+        auto alloc = ti.allocator->allocate(ti.attachment_shader_blob.size()).value();
+        std::memcpy(alloc.host_address, ti.attachment_shader_blob.data(), ti.attachment_shader_blob.size());
+        push.attach = alloc.device_address;
+    }
+    else
+    {
+        push.attach = ti.attachment_shader_blob;
+    }
     push.size = {dst_image_size.x, dst_image_size.y};
     ti.recorder.push_constant(push);
     ti.recorder.dispatch({
@@ -256,7 +264,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "statistics_image_persistent",
     });
     auto half_res_filter_guide_history = info.tg.create_task_image({
-        .format = daxa::Format::R16_UINT,
+        .format = daxa::Format::R8_UNORM,
         .size = half_res_image_size,
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "half_res_filter_guide_history_persistent",
@@ -320,17 +328,17 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "firefly_factor_image",
     });    
-    auto spatial_std_dev_image = info.tg.create_task_image({
-        .format = daxa::Format::R16G16_SFLOAT,
+    auto geo_mean_perceptual_image = info.tg.create_task_image({
+        .format = daxa::Format::R16_SFLOAT,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
             info.render_context.render_data.settings.render_target_size.y / 2,
             1,
         },
-        .name = "spatial_std_dev_image",
+        .name = "geo_mean_perceptual_image",
     });
     auto filter_guide_image = info.tg.create_task_image({
-        .format = daxa::Format::R16_UINT,
+        .format = daxa::Format::R8_UNORM,
         .size = {
             info.render_context.render_data.settings.render_target_size.x / 2,
             info.render_context.render_data.settings.render_target_size.y / 2,
@@ -352,7 +360,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .pre_filtered_diffuse2_image = pre_filtered_diffuse2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth,
                 .firefly_factor_image = firefly_factor_image,
-                .spatial_std_dev_image = spatial_std_dev_image,
+                .geo_mean_perceptual_image = geo_mean_perceptual_image,
                 .filter_guide_image = filter_guide_image,
             })
             .executes(rtgi_pre_filter_prepare_callback, &info.render_context));
@@ -388,10 +396,11 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_diffuse2_before = src_diffuse2,
                         .view_cam_half_res_depth = info.view_cam_half_res_depth,
                         .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
+        
                         .rtgi_diffuse_blurred = dst_diffuse,
                         .rtgi_diffuse2_blurred = dst_diffuse2,
                         .firefly_factor_image = firefly_factor_image,
-                        .spatial_std_dev_image = spatial_std_dev_image,
+                        .geo_mean_perceptual_image = geo_mean_perceptual_image,
                         .filter_guide_image = filter_guide_image,
                     })
                     .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, i));
@@ -426,6 +435,7 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
             .filter_guide_new = filter_guide_image,
             .half_res_filter_guide_accumulated = half_res_filter_guide_history.current(),
             .half_res_filter_guide_history = half_res_filter_guide_history.previous(),
+            .geometric_mean_new = geo_mean_perceptual_image,
             .temporal_geometric_mean_accumulated = temporal_geometric_mean_history.current(),
             .temporal_geometric_mean_history = temporal_geometric_mean_history.previous(),
         })
@@ -451,10 +461,11 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
                         .rtgi_diffuse2_before = half_res_diffuse2_history,
                         .view_cam_half_res_depth = info.view_cam_half_res_depth,
                         .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
+        
                         .rtgi_diffuse_blurred = rtgi_post_blur_pass0_diffuse_image,
                         .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
                         .statistics_image = statistics_image,
-                        .spatial_std_dev_image = spatial_std_dev_image,
+                        .geo_mean_perceptual_image = geo_mean_perceptual_image,
                         .filter_guide_image = half_res_filter_guide_history.current(),
                         .temporal_geometric_mean = temporal_geometric_mean_history.current(),
                     })
@@ -472,10 +483,11 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
                         .rtgi_diffuse2_before = rtgi_post_blur_pass0_diffuse2_image,
                         .view_cam_half_res_depth = info.view_cam_half_res_depth,
                         .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
+        
                         .rtgi_diffuse_blurred = rtgi_post_blur_diffuse_image,
                         .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
                         .statistics_image = statistics_image,
-                        .spatial_std_dev_image = spatial_std_dev_image,
+                        .geo_mean_perceptual_image = geo_mean_perceptual_image,
                         .filter_guide_image = half_res_filter_guide_history.current(),
                         .temporal_geometric_mean = temporal_geometric_mean_history.current(),
                     })
@@ -512,10 +524,11 @@ info.tg.add_task(daxa::HeadTask<RtgiTemporalH::Info>()
                             .rtgi_diffuse2_before = src2,
                             .view_cam_half_res_depth = info.view_cam_half_res_depth,
                             .view_cam_half_res_face_normals = info.view_cam_half_res_face_normals,
+            
                             .rtgi_diffuse_blurred = dst,
                             .rtgi_diffuse2_blurred = dst2,
                             .statistics_image = statistics_image,
-                            .spatial_std_dev_image = spatial_std_dev_image,
+                            .geo_mean_perceptual_image = geo_mean_perceptual_image,
                             .filter_guide_image = half_res_filter_guide_history.current(),
                             .temporal_geometric_mean = temporal_geometric_mean_history.current(),
                         })

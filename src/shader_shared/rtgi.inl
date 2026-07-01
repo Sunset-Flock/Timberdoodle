@@ -14,12 +14,11 @@ struct RtgiSettings
     daxa_f32 firefly_filter_ceiling;
     daxa_i32 firefly_clamp_mode; // 0=multichromatic, 1=monochromatic
     daxa_i32 pre_blur_enabled;
-    daxa_i32 pre_blur_geometric_guiding;
-    daxa_i32 pre_blur_geometric_mean_guiding;
-    daxa_f32 pre_blur_geometric_mean_guiding_factor;
+    daxa_i32 pre_blur_raylength_guiding;
+    daxa_i32 geometric_luma_guiding;
+    daxa_f32 geometric_luma_guiding_factor;
     daxa_f32 pre_blur_base_width;
-    daxa_i32 pre_blur_sample_count_min;
-    daxa_i32 pre_blur_sample_count_max;
+    daxa_i32 pre_blur_sample_count;
     daxa_i32 pre_blur_iterations;
     daxa_i32 temporal_accumulation_enabled;
     daxa_i32 temporal_fast_history_enabled;
@@ -28,10 +27,10 @@ struct RtgiSettings
     daxa_f32 temporal_variance_fast_history_blend;
     daxa_i32 history_frames;
     daxa_i32 post_blur_enabled;
-    daxa_i32 post_blur_geometric_guiding;
-    daxa_i32 post_blur_geometric_mean_guiding;
-    daxa_f32 post_blur_geometric_mean_guiding_factor;
-    daxa_f32 geometric_guide_floor;
+    daxa_i32 post_blur_raylength_guiding;
+    daxa_i32 post_blur_geometric_luma_guiding;
+    daxa_f32 post_blur_geometric_luma_guiding_factor;
+    daxa_f32 raylength_guide_floor;
     daxa_i32 post_blur_mode;
     daxa_i32 post_blur_variance_guiding;
     daxa_i32 post_blur_disocclusion_blur_enabled;
@@ -41,7 +40,9 @@ struct RtgiSettings
     daxa_i32 upscale_enabled;
     daxa_i32 sh_resolve_enabled;
     daxa_i32 use_compute_trace;
-    daxa_i32 firefly_star_blur_enabled;
+    daxa_i32 firefly_center_blur_enabled;
     daxa_i32 firefly_energy_compensation_enabled;
     daxa_i32 animate_noise;
+
+    daxa_f32 ray_percentage;
 };

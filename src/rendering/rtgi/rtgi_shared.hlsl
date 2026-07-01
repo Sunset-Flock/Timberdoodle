@@ -5,143 +5,74 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
-#define RTGI_FIREFLY_ENERGY_HACKS 1
-
 #define RTGI_USE_QUAD 1
-
-#define RTGI_USE_POISSON_DISC 0
-
-#define RTGI_SPATIAL_FILTER_SAMPLES 8
-
-// This casues dark areas to be too dark often.
-// Consider to find a way to get rid of this and have constant filter size
-#define RTGI_SPATIAL_FILTER_RADIUS_MAX 36
-#define RTGI_SPATIAL_FILTER_DISOCCLUSION_EXPANSION 0
-
-#define RTGI_DISOCCLUSION_SCALING 1
-#define RTGI_DISOCCLUSION_FLOOD_FILL 1
-
-// With a value of 32 AND a value of 32 accumulated frames,
-// Effectively, each pixel can AT MOST double its brightness every frame PRE blurring.
-#define RTGI_FIREFLY_FILTER 1
-#define RTGI_FIREFLY_FILTER_TIGHT_AGRESSIVE 1
-#define RTGI_TEMPORAL_FIREFLY_FILTER_THRESHOLD 32.0f
-#define RTGI_SPATIAL_FIREFLY_FILTER_THRESHOLD_FIRST_FRAME 8.0f
+#define RTGI_QUAD_FILTER_EXTENT 1  // valid: 1 (3x3), 2 (5x5)
+#define RTGI_QUAD_FILTER_STRIDE 1  // cell spacing of the outer gather; >1 widens reach at same tap count (e.g. extent 1 + stride 2)
 
 #define VALUE_MULTIPLIER (1e4f)
 
-func ws_pixel_size(float2 inv_render_target_size, float near_plane, float depth) -> float
+struct PixelData
+{
+    float2 uv;
+    float3 ndc;
+    float3 position_ws;
+    float3 position_vs;
+    float3 normal_ws;
+    float3 normal_vs;
+};
+
+func calc_pixel_data(
+    uint2 dtid,
+    float2 inv_half_res_render_target_size,
+    const CameraInfo camera,
+    Texture2D<float> depth_tex,
+    Texture2D<uint> normals_tex) -> PixelData
+{
+    PixelData pd;
+    pd.uv          = (float2(dtid) + 0.5f) * inv_half_res_render_target_size;
+    pd.ndc         = float3(pd.uv * 2.0f - 1.0f, depth_tex[dtid]);
+    const float4 pos_pre_div = mul(camera.inv_view_proj, float4(pd.ndc, 1.0f));
+    pd.position_ws = pos_pre_div.xyz / pos_pre_div.w;
+    pd.position_vs = mul(camera.view, float4(pd.position_ws, 1.0f)).xyz;
+    pd.normal_ws   = uncompress_normal_octahedral_32(normals_tex[dtid]);
+    pd.normal_vs   = mul(camera.view, float4(pd.normal_ws, 0.0f)).xyz;
+    return pd;
+}
+
+func calc_pixel_width_ws(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
     // The further away the pixel is, the larger difference we allow.
     // The scale is proportional to the size the pixel takes up in world space.
     const float pixel_size_on_near_plane = inv_render_target_size.y;
     const float near_plane_ws_size = near_plane * 2;
-    const float pixel_ws_size = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
-    return pixel_ws_size;
+    const float pixel_width_ws = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
+    return pixel_width_ws;
 }
 
-func planar_surface_distance(float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
+func calc_plane_distance(float3 a_pos, float3 a_norm, float3 b_pos) -> float
 {
-    return dot(other_vs_position - vs_position, vs_normal);
+    return dot(a_pos - b_pos, a_norm);
 }
 
-func planar_surface_distance_ws(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position) -> float
+func calc_similar_surface_weight(const float rcp_pixel_width_ws, const float3 a_pos, const float3 a_norm, const float3 b_pos, const float3 b_norm, const float px_threshold = 1.2f) -> float
 {
-    const float plane_distance = dot(other_vs_position - vs_position, vs_normal);
-    return plane_distance * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
-}
-
-// geometry weight is used as a hard cutoff for edge stopping when spatial blurring
-func planar_surface_weight(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position,
-    float threshold_scale = 2.0f,                   // a larger factor leads to more bleeding across edges but also less noise on small details
-    bool only_consider_negative_distance = false    // when calculating the valid sample footprint we want to ignore "enclosed" pixels as we handle those separately.
-) -> float
-{
-    const float plane_distance = only_consider_negative_distance ? abs(min(0.0f, dot(other_vs_position - vs_position, vs_normal))) : abs(dot(other_vs_position - vs_position, vs_normal));
-    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
-    const float validity = step( plane_distance, threshold );
-    return validity;
-}
-
-// Plane-distance similarity test between two surface points — no world-space distance cap.
-// Returns 1 when both points lie within threshold_scale pixels of each other's tangent planes.
-func surface_similarity(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
-    float threshold_scale = 2.0f,
-) -> float
-{
-    const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
-    const float plane_distance_threshold = pixel_size * threshold_scale;
-    const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
-    const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
-    return step(plane_distanceA, plane_distance_threshold) * step(plane_distanceB, plane_distance_threshold);
-}
-
-func same_surface_weight(const float rcp_ws_pixel_size, const float3 a_pos, const float3 a_norm, const float3 b_pos, const float3 b_norm, const float px_threshold = 1.2f) -> float
-{
-    const float within_acceptable_plane_dist_a = 1.0f - saturate(planar_surface_distance(a_pos, a_norm, b_pos) * rcp(px_threshold) * rcp_ws_pixel_size);
-    const float within_acceptable_plane_dist_b = 1.0f - saturate(planar_surface_distance(b_pos, b_norm, a_pos) * rcp(px_threshold) * rcp_ws_pixel_size);
+    const float within_acceptable_plane_dist_a = 1.0f - saturate(calc_plane_distance(a_pos, a_norm, b_pos) * rcp(px_threshold) * rcp_pixel_width_ws);
+    const float within_acceptable_plane_dist_b = 1.0f - saturate(calc_plane_distance(b_pos, b_norm, a_pos) * rcp(px_threshold) * rcp_pixel_width_ws);
     return within_acceptable_plane_dist_a * within_acceptable_plane_dist_b;
 }
 
 // Same as surface_similarity but also rejects pairs of points that share a plane yet are
 // far apart in world space — guards against accidental coplanar matches across large distances.
-func surface_weight_dist_limited(float2 inv_render_target_size, float near_plane, float depth, float3 vs_position, float3 vs_normal, float3 other_vs_position, float3 other_vs_normal,
-    float threshold_scale = 2.0f,
-) -> float
+func calc_similar_surface_weight_dist_limited(const float rcp_pixel_width_ws, const float3 a_pos, const float3 a_norm, const float3 b_pos, const float3 b_norm, const float px_threshold = 1.2f) -> float
 {
-    const float pixel_size = ws_pixel_size(inv_render_target_size, near_plane, depth);
-    const float plane_distanceA = abs(dot(other_vs_position - vs_position, vs_normal));
-    const float plane_distanceB = abs(dot(vs_position - other_vs_position, other_vs_normal));
-    const float dist            = abs(distance(vs_position, other_vs_position));
-    const float plane_distance_threshold = pixel_size * threshold_scale;
-    const float dist_threshold           = pixel_size * 32.0f * threshold_scale;
-    return step(dist, dist_threshold) *
-           step(plane_distanceA, plane_distance_threshold) *
-           step(plane_distanceB, plane_distance_threshold);
-}
-func depth_distances4(
-    float2 inv_render_target_size, 
-    float near_plane, 
-    float depth, 
-    float3 vs_position, 
-    float3 vs_normal, 
-    float4 other_quad_depths
-) -> float4
-{
-    // We assume 0 positional difference in view space xy. Good enough approximation.
-    const float4 plane_distances = {
-        abs((linearise_depth(other_quad_depths.x, near_plane) - vs_position.z)),
-        abs((linearise_depth(other_quad_depths.y, near_plane) - vs_position.z)),
-        abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z)),
-        abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z)),
-    };
-    return plane_distances * rcp(ws_pixel_size(inv_render_target_size, near_plane, depth));
-}
-
-func planar_surface_weight4(
-    float2 inv_render_target_size, 
-    float near_plane, 
-    float depth, 
-    float3 vs_position, 
-    float3 vs_normal, 
-    float4 other_quad_depths, 
-    float threshold_scale = 2.0f // a larger factor leads to more bleeding across edges but also less noise on small details
-) -> float4
-{
-    // We assume 0 positional difference in view space xy. Good enough approximation.
-    const float4 plane_distances = {
-        abs((linearise_depth(other_quad_depths.x, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.y, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.z, near_plane) - vs_position.z) * vs_normal.z),
-        abs((linearise_depth(other_quad_depths.w, near_plane) - vs_position.z) * vs_normal.z),
-    };
-    const float threshold = ws_pixel_size(inv_render_target_size, near_plane, depth) * threshold_scale;
-    const float4 validity = step( plane_distances, threshold );
-    return validity;
+    const float surface_weight              = calc_similar_surface_weight(rcp_pixel_width_ws, a_pos, a_norm, b_pos, b_norm, px_threshold);
+    const float dist_in_pixel_widths        = abs(distance(a_pos, b_pos)) * rcp_pixel_width_ws;
+    const float pixel_widths_threshold      = 32.0f * px_threshold;
+    return step(dist_in_pixel_widths, pixel_widths_threshold) * surface_weight;
 }
 
 // Due to the low resolution the tracing and de-noising runs at we have to use normals only as a strong suggestion, not for cutoff.
-func normal_similarity_weight(float3 normal, float3 other_normal) -> float
+func calc_similar_normal_weight(float3 normal, float3 other_normal) -> float
 {
     const float validity = (max(0.1f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
     const float tight_validity = (square(validity));
@@ -160,23 +91,11 @@ static const float3 g_Poisson8[8] =
     float3( +0.1564120, -0.8198990, +0.8346850 )
 };
 
-float get_gaussian_weight( float r )
+float calc_gaussian_weight( float r )
 {
     return exp( -0.66f * square(r * 2.71828182846f * 0.5f) ); // assuming r is normalized to 1
 }
 
-// Filter guide: R16_UINT packing — upper 8 bits = geometric scale [0,1], lower 8 bits = surface detail [0,1]
-// Both channels are sRGB-compressed for better precision at low values (where guiding matters most).
-func srgb_encode(float c) -> float { return c <= 0.0031308f ? 12.92f * c : 1.055f * pow(c, 1.0f / 2.4f) - 0.055f; }
-func srgb_decode(float c) -> float { return c <= 0.04045f ? c / 12.92f : pow((c + 0.055f) / 1.055f, 2.4f); }
-
-func pack_filter_guide(float geometric) -> uint {
-    return uint(round(srgb_encode(saturate(geometric)) * 65535.0f));
-}
-
-func unpack_filter_guide(uint packed) -> float {
-    return srgb_decode(float(packed) * (1.0f / 65535.0f));
-}
 
 float3 linear_to_y_co_cg( float3 color )
 {

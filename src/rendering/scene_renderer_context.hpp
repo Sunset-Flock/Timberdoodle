@@ -99,6 +99,7 @@ namespace RenderTimes
             "RTGI",
             {
                 "TRACE",
+                "RECONSTRUCT_POSITIONS",
                 "PRE_FILTER",
                 "PRE_BLUR0",
                 "PRE_BLUR1",
