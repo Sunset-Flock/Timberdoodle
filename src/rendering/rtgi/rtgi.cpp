@@ -526,7 +526,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .pixel_ray_alloc = pixel_ray_alloc_image,
                 .ray_result = ray_result_buffer,
                 .view_cam_half_res_normals = info.view_cam_half_res_face_normals.current(),
-                .view_cam_half_res_albedo = info.view_cam_half_res_albedo,
                 .pre_filtered_diffuse_image = pre_filtered_diffuse_image,
                 .pre_filtered_diffuse2_image = pre_filtered_diffuse2_image,
                 .view_cam_half_res_depth = info.view_cam_half_res_depth.current(),

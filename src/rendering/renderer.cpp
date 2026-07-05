@@ -749,14 +749,8 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT_DOUBLE_BUFFER,
         .name = "main_camera_half_res_depth_image",
     });
-    daxa::TaskImageView main_camera_half_res_albedo_image = tg.create_task_image({
-        .format = daxa::Format::R8G8B8A8_UNORM,
-        .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
-        .name = "main_camera_half_res_albedo_image",
-    });
     daxa::TaskImageView view_camera_half_res_face_normal_image = main_camera_half_res_face_normal_image;
     daxa::TaskImageView view_camera_half_res_depth_image = main_camera_half_res_depth_image;
-    daxa::TaskImageView view_camera_half_res_albedo_image = main_camera_half_res_albedo_image;
 
     tg.add_task(daxa::HeadTask<GenGbufferH::Info>()
             .head_views(GenGbufferH::Info::Views{
@@ -767,7 +761,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .detail_normal_image = main_camera_detail_normal_image.current(),
                 .half_res_face_normal_image = main_camera_half_res_face_normal_image.current(),
                 .half_res_depth_image = main_camera_half_res_depth_image.current(),
-                .half_res_albedo_image = main_camera_half_res_albedo_image,
                 .material_manifest = scene->_gpu_material_manifest.view(),
                 .meshes = scene->_gpu_mesh_manifest.view(),
                 .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -808,11 +801,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             view_camera_half_res_face_normal_image = obs_half_res_normals;
             view_camera_half_res_depth_image = obs_half_res_depth;
         }
-        view_camera_half_res_albedo_image = tg.create_task_image({
-            .format = daxa::Format::R16G16B16A16_SFLOAT,
-            .size = {render_context->render_data.settings.render_target_size.x / 2, render_context->render_data.settings.render_target_size.y / 2, 1},
-            .name = "view_camera_half_res_albedo_image",
-        });
         tg.add_task(daxa::HeadTask<GenGbufferH::Info>()
                 .head_views(GenGbufferH::Info::Views{
                     .globals = render_context->tgpu_render_data.view(),
@@ -822,7 +810,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .detail_normal_image = view_camera_detail_normal_image,
                     .half_res_face_normal_image = view_camera_half_res_face_normal_image.current(),
                     .half_res_depth_image = view_camera_half_res_depth_image.current(),
-                    .half_res_albedo_image = view_camera_half_res_albedo_image,
                     .material_manifest = scene->_gpu_material_manifest.view(),
                     .meshes = scene->_gpu_mesh_manifest.view(),
                     .combined_transforms = scene->_gpu_entity_combined_transforms.view(),
@@ -982,7 +969,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.debug_image = debug_image;
         info.view_cam_half_res_depth = view_camera_half_res_depth_image;
         info.view_cam_half_res_face_normals = view_camera_half_res_face_normal_image;
-        info.view_cam_half_res_albedo = view_camera_half_res_albedo_image;
         info.view_cam_depth = view_camera_depth;
         info.view_cam_face_normals = view_camera_face_normal_image;
         info.view_camera_detail_normal_image = view_camera_detail_normal_image;

@@ -17,7 +17,6 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, face_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, detail_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_u32>, half_res_face_normal_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, half_res_depth_image)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, half_res_albedo_image)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMaterial), material_manifest)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(GPUMesh), meshes)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32mat4x3), combined_transforms)
@@ -43,7 +42,6 @@ struct GenGbufferPush
 
 groupshared uint gs_face_normals[GEN_GBUFFER_X][GEN_GBUFFER_Y];
 groupshared float gs_depths[GEN_GBUFFER_X][GEN_GBUFFER_Y];
-groupshared float4 gs_albedos[GEN_GBUFFER_X][GEN_GBUFFER_Y];
 
 [[shader("compute")]]
 [numthreads(GEN_GBUFFER_X, GEN_GBUFFER_Y, 1)]
@@ -113,13 +111,11 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
 
         gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
         gs_depths[gtid.x][gtid.y] = depth;
-        gs_albedos[gtid.x][gtid.y] = float4(material_point.albedo, 1.0f);
     }
     else
     {
         gs_face_normals[gtid.x][gtid.y] = 0u;
         gs_depths[gtid.x][gtid.y] = 0.0f;
-        gs_albedos[gtid.x][gtid.y] = float4(0.0f, 0.0f, 0.0f, 0.0f);
     }
 
     GroupMemoryBarrierWithGroupSync();
@@ -156,9 +152,6 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
 
         push.attachments.half_res_depth_image.get()[half_out_idx] = closest_depth;
         push.attachments.half_res_face_normal_image.get()[half_out_idx] = closest_face_normal;
-        push.attachments.half_res_albedo_image.get()[half_out_idx] = float4(
-            gs_albedos[gtid.x + (best_depth_index & 1)][gtid.y + (best_depth_index >> 1)]
-        );
     }
 }
 
