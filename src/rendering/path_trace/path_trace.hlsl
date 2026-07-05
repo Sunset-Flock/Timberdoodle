@@ -148,7 +148,7 @@ void ray_gen()
     let output_tex = AT.history_image.get();
     let acceleration_structure = RaytracingAccelerationStructure::get(AT.tlas);
     
-    const float exposure = deref(AT.exposure);
+    const float exposure = deref(AT.globals).exposure;
     atmo_position = get_atmo_position(AT.globals);
     const float2 screen_uv = (float2(px) + 0.5) * AT.globals->settings.render_target_size_inv;
     const float2 ndc_xy = screen_uv * 2.0 - 1.0;

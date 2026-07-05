@@ -16,32 +16,6 @@ groupshared float4 gs_half_normals_preload[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float4 gs_half_vs_positions[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 groupshared float gs_half_samplecount[GS_PRELOAD_WIDTH][GS_PRELOAD_WIDTH];
 
-__generic<uint N>
-func linear_to_perceptual(vector<float, N> v) -> vector<float, N> 
-{
-    return log(max(v, 0.01f) + 1.0f);
-}
-
-__generic<uint N>
-func perceptual_to_linear(vector<float, N> v) -> vector<float, N> 
-{
-    return exp(v) - 1.0f;
-}
-
-#define RTGI_PERCEPTUAL_EXPONENT 4.0f
-func perceptual_lerp(float a, float b, float v) -> float
-{
-    // return lerp(a, b, v);
-    return perceptual_to_linear(lerp(linear_to_perceptual(a), linear_to_perceptual(b), v));
-    // return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
-}
-func perceptual_lerp(float3 a, float3 b, float v) -> float3
-{
-    // return lerp(a, b, v);
-    return perceptual_to_linear(lerp(linear_to_perceptual(a), linear_to_perceptual(b), v));
-    //return pow(lerp(pow(a + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), pow(b + 0.000000001f, (1.0f/RTGI_PERCEPTUAL_EXPONENT)), v), RTGI_PERCEPTUAL_EXPONENT);
-}
-
 [shader("compute")]
 [numthreads(RTGI_UPSCALE_DIFFUSE_X,RTGI_UPSCALE_DIFFUSE_Y,1)]
 func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_GroupIndex, int2 group_id : SV_GroupID, int2 in_group_id : SV_GroupThreadID)

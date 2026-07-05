@@ -58,20 +58,20 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     // inf mean signals that this pixel doesn't belong to its quad's representative surface (e.g. a depth discontinuity within the 2x2 blur-cell).
     // Pre-blur can't do anything meaningful with these pixels since their geometry context is mismatched — pass through raw and let post-blur clean them up.
-    const float pixel_luma_mean_geometric = push.attach.geo_mean_perceptual_image.get()[dtid.xy];
-    if (isinf(pixel_luma_mean_geometric))
+    const float pixel_radiance_mean_perceptual = push.attach.perceptual_radiance_image.get()[dtid.xy];
+    if (isinf(pixel_radiance_mean_perceptual))
     {
         push.attach.rtgi_diffuse_blurred.get()[halfres_pixel_index]  = push.attach.rtgi_diffuse_before.get()[halfres_pixel_index];
         push.attach.rtgi_diffuse2_blurred.get()[halfres_pixel_index] = push.attach.rtgi_diffuse2_before.get()[halfres_pixel_index].rg;
         return;
     }
 
-    // Filter guide: R16_UINT packed — both channels [0,1] scale, sRGB compressed
-    const float filter_guide    = push.attach.filter_guide_image.get()[dtid.xy];
-    const float raylength_guide = rtgi_settings.pre_blur_raylength_guiding ? lerp(rtgi_settings.raylength_guide_floor, 1.0f, filter_guide) : 1.0f;
+    // Ambient occlusion guide × footprint quality (footprint kept separate to avoid temporal streaking; combined here).
+    const float ao_guide    = push.attach.ao_guide_image.get()[dtid.xy] * push.attach.footprint_quality_image.get()[dtid.xy];
+    const float ao_guide_radius_scale = rtgi_settings.pre_blur_ao_guiding ? lerp(rtgi_settings.ao_guide_floor, 1.0f, ao_guide) : 1.0f;
 
     const float iteration_scaling = rsqrt((float)rtgi_settings.pre_blur_iterations);
-    float blur_radius = max(1.0f, (float)rtgi_settings.pre_blur_base_width * raylength_guide * iteration_scaling);
+    float blur_radius = max(1.0f, (float)rtgi_settings.pre_blur_base_width * ao_guide_radius_scale * iteration_scaling);
 
     // We want the kernel to align with the surface, 
     // but on shallow angles we would loose too much pixel footprint, 
@@ -98,15 +98,21 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
 
     const bool firefly_energy_compensation_allowed = push.iteration == 0;
 
+    // Ray-count sample weighting: pixels that shot more rays this frame carry more of a
+    // converged signal, so we let their radiance dominate the blur (center pixel included).
+    const bool ray_count_sample_weighting = rtgi_settings.pre_blur_ray_count_sample_weighting != 0;
+    const float center_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[dtid.xy])) : 1.0f;
+
     float valid_sample_count = 1.0f;
-    float weight_accum = ( firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[dtid.xy] : 1.0f ) * valid_sample_count;
+    float weight_accum = ( firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[dtid.xy] : 1.0f ) * valid_sample_count * center_ray_count_weight;
     float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy] * weight_accum;
     float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg * weight_accum;
 
+    const uint poisson_offset = rtgi_settings.animate_noise ? (push.attach.globals.frame_index & 7u) : 0u;
     for (uint s = 0; s < samples - 1; ++s)
     {
         //const float2 disc_noise = rand_concentric_sample_disc_center_focus();
-        const float2 disc_noise = mul(disc_rotation, g_Poisson8[min(s,7)].xy);
+        const float2 disc_noise = mul(disc_rotation, g_Poisson8[(s + poisson_offset) & 7u].xy);
         const float2 sample_2d = disc_noise * blur_radius;
         const float3 sample_ndc = pixel.ndc + float3(ss_gradient * sample_2d * inv_half_res_render_target_size * 2.0f, 0.0f);
         // Wiggle does two things:
@@ -114,35 +120,42 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         // - at shallow angles the kernel can become 1 pixel wide due to the gradient based shape, the wiggle breaks this up.
         const float2 pixel_index_wiggle = disc_noise * 0.5f;
         const float2 sample_uv = sample_ndc.xy * 0.5f + 0.5f;
-        const int2 sample_index_i = clamp(int2(sample_uv * half_res_render_target_size + pixel_index_wiggle), int2(0, 0), int2(half_res_render_target_size) - 1);
-        const uint2 sample_index = uint2(sample_index_i);
+        const int2 sample_index_i = int2(sample_uv * half_res_render_target_size + pixel_index_wiggle);
+        // Taps that fall outside the image get zero weight rather than clamping onto (and
+        // over-weighting) the edge pixel. Index is still clamped so the loads stay in bounds.
+        const bool out_of_bounds = any(sample_index_i < int2(0, 0)) || any(sample_index_i >= int2(half_res_render_target_size));
+        const uint2 sample_index = uint2(clamp(sample_index_i, int2(0, 0), int2(half_res_render_target_size) - 1));
 
         // Load sample data
         const PixelData sample = calc_pixel_data(sample_index, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
         const float4 sample_sh_y = push.attach.rtgi_diffuse_before.get()[sample_index];
         const float2 sample_cocg = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
-        const float sample_luma_mean_geometric = push.attach.geo_mean_perceptual_image.get()[sample_index.xy];
+        const float sample_radiance_mean_perceptual = push.attach.perceptual_radiance_image.get()[sample_index.xy];
 
         const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
         const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
+
+        float perceptual_difference_weight = 1.0f;
+        if (rtgi_settings.pre_blur_perceptual_difference_guiding && !(isinf(sample_radiance_mean_perceptual)))
+        {
+            perceptual_difference_weight = calc_perceptual_difference_weight(pixel_radiance_mean_perceptual, sample_radiance_mean_perceptual, rtgi_settings.pre_blur_perceptual_radiance_guide_tolerance);
+        }
 
         // Hacky, but works:
         // * clamped fireflys are distributed to more pixels, this recovers lost energy from the firefly clamp
         // * as bright pixels are spread much more than others, this increases their temporal stability by a lot, allowing a higher firefly ceiling and more temporal stability
         const float firefly_power = firefly_energy_compensation_allowed ? push.attach.firefly_factor_image.get()[sample_index.xy] : 1.0f;
 
-        const bool  means_valid                     = !(isinf(sample_luma_mean_geometric));
-        const float log_ratio                       = means_valid ? sample_luma_mean_geometric - pixel_luma_mean_geometric : 0.0f;
-        const float relative_geometric_luma_weight  = (rtgi_settings.geometric_luma_guiding && means_valid) ? exp(-square(rtgi_settings.geometric_luma_guiding_factor * 2.0f * log_ratio)) : 1.0f;
+        const float sample_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[sample_index.xy])) : 1.0f;
 
-        const float weight = geometric_weight * normal_weight * firefly_power * relative_geometric_luma_weight;
+        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * firefly_power * perceptual_difference_weight * sample_ray_count_weight);
         
-        #if 1
+        #if 0
         if (all(dtid.xy == half_res_render_target_size/2))
         {
             // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
             
-            debug_image_tile_draw(push.attach.debug_image.get(), -1, sample_index, lerp(float4(1,0,0,2), float4(0,1,0,2), relative_geometric_luma_weight), 2);
+            write_debug_image(push.attach.debug_image.get(), -1, sample_index, lerp(float4(1,0,0,2), float4(0,1,0,2), perceptual_difference_weight), 2);
         }
         #endif
         

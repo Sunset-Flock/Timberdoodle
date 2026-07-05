@@ -14,10 +14,28 @@
 DAXA_DECL_RAY_TRACING_TASK_HEAD_BEGIN(RtgiTraceDiffuseH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_u32>, clocks_image)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, diffuse_raw)
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, diffuse2_raw)
-DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32>, ray_length_image)
+// Per-pixel: .rgb = geometric mean of this pixel's rays in log space (mean log(rgb)); .a = mean ray
+// shortness [0,1]. Perceptual radiance is inferred from .rgb (perceptual_radiance_from_rgb) — the geometric mean
+// of the *rays* is needed so the pre-filter's firefly ceiling isn't Jensen-biased high.
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, perceptual_rgb_shortness)
+// Number of rays this pixel shot this frame. Read by the accumulation pass (to increment the sample
+// count) and the pre-filter (to divide the firefly ceiling — well-sampled pixels need less headroom).
+DAXA_TH_IMAGE_TYPED(READ_WRITE, daxa::RWTexture2DId<daxa_u32>, ray_count_image)
+// Reprojected history sample count from the temporal reproject pass (runs before trace).
+// Read-only here to drive the adaptive ray count; the accumulation pass does the increment. <0 == sky.
+DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, rtgi_sample_count)
+// Per-frame ray demand. READ_WRITE because the classic (non-distributed) trace atomically reserves its
+// wave's slice of ray_list_count here (the distribute pass does this in the repacked path).
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(RtgiRayDemand), ray_demand)
+// Flat ray list built by the distribute pass: each entry is a (pixel_xy, sample_index) pair.
+DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(RtgiRayEntry), ray_list)
+// Per-ray radiance results: written by ray_gen_from_list (repacked) or shade_ray_gen (classic), read by
+// the pre-filter (which re-blends + per-ray firefly-clamps them).
+DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RtgiRayResult), ray_result)
+// Per-pixel ray-list offset. Written by the distribute pass (repacked) or shade_ray_gen (classic).
+DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DIndex<daxa_u32>, pixel_ray_alloc)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, view_cam_half_res_depth) 
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, view_cam_half_res_face_normals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(MeshletInstancesBufferHead), meshlet_instances)

@@ -9,7 +9,6 @@
 
 #include "../shader_shared/geometry.inl"
 #include "../shader_shared/readback.inl"
-#include "../shader_shared/ao.inl"
 
 #include "../gpu_context.hpp"
 
@@ -46,13 +45,6 @@ namespace RenderTimes
                 "SECOND_PASS_CULL_MESHLETS_COMPUTE",
                 "SECOND_PASS_CULL_AND_DRAW",
                 "SECOND_PASS_DRAW",
-            },
-        },
-        GroupNames{
-            "RTAO",
-            {
-                "TRACE",
-                "DENOISE",
             },
         },
         GroupNames{
@@ -98,8 +90,10 @@ namespace RenderTimes
         GroupNames{
             "RTGI",
             {
+                "TEMPORAL_REPROJECT",
+                "DISTRIBUTE_RAYS",
                 "TRACE",
-                "RECONSTRUCT_POSITIONS",
+                "BLEND_RAYS",
                 "PRE_FILTER",
                 "PRE_BLUR0",
                 "PRE_BLUR1",
@@ -660,7 +654,6 @@ struct RenderContext
     VSMSettings prev_vsm_settings = {};
     PGISettings prev_pgi_settings = {};
     LightSettings prev_light_settings = {};
-    AoSettings prev_ao_settings = {};
     RtgiSettings prev_rtgi_settings = {};
     VolumetricSettings prev_volumetric_settings = {};
 

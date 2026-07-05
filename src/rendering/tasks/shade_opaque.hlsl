@@ -187,7 +187,7 @@ float3 get_vsm_debug_page_color(ScreenSpacePixelWorldFootprint pixel_footprint)
         }
         if (AT.globals->settings.debug_draw_mode == DEBUG_DRAW_MODE_VSM_OVERDRAW)
         {
-            const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
+            const float3 overdraw_color = 3.0 * Heatmap(float(overdraw_amount) / 25.0);
             color.rgb = overdraw_color;
         }
     } else {
@@ -681,6 +681,7 @@ void entry_main_cs(
 
     float4 output_value = float4(0);
     float4 debug_value = float4(0);
+    const float debug_alpha = 1.0f + AT.globals->settings.debug_visualization_blend;
 
 
     float4x4 view_proj = AT.globals->view_camera.view_proj;
@@ -882,8 +883,7 @@ void entry_main_cs(
         }
 
         ambient_occlusion = 1.0f;
-        const bool ao_enabled = (AT.globals.ao_settings.mode != AMBIENT_OCCLUSION_MODE_NONE) && !AT.ao_image.id.is_empty();
-        if (ao_enabled)
+        if (!AT.ao_image.id.is_empty())
         {
             ambient_occlusion = lerp(AT.ao_image.get().Load(index).r, 1.0f, 0.001f);
         }
@@ -900,293 +900,294 @@ void entry_main_cs(
         let shaded_color = albedo.rgb * M_FRAC_1_PI * lighting + material.emissive_color;
 
 
-        float3 dummy_color = float3(1,0,1);
         uint mesh_group_index = AT.mesh_instances.instances[tri_geo.mesh_instance_index].mesh_group_index;
-        switch(AT.globals->settings.debug_draw_mode)
+        output_value.rgb = shaded_color;
         {
-            case DEBUG_DRAW_MODE_OVERDRAW:
+            RWTexture2D<float4> dbg = RWTexture2D<float4>::get(AT.debug_image);
+            const int dbg_slot = AT.globals->settings.debug_visualization_tile;
+            switch(AT.globals->settings.debug_draw_mode)
             {
-                if (AT.overdraw_image.value != 0)
+                case DEBUG_DRAW_MODE_OVERDRAW:
                 {
-                    let value = Texture2D<uint>::get(AT.overdraw_image)[index].x;
-                    let scaled_value = float(value) * AT.globals->settings.debug_visualization_scale;
-                    let color = TurboColormap(scaled_value);
-                    output_value.rgb = color;
+                    if (AT.overdraw_image.value != 0)
+                    {
+                        let value = Texture2D<uint>::get(AT.overdraw_image)[index].x;
+                        let scaled_value = float(value) * AT.globals->settings.debug_visualization_scale;
+                        let color = Heatmap(scaled_value);
+                        write_debug_image(dbg, dbg_slot, index, float4(color, debug_alpha));
+                    }
+                    break;
                 }
-                break;
-            }
-            case DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY:
-            {
-                uint3 indices = tri_geo.vertex_indices;
-                float3 color_x = hsv2rgb(float3(IdFloatScramble(indices.x), 1, 1));
-                float3 color_y = hsv2rgb(float3(IdFloatScramble(indices.y), 1, 1));
-                float3 color_z = hsv2rgb(float3(IdFloatScramble(indices.z), 1, 1));
-                output_value.rgb = (tri_geo.barycentrics.x * color_x + tri_geo.barycentrics.y * color_y + tri_geo.barycentrics.z * color_z) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_TRIANGLE_ID:
-            {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index + meshlet_index + tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_MESHLET_ID:
-            {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(meshlet_index + tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, IdFloatScramble(meshlet_triangle_index) * 0.2f + 0.8f)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_MESH_ID:
-            {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_MESH_GROUP_ID:
-            {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_ENTITY_ID:
-            {
-                output_value.rgb = hsv2rgb(float3(IdFloatScramble(tri_geo.entity_index), 1, 1)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_MESH_LOD:
-            {
-                uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
-                output_value.rgb = TurboColormap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP)) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_VSM_OVERDRAW: 
-            {
-                let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint);
-                output_value.rgb = vsm_debug_color * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_VSM_CLIP_LEVEL: 
-            {
-                if (AT.globals->vsm_settings.enable != 0)
+                case DEBUG_DRAW_MODE_TRIANGLE_CONNECTIVITY:
+                {
+                    uint3 indices = tri_geo.vertex_indices;
+                    float3 color_x = hsv2rgb(float3(IdFloatScramble(indices.x), 1, 1));
+                    float3 color_y = hsv2rgb(float3(IdFloatScramble(indices.y), 1, 1));
+                    float3 color_z = hsv2rgb(float3(IdFloatScramble(indices.z), 1, 1));
+                    write_debug_image(dbg, dbg_slot, index, float4((tri_geo.barycentrics.x * color_x + tri_geo.barycentrics.y * color_y + tri_geo.barycentrics.z * color_z) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_TRIANGLE_ID:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(hsv2rgb(float3(IdFloatScramble(meshlet_triangle_index + meshlet_index + tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_MESHLET_ID:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(hsv2rgb(float3(IdFloatScramble(meshlet_index + tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, IdFloatScramble(meshlet_triangle_index) * 0.2f + 0.8f)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_MESH_ID:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(hsv2rgb(float3(IdFloatScramble(tri_geo.mesh_index + mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_MESH_GROUP_ID:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(hsv2rgb(float3(IdFloatScramble(mesh_group_index + tri_geo.entity_index), 1, 1)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ENTITY_ID:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(hsv2rgb(float3(IdFloatScramble(tri_geo.entity_index), 1, 1)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_MESH_LOD:
+                {
+                    uint lod = tri_geo.mesh_index % MAX_MESHES_PER_LOD_GROUP;
+                    write_debug_image(dbg, dbg_slot, index, float4(Heatmap(2 * float(lod) / float(MAX_MESHES_PER_LOD_GROUP)) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_VSM_OVERDRAW:
+                {
+                    let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint);
+                    write_debug_image(dbg, dbg_slot, index, float4(vsm_debug_color * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_VSM_CLIP_LEVEL:
+                {
+                    if (AT.globals->vsm_settings.enable != 0)
+                    {
+                        const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
+                        let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
+                        let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color;
+                        write_debug_image(dbg, dbg_slot, index, float4(debug_albedo, debug_alpha));
+                    }
+                    break;
+                }
+                case DEBUG_DRAW_MODE_VSM_SPOT_LEVEL:
                 {
                     const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
-                    let vsm_debug_color = get_vsm_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
-                    let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color;
-                    output_value.rgb = debug_albedo;
+                    let vsm_debug_color = get_vsm_spot_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
+                    let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
+                    write_debug_image(dbg, dbg_slot, index, float4(debug_albedo, debug_alpha));
+                    break;
                 }
-                break;
-            }
-            case DEBUG_DRAW_MODE_VSM_SPOT_LEVEL:
-            {
-                const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
-                let vsm_debug_color = get_vsm_spot_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
-                let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
-                output_value.rgb = debug_albedo;
-                break;
-            }
-            case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
-            {
-                const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
-                let vsm_debug_color = get_vsm_point_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
-                let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
-                output_value.rgb = debug_albedo;
-                break;
-            }
-            case DEBUG_DRAW_MODE_DEPTH:
-            {
-                float depth = depth;
-                let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.main_camera.near_plane, depth));
-                output_value.rgb = color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_ALBEDO:
-            {
-                output_value.rgb = albedo;
-                break;
-            }
-            case DEBUG_DRAW_MODE_FACE_NORMAL:
-            {
-                let color = tri_point.face_normal * 0.5 + 0.5f;
-                output_value.rgb = color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_SMOOTH_NORMAL:
-            {
-                let color = tri_point.world_normal * 0.5 + 0.5f;
-                output_value.rgb = color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_MAPPED_NORMAL:
-            {
-                let color = mapped_normal * 0.5 + 0.5f;
-                output_value.rgb = color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_FACE_TANGENT:
-            {
-                let color = tri_point.world_tangent * 0.5 + 0.5f;
-                output_value.rgb = color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_SMOOTH_TANGENT:
-            {
-                output_value.rgb = float3(frac(tri_point.uv), 0);
-                break;
-            }
-            case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
-            {
-                output_value.rgb = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI;
-                break;
-            }
-            case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
-            {
-                output_value.rgb = indirect_lighting;
-                break;
-            }
-            case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO:
-            {
-                output_value.rgb = indirect_lighting * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_AO:
-            {
-                output_value.rgb = ambient_occlusion.xxx;
-                break;
-            }
-            case DEBUG_DRAW_MODE_ALL_DIFFUSE:
-            {
-                output_value.rgb = (directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + indirect_lighting * ambient_occlusion + material.emissive_color;
-                break;
-            }
-            case DEBUG_DRAW_MODE_UV:
-            {
-                output_value.rgb = float3(tri_point.uv, 1.0f) * ambient_occlusion;
-                break;
-            }
-            case DEBUG_DRAW_MODE_PGI_IRRADIANCE:
-            {
-                PGISampleInfo info = PGISampleInfo();
-                info.request_mode = PGI_REQUEST_MODE_NONE;
-                
-                output_value.rgb = pgi_sample_probe_volume(
-                    AT.globals, &AT.globals.pgi_settings, info,
-                    tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
-                    AT.pgi_irradiance.get(),
-                    AT.pgi_visibility.get(),
-                    AT.pgi_info.get(),
-                    AT.pgi_requests.get()
-                ).rgb;
-                break;
-            }
-            case DEBUG_DRAW_MODE_PGI_RADIANCE:
-            {
-                PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
-                
-                output_value.rgb = pgi_sample_probe_volume(
-                    AT.globals, &AT.globals.pgi_settings, info,
-                    tri_point.world_position, AT.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
-                    AT.pgi_irradiance.get(),
-                    AT.pgi_visibility.get(),
-                    AT.pgi_info.get(),
-                    AT.pgi_requests.get()
-                );
-                break;
-            }
-            case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
-            case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
-            {
-                uint pgi_absolute_cascade = 0;
-                bool pgi_is_center_8 = false;
-                bool pgi_checker = false;
-                float pgi_color_mul = 1.0f;
-                PGISettings * pgi = &AT.globals.pgi_settings;
-                PGISettings reg_pgi_settings = *pgi;
+                case DEBUG_DRAW_MODE_VSM_POINT_LEVEL:
+                {
+                    const float3 PERCEIVED_LUMINANCE_WEIGHTS = float3(0.2127, 0.7152, 0.0722);
+                    let vsm_debug_color = get_vsm_point_debug_page_color(ws_pixel_footprint) * ambient_occlusion;
+                    let debug_albedo = dot(lighting, PERCEIVED_LUMINANCE_WEIGHTS) * vsm_debug_color.rgb;
+                    write_debug_image(dbg, dbg_slot, index, float4(debug_albedo, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_DEPTH:
+                {
+                    float depth = depth;
+                    let color = unband_z_color(index.x, index.y, linearise_depth(AT.globals.main_camera.near_plane, depth));
+                    write_debug_image(dbg, dbg_slot, index, float4(color, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ALBEDO:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(albedo, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_FACE_NORMAL:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(tri_point.face_normal * 0.5 + 0.5f, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_SMOOTH_NORMAL:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(tri_point.world_normal * 0.5 + 0.5f, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_MAPPED_NORMAL:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(mapped_normal * 0.5 + 0.5f, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_FACE_TANGENT:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(tri_point.world_tangent * 0.5 + 0.5f, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_SMOOTH_TANGENT:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(float3(frac(tri_point.uv), 0), debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_DIRECT_DIFFUSE:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4((directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(indirect_lighting * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(indirect_lighting * ambient_occlusion * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_AO:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(ambient_occlusion.xxx, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_ALL_DIFFUSE:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(((directional_light_direct + point_lights_direct + spot_lights_direct) * M_FRAC_1_PI + indirect_lighting * ambient_occlusion + material.emissive_color) * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_UV:
+                {
+                    write_debug_image(dbg, dbg_slot, index, float4(float3(tri_point.uv, 1.0f) * ambient_occlusion, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_PGI_IRRADIANCE:
+                {
+                    PGISampleInfo info = PGISampleInfo();
+                    info.request_mode = PGI_REQUEST_MODE_NONE;
+                    let pgi_color = pgi_sample_probe_volume(
+                        AT.globals, &AT.globals.pgi_settings, info,
+                        tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
+                        AT.pgi_irradiance.get(),
+                        AT.pgi_visibility.get(),
+                        AT.pgi_info.get(),
+                        AT.pgi_requests.get()
+                    ).rgb;
+                    write_debug_image(dbg, dbg_slot, index, float4(pgi_color * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_PGI_RADIANCE:
+                {
+                    PGISampleInfo info = PGISampleInfoNearestSurfaceRadiance();
+                    let pgi_color = pgi_sample_probe_volume(
+                        AT.globals, &AT.globals.pgi_settings, info,
+                        tri_point.world_position, AT.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
+                        AT.pgi_irradiance.get(),
+                        AT.pgi_visibility.get(),
+                        AT.pgi_info.get(),
+                        AT.pgi_requests.get()
+                    );
+                    write_debug_image(dbg, dbg_slot, index, float4(pgi_color * AT.globals->exposure, debug_alpha + 1.0f));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
+                case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
+                {
+                    uint pgi_absolute_cascade = 0;
+                    bool pgi_is_center_8 = false;
+                    bool pgi_checker = false;
+                    float pgi_color_mul = 1.0f;
+                    PGISettings * pgi = &AT.globals.pgi_settings;
+                    PGISettings reg_pgi_settings = *pgi;
 
-                for (int cascade = 0; cascade < pgi.cascade_count; ++cascade)
-                {
-                    PGICascade reg_pgi_cascade = pgi->cascades[cascade];
-                    let in_cascade = pgi_is_pos_in_cascade(reg_pgi_settings, reg_pgi_cascade, material_point.position, cascade);
-                    if (in_cascade)
+                    for (int cascade = 0; cascade < pgi.cascade_count; ++cascade)
                     {
-                        pgi_absolute_cascade = cascade;
-                        float3 grid_coord = pgi_grid_coord_of_position(reg_pgi_settings, reg_pgi_cascade, material_point.position);
-                        int4 base_probe = int4(floor(grid_coord), cascade);
-                        pgi_is_center_8 = any(base_probe.xyz >= pgi.probe_count/2-1 && base_probe.xyz < pgi.probe_count/2);
-                        let stable_index = pgi_probe_to_stable_index(reg_pgi_settings, reg_pgi_cascade, base_probe);
-                        pgi_checker = ((uint(stable_index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.z + int(~0u >> 2)) & 0x1) != 0);
-                        if (pgi_is_center_8)
+                        PGICascade reg_pgi_cascade = pgi->cascades[cascade];
+                        let in_cascade = pgi_is_pos_in_cascade(reg_pgi_settings, reg_pgi_cascade, material_point.position, cascade);
+                        if (in_cascade)
                         {
-                            pgi_color_mul *= 0.25f;
-                        }
-                        if (pgi_checker)
-                        {
-                            pgi_color_mul *= 0.75f;
-                        }
+                            pgi_absolute_cascade = cascade;
+                            float3 grid_coord = pgi_grid_coord_of_position(reg_pgi_settings, reg_pgi_cascade, material_point.position);
+                            int4 base_probe = int4(floor(grid_coord), cascade);
+                            pgi_is_center_8 = any(base_probe.xyz >= pgi.probe_count/2-1 && base_probe.xyz < pgi.probe_count/2);
+                            let stable_index = pgi_probe_to_stable_index(reg_pgi_settings, reg_pgi_cascade, base_probe);
+                            pgi_checker = ((uint(stable_index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(stable_index.z + int(~0u >> 2)) & 0x1) != 0);
+                            if (pgi_is_center_8)
+                            {
+                                pgi_color_mul *= 0.25f;
+                            }
+                            if (pgi_checker)
+                            {
+                                pgi_color_mul *= 0.75f;
+                            }
 
-                        break;
+                            break;
+                        }
                     }
-                }
-                float smooth_cascade = pgi_select_cascade_smooth_spherical(*pgi, material_point.position - AT.globals.main_camera.position);
-                switch(AT.globals->settings.debug_draw_mode)
-                {
-                    case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
+                    float smooth_cascade = pgi_select_cascade_smooth_spherical(*pgi, material_point.position - AT.globals.main_camera.position);
+                    switch(AT.globals->settings.debug_draw_mode)
                     {
-                        float3 cascade_color = TurboColormap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
-                        output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
-                        break;
+                        case DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH:
+                        {
+                            float3 cascade_color = Heatmap(float(smooth_cascade) * rcp(12)) * pgi_color_mul;
+                            write_debug_image(dbg, dbg_slot, index, float4(lerp(shaded_color * cascade_color, cascade_color, 0.4f), debug_alpha));
+                            break;
+                        }
+                        case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
+                        {
+                            float3 cascade_color = Heatmap(float(pgi_absolute_cascade) * rcp(12)) * pgi_color_mul;
+                            write_debug_image(dbg, dbg_slot, index, float4(lerp(shaded_color * cascade_color, cascade_color, 0.4f), debug_alpha));
+                            break;
+                        }
                     }
-                    case DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE:
+                    break;
+                }
+                case DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING:
+                {
+                    PGISampleInfo pgi_sample_info = PGISampleInfo();
+                    pgi_sample_info.probe_blend_nearest = true;
+                    pgi_sample_info.request_mode = PGI_REQUEST_MODE_NONE;
+                    let pgi_color = pgi_sample_probe_volume(
+                        AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
+                        tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
+                        AT.pgi_irradiance.get(),
+                        AT.pgi_visibility.get(),
+                        AT.pgi_info.get(),
+                        AT.pgi_requests.get()
+                    );
+                    write_debug_image(dbg, dbg_slot, index, float4(pgi_color, debug_alpha));
+                    break;
+                }
+                case DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME:
+                {
+                    let mask_volume = AT.light_mask_volume.get();
+                    let light_settings = AT.globals.light_settings;
+                    uint4 light_mask = lights_get_mask(light_settings, material_point.position, mask_volume);
+                    int3 lmv_cell = lights_get_mask_volume_cell(light_settings, material_point.position) / 4;
+                    //light_mask &= light_settings.spot_light_mask;
+
+                    bool checker = false;//((uint(lmv_cell.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(lmv_cell.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(lmv_cell.z + int(~0u >> 2)) & 0x1) != 0);
+                    let light_count4 = countbits(light_mask);
+                    let light_count = light_count4.x + light_count4.y + light_count4.z + light_count4.w;
+                    float3 mask_color;
+                    if (lights_in_mask_volume(light_settings, lights_get_mask_volume_cell(light_settings, material_point.position)))
                     {
-                        float3 cascade_color = TurboColormap(float(pgi_absolute_cascade) * rcp(12)) * pgi_color_mul;
-                        output_value.rgb = lerp(shaded_color * cascade_color, cascade_color, 0.4f);
-                        break;
+                        mask_color = Heatmap(float(light_count) * rcp(123.0f)) * ambient_occlusion;
                     }
+                    else
+                    {
+                        mask_color = ambient_occlusion.xxx;
+                    }
+                    mask_color *= checker ? 0.6f : 1.0f;
+                    write_debug_image(dbg, dbg_slot, index, float4(mask_color, debug_alpha));
+                    break;
                 }
-                break;
-            }      
-            case DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING:
-            {
-                PGISampleInfo pgi_sample_info = PGISampleInfo();
-                pgi_sample_info.probe_blend_nearest = true;
-                pgi_sample_info.request_mode = PGI_REQUEST_MODE_NONE;
-                
-                output_value.rgb = pgi_sample_probe_volume(
-                    AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
-                    tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
-                    AT.pgi_irradiance.get(),
-                    AT.pgi_visibility.get(),
-                    AT.pgi_info.get(),
-                    AT.pgi_requests.get()
-                );
-                break;
-            }   
-            case DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME:
-            {
-                let mask_volume = AT.light_mask_volume.get();
-                let light_settings = AT.globals.light_settings;
-                uint4 light_mask = lights_get_mask(light_settings, material_point.position, mask_volume);
-                int3 index = lights_get_mask_volume_cell(light_settings, material_point.position) / 4;
-                //light_mask &= light_settings.spot_light_mask;
-                
-                bool checker = false;//((uint(index.x + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(index.y + int(~0u >> 2)) & 0x1) != 0) ^ ((uint(index.z + int(~0u >> 2)) & 0x1) != 0);
-                let light_count4 = countbits(light_mask);
-                let light_count = light_count4.x + light_count4.y + light_count4.z + light_count4.w;
-                if (lights_in_mask_volume(light_settings, lights_get_mask_volume_cell(light_settings, material_point.position)))
+                case DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE:
                 {
-                    output_value.rgb = TurboColormap(float(light_count) * rcp(123.0f)) * ambient_occlusion;
+                    write_debug_image(dbg, dbg_slot, index, float4(AT.rtgi_debug_primary_trace.get()[index/2].rgb, debug_alpha));
+                    break;
                 }
-                else
-                {
-                    output_value.rgb = ambient_occlusion.xxx;
-                }
-                output_value.rgb *= checker ? 0.6f : 1.0f;
-                break;
-            }  
-            case DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE:
-            {
-                output_value.rgb = AT.rtgi_debug_primary_trace.get()[index/2].rgb;
-                break;
+                case DEBUG_DRAW_MODE_NONE:
+                default:
+                    break;
             }
-            case DEBUG_DRAW_MODE_NONE:
-            default:
-            output_value.rgb = shaded_color;
-            break;
         }
         
         // pgi based reflections
@@ -1208,7 +1209,7 @@ void entry_main_cs(
         
         if (debug_mark_light_influence_counter && AT.globals.light_settings.debug_mark_influence)
         {
-            float3 color = TurboColormap(float(debug_mark_light_influence_counter) * rcp(31.0f));
+            float3 color = Heatmap(float(debug_mark_light_influence_counter) * rcp(31.0f));
             output_value.rgb = lerp(color, output_value.rgb * color, 0.75f);
         }
     }
@@ -1237,29 +1238,14 @@ void entry_main_cs(
         debug_value.xyz = atmosphere_direct_illuminnace;
     }
         
-    uint clocks = 0;
-    switch(push.attachments.attachments.globals.settings.debug_draw_mode)
+    if (push.attachments.attachments.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS)
     {
-        case DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS:
-        {
-            let clk_end = clockARB();
-            clocks = uint(clk_end) - uint(clk_start);
-            break;
-        }
-        case DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS:
-        case DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS:
-        case DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS:
-        {
-            clocks = push.attachments.attachments.clocks_image.get()[index];
-            break;
-        }
-    }
-    if (clocks != 0)
-    {
-        output_value.rgb = TurboColormap(clocks * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f);
+        let clk_end = clockARB();
+        const uint clocks = uint(clk_end) - uint(clk_start);
+        write_debug_image(RWTexture2D<float4>::get(AT.debug_image), AT.globals->settings.debug_visualization_tile, index, float4(Heatmap(clocks * 0.0001f * push.attachments.attachments.globals.settings.debug_visualization_scale) * lerp(ambient_occlusion, 1.0f, 0.5f), debug_alpha));
     }
 
-    const float exposure = deref(AT.exposure);
+    const float exposure = deref(AT.globals).exposure;
     float3 exposed_color = output_value.rgb * exposure;
 
     AT.color_image.get()[index] = exposed_color;

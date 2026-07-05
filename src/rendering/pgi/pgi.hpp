@@ -108,7 +108,6 @@ struct TaskPGIEvalScreenIrradianceInfo
     daxa::TaskImageView view_camera_face_normal_image = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
     daxa::TaskImageView debug_image = {};
-    daxa::TaskImageView clocks_image = {};
     daxa::TaskImageView pgi_irradiance = {};
     daxa::TaskImageView pgi_visibility = {};
     daxa::TaskImageView pgi_info = {};

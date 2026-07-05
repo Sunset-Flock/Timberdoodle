@@ -2088,7 +2088,6 @@ auto task_pgi_eval_screen_irradiance(TaskPGIEvalScreenIrradianceInfo const & inf
             .head_views(PGIEvalScreenIrradianceH::Info::Views{
                 .globals = info.render_context->tgpu_render_data.view(),
                 .debug_image = info.debug_image,
-                .clocks_image = info.clocks_image,
                 .main_cam_depth = info.view_camera_depth,
                 .main_cam_face_normals = info.view_camera_face_normal_image,
                 .main_cam_detail_normals = info.view_camera_detail_normal_image,

@@ -91,7 +91,7 @@ func entry_compose(uint2 dtid : SV_DispatchThreadID, uint in_group_index : SV_Gr
         }
     }
 
-    const float exposure = deref(push.attach.exposure);
+    const float exposure = deref(push.attach.globals).exposure;
 
     // a channel contains transmittance
     const float4 upscaled_cloud_color = acc_cloud_color * rcp(acc_weight + 0.0000001f);

@@ -18,7 +18,7 @@ void main()
 
     if (all(lessThan(gl_GlobalInvocationID.xy, deref(push.globals).settings.render_target_size)))
     {
-        const float exposure = deref(push.exposure_state).exposure;
+        const float exposure = deref(push.globals).exposure;
         const vec3 color_value = imageLoad(daxa_image2D(push.color_image), daxa_i32vec2(gl_GlobalInvocationID.xy)).rgb / exposure;
 
         float luminance = dot(color_value, PERCEIVED_LUMINANCE_WEIGHTS);
@@ -128,14 +128,16 @@ void main()
         const float desired_ev =
             (weighed_average_log2 * deref(push.globals).postprocess_settings.luminance_log2_range) + deref(push.globals).postprocess_settings.min_luminance_log2;
 
-        const float prev_ev = deref(push.exposure_state).ev;
+        const float prev_ev = deref(push.globals).exposure_ev;
 
         const float tau = deref(push.globals).postprocess_settings.luminance_adaption_tau;
         const float luminance_adapt_factor = 1.0 - exp(-deref(push.globals).delta_time * tau);
         const float adapted_ev = prev_ev + (desired_ev - prev_ev) * luminance_adapt_factor;
 
+        const float exposure_value = compute_exposure(adapted_ev);
         deref(push.exposure_state).ev = adapted_ev;
-        deref(push.exposure_state).exposure = compute_exposure(adapted_ev);
+        deref(push.exposure_state).exposure = exposure_value;
+        deref(push.exposure_state).inv_exposure = 1.0 / exposure_value;
     }
 }
 #endif // GEN_AVERAGE

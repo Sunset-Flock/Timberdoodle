@@ -420,16 +420,13 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
     debug_visualization_index_override = 0;
     if (ImGui::Begin("Renderer Settings", nullptr, ImGuiWindowFlags_NoCollapse))
     {
+        ImGui::PushItemWidth(ImGui::GetContentRegionAvail().x * 0.35f);
         ImGui::SeparatorText("General settings");
         {
             if (ImGui::Button("Take Screenshot (F1)")) { app_state.request_screenshot = true; }
             ImGui::Checkbox("enable reference path trace", reinterpret_cast<bool *>(&render_data.settings.enable_reference_path_trace));
             ImGui::Checkbox("decompose scene", r_cast<bool *>(&app_state.decompose_bistro));
-            ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
-            ImGui::Checkbox("enable memory aliasing", r_cast<bool *>(&render_data.settings.enable_memory_aliasing));
-            ImGui::Checkbox("enable task reordering", r_cast<bool *>(&render_data.settings.enable_task_reordering));
             ImGui::Checkbox("enable vsync", r_cast<bool *>(&render_data.settings.enable_vsync));
-            ImGui::Checkbox("max sheduling enabled", r_cast<bool *>(&render_data.settings.optimize_transient_lifetimes));
             std::array<char const * const, 2> aa_modes = {
                 "NONE",
                 "SUPER_SAMPLE",
@@ -476,7 +473,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderInt("Debug Spot Light Idx", &render_data.light_settings.selected_debug_spot_light, -1, render_data.light_settings.spot_light_count-1);
             }
             
-            if (ImGui::CollapsingHeader("Debug Visualizations"))
+            if (ImGui::CollapsingHeader("Debug Image"))
             {
                 auto modes = std::array{
                     "NONE", // DEBUG_DRAW_MODE_NONE
@@ -507,17 +504,26 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "ALL_DIFFUSE", // DEBUG_DRAW_MODE_ALL_DIFFUSE
                     "SHADE_OPAQUE_CLOCKS", // DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS
                     "PGI_EVAL_CLOCKS", // DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS
-                    "RTAO_TRACE_CLOCKS", // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
                     "PGI_CASCADE_SMOOTH", // DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH
                     "PGI_CASCADE_ABSOLUTE", // DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE
                     "PGI_LOW_QUALITY_SAMPLING", // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
                     "PGI_IRRADIANCE", // DEBUG_DRAW_MODE_PGI_IRRADIANCE
                     "PGI_RADIANCE", // DEBUG_DRAW_MODE_PGI_RADIANCE
                     "LIGHT_MASK_VOLUME", // DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME
-                    "RTGI_TRACE_CLOCKS", // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
-                    "RTGI_DEBUG_PRIMARY_TRACE", // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
+                    "RTGI_TRACE_CLOCKS",              // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
+                    "RTGI_DEBUG_PRIMARY_TRACE",       // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
+                    "RTGI_RAYS_SHOT",                 // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT
+                    "RTGI_RAYS_SHOT_PER_TILE",        // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE
+                    "RTGI_AO_GUIDE",              // DEBUG_DRAW_MODE_RTGI_AO_GUIDE
+                    "RTGI_AO_GUIDE_TEMPORAL",  // DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL
+                    "RTGI_PERCEPTUAL_MEAN",                 // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN
+                    "RTGI_PERCEPTUAL_MEAN_TEMPORAL",        // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
+                    "RTGI_HISTORY_LENGTH",            // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
+                    "RTGI_TEMPORAL_REACTIVITY",       // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
                 };
-                ImGui::Combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
+                tido::ui::searchable_combo("debug visualization", debug_visualization_index,
+                    debug_visualization_search, sizeof(debug_visualization_search),
+                    std::span<const char * const>{modes.data(), modes.size()});
                 auto debug_material_quality = std::array{
                     "NONE",           // SHADING_QUALITY_NONE
                     "LOW",            // SHADING_QUALITY_LOW
@@ -525,9 +531,23 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 };
                 ImGui::Combo("debug material quality", &render_data.settings.debug_material_quality, debug_material_quality.data(), s_cast<i32>(debug_material_quality.size()));
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
+                ImGui::SliderFloat("debug visualization blend", &render_data.settings.debug_visualization_blend, 0.0f, 1.0f);
+                ImGui::SetItemTooltip("0 = debug overlay blended max with normal image, 1 = full debug overlay");
+                ImGui::SliderInt("debug visualization tile", &render_data.settings.debug_visualization_tile, -1, 15);
+                ImGui::SetItemTooltip("-1 = full screen, 0-15 = draw into that tile slot (4x4 grid)");
+            }
+            if (ImGui::CollapsingHeader("Geometry"))
+            {
                 ImGui::InputInt("override_lod", &render_data.settings.lod_override);
                 ImGui::InputFloat("lod_acceptable_pixel_error", &render_data.settings.lod_acceptable_pixel_error);
                 ImGui::SetItemTooltip("Pixel errors below one are necessary to avoid shading issues as normals are more sensitive to lodding then positions");
+            }
+            if (ImGui::CollapsingHeader("Task Graph"))
+            {
+                ImGui::Checkbox("enable async compute", r_cast<bool *>(&render_data.settings.enable_async_compute));
+                ImGui::Checkbox("enable memory aliasing", r_cast<bool *>(&render_data.settings.enable_memory_aliasing));
+                ImGui::Checkbox("enable task reordering", r_cast<bool *>(&render_data.settings.enable_task_reordering));
+                ImGui::Checkbox("optimize transient lifetimes", r_cast<bool *>(&render_data.settings.optimize_transient_lifetimes));
             }
         }
         ImGui::SeparatorText("Features");
@@ -584,40 +604,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::Checkbox("enable_triangle_cull", reinterpret_cast<bool *>(&render_data.settings.enable_triangle_cull));
                 ImGui::Checkbox("enable_separate_compute_meshlet_culling", reinterpret_cast<bool *>(&render_data.settings.enable_separate_compute_meshlet_culling));
                 ImGui::Checkbox("enable_prefix_sum_work_expansion", reinterpret_cast<bool *>(&render_data.settings.enable_prefix_sum_work_expansion));
-            }
-            if (ImGui::CollapsingHeader("Ambient Occlusion (SSAO/RTAO) Settings"))
-            {
-                {
-                    auto modes = std::array{
-                        "NONE",                        // DEBUG_DRAW_MODE_NONE
-                        "INDIRECT_DIFFUSE",            // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE
-                        "INDIRECT_DIFFUSE_AO",         // DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO
-                        "AO",         // DEBUG_DRAW_MODE_AO
-                        "ALL_DIFFUSE",                 // DEBUG_DRAW_MODE_ALL_DIFFUSE
-                        "TRACE_CLOCKS",                // DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS
-                    };
-                    auto mode_mappings = std::array{
-                        DEBUG_DRAW_MODE_NONE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE,
-                        DEBUG_DRAW_MODE_INDIRECT_DIFFUSE_AO,
-                        DEBUG_DRAW_MODE_AO,
-                        DEBUG_DRAW_MODE_ALL_DIFFUSE,
-                        DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS,
-                    };
-                    ImGui::Combo("rtao debug visualization", &rtao_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
-                    if (rtao_debug_visualization != 0)
-                    {
-                        debug_visualization_index_override = mode_mappings[rtao_debug_visualization];
-                    }
-                }
-                auto const modes = std::array{
-                    "NONE",                                         // AMBIENT_OCCLUSION_MODE_NONE
-                    "RAY_TRACED_AMBIENT_OCCLUSION",                 // AMBIENT_OCCLUSION_MODE_RTAO
-                };
-                ImGui::Combo(      "Mode              ", &render_context.render_data.ao_settings.mode, modes.data(), s_cast<i32>(modes.size()));
-                ImGui::InputInt(   "Sample count      ", &render_context.render_data.ao_settings.sample_count);
-                ImGui::SliderFloat("Worldspace Range  ", &render_context.render_data.ao_settings.ao_range, 0.01f, 10.0f);
-                ImGui::SliderFloat("Denoiser Epsilon  ", &render_context.render_data.ao_settings.denoiser_accumulation_max_epsi, 0.75f, 0.999f);
             }
             if (ImGui::CollapsingHeader("PGI Settings"))
             {
@@ -710,6 +696,16 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "PGI_LOW_QUALITY_SAMPLING",         // DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING
                     "PGI_IRRADIANCE",                   // DEBUG_DRAW_MODE_PGI_IRRADIANCE
                     "PGI_RADIANCE",                     // DEBUG_DRAW_MODE_PGI_RADIANCE
+                    "RTGI_TRACE_CLOCKS",                // DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS
+                    "RTGI_DEBUG_PRIMARY_TRACE",         // DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE
+                    "RTGI_RAYS_SHOT",                   // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT
+                    "RTGI_RAYS_SHOT_PER_TILE",          // DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE
+                    "RTGI_AO_GUIDE",                // DEBUG_DRAW_MODE_RTGI_AO_GUIDE
+                    "RTGI_AO_GUIDE_TEMPORAL",    // DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL
+                    "RTGI_PERCEPTUAL_MEAN",                   // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN
+                    "RTGI_PERCEPTUAL_MEAN_TEMPORAL",          // DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL
+                    "RTGI_HISTORY_LENGTH",              // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
+                    "RTGI_TEMPORAL_REACTIVITY",         // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
                 };
                 auto mode_mappings = std::array{
                     DEBUG_DRAW_MODE_NONE,
@@ -722,80 +718,139 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE,
                     DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING,
                     DEBUG_DRAW_MODE_PGI_IRRADIANCE,
-                    DEBUG_DRAW_MODE_PGI_RADIANCE
+                    DEBUG_DRAW_MODE_PGI_RADIANCE,
+                    DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS,
+                    DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE,
+                    DEBUG_DRAW_MODE_RTGI_RAYS_SHOT,
+                    DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE,
+                    DEBUG_DRAW_MODE_RTGI_AO_GUIDE,
+                    DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN,
+                    DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL,
+                    DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH,
+                    DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY,
                 };
                 ImGui::Combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                 if (rtgi_debug_visualization != 0)
                 {
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
                 }
-                ImGui::PushID("General");
-                ImGui::SeparatorText("General");
                 ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.enabled));
-                ImGui::PopID();
-                ImGui::PushID("Trace");
-                ImGui::SeparatorText("Trace");
-                ImGui::SliderFloat("AO Range", &render_data.rtgi_settings.ao_range, 0.0f, 4.0f);
-                ImGui::SliderInt("Ray Samples", &render_data.rtgi_settings.ray_samples, 1, 16);
-                ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
-                ImGui::PopID();
-                ImGui::PushID("Prefilter");
-                ImGui::SeparatorText("Prefilter");
-                ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
-                ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
-                ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
-                ImGui::Checkbox("Firefly Center Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_center_blur_enabled));
-                ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_energy_compensation_enabled));
-                ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
-                ImGui::PopID();
-                ImGui::PushID("Temporal");
-                ImGui::SeparatorText("Temporal");
-                ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
-                ImGui::SliderInt("Accumulated Frame Count", &render_data.rtgi_settings.history_frames, 1, 255);
-                ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
-                ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_firefly_filter_enabled));
-                ImGui::SliderFloat("Temporal Firefly Std Dev Clamp", &render_data.rtgi_settings.temporal_firefly_std_dev_clamp, 0.0f, 8.0f);
-                ImGui::SliderFloat("Temporal Variance Fast History Blend", &render_data.rtgi_settings.temporal_variance_fast_history_blend, 0.0f, 8.0f);
-                ImGui::Checkbox("Temporal Noise Animation", reinterpret_cast<bool *>(&render_data.rtgi_settings.animate_noise));
-                ImGui::PopID();
-                ImGui::PushID("Pre Blur");
-                ImGui::SeparatorText("Pre Blur");
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
-                ImGui::Checkbox("Raylength Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_raylength_guiding));
-                ImGui::SliderFloat("Raylength Guide Floor", &render_data.rtgi_settings.raylength_guide_floor, 0.0f, 1.0f);
-                ImGui::Checkbox("Geometric Luma Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.geometric_luma_guiding));
-                ImGui::SliderFloat("Geometric Luma Guiding Factor", &render_data.rtgi_settings.geometric_luma_guiding_factor, 0.0f, 2.0f);
-                ImGui::SliderFloat("Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
-                ImGui::SliderInt("Sample Count", &render_data.rtgi_settings.pre_blur_sample_count, 1, 32);
-                ImGui::SliderInt("Iterations", &render_data.rtgi_settings.pre_blur_iterations, 1, 4);
-                ImGui::PopID();
-                ImGui::PushID("Post Blur");
-                ImGui::SeparatorText("Post Blur");
-                ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
-                ImGui::Checkbox("Raylength Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_raylength_guiding));
-                ImGui::Checkbox("Geometric Luma Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_geometric_luma_guiding));
-                ImGui::SliderFloat("Geometric Luma Guiding Factor", &render_data.rtgi_settings.post_blur_geometric_luma_guiding_factor, 0.0f, 2.0f);
-                ImGui::Checkbox("Temporal Variance Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_variance_guiding));
-                ImGui::Checkbox("Disocclusion Blur", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_disocclusion_blur_enabled));
-                ImGui::RadioButton("Bilateral", &render_data.rtgi_settings.post_blur_mode, 0);
-                ImGui::SameLine();
-                ImGui::RadioButton("Atrous", &render_data.rtgi_settings.post_blur_mode, 1);
-                if (render_data.rtgi_settings.post_blur_mode == 1)
+                // Accumulated GPU time (microseconds) for a set of render-time slots.
+                auto rtgi_section_us = [&](std::initializer_list<u32> indices) -> f32 {
+                    u64 sum = 0;
+                    for (u32 i : indices) { sum += render_context.render_times.get_average(i); }
+                    return static_cast<f32>(sum) * 0.001f;
+                };
+                // Section tree node that shows the section's accumulated GPU time on its header line.
+                auto rtgi_section = [&](char const * name, std::initializer_list<u32> indices) -> bool {
+                    bool const open = ImGui::TreeNodeEx(name, ImGuiTreeNodeFlags_None);
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("%8.1f us", rtgi_section_us(indices));
+                    return open;
+                };
+                if (rtgi_section("Trace", {
+                        RenderTimes::index<"RTGI", "DISTRIBUTE_RAYS">(),
+                        RenderTimes::index<"RTGI", "TRACE">(),
+                        RenderTimes::index<"RTGI", "BLEND_RAYS">(),
+                    }))
                 {
-                    ImGui::SliderInt("Atrous Iterations", &render_data.rtgi_settings.post_blur_atrous_iterations, 1, 8);
+                    ImGui::SliderFloat("Shading AO Range", &render_data.rtgi_settings.shading_ao_range, 0.0f, 4.0f);
+                    ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
+                    ImGui::Checkbox("Use Repacked Ray Dispatch", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_repacked_ray_dispatch));
+                    ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
+                    ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
+                    ImGui::Checkbox("Ray Redistribution", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_ray_redistribution));
+                    ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
+                    ImGui::TreePop();
                 }
-                else
+                if (rtgi_section("Prefilter", { RenderTimes::index<"RTGI", "PRE_FILTER">() }))
                 {
-                    ImGui::SliderInt("Stride", &render_data.rtgi_settings.post_blur_stride, 1, 8);
-                    ImGui::SliderInt("Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
+                    ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
+                    ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
+                    ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
+                    ImGui::Checkbox("Firefly Center Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_center_blur_enabled));
+                    ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
+                    ImGui::TreePop();
                 }
-                ImGui::PopID();
-                ImGui::PushID("Other");
-                ImGui::SeparatorText("Other");
-                ImGui::Checkbox("Upscaling Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
-                ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
-                ImGui::InputFloat("Rays Percentage", &render_data.rtgi_settings.ray_percentage);
-                ImGui::PopID();
+                if (rtgi_section("Pre Blur", {
+                        RenderTimes::index<"RTGI", "PRE_BLUR0">(),
+                        RenderTimes::index<"RTGI", "PRE_BLUR1">(),
+                        RenderTimes::index<"RTGI", "PRE_BLUR2">(),
+                        RenderTimes::index<"RTGI", "PRE_BLUR3">(),
+                    }))
+                {
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_enabled));
+                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ao_guiding));
+                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.ao_guide_floor, 0.0f, 1.0f);
+                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_perceptual_difference_guiding));
+                    ImGui::SliderFloat("Perceptual Radiance Tolerance", &render_data.rtgi_settings.pre_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
+                    ImGui::Checkbox("Ray Count Sample Weighting", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_ray_count_sample_weighting));
+                    ImGui::Checkbox("Firefly Energy Compensation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.pre_blur_firefly_energy_compensation_enabled));
+                    ImGui::SliderFloat("Base Width", &render_data.rtgi_settings.pre_blur_base_width, 1, 256);
+                    ImGui::SliderInt("Sample Count", &render_data.rtgi_settings.pre_blur_sample_count, 1, 32);
+                    ImGui::SliderInt("Iterations", &render_data.rtgi_settings.pre_blur_iterations, 1, 4);
+                    ImGui::TreePop();
+                }
+                if (rtgi_section("Temporal", {
+                        RenderTimes::index<"RTGI", "TEMPORAL_REPROJECT">(),
+                        RenderTimes::index<"RTGI", "TEMPORAL_ACCUMULATION">(),
+                    }))
+                {
+                    ImGui::Checkbox("Temporal Accumulation Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_accumulation_enabled));
+                    ImGui::SliderInt("Max Temporal Samples", &render_data.rtgi_settings.max_temporal_samples, 1, 255);
+                    ImGui::SliderFloat("Fast Convergence Samples", &render_data.rtgi_settings.fast_convergence_samples, 1.0f, 128.0f);
+                    ImGui::Checkbox("Temporal Fast History Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_fast_history_enabled));
+                    ImGui::SliderInt("Temporal Fast History Frames", &render_data.rtgi_settings.temporal_fast_history_frames, 1, 15);
+                    ImGui::Checkbox("Temporal Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.temporal_firefly_filter_enabled));
+                    ImGui::SliderFloat("Temporal Firefly Std Dev Clamp", &render_data.rtgi_settings.temporal_firefly_std_dev_clamp, 0.0f, 8.0f);
+                    ImGui::SliderFloat("Temporal Variance Fast History Blend", &render_data.rtgi_settings.temporal_variance_fast_history_blend, 0.0f, 8.0f);
+                    ImGui::SliderFloat("Temporal Parallax Penalty Strength", &render_data.rtgi_settings.temporal_parallax_penalty_strength, 0.0f, 4.0f);
+                    ImGui::Checkbox("Temporal Noise Animation", reinterpret_cast<bool *>(&render_data.rtgi_settings.animate_noise));
+                    ImGui::TreePop();
+                }
+                if (rtgi_section("Post Blur", {
+                        RenderTimes::index<"RTGI", "POST_BLUR_VERTICAL">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_HORIZONTAL">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS0">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS1">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS2">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS3">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS4">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS5">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS6">(),
+                        RenderTimes::index<"RTGI", "POST_BLUR_ATROUS7">(),
+                    }))
+                {
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_enabled));
+                    ImGui::Checkbox("Ambient Occlusion Guide Radius Scaling", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_ao_guiding));
+                    ImGui::SliderFloat("Radius Scaling Floor", &render_data.rtgi_settings.post_blur_ao_guide_floor, 0.0f, 1.0f);
+                    ImGui::Checkbox("Perceptual Radiance Difference Guiding", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_perceptual_difference_guiding));
+                    ImGui::SliderFloat("Perceptual Radiance Difference Tolerance", &render_data.rtgi_settings.post_blur_perceptual_radiance_guide_tolerance, 0.0f, 2.0f);
+                    ImGui::Checkbox("Disocclusion Blur", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_disocclusion_blur_enabled));
+                    ImGui::RadioButton("Bilateral", &render_data.rtgi_settings.post_blur_mode, 0);
+                    ImGui::SameLine();
+                    ImGui::RadioButton("Atrous", &render_data.rtgi_settings.post_blur_mode, 1);
+                    if (render_data.rtgi_settings.post_blur_mode == 1)
+                    {
+                        ImGui::SliderInt("Atrous Iterations", &render_data.rtgi_settings.post_blur_atrous_iterations, 1, 8);
+                    }
+                    else
+                    {
+                        ImGui::SliderInt("Stride", &render_data.rtgi_settings.post_blur_stride, 1, 8);
+                        ImGui::SliderInt("Max Width", &render_data.rtgi_settings.post_blur_max_width, 1, 32);
+                        // Groupshared (LDS) variant of the separable H/V blur. Same output, perf A/B.
+                        // NOTE: the LDS variant caps the filter radius at 16 (its preloaded halo).
+                        ImGui::Checkbox("Use Groupshared (LDS)", reinterpret_cast<bool *>(&render_data.rtgi_settings.post_blur_use_lds));
+                    }
+                    ImGui::TreePop();
+                }
+                if (rtgi_section("Upscaling", { RenderTimes::index<"RTGI", "UPSCALE">() }))
+                {
+                    ImGui::Checkbox("Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.upscale_enabled));
+                    ImGui::Checkbox("SH Resolve Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.sh_resolve_enabled));
+                    ImGui::TreePop();
+                }
             }
             if (ImGui::CollapsingHeader("VSM Settings"))
             {
@@ -1091,6 +1146,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
     {
         render_data.settings.debug_draw_mode = debug_visualization_index;
     }
+    ImGui::PopItemWidth();
     ImGui::End();
 }
 

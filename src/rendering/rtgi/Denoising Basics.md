@@ -243,9 +243,9 @@ For best reactivity this denoiser uses only a spatial firefly filter — always-
 
 **Filter size.** The kernel must stay small for performance. A 5×5 neighborhood is the practical ceiling.
 
-**Why not variance clamping?** The standard approach computes luma mean and standard deviation in the neighborhood and clamps to `mean + k * stddev`. When variance is already high — which it is everywhere in raw one-sample indirect — the standard deviation is large, and the clamp is loose enough to pass the very outliers it should be catching.
+**Why not variance clamping?** The standard approach computes radiance mean and standard deviation in the neighborhood and clamps to `mean + k * stddev`. When variance is already high — which it is everywhere in raw one-sample indirect — the standard deviation is large, and the clamp is loose enough to pass the very outliers it should be catching.
 
-**Geometric mean clamp.** The geometric mean is far more outlier-resistant than the arithmetic mean. A single very bright value barely shifts the geometric mean because it contributes only additively in log space. This makes it a stable reference: compute the geometric mean of luma in the 5×5 neighborhood and clamp the center pixel to `ceiling_factor * geometric_mean`.
+**Geometric mean clamp.** The geometric mean is far more outlier-resistant than the arithmetic mean. A single very bright value barely shifts the geometric mean because it contributes only additively in log space. This makes it a stable reference: compute the geometric mean of radiance in the 5×5 neighborhood and clamp the center pixel to `ceiling_factor * geometric_mean`.
 
 `ceiling_factor` controls the tradeoff between energy preservation and spike rejection. At 8 the filter is very conservative — aggressive suppression, slightly darker result. At 128 it is loose — more light energy preserved but more spikes let through. The 8–32 range works well for most scenes; push toward 64–128 when bright emissives need to contribute more freely.
 

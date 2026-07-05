@@ -931,7 +931,7 @@ func entry_pre_update_probes(int3 dtid : SV_DispatchThreadID, int group_index : 
                 ShaderDebugLineDraw line = {};
                 line.start = probe_position;
                 line.end = other_pos;
-                line.color = TurboColormap(float(cascade) * rcp(8));
+                line.color = Heatmap(float(cascade) * rcp(8));
                 debug_draw_line(push.attach.globals.debug, line);
             }
         }

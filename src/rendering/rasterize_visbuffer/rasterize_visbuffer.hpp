@@ -25,7 +25,7 @@ namespace raster_visbuf
         daxa::TaskBufferView meshlet_instances;
         daxa::TaskBufferView visible_meshlet_instances;
         daxa::TaskImageView debug_image;
-        daxa::TaskImageView depth_history;
+        daxa::TaskImageView depth_f32;
     };
     struct TaskDrawVisbufferAllOut
     {

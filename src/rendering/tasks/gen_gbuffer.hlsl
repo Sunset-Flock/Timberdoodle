@@ -101,14 +101,17 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
 
         const float3 face_normal = flip_face_normal_to_incoming(material_point.face_normal, primary_ray);
         const float3 detail_normal = flip_normal_on_face_normal(material_point.normal, face_normal);
+        const float3 geometry_normal = flip_normal_on_face_normal(material_point.geometry_normal, face_normal);
 
         const uint packed_face_normal = compress_normal_octahedral_32(face_normal);
         push.attachments.face_normal_image.get()[dtid] = packed_face_normal;
 
+        const uint packed_geometry_normal = compress_normal_octahedral_32(geometry_normal);
+
         const uint packed_detail_normal = compress_normal_octahedral_32(detail_normal);
         push.attachments.detail_normal_image.get()[dtid] = packed_detail_normal;
 
-        gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
+        gs_face_normals[gtid.x][gtid.y] = packed_geometry_normal;
         gs_depths[gtid.x][gtid.y] = depth;
         gs_albedos[gtid.x][gtid.y] = float4(material_point.albedo, 1.0f);
     }

@@ -21,7 +21,6 @@ struct PGIIndirections
 
 DAXA_DECL_RASTER_TASK_HEAD_BEGIN(PGIDrawDebugProbesH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_f32), exposure)
 DAXA_TH_BUFFER_PTR(READ | INDIRECT_COMMAND_READ, daxa_BufferPtr(PGIIndirections), probe_indirections)
 DAXA_TH_IMAGE(COLOR_ATTACHMENT, REGULAR_2D, color_image)
 DAXA_TH_IMAGE(DEPTH_ATTACHMENT, REGULAR_2D, depth_image)
@@ -93,7 +92,6 @@ struct PGIPreUpdateProbesPush
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(PGIEvalScreenIrradianceH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_RWBufferPtr(RenderGlobalData), globals)
 DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_f32vec4>, debug_image)
-DAXA_TH_IMAGE_TYPED(READ_WRITE_CONCURRENT, daxa::RWTexture2DId<daxa_u32>, clocks_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_f32>, main_cam_depth)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, main_cam_face_normals)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DId<daxa_u32>, main_cam_detail_normals)

@@ -122,16 +122,22 @@ bool debug_image_tile_is_cutoff(uint2 local, uint2 tile_size, float cutoff, floa
     return dist > 0.0f;
 }
 
-void debug_image_tile_draw(RWTexture2D<float4> tex, uint slot, uint2 sv_position, float4 color, uint resolution_scale = 1, bool enable_rounding = true)
+// Alpha ranges for the debug image:
+//   [0, 1): normal alpha — written as-is into the debug image, composited at end of frame with standard alpha blending.
+//   [1, 2): blend-over — at end of frame the value is blended over the final rendered image; blend weight = alpha - 1.
+//   [2, 3): blend-over with tonemapping — same as [1,2) but the color is treated as an exposure-scaled linear value
+//           that will be tonemapped together with the scene color before display.
+// slot: the debug_visualization_tile value directly. -1 = full screen, >= 0 = tile index (0..15).
+void write_debug_image(RWTexture2D<float4> tex, int slot, uint2 sv_position, float4 color, uint resolution_scale = 1, bool enable_rounding = true)
 {
     // Small, fixed-size rounding/cutoff (a few pixels total) applied to each tile's footprint.
-    const float TILE_EDGE_CUTOFF = 2.0f;
-    const float TILE_CORNER_RADIUS = 4.0f;
+    const float TILE_EDGE_CUTOFF = 3.0f;
+    const float TILE_CORNER_RADIUS = 5.0f;
 
     uint width, height;
     tex.GetDimensions(width, height);
     const uint2 full_res = uint2(width, height);
-    if (slot == ~0u)
+    if (slot < 0)
     {
         const uint2 dst_position = sv_position * resolution_scale;
         for (uint y = 0; y < resolution_scale; ++y)

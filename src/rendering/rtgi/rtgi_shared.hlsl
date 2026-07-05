@@ -5,11 +5,47 @@
 #include "shader_lib/transform.hlsl"
 #include "shader_lib/misc.hlsl"
 
-#define RTGI_USE_QUAD 1
-#define RTGI_QUAD_FILTER_EXTENT 1  // valid: 1 (3x3), 2 (5x5)
+#define RTGI_QUAD_FILTER_EXTENT 2  // valid: 1 (3x3), 2 (5x5)
 #define RTGI_QUAD_FILTER_STRIDE 1  // cell spacing of the outer gather; >1 widens reach at same tap count (e.g. extent 1 + stride 2)
 
 #define VALUE_MULTIPLIER (1e4f)
+
+// == Packed history sample counters ===========================================
+// The normal (slow) temporal sample count and the fast-history frame count are packed into a single
+// R16_UINT texel. Both keep 0.25 fractional resolution (quantized in quarter steps):
+//   - normal count : range [0, 254], 0.25 steps -> 0..1016, low 10 bits.
+//   - fast count   : range [0, 15],  0.25 steps -> 0..60,   high 6 bits.
+// The value 0x3FF (1020) in the 10-bit normal field is reserved as the SKY sentinel (unpacks to -1),
+// matching the old float image's <0 sky marker that the reproject/accumulate passes early-out on. The
+// normal count is clamped to 254 (max packed 1016) so a real count can never collide with the sentinel.
+static const uint RTGI_COUNT_NORMAL_MASK = 0x3FFu;  // 10 bits
+static const uint RTGI_COUNT_FAST_MASK   = 0x3Fu;   // 6 bits
+static const uint RTGI_COUNT_SKY         = 0x3FFu;  // sentinel in the normal field
+static const float RTGI_COUNT_NORMAL_MAX = 254.0f;  // highest real normal count; stays below the sentinel
+
+func rtgi_pack_sample_counts(float normal_count, float fast_count) -> uint
+{
+    const uint n = uint(round(clamp(normal_count, 0.0f, RTGI_COUNT_NORMAL_MAX) * 4.0f)); // 0..1016
+    const uint f = uint(round(clamp(fast_count,   0.0f, 15.0f)                 * 4.0f)); // 0..60
+    return (n & RTGI_COUNT_NORMAL_MASK) | ((f & RTGI_COUNT_FAST_MASK) << 10u);
+}
+
+// Sky sentinel: normal field flags sky (unpacks to -1), fast field 0.
+func rtgi_pack_sample_counts_sky() -> uint
+{
+    return RTGI_COUNT_SKY;
+}
+
+func rtgi_unpack_normal_count(uint packed) -> float
+{
+    const uint n = packed & RTGI_COUNT_NORMAL_MASK;
+    return n == RTGI_COUNT_SKY ? -1.0f : float(n) * 0.25f;
+}
+
+func rtgi_unpack_fast_count(uint packed) -> float
+{
+    return float((packed >> 10u) & RTGI_COUNT_FAST_MASK) * 0.25f;
+}
 
 struct PixelData
 {
@@ -39,6 +75,60 @@ func calc_pixel_data(
     return pd;
 }
 
+// Converts a ray hit distance to a bounded [0,1] "shortness": 1 for a coincident hit, ramping linearly
+// to 0 at the max visibility range (max_visibility_pixel_range = RtgiSettings.max_visibility_pixel_range,
+// in half-res pixel widths). The trace / blend passes store the per-pixel MEAN of this over all of a
+// pixel's rays into the ray-length texture, so the denoiser guide reads a stable, bounded signal instead
+// of raw (unbounded, single-ray, high-variance) hit distances.
+func calc_ray_shortness(float ray_length, float pixel_width_ws, float max_visibility_pixel_range) -> float
+{
+    const float max_visibility_raylen = pixel_width_ws * max_visibility_pixel_range;
+    return 1.0f - min(1.0f, square(ray_length * rcp(max(max_visibility_raylen, 1e-8f))));
+}
+
+// Lower clamp for a radiance value BEFORE taking its log, when accumulating a geometric (log) mean.
+// Human brightness perception is logarithmic (Weber-Fechner law), so below a certain luminance — scaled
+// by the current exposure — darker values are perceptually indistinguishable from black. Without a floor,
+// log(radiance) explodes toward large negative values for tiny inputs and drags the log-radiance mean far below
+// anything a viewer could perceive, distorting the geometric mean. This returns that perceptual floor:
+// the darkest radiance still meaningfully distinguishable under `exposure` (the pre-tonemap multiplier,
+// globals.exposure). Brighter scenes (smaller exposure) raise the floor. Max your radiance with this before
+// log().
+func calc_perceptual_radiance_floor(float inv_exposure) -> float
+{
+    return inv_exposure * 64.0f;
+}
+
+func linear_to_perceptual(float v, float inv_exposure) -> float
+{
+    return log(max(v, calc_perceptual_radiance_floor(inv_exposure)));
+}
+
+__generic<uint N>
+func linear_to_perceptual(vector<float, N> v, float inv_exposure) -> vector<float, N>
+{
+    return log(max(v, calc_perceptual_radiance_floor(inv_exposure)));
+}
+
+func perceptual_to_linear(float v) -> float
+{
+    return exp(v);
+}
+
+__generic<uint N>
+func perceptual_to_linear(vector<float, N> v) -> vector<float, N>
+{
+    return (exp(v));
+}
+
+// Perceptual (log-space) radiance inferred from the stored perceptual (log) rgb — the weighted geometric-mean
+// radiance (log of r^0.25 * g^0.5 * b^0.25). Lets us drop a dedicated log-radiance channel and reconstruct it from
+// the rgb channels, freeing that texture slot (used to carry ray shortness instead).
+func perceptual_radiance_from_rgb(float3 perceptual_rgb) -> float
+{
+    return dot(perceptual_rgb, float3(0.25f, 0.5f, 0.25f));
+}
+
 func calc_pixel_width_ws(float2 inv_render_target_size, float near_plane, float depth) -> float
 {
     // The further away the pixel is, the larger difference we allow.
@@ -47,6 +137,38 @@ func calc_pixel_width_ws(float2 inv_render_target_size, float near_plane, float 
     const float near_plane_ws_size = near_plane * 2;
     const float pixel_width_ws = pixel_size_on_near_plane * near_plane_ws_size * rcp(depth + 0.0000001f);
     return pixel_width_ws;
+}
+
+// Max extra rays a disoccluded pixel may request (beyond its 1 base ray). Capped at 31 so a pixel's
+// total ray count stays <= 32, matching the trace pass's per-pixel sample_index clamp (min(32u, ...))
+// beyond which the decorrelating RNG skip saturates and ray directions would start to duplicate.
+#define RTGI_MAX_EXTRA_RAYS 31u
+
+// Fixed uniform ray count per pixel used when ray redistribution is disabled: exactly
+// max(floor(ray_budget), 1) rays for every geometry pixel, in both the repacked and classic paths.
+func calc_fixed_rays_per_pixel(float ray_percentage) -> uint
+{
+    return max(uint(floor(max(ray_percentage, 0.0f))), 1u);
+}
+
+// Extra rays (beyond the mandatory base ray) a geometry pixel wants, given its reprojected sample count.
+// Demand is PROPORTIONAL to how much history the pixel is still missing below fast_convergence_samples
+// (its deficit), not a flat "everyone under the target wants the max". A pixel missing 24 requests 24, one
+// missing 8 requests 8, so the allocator's demand-proportional budget split hands the scarce rays to the
+// freshest disocclusions (e.g. with 16 rays for a 24+8 pair -> 12 and 4) instead of splitting them evenly.
+// fast_convergence_samples is the sample count at which demand reaches zero. Capped at RTGI_MAX_EXTRA_RAYS.
+func calc_desired_extra_rays(float reproj_sample_count, float fast_convergence_samples) -> uint
+{
+    const float deficit = fast_convergence_samples - reproj_sample_count;
+    return deficit <= 0.0f ? 0u : uint(min(deficit, float(RTGI_MAX_EXTRA_RAYS)));
+}
+
+// Total rays a geometry pixel wants this frame: the mandatory base ray plus its adaptive extras. This is
+// the shared source of truth for the per-pixel ray demand — the temporal reproject pass (tile demand
+// totals) and the allocate pass (per-pixel gs_desired) both call this so the two can never diverge.
+func calc_desired_ray_count(float reproj_sample_count, float fast_convergence_samples) -> uint
+{
+    return 1u + calc_desired_extra_rays(reproj_sample_count, fast_convergence_samples);
 }
 
 func calc_plane_distance(float3 a_pos, float3 a_norm, float3 b_pos) -> float
@@ -77,6 +199,13 @@ func calc_similar_normal_weight(float3 normal, float3 other_normal) -> float
     const float validity = (max(0.1f, dot(normal, other_normal) + 0.85f)) * (1.0f / 1.85f);
     const float tight_validity = (square(validity));
     return tight_validity;
+}
+
+func calc_perceptual_difference_weight(float a_radiance_perceptual, float b_radiance_perceptual, float tolerance) -> float
+{
+    const float perceptual_difference = a_radiance_perceptual - b_radiance_perceptual;
+    return exp(-square(2.0f * perceptual_difference * rcp(tolerance)));
+    // return rcp(square(perceptual_difference * 8 * rcp(tolerance) + 1));
 }
 
 static const float3 g_Poisson8[8] =
@@ -157,4 +286,11 @@ void radiance_to_y_co_cg_sh(float3 radiance, float3 direction, out float4 sh_y, 
     co_cg = y_co_cg.gb;
 
     sh_y = y_to_sh(y_co_cg.x, direction);
+}
+
+// Converts a perceptual-space radiance value to a display-ready linear color for debug visualization:
+// maps back to linear, applies exposure, and scales by debug_visualization_scale.
+func perceptual_radiance_colormap(float perceptual, float exposure) -> float3
+{
+    return Heatmap(perceptual_to_linear(perceptual) * exposure * 0.0003f);
 }

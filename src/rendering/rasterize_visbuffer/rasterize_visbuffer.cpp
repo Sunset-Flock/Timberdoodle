@@ -78,7 +78,7 @@ namespace raster_visbuf
         // First Pass
         {
             daxa::TaskImageView first_pass_hiz = {};
-            task_gen_hiz_single_pass({info.render_context.get(), info.tg, info.depth_history, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::index<"VISBUFFER","FIRST_PASS_GEN_HIZ">()});
+            task_gen_hiz_single_pass({info.render_context.get(), info.tg, info.depth_f32, info.render_context->tgpu_render_data, info.debug_image, &first_pass_hiz, RenderTimes::index<"VISBUFFER","FIRST_PASS_GEN_HIZ">()});
 
             std::array<daxa::TaskBufferView, PREPASS_DRAW_LIST_TYPE_COUNT> opaque_meshlet_expansions = {};
             tasks_expand_meshes_to_meshlets(TaskExpandMeshesToMeshletsInfo{

@@ -137,7 +137,7 @@ void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primi
 
             // PGI can not be trusted at short hit ranges as its very leaky for fine details.
             // Apply strong range based AO to the PGI radiance.
-            const float indirect_ao_range = rtgi_settings.ao_range;
+            const float indirect_ao_range = rtgi_settings.shading_ao_range;
             const float relative_ao_t = min(indirect_ao_range, ray_t_current) / indirect_ao_range;
             const float ambient_occlusion = square(relative_ao_t) * pgi_enabled;
 
@@ -163,7 +163,7 @@ void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primi
         bool double_sided_or_blend = ((material_point.material_flags & MATERIAL_FLAG_DOUBLE_SIDED) != MATERIAL_FLAG_NONE);
         RtgiLightVisibilityTester light_vis_tester = RtgiLightVisibilityTester(RaytracingAccelerationStructure::get(push.attach.tlas), push.attach.globals);
 
-        const float indirect_ao_range = rtgi_settings.ao_range;
+        const float indirect_ao_range = rtgi_settings.shading_ao_range;
         const float pgi_enabled = push.attach.globals.pgi_settings.enabled ? 1.0f : 0.0f;
         const float ambient_occlusion = (1.0f - max(0.0f,(indirect_ao_range - ray_t_current))/indirect_ao_range) * pgi_enabled;
 

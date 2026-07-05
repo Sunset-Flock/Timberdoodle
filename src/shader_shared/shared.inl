@@ -207,15 +207,26 @@ DAXA_DECL_BUFFER_PTR_ALIGN(VSMSettings, 4);
 #define DEBUG_DRAW_MODE_ALL_DIFFUSE 25
 #define DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS 26
 #define DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS 27
-#define DEBUG_DRAW_MODE_RTAO_TRACE_CLOCKS 28
-#define DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH 29
-#define DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE 30
-#define DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING 31
-#define DEBUG_DRAW_MODE_PGI_IRRADIANCE 32
-#define DEBUG_DRAW_MODE_PGI_RADIANCE 33
-#define DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME 34
-#define DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS 35
-#define DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE 36
+#define DEBUG_DRAW_MODE_PGI_CASCADE_SMOOTH 28
+#define DEBUG_DRAW_MODE_PGI_CASCADE_ABSOLUTE 29
+#define DEBUG_DRAW_MODE_PGI_LOW_QUALITY_SAMPLING 30
+#define DEBUG_DRAW_MODE_PGI_IRRADIANCE 31
+#define DEBUG_DRAW_MODE_PGI_RADIANCE 32
+#define DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME 33
+// Trace / ray budget
+#define DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS 34
+#define DEBUG_DRAW_MODE_RTGI_DEBUG_PRIMARY_TRACE 35
+#define DEBUG_DRAW_MODE_RTGI_RAYS_SHOT 36
+#define DEBUG_DRAW_MODE_RTGI_RAYS_SHOT_PER_TILE 37
+// Ambient occlusion guide (pre-filter vs temporally accumulated)
+#define DEBUG_DRAW_MODE_RTGI_AO_GUIDE 38
+#define DEBUG_DRAW_MODE_RTGI_AO_GUIDE_TEMPORAL 39
+// Luma mean (pre-filter vs temporally accumulated)
+#define DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN 40
+#define DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN_TEMPORAL 41
+// Temporal history metrics
+#define DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH 42
+#define DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY 43
 
 struct Settings
 {
@@ -232,6 +243,10 @@ struct Settings
     daxa_i32 anti_aliasing_mode;
     daxa_i32 debug_draw_mode;
     daxa_f32 debug_visualization_scale;
+    // Debug tile draw opacity: 0 = alpha 1 (max blend with normal image), 1 = alpha 2 (full debug).
+    daxa_f32 debug_visualization_blend;
+    // Tile slot for write_debug_image. -1 = full screen, >= 0 = specific tile index.
+    daxa_i32 debug_visualization_tile;
     daxa_i32 debug_material_quality;
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
@@ -267,6 +282,8 @@ struct Settings
           anti_aliasing_mode{AA_MODE_NONE},
           debug_draw_mode{0},
           debug_visualization_scale{0.1f},
+          debug_visualization_blend{0.8f},
+          debug_visualization_tile{-1},
           debug_material_quality{0},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
@@ -278,7 +295,7 @@ struct Settings
           enable_async_compute{ 1 },
           enable_memory_aliasing{ 1 },
           enable_task_reordering{ 1 },
-          enable_vsync{ 1 },
+          enable_vsync{ 0 },
           optimize_transient_lifetimes{ 1 }
 
     {

@@ -194,13 +194,26 @@ func check_mark_selected(Texture2D<float> selecetd_mark, int2 size, int2 index, 
     mark_border = !self_marked && surrounding_area_at_least_one_marked;
 }
 
-float3 load_exposed_color(uint2 index)
+float3 load_color(uint2 index)
 {
-    const float4 exposed_color = normal_push.attachments.color_image.get()[index];
-    const float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
-    const float4 debug_value = normal_push.attachments.debug_image.get()[index];
-    const float blend = clamp(debug_value.w - 1.0f, 0.0f, 1.0f);
-    return lerp(tonemapped_color, square(debug_value.rgb), square(blend));
+    const float4 debug_color = normal_push.attachments.debug_image.get()[index];
+    const float debug_alpha = min(3.0f, debug_color.a);
+    const bool direct_debug_blend = debug_alpha >= 1.0f && debug_alpha <= 2.0f;
+    const bool exposed_debug_blend = debug_alpha > 2.0f;
+
+    float3 exposed_color = normal_push.attachments.color_image.get()[index].rgb;
+    if (exposed_debug_blend)
+    {
+        exposed_color = lerp(exposed_color.rgb, debug_color.rgb, debug_alpha - 2.0f);
+    }
+
+    float3 tonemapped_color = agx_tonemapping(exposed_color.rgb);
+    if (direct_debug_blend)
+    {
+        tonemapped_color = lerp(tonemapped_color, debug_color.rgb, debug_alpha - 1.0f);
+    }
+    
+    return tonemapped_color;
 }
 
 [[vk::push_constant]] WriteSwapchainPush normal_push;
@@ -221,7 +234,7 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
         {
             for (uint x = 0; x < 2; ++x)
             {
-                const float3 tonemapped_color = load_exposed_color(index * 2 + int2(x,y));
+                const float3 tonemapped_color = load_color(index * 2 + int2(x,y));
 
                 color += tonemapped_color * 0.25f;
                 bool mark, mark_border;
@@ -233,7 +246,7 @@ void entry_write_swapchain(uint2 index : SV_DispatchThreadID)
     }
     else
     {
-        const float3 tonemapped_color = load_exposed_color(index);
+        const float3 tonemapped_color = load_color(index);
         color = tonemapped_color;
 
         check_mark_selected(push.attachments.selected_mark_image.get(), push.size, index, mark_selected, mark_selected_border);

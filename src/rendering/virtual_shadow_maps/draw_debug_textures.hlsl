@@ -165,7 +165,7 @@ void recreate_shadow_map(uint3 svdtid : SV_DispatchThreadID)
                 overdraw_amount = RWTexture2D<uint>::get(push.vsm_overdraw_debug)[physical_coords].x;
                 if(overdraw_amount > 0)
                 {
-                    const float3 overdraw_color = 3.0 * TurboColormap(float(overdraw_amount) / 25.0);
+                    const float3 overdraw_color = 3.0 * Heatmap(float(overdraw_amount) / 25.0);
                     value.rgb = overdraw_color;
                 }
             }

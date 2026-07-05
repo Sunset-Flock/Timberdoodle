@@ -8,6 +8,7 @@
 #include "../../shader_shared/globals.inl"
 #include "pgi_update.inl"
 #include "../../shader_lib/pgi.hlsl"
+#include "../../shader_lib/debug.glsl"
 #include "../../shader_lib/misc.hlsl"
 #include "../../shader_lib/transform.hlsl"
 
@@ -51,10 +52,11 @@ func enty_eval_screen_irradiance(uint2 dtid : SV_DispatchThreadID)
 
     push.attach.irradiance_depth.get()[dtid] = float4(pgi_indirect_irradiance, depth);
 
-    let clk_end = clockARB();
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_PGI_EVAL_CLOCKS)
     {
-        push.attach.clocks_image.get()[dtid] = uint(clk_end - clk_start);
+        let clk_end = clockARB();
+        const uint clocks = uint(clk_end - clk_start);
+        write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid, float4(Heatmap(clocks * 0.0001f * push.attach.globals.settings.debug_visualization_scale), 1.0f + push.attach.globals.settings.debug_visualization_blend), 1);
     }
 }
 

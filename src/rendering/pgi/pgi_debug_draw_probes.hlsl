@@ -106,7 +106,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
     float2 depth_texel = floor(uv * reg_settings.probe_visibility_resolution) * rcp(reg_settings.probe_visibility_resolution);
     float2 color_texel = floor(uv * reg_settings.probe_color_resolution) * rcp(reg_settings.probe_color_resolution);
 
-    float exposure = deref(push.attach.exposure);
+    float exposure = deref(push.attach.globals).exposure;
     color *= exposure;
     visibility *= exposure;;
 
@@ -123,7 +123,7 @@ func entry_fragment_draw_debug_probes(DrawDebugProbesVertexToPixel vertToPix) ->
         case PGI_DEBUG_PROBE_DRAW_MODE_DEPTH_TEXEL: draw_color = float3(depth_texel,0); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_UV: draw_color = float3(uv,1); break;
         case PGI_DEBUG_PROBE_DRAW_MODE_NORMAL: draw_color = vertToPix.normal * 0.5f + 0.5f; break;
-        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = TurboColormap(hysteresis); break;
+        case PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS: draw_color = Heatmap(hysteresis); break;
     }
 
     return DrawDebugProbesFragmentOut(float4(draw_color,1));

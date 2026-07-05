@@ -234,15 +234,15 @@ Unlike the geometric proximity and surface detail guides — which control the f
 
 Variance guiding is explicitly not the primary spatial guide. The reason is a hard constraint: it requires temporally accumulated, already-converged variance. That variance is computed from the slow history and takes many frames to stabilize — on the first frame after a disocclusion, or any time history is young, the variance estimate is unreliable noise. Using it aggressively in those conditions would cause the filter to flicker visibly as the variance itself thrashes from frame to frame. It simply cannot do the heavy lifting that the geometric proximity and surface detail guides handle from frame zero.
 
-Instead it kicks in after a few frames as a final sharpener, once the slow variance has had time to settle. Its role at that point is narrow but useful: the post-blur accumulates a slow temporal variance of luma over the full history, and the guiding is one-sided — samples brighter than the center pixel are penalized relative to the slow standard deviation, while samples darker than the center pass through freely. This asymmetry is intentional — a dark sample blending into a bright region is a valid shadow, and suppressing it would brighten shadow edges. A bright sample bleeding into a dark region is far more likely to be residual noise or a leaking bright background.
+Instead it kicks in after a few frames as a final sharpener, once the slow variance has had time to settle. Its role at that point is narrow but useful: the post-blur accumulates a slow temporal variance of radiance over the full history, and the guiding is one-sided — samples brighter than the center pixel are penalized relative to the slow standard deviation, while samples darker than the center pass through freely. This asymmetry is intentional — a dark sample blending into a bright region is a valid shadow, and suppressing it would brighten shadow edges. A bright sample bleeding into a dark region is far more likely to be residual noise or a leaking bright background.
 
 What variance guiding does well at that stage, and cheaply, is act as a final fine-tune sharpener on dark areas where the post-blur would otherwise over-blend: deep shadow contact regions, distant shadowed geometry, corners where the filter tends to pull in bright surrounding samples. In those areas the one-sided clamp quietly prevents the brightest neighborhood samples from contributing, keeping the shadows crisp without affecting stable well-lit regions at all. The effect is visible in the sponza comparisons below — distant shadow boundaries that smear together without it stay distinctly separated, and contact shadow detail in the foreground is tighter.
 
 ```hlsl
 // In the temporal pass: accumulate slow relative variance (same fp16 trick as fast history —
-// store (luma - mean)²/mean² rather than luma² to avoid overflow at high radiance values)
+// store (radiance - mean)²/mean² rather than radiance² to avoid overflow at high radiance values)
 const float slow_new_relative_variance = min(
-    square((new_luma - reprojected_slow_mean) / max(reprojected_slow_mean, 1e-6f)), 4.0f);
+    square((new_radiance - reprojected_slow_mean) / max(reprojected_slow_mean, 1e-6f)), 4.0f);
 accumulated_slow_relative_variance = lerp(
     reprojected_slow_relative_variance, slow_new_relative_variance, slow_variance_blend);
 ```
@@ -393,9 +393,9 @@ The pre-blurred signal entering the temporal pass is stable enough to actually b
 
 ![screenshot](showcase_images/bistro%20series%201%205.png)
 
-With pre-blurred input, 4 frames is enough to accumulate a reliable luma mean and variance. With the raw signal the fast history would have to be so conservative it would barely react to anything.
+With pre-blurred input, 4 frames is enough to accumulate a reliable radiance mean and variance. With the raw signal the fast history would have to be so conservative it would barely react to anything.
 
-A fast history EMA of luma mean and relative variance is accumulated in parallel with the main color history, capped at ~4 frames. These two values then modulate the slow history's blend weight in opposite directions:
+A fast history EMA of radiance mean and relative variance is accumulated in parallel with the main color history, capped at ~4 frames. These two values then modulate the slow history's blend weight in opposite directions:
 
 **Mean divergence → blend toward new frames.** The fast mean tracks the current scene brightness. If the slow history mean and the fast mean diverge significantly, it means the slow history is holding onto outdated brightness — lighting has changed and the slow history hasn't caught up. The larger the ratio between them, the more confidence is reduced, pushing the blend toward the incoming frame so the slow history converges faster.
 
@@ -406,12 +406,12 @@ const float FAST_HISTORY_FRAMES = 4.0f;
 const float fast_blend = 1.0f / (1.0f + min(accumulated_sample_count, FAST_HISTORY_FRAMES));
 
 // Accumulate fast mean as EMA
-accumulated_fast_mean = lerp(reprojected_fast_mean, new_luma, fast_blend);
+accumulated_fast_mean = lerp(reprojected_fast_mean, new_radiance, fast_blend);
 
-// Relative variance: (luma - mean)² / mean² — stored relative to avoid fp16 overflow.
-// Raw squared luma would explode for bright values; dividing by mean keeps it dimensionless
+// Relative variance: (radiance - mean)² / mean² — stored relative to avoid fp16 overflow.
+// Raw squared radiance would explode for bright values; dividing by mean keeps it dimensionless
 // and always within a safe fp16 range regardless of scene brightness.
-const float new_rel_variance = min(square((new_luma - reprojected_fast_mean) / max(reprojected_fast_mean, 1e-6f)), 4.0f);
+const float new_rel_variance = min(square((new_radiance - reprojected_fast_mean) / max(reprojected_fast_mean, 1e-6f)), 4.0f);
 accumulated_fast_variance = lerp(reprojected_fast_variance, new_rel_variance, fast_blend);
 
 // Mean scaling: ratio of fast to slow mean — large divergence reduces confidence (blend toward new)
@@ -437,7 +437,7 @@ With the mean divergence scaling active, pixels whose slow history has fallen be
 
 **Temporal firefly filter**
 
-The fast history mean also enables a lightweight secondary firefly clamp inside the temporal pass. Before blending the new frame into the slow history, the incoming luma is tested against the fast mean: if it exceeds `fast_mean * (1 + 0.5 * fast_std_dev)`, the entire new sample is scaled down to match. Unlike the spatial firefly filter, this only activates once the fast history has accumulated enough frames to be reliable.
+The fast history mean also enables a lightweight secondary firefly clamp inside the temporal pass. Before blending the new frame into the slow history, the incoming radiance is tested against the fast mean: if it exceeds `fast_mean * (1 + 0.5 * fast_std_dev)`, the entire new sample is scaled down to match. Unlike the spatial firefly filter, this only activates once the fast history has accumulated enough frames to be reliable.
 
 ```hlsl
 // Only runs once fast history is built up (> FAST_HISTORY_FRAMES accumulated)
@@ -464,7 +464,7 @@ The SH values go through the denoiser exactly like color values — they are jus
 
 **YCoCg color space**
 
-Before projecting onto SH, radiance values are converted from RGB into YCoCg: a luma channel Y and two chroma difference channels Co and Cg.
+Before projecting onto SH, radiance values are converted from RGB into YCoCg: a radiance channel Y and two chroma difference channels Co and Cg.
 
 ```hlsl
 float3 linear_to_y_co_cg(float3 color)
@@ -486,11 +486,11 @@ float3 y_co_cg_to_linear(float3 color)
 }
 ```
 
-Y is by far the perceptually dominant channel — the eye is far more sensitive to luma variation than to chroma variation, and all the high-frequency directional lighting detail lives in Y. Co and Cg tend to vary slowly and smoothly across surfaces; they also stay numerically smaller than Y for typical scene colors, which makes them more fp16-friendly. This is why all the interesting per-pixel work — the SH projection, the firefly clamp, the relative variance accumulation — operates on Y, while Co and Cg are carried as flat values without any directional encoding. Storing flat chroma instead of SH chroma saves significant bandwidth: the color pipeline carries `float4 sh_y + float2 co_cg` per pixel rather than `float4 sh_y + float4 sh_co + float4 sh_cg`.
+Y is by far the perceptually dominant channel — the eye is far more sensitive to radiance variation than to chroma variation, and all the high-frequency directional lighting detail lives in Y. Co and Cg tend to vary slowly and smoothly across surfaces; they also stay numerically smaller than Y for typical scene colors, which makes them more fp16-friendly. This is why all the interesting per-pixel work — the SH projection, the firefly clamp, the relative variance accumulation — operates on Y, while Co and Cg are carried as flat values without any directional encoding. Storing flat chroma instead of SH chroma saves significant bandwidth: the color pipeline carries `float4 sh_y + float2 co_cg` per pixel rather than `float4 sh_y + float4 sh_co + float4 sh_cg`.
 
 **Projecting a ray result onto SH**
 
-Only luma is projected onto SH; the chroma channels are stored flat because they carry far less perceptual high-frequency detail.
+Only radiance is projected onto SH; the chroma channels are stored flat because they carry far less perceptual high-frequency detail.
 
 ```hlsl
 // Converts a linear RGB radiance sample and its incoming direction to YCoCg-space L1 SH
@@ -518,12 +518,12 @@ for (uint i = 0; i < samples; ++i)
 
 **Resolving SH against the high-detail normal**
 
-After the denoising pipeline, the accumulated SH probe is evaluated against the pixel's full-detail normal (from the normal map, not the face normal used during tracing). The dot of the normal with the L1 directional coefficients recovers the directional luma, and the chroma is rescaled relative to the DC term to stay color-accurate.
+After the denoising pipeline, the accumulated SH probe is evaluated against the pixel's full-detail normal (from the normal map, not the face normal used during tracing). The dot of the normal with the L1 directional coefficients recovers the directional radiance, and the chroma is rescaled relative to the DC term to stay color-accurate.
 
 ```hlsl
 float3 sh_resolve_diffuse(float4 sh_y, float2 co_cg, float3 normal)
 {
-    // Evaluate L1 SH against the normal: dot(normal, sh_y.xyz) gives directional luma
+    // Evaluate L1 SH against the normal: dot(normal, sh_y.xyz) gives directional radiance
     // sh_y.w is the DC term (omnidirectional average)
     float y = max(dot(normal, sh_y.xyz) + 0.5f * sh_y.w, sh_y.w * 0.1f);
     // Rescale chroma relative to the DC term to keep color correct after directional modulation
@@ -556,7 +556,7 @@ After adding all the tricks, the complete pipeline looks like this:
 
 4. **Pre-blur** — stochastic anisotropic disc filter, 8–16 samples, running on the firefly-filtered signal. Radius is driven by `square(filter_guide)` — worst-case on a flat surface the radius is very large, but even small surface detail collapses it fast. The kernel is tilted along the screen-space surface gradient to avoid bleeding across depth edges. This stabilises disocclusions within a few frames and removes low-frequency noise that a separable post-blur cannot safely remove after accumulation.
 
-5. **Temporal accumulation** — reproject the previous frame using the inverse-then-forward view-projection chain. Bilinear validity weights and geometric+normal tests gate which history is usable. EMA blend at `1/(1+count)` accumulates SH and chroma separately. Disocclusion resets count to zero. Fast EMA luma statistics (mean + relative variance) drive confidence: high divergence reduces blend toward history; high variance increases it. A temporal firefly filter additionally clamps incoming luma against the fast mean before blending into the slow history, suppressing boiling on high-frequency emissive detail.
+5. **Temporal accumulation** — reproject the previous frame using the inverse-then-forward view-projection chain. Bilinear validity weights and geometric+normal tests gate which history is usable. EMA blend at `1/(1+count)` accumulates SH and chroma separately. Disocclusion resets count to zero. Fast EMA radiance statistics (mean + relative variance) drive confidence: high divergence reduces blend toward history; high variance increases it. A temporal firefly filter additionally clamps incoming radiance against the fast mean before blending into the slow history, suppressing boiling on high-frequency emissive detail.
 
 6. **Post-blur** — separable horizontal then vertical bilateral filter. Gaussian kernel width is modulated by the temporally accumulated filter guide (ray shortness × surface detail CoV), so smooth surfaces with distant hits get wide blurs and detailed or near-geometry surfaces stay sharp. Variance guiding adds a one-sided per-sample luminance weight, penalising samples brighter than the center pixel scaled by local relative variance — a cheap final sharpener on dark areas.
 

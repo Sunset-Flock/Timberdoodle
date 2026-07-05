@@ -63,18 +63,19 @@ auto rtgi_default_settings() -> RtgiSettings;
 
 inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompileInfo2
 {
-    auto file = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse.hlsl"};
+    auto file    = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse.hlsl"};
+    auto shading = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse_shading.hlsl"};
+    // Single raygen entry point; it internally dispatches to the classic per-pixel body or the
+    // ray-list body based on rtgi_settings.use_repacked_ray_dispatch. This avoids daxa's multi-raygen
+    // SBT limitation (raygen region is sized for a single handle).
     return daxa::RayTracingPipelineCompileInfo2{
-        .ray_gen_infos = {{.source = file, .entry_point = "ray_gen", .language = daxa::ShaderLanguage::SLANG}},
-        .any_hit_infos = {{.source = file, .entry_point = "any_hit", .language = daxa::ShaderLanguage::SLANG}},
-        .closest_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse_shading.hlsl"}, .entry_point = "closest_hit", .language = daxa::ShaderLanguage::SLANG}},
-        .miss_hit_infos = {{.source = daxa::ShaderFile{"./src/rendering/rtgi/rtgi_trace_diffuse_shading.hlsl"}, .entry_point = "miss", .language = daxa::ShaderLanguage::SLANG}},
+        .ray_gen_infos     = {{.source = file,    .entry_point = "ray_gen",      .language = daxa::ShaderLanguage::SLANG}},
+        .any_hit_infos     = {{.source = file,    .entry_point = "any_hit",      .language = daxa::ShaderLanguage::SLANG}},
+        .closest_hit_infos = {{.source = shading, .entry_point = "closest_hit",  .language = daxa::ShaderLanguage::SLANG}},
+        .miss_hit_infos    = {{.source = shading, .entry_point = "miss",         .language = daxa::ShaderLanguage::SLANG}},
         .shader_groups_infos = {
-            // Gen Group
-            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL, .general_shader_index = 0},
-            // Miss group
-            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL, .general_shader_index = 3},
-            // Hit group
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 0},
+            daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::GENERAL,             .general_shader_index = 3},
             daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2},
             daxa::RayTracingShaderGroupInfo{.type = daxa::ShaderGroup::TRIANGLES_HIT_GROUP, .closest_hit_shader_index = 2, .any_hit_shader_index = 1},
         },
@@ -83,12 +84,17 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
     };
 }
 
+MAKE_COMPUTE_COMPILE_INFO(rtgi_distribute_rays_compile_info, "./src/rendering/rtgi/rtgi_distribute_rays.hlsl", "entry_distribute_rays")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_blend_rays_compile_info,    "./src/rendering/rtgi/rtgi_blend_rays.hlsl",    "entry_blend_rays")
+
 MAKE_COMPUTE_COMPILE_INFO(rtgi_trace_diffuse_compute_compile_info, "./src/rendering/rtgi/rtgi_trace_diffuse_compute.hlsl", "ray_gen_compute")
-MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_reproject_halfres")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_reproject_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_temporal_reproject")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_accumulate_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_temporal_accumulate")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_prepare")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_apply_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_apply")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_blur_compile_info, "./src/rendering/rtgi/rtgi_pre_blur.hlsl", "entry_adaptive_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur")
+MAKE_COMPUTE_COMPILE_INFO(rtgi_post_blur_lds_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_post_blur_lds")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_atrous_post_blur_compile_info, "./src/rendering/rtgi/rtgi_post_blur.hlsl", "entry_atrous_post_blur")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_upscale_diffuse_compile_info, "./src/rendering/rtgi/rtgi_upscale.hlsl", "entry_upscale_diffuse")
 
@@ -99,14 +105,12 @@ struct TasksRtgiInfo
 
     daxa::TaskBufferView globals = {};
     daxa::TaskImageView debug_image = {};
-    daxa::TaskImageView clocks_image = {};
     daxa::TaskImageView view_cam_half_res_depth = {};
     daxa::TaskImageView view_cam_half_res_face_normals = {};
     daxa::TaskImageView view_cam_half_res_albedo = {};
     daxa::TaskImageView view_cam_depth = {};
     daxa::TaskImageView view_cam_face_normals = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
-    daxa::TaskImageView depth_history = {};
     daxa::TaskBufferView meshlet_instances = {};
     daxa::TaskBufferView mesh_instances = {};
     daxa::TaskImageView sky = {};

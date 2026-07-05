@@ -46,6 +46,39 @@ float3 TurboColormap(float x)
     );
 }
 
+// Perceptual heatmap ramp that also increases in brightness monotonically.
+// x in [0,1]: black -> blue -> blurple(purple) -> red -> orange -> yellow.
+float3 Heatmap(float x)
+{
+    x = clamp(x, 0.0, 1.0);
+
+    // Control points along the ramp, getting continuously brighter.
+    // Non-uniform stop positions give more room to the mid-tones (purple->red->orange)
+    // where the eye is most sensitive.
+    const float3 c0 = float3(0.00, 0.00, 0.00); // black
+    const float3 c1 = float3(0.05, 0.02, 0.35); // deep blue
+    const float3 c2 = float3(0.35, 0.05, 0.72); // blurple / violet
+    const float3 c3 = float3(0.78, 0.08, 0.42); // magenta-red
+    const float3 c4 = float3(0.97, 0.20, 0.10); // red
+    const float3 c5 = float3(1.00, 0.60, 0.05); // orange
+    const float3 c6 = float3(1.00, 0.95, 0.35); // yellow
+    const float3 c7 = float3(1.00, 1.00, 1.00); // white
+
+    // Positions of each control point along x (monotonic, non-uniform).
+    const float p0 = 0.00, p1 = 0.13, p2 = 0.28, p3 = 0.44;
+    const float p4 = 0.60, p5 = 0.76, p6 = 0.90, p7 = 1.00;
+
+    float3 col;
+    if (x < p1)      col = lerp(c0, c1, (x - p0) / (p1 - p0));
+    else if (x < p2) col = lerp(c1, c2, (x - p1) / (p2 - p1));
+    else if (x < p3) col = lerp(c2, c3, (x - p2) / (p3 - p2));
+    else if (x < p4) col = lerp(c3, c4, (x - p3) / (p4 - p3));
+    else if (x < p5) col = lerp(c4, c5, (x - p4) / (p5 - p4));
+    else if (x < p6) col = lerp(c5, c6, (x - p5) / (p6 - p5));
+    else             col = lerp(c6, c7, (x - p6) / (p7 - p6));
+    return col;
+}
+
 float3 hsv2rgb(float3 c) {
     float4 k = float4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
     float3 p = abs(frac(c.xxx + k.xyz) * 6.0 - k.www);

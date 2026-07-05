@@ -11,7 +11,6 @@
 #include "pgi.inl"
 #include "scene.inl"
 #include "lights.inl"
-#include "ao.inl"
 #include "rtgi.inl"
 
 struct GPUScene
@@ -64,7 +63,13 @@ struct RenderGlobalData
     daxa_u32 frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;
-    daxa_f32vec2 mainview_depth_hiz_physical_size;      
+    // Auto exposure of the current frame (one frame delayed). NOT uploaded from the CPU render_data —
+    // filled on the GPU each frame by the "copy exposure into globals" task from exposure_state.previous().
+    // Field order (exposure, exposure_ev, inv_exposure) must match AutoExposureState for the contiguous copy.
+    daxa_f32 exposure;
+    daxa_f32 exposure_ev;
+    daxa_f32 inv_exposure; // 1/exposure
+    daxa_f32vec2 mainview_depth_hiz_physical_size;
     daxa_f32vec2 mainview_depth_hiz_size;
     Settings settings;
     CullData cull_data;
@@ -74,7 +79,6 @@ struct RenderGlobalData
     VolumetricSettings volumetric_settings;
     PostprocessSettings postprocess_settings;
     PGISettings pgi_settings;
-    AoSettings ao_settings;
     RtgiSettings rtgi_settings;
     GlobalSamplers samplers;
 

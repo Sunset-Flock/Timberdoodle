@@ -16,6 +16,10 @@ struct AutoExposureState
     float exposure;
 
     float ev;
+    // Reciprocal of exposure (1/exposure), precomputed here so shaders can multiply instead of divide.
+    // Field order (exposure, ev, inv_exposure) must match RenderGlobalData so the copy-into-globals task
+    // can copy all three contiguously.
+    float inv_exposure;
 };
 
 DAXA_DECL_BUFFER_PTR(AutoExposureState)
@@ -23,14 +27,15 @@ DAXA_DECL_BUFFER_PTR(AutoExposureState)
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceHistogramH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(WRITE, daxa_BufferPtr(daxa_u32), histogram)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(AutoExposureState), exposure_state)
 DAXA_TH_IMAGE_ID(READ, REGULAR_2D, color_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceAverageH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
 DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), histogram)
-DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_BufferPtr(AutoExposureState), exposure_state)
+// Writes this frame's exposure into the double-buffered .current() slot. The previous frame's exposure
+// (needed for the EMA) is read from globals.exposure_ev, which the copy task filled from .previous().
+DAXA_TH_BUFFER_PTR(WRITE, daxa_BufferPtr(AutoExposureState), exposure_state)
 DAXA_DECL_TASK_HEAD_END
 
 #if __cplusplus

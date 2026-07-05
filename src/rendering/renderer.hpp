@@ -48,7 +48,6 @@ struct Renderer
     daxa::ExternalTaskBuffer meshlet_instances = {};
     daxa::ExternalTaskBuffer visible_meshlet_instances = {};
     daxa::ExternalTaskBuffer visible_mesh_instances = {};
-    daxa::ExternalTaskBuffer exposure_state = {};
     daxa::BufferId general_readback_buffer = {};
     daxa::BufferId screenshot_readback_buf = {};
     bool screenshot_pending = false;
@@ -64,10 +63,7 @@ struct Renderer
 
     // Render Targets:
     daxa::ExternalTaskImage swapchain_image = {};
-    daxa::ExternalTaskImage depth_history = {};
     daxa::ExternalTaskImage path_trace_history = {};
-    daxa::ExternalTaskImage normal_history = {};
-    daxa::ExternalTaskImage rtao_history = {};
 
     std::vector<daxa::ExternalTaskImage> images = {};
     std::vector<std::pair<daxa::ImageInfo, daxa::ExternalTaskImage>> frame_buffer_images = {};
