@@ -15,7 +15,7 @@ struct RtgiSettings
     daxa_i32 enabled;
     daxa_f32 shading_ao_range;
     daxa_i32 firefly_filter_enabled;
-    daxa_f32 firefly_filter_ceiling;
+    daxa_f32 firefly_perceptual_tolerance; // perceptual-space headroom added above the neighborhood mean before a ray is clamped
     daxa_i32 firefly_clamp_mode; // 0=multichromatic, 1=monochromatic
     daxa_i32 pre_blur_enabled;
     daxa_i32 pre_blur_ao_guiding;
@@ -59,7 +59,6 @@ struct RtgiSettings
     daxa_i32 post_blur_atrous_iterations;
     daxa_i32 upscale_enabled;
     daxa_i32 sh_resolve_enabled;
-    daxa_i32 firefly_center_blur_enabled;
     daxa_i32 pre_blur_firefly_energy_compensation_enabled;
     daxa_i32 animate_noise;
 

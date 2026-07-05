@@ -9,6 +9,14 @@
 
 [[vk::push_constant]] RtgiPreFilterPush rtgi_pre_filter_prepare_push;
 
+// Relative perceived brightness of the three color channels, normalized so the brightest (green) is 1.
+// Derived from the Rec.709 luma weights (0.2126, 0.7152, 0.0722) divided by the green weight.
+static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS = float3(0.2973f, 1.0f, 0.1009f);
+
+// Same relationship expressed in perceptual (natural-log) space relative to green: ln(brightness / green).
+// Green is 0; the others are negative because red and blue are perceived dimmer than green. Natural log so
+// it can be added directly to the ln-based perceptual values (linear_to_perceptual / perceptual_to_linear).
+static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN = float3(-1.2129f, 0.0f, -2.2936f);
 
 // Outer gather reaches EXTENT cells at STRIDE spacing → EXTENT*STRIDE cells = EXTENT*STRIDE*2 pixels per side.
 static const int QUAD_HALO_CELLS   = RTGI_QUAD_FILTER_EXTENT * RTGI_QUAD_FILTER_STRIDE;
@@ -177,8 +185,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const int2 pixel_quad_id   = int2(gtid) / 2;
     const int2 pixel_gs_center = pixel_quad_id + int2(QUAD_HALO_CELLS, QUAD_HALO_CELLS);
 
-    float perceptual_radiance_acc  = 0.0f;
-    float3 perceptual_rgb_acc  = float3(0.0f, 0.0f, 0.0f);
+    float3 perceptual_rgb_acc  = float3(0.0f, 0.0f, 0.0f); // geometry-weighted mean log rgb; radiance derived from it
     float geo_weight_acc    = 0.0f;
     // Geometry-weighted rays-shot summed over the RING taps (center taps are added separately via
     // center_quad_ray_sum_acc). Feeds neighborhood_sample_fitness: a neighborhood with many rays raises
@@ -188,18 +195,14 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // Firefly reference (ceiling) mean — built ONLY from the surrounding quad blur-cells, never from
     // the center quad. The center pixels are the ones being clamped, so including them would let a
     // firefly inflate its own ceiling and pass through (worst at low extent where the surround is small).
-    float ff_perceptual_radiance_sum   = 0.0f;
     float3 ff_perceptual_rgb_sum   = float3(0.0f, 0.0f, 0.0f);
     float ff_weight         = 0.0f;
     float ff_ray_count_sum  = 0.0f; // rays-shot summed over the firefly ring (same taps as ff_*)
     // Geometry-AWARE firefly reference: same ring taps but weighted by surface similarity (gw), so only
-    // neighbors on the same surface contribute to the ceiling. This is the primary reference. The
-    // unweighted ff_* means above are only used as a fallback when the footprint drops too low, and that
-    // fallback is ONLY consulted in monochromatic clamp mode — so we only accumulate them there (perf).
-    float ff_perceptual_radiance_sum_geo = 0.0f;
+    // neighbors on the same surface contribute to the ceiling. This is the primary reference; the
+    // unweighted ff_* mean above is only used as a fallback when the footprint drops too low.
     float3 ff_perceptual_rgb_sum_geo = float3(0.0f, 0.0f, 0.0f);
     float ff_weight_geo = 0.0f;
-    const bool ff_mono = push.attach.globals.rtgi_settings.firefly_clamp_mode == 1;
     // Surrounding quads — skip center (qx==0, qy==0), handled at pixel resolution below.
     [unroll]
     for (int qy = -RTGI_QUAD_FILTER_EXTENT; qy <= RTGI_QUAD_FILTER_EXTENT; qy++)
@@ -216,10 +219,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const float  gw = !sq_sky ? calc_similar_surface_weight( pixel_width_ws_rcp, world_position, pixel_face_normal, sq_vs_data.xyz, sq_normal_ws, 4.0f) : 0.0f;
 
             // gs_blur_color is already in log (perceptual) space.
-            const float4 blur_color = gs_blur_color[sq.x][sq.y];
-            const float3 perceptual_rgb  = blur_color.xyz;
-            const float  perceptual_radiance = blur_color.w;
-            perceptual_radiance_acc  += perceptual_radiance * gw;
+            const float3 perceptual_rgb  = gs_blur_color[sq.x][sq.y].xyz;
             perceptual_rgb_acc   += perceptual_rgb  * gw;
             geo_weight_acc    += gw;
             ring_raycount_geo_acc += gs_quad_raycount[sq.x][sq.y] * gw;
@@ -230,12 +230,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 ff_ray_count_sum += gs_quad_raycount[sq.x][sq.y];
                 ff_weight += 1.0f;
                 // Geometry-aware reference (primary): weight by surface similarity to the center pixel.
-                ff_perceptual_radiance_sum_geo += perceptual_radiance * gw;
                 ff_perceptual_rgb_sum_geo  += perceptual_rgb * gw;
                 ff_weight_geo += gw;
                 // Non-geometry-aware reference: unweighted over all non-sky ring neighbors (ignores surface
-                // similarity). Genuinely distinct from the geo-aware means; used by the monochrome clamp.
-                ff_perceptual_radiance_sum += perceptual_radiance;
+                // similarity). Genuinely distinct from the geo-aware mean; used as the fallback.
                 ff_perceptual_rgb_sum  += perceptual_rgb;
             }
         }
@@ -263,10 +261,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             // .rgb = geometric mean of the tap pixel's rays in log space; .a = mean ray shortness [0,1].
             const float4 tap_perceptual_geo = push.attach.perceptual_rgb_shortness.get()[tap_idx];
             const float3 tap_perceptual_rgb = tap_perceptual_geo.rgb;
-            const float  tap_perceptual_radiance   = perceptual_radiance_from_rgb(tap_perceptual_geo.rgb);
             const float  tap_close   = tap_perceptual_geo.a;
 
-            perceptual_radiance_acc  += tap_perceptual_radiance   * tap_gw;
             perceptual_rgb_acc   += tap_perceptual_rgb  * tap_gw;
             geo_weight_acc    += tap_gw;
             ray_shortness_acc += tap_close    * tap_gw;
@@ -277,35 +273,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             center_quad_ray_sum_acc += float(push.attach.ray_count_image.get()[tap_idx]) * tap_gw;
         }
     }
-    // Does the center pixel share a surface with its 2x2 quad neighbours? (drives the firefly ceiling.)
-    const bool   pixel_matches_quad = center_weight_acc > 0.0f;
 
-    const float  radiance_mean = geo_weight_acc > 0.0f ? perceptual_to_linear(perceptual_radiance_acc / geo_weight_acc) : 0.0f;
-    const float3 rgb_mean  = geo_weight_acc > 0.0f ? perceptual_to_linear(perceptual_rgb_acc  / geo_weight_acc) : float3(0.0f, 0.0f, 0.0f);
-    // Raw references: geometry-aware (surface-similar-weighted) and non-geometry-aware (unweighted over all
-    // non-sky ring neighbors). Each defaults to the quad mean when it has no samples of its own.
-    const float  geo_radiance_raw    = ff_weight_geo > 0.0f ? perceptual_to_linear(ff_perceptual_radiance_sum_geo / ff_weight_geo) : radiance_mean;
-    const float3 geo_rgb_raw     = ff_weight_geo > 0.0f ? perceptual_to_linear(ff_perceptual_rgb_sum_geo  / ff_weight_geo) : rgb_mean;
-    const float  nongeo_radiance_raw = ff_weight     > 0.0f ? perceptual_to_linear(ff_perceptual_radiance_sum / ff_weight)     : radiance_mean;
-    const float3 nongeo_rgb_raw  = ff_weight     > 0.0f ? perceptual_to_linear(ff_perceptual_rgb_sum  / ff_weight)     : rgb_mean;
-    // Fallback (used when a mean has no samples of its own) is the MIN of the geo and non-geo references,
-    // so a missing primary picks the tighter/darker of the two and can't inflate the ceiling.
-    const float  fallback_radiance = min(geo_radiance_raw, nongeo_radiance_raw);
-    const float3 fallback_rgb  = min(geo_rgb_raw,  nongeo_rgb_raw);
-    const float  firefly_radiance_mean_geo = ff_weight_geo > 0.0f ? geo_radiance_raw : fallback_radiance;
-    const float3 firefly_rgb_mean_geo  = ff_weight_geo > 0.0f ? geo_rgb_raw  : fallback_rgb;
-    const float  firefly_radiance_mean = ff_weight > 0.0f ? nongeo_radiance_raw : fallback_radiance;
-    const float3 firefly_rgb_mean  = ff_weight > 0.0f ? nongeo_rgb_raw  : fallback_rgb;
-    const float  total_quad_taps = float(QUAD_FILTER_DIM * QUAD_FILTER_DIM - 1 + 4);  // surrounding quads + 4 center pixels
-    // Neighborhood sample fitness: min(NEIGHBOR_PIXELS, geometry-weighted sum of neighbor RAY COUNTS),
-    // normalized to [0,1]. Unlike a pure valid-geo-tap count, a neighborhood that shot many rays (e.g. a
-    // fresh disocclusion getting a big ray budget) reaches full fitness even with few geometry-valid taps.
-    // This keeps the firefly ceiling's footprint scaling from over-darkening ray-rich disoccluded regions.
-    const float  neighborhood_raycount_geo = ring_raycount_geo_acc + center_quad_ray_sum_acc; // GEO_TEST(RAYCOUNT) summed over ring + center
-    const float  neighborhood_sample_fitness = min(neighborhood_raycount_geo, total_quad_taps) / total_quad_taps;
+    const float3 mean_perceptual_rgb = geo_weight_acc > 0.0f ? perceptual_rgb_acc / geo_weight_acc : float3(0.0f, 0.0f, 0.0f);
+    const float3 geo_perceptual_rgb    = ff_weight_geo > 0.0f ? ff_perceptual_rgb_sum_geo / ff_weight_geo : mean_perceptual_rgb;
+    const float3 nongeo_perceptual_rgb = ff_weight     > 0.0f ? ff_perceptual_rgb_sum     / ff_weight     : mean_perceptual_rgb;
+    const float3 fallback_perceptual_rgb = min(geo_perceptual_rgb, nongeo_perceptual_rgb);
+    const float3 firefly_perceptual_rgb_mean_geo = ff_weight_geo > 0.0f ? geo_perceptual_rgb    : fallback_perceptual_rgb;
+    const float3 firefly_perceptual_rgb_mean     = ff_weight     > 0.0f ? nongeo_perceptual_rgb : fallback_perceptual_rgb;
+
     const float  ray_shortness_mean = geo_weight_acc > 0.0f ? ray_shortness_acc / geo_weight_acc : 0.0f;
-
-    // For guiding we only care about the bottom 25% of sample quality (formerly "footprint quality").
+    const bool   pixel_matches_quad = center_weight_acc > 0.0f;
+    const float  total_quad_taps = float(QUAD_FILTER_DIM * QUAD_FILTER_DIM - 1 + 4);  // surrounding quads + 4 center pixels
+    const float  neighborhood_raycount_geo = ring_raycount_geo_acc + center_quad_ray_sum_acc;
+    const float  neighborhood_sample_fitness = min(neighborhood_raycount_geo, total_quad_taps) / total_quad_taps;
     const float  neighborhood_sample_fitness_sharp = min(neighborhood_sample_fitness, 0.25f) * 4.0f;
 
     let rtgi = push.attach.globals->rtgi_settings;
@@ -318,18 +298,21 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const float EPSILON = 1e-8f;
         // Firefly ceiling reference: geometry-aware neighborhood mean, tightened with the non-geo-aware mean
         // where the sample fitness is low so a sparse (outlier-dominated) mean can't inflate the ceiling.
-        float ceiling_factor = max(1.0f, rtgi.firefly_filter_ceiling * (pixel_matches_quad ? 1.0f : 0.1f));
-        float  geo_mean_for_ceiling = firefly_radiance_mean_geo;
-        float3 rgb_mean_for_ceiling = firefly_rgb_mean_geo;
+        float3 perceptual_rgb_for_ceiling = firefly_perceptual_rgb_mean_geo;
         if (neighborhood_sample_fitness_sharp < 1.0f)
         {
-            geo_mean_for_ceiling = min(geo_mean_for_ceiling, firefly_radiance_mean);
-            rgb_mean_for_ceiling = min(rgb_mean_for_ceiling, firefly_rgb_mean);
+            perceptual_rgb_for_ceiling = min(perceptual_rgb_for_ceiling, firefly_perceptual_rgb_mean);
         }
-        ceiling_factor = ceiling_factor * neighborhood_sample_fitness_sharp;
-        // Per-channel ceiling. Because rays are blended here in the pre-filter (rather than in a
-        // separate blend pass), each ray's rgb is clamped against the neighborhood mean channel-by-channel.
-        const float3 ceil_rgb = rgb_mean_for_ceiling * ceiling_factor;
+        // Perceptual tolerance: how far (in perceptual / log space) above the neighborhood mean a ray may
+        // reach before it is clamped. It is ADDED to the mean's perceptual rgb and converted back to
+        // linear. Raised by the neighborhood sample fitness (well-sampled neighborhoods admit more energy),
+        // and tightened when the pixel does not match its quad.
+        // Per channel we also SUBTRACT RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN (<= 0, 0 for green): red and
+        // blue are perceived dimmer than green, so this gives their ceilings extra headroom — a channel
+        // needs proportionally more linear energy to look as bright.
+        const float perceptual_tolerance = rtgi.firefly_perceptual_tolerance * (pixel_matches_quad ? 1.0f : 0.1f);
+        const float3 ceil_rgb = perceptual_to_linear(
+            perceptual_rgb_for_ceiling + perceptual_tolerance - RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN);
 
         // Blend the pixel's rays directly from the ray list (directional SH radiance + CoCg averaged over the
         // rays, exactly like the old blend pass), hue-preservingly firefly-clamping EACH ray to the ceiling
@@ -338,6 +321,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         const uint  ray_offset = push.attach.pixel_ray_alloc.get()[clamped_index];
         const uint  ray_count  = push.attach.ray_count_image.get()[clamped_index];
         const bool  do_clamp   = rtgi.firefly_filter_enabled != 0;
+        const bool  ff_mono    = rtgi.firefly_clamp_mode == 1;
         float4 acc_sh   = float4(0.0f, 0.0f, 0.0f, 0.0f);
         float2 acc_cocg = float2(0.0f, 0.0f);
         float  energy_pre  = 0.0f;
@@ -352,19 +336,27 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 float3 clamped = ray_rgb;
                 if (do_clamp)
                 {
+                    const float3 c = max(ceil_rgb, EPSILON);
+                    // Both modes scale ALL channels by one over-exposure ratio (hue-preserving); they only
+                    // differ in how that ratio is derived from the per-channel ceilings:
+                    //   monochrome: merge ray + ceiling into a single perceived-brightness scalar, then take
+                    //               the ratio of the merged values (a single bright channel is diluted by
+                    //               the merge, so it clamps less).
+                    //   rgb:        take the per-channel over-exposure ratios and keep the most conservative
+                    //               (largest), so the single worst channel decides the clamp.
+                    float over;
                     if (ff_mono)
                     {
-                        // Monochromatic (hue-preserving) clamp: scale all channels by the single largest
-                        // over-exposure so the ray keeps its hue while its brightest channel hits the ceiling.
-                        const float3 ex    = ray_rgb / max(ceil_rgb, EPSILON);
-                        const float  maxex = max(max(ex.r, ex.g), ex.b);
-                        clamped = ray_rgb / max(maxex, 1.0f);
+                        const float ray_merged  = dot(ray_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+                        const float ceil_merged = dot(c,       RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
+                        over = ray_merged / max(ceil_merged, EPSILON);
                     }
                     else
                     {
-                        // Per-channel clamp: each channel is limited to its own ceiling independently.
-                        clamped = min(ray_rgb, max(ceil_rgb, EPSILON));
+                        const float3 ex = ray_rgb / c;
+                        over = max(max(ex.r, ex.g), ex.b);
                     }
+                    clamped = ray_rgb / max(over, 1.0f);
                 }
                 const float3 dir = uncompress_normal_octahedral_32(res.packed_dir);
                 float4 sh_y; float2 cocg;
@@ -386,7 +378,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // --- Ambient occlusion guide ---
     const float ao_guide = (1.0f - sqrt(ray_shortness_mean));
 
-    const float radiance_mean_perceptual = linear_to_perceptual(radiance_mean, push.attach.globals.inv_exposure);
+    // Monochrome (perceptual) radiance derived straight from the perceptual rgb mean — no linear round-trip.
+    const float radiance_mean_perceptual = geo_weight_acc > 0.0f
+        ? perceptual_radiance_from_rgb(mean_perceptual_rgb)
+        : linear_to_perceptual(0.0f, push.attach.globals.inv_exposure);
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;

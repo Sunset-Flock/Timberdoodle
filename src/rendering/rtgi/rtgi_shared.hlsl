@@ -96,7 +96,7 @@ func calc_ray_shortness(float ray_length, float pixel_width_ws, float max_visibi
 // log().
 func calc_perceptual_radiance_floor(float inv_exposure) -> float
 {
-    return inv_exposure * 64.0f;
+    return inv_exposure * 16.0f;
 }
 
 func linear_to_perceptual(float v, float inv_exposure) -> float

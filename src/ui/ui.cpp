@@ -773,8 +773,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::Checkbox("Firefly Filter Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_filter_enabled));
                     ImGui::RadioButton("Multichromatic", &render_data.rtgi_settings.firefly_clamp_mode, 0); ImGui::SameLine();
                     ImGui::RadioButton("Monochromatic", &render_data.rtgi_settings.firefly_clamp_mode, 1);
-                    ImGui::Checkbox("Firefly Center Blur Enabled", reinterpret_cast<bool *>(&render_data.rtgi_settings.firefly_center_blur_enabled));
-                    ImGui::SliderFloat("Firefly Ceiling", &render_data.rtgi_settings.firefly_filter_ceiling, 0.25, 128.0f);
+                    ImGui::SliderFloat("Firefly Perceptual Tolerance", &render_data.rtgi_settings.firefly_perceptual_tolerance, 0.25f, 16.0f);
                     ImGui::TreePop();
                 }
                 if (rtgi_section("Pre Blur", {
