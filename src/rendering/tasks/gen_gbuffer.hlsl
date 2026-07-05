@@ -111,7 +111,7 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         const uint packed_detail_normal = compress_normal_octahedral_32(detail_normal);
         push.attachments.detail_normal_image.get()[dtid] = packed_detail_normal;
 
-        gs_face_normals[gtid.x][gtid.y] = packed_geometry_normal;
+        gs_face_normals[gtid.x][gtid.y] = packed_face_normal;
         gs_depths[gtid.x][gtid.y] = depth;
         gs_albedos[gtid.x][gtid.y] = float4(material_point.albedo, 1.0f);
     }
@@ -147,48 +147,9 @@ func entry_gen_gbuffer(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupTh
         for (uint i = 0; i < 4; ++i)
             normals_ws[i] = uncompress_normal_octahedral_32(normals[i]);
 
-        // Score each non-sky pixel by how many others share a similar normal (dot > 0.9, ~26°).
-        // Sky pixels (depth==0) score 0 and are only chosen when all four are sky.
-        // Ties broken by closest depth (reversed-Z: larger value = closer to camera).
-        int normal_score[4] = {0, 0, 0, 0};
-        [unroll]
-        for (uint i = 0; i < 4; ++i)
-        {
-            if (depths[i] == 0.0f) continue;
-            [unroll]
-            for (uint j = 0; j < 4; ++j)
-            {
-                if (depths[j] != 0.0f && dot(normals_ws[i], normals_ws[j]) > 0.9f)
-                    normal_score[i]++;
-            }
-        }
-
-        // Primary: depth (reversed-Z — larger = closer). When depths are within 5% of the
-        // closest, normal score dominates; then depth breaks remaining ties.
-        float max_depth = 0.0f;
-        [unroll]
-        for (uint i = 0; i < 4; ++i)
-            max_depth = max(max_depth, depths[i]);
-        const float depth_close_threshold = max_depth * 0.05f;
-
-        int best_depth_index = 0;
-        [unroll]
-        for (uint i = 1; i < 4; ++i)
-        {
-            if (depths[i] == 0.0f) continue;
-            if (depths[best_depth_index] == 0.0f) { best_depth_index = i; continue; }
-
-            const bool i_close    = (max_depth - depths[i])               <= depth_close_threshold;
-            const bool best_close = (max_depth - depths[best_depth_index]) <= depth_close_threshold;
-
-            const bool prefer_i =
-                ( i_close && !best_close) ||
-                ( i_close &&  best_close && normal_score[i] > normal_score[best_depth_index]) ||
-                ( i_close &&  best_close && normal_score[i] == normal_score[best_depth_index] && depths[i] > depths[best_depth_index]) ||
-                (!i_close && !best_close && depths[i] > depths[best_depth_index]);
-
-            if (prefer_i) best_depth_index = i;
-        }
+        // Pick the 2x2 representative (foreground normal-majority; see misc.hlsl).
+        const float depths_arr[4] = { depths[0], depths[1], depths[2], depths[3] };
+        const int best_depth_index = quad_downsample_representative(depths_arr);
 
         float closest_depth = depths[best_depth_index];
         uint closest_face_normal = normals[best_depth_index];

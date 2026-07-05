@@ -9,7 +9,7 @@
 #include <ctime>
 #include <filesystem>
 
-#define DISABLE_EMISSIVE_BALLS 0
+#define DISABLE_EMISSIVE_BALLS 1
 
 static void save_screenshot_png(std::filesystem::path const & path, u8 const * bgra_data, u32 width, u32 height)
 {

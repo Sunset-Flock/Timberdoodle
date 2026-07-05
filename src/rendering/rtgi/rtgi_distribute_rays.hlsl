@@ -172,8 +172,8 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
 
             const uint total_halfres = push.size.x * push.size.y;
             const uint total_budget  = uint(float(total_halfres) * max(ray_pct, min_budget));
-            const uint total_geo     = push.attach.ray_demand->total_geo_rays;
-            const uint total_extra   = push.attach.ray_demand->total_extra_rays;
+            const uint total_geo     = push.attach.ray_counters->total_geo_rays;
+            const uint total_extra   = push.attach.ray_counters->total_extra_rays;
             const uint total_desired = total_geo + total_extra;
             // Global affordable fraction of ALL demand — the uniform drain factor applied to base AND extra.
             const float global_ratio = float(total_budget) / float(total_desired + 1u);
@@ -291,7 +291,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
         if (lane == 0u)
         {
             uint old_count;
-            InterlockedAdd(push.attach.ray_demand->ray_list_count, tile_total, old_count);
+            InterlockedAdd(push.attach.ray_counters->ray_list_count, tile_total, old_count);
             gs_base_offset = old_count;
             gs_tile_total = tile_total;
         }

@@ -270,8 +270,8 @@ func entry_temporal_reproject(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_
     if (gtid.x == 0 && gtid.y == 0)
     {
         const uint tile_extra = gs_tile_total_desired - gs_tile_geo_count;
-        if (tile_extra > 0u) InterlockedAdd(push.attach.ray_demand->total_extra_rays, tile_extra);
-        if (gs_tile_geo_count > 0u) InterlockedAdd(push.attach.ray_demand->total_geo_rays, gs_tile_geo_count);
+        if (tile_extra > 0u) InterlockedAdd(push.attach.ray_counters->total_extra_rays, tile_extra);
+        if (gs_tile_geo_count > 0u) InterlockedAdd(push.attach.ray_counters->total_geo_rays, gs_tile_geo_count);
     }
 }
 
@@ -417,7 +417,7 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
 
     // Fast-history age in FRAMES (not ray samples): +1 per frame, reset to 0 on disocclusion. This is the
     // quantity the fast history should ramp on — a multi-ray disocclusion burst inflates the ray-sample
-    // count by up to RTGI_MAX_EXTRA_RAYS in a single frame, which previously made the fast history hit full
+    // count by up to fast_convergence_samples in a single frame, which previously made the fast history hit full
     // confidence (and the firefly clamp) after one frame and lock the pixel onto that first, still-noisy
     // value. Counting frames makes the fast window ramp over FAST_HISTORY_FRAMES actual frames as intended.
     // Parallax stretch also drops the fast-history frame count (same penalty as the normal count), so a
@@ -448,10 +448,10 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     }
 
     // Load new diffuse data
-    const bool diffuse_pre_blurred_present = !push.attach.half_res_diffuse_new.index.is_empty();
+    const bool diffuse_pre_blurred_present = !push.attach.half_res_diffuse_pre_blurred.index.is_empty();
 
-    float4 new_diffuse = diffuse_pre_blurred_present ? push.attach.half_res_diffuse_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse_new.get()[dtid.xy];
-    float2 new_diffuse2 = diffuse_pre_blurred_present ? push.attach.half_res_diffuse2_new.get()[dtid.xy] : push.attach.pre_filtered_diffuse2_new.get()[dtid.xy];
+    float4 new_diffuse = diffuse_pre_blurred_present ? push.attach.half_res_diffuse_pre_blurred.get()[dtid.xy] : push.attach.pre_filtered_diffuse_new.get()[dtid.xy];
+    float2 new_diffuse2 = diffuse_pre_blurred_present ? push.attach.half_res_diffuse2_pre_blurred.get()[dtid.xy] : push.attach.pre_filtered_diffuse2_new.get()[dtid.xy];
     float new_ao_guide = push.attach.ao_guide_new.get()[dtid.xy];
 
     // Determine accumulated fast history

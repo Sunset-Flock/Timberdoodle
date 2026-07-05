@@ -524,17 +524,22 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 tido::ui::searchable_combo("debug visualization", debug_visualization_index,
                     debug_visualization_search, sizeof(debug_visualization_search),
                     std::span<const char * const>{modes.data(), modes.size()});
+                ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
+                ImGui::SliderFloat("debug visualization blend", &render_data.settings.debug_visualization_blend, 0.0f, 1.0f);
+                ImGui::SetItemTooltip("0 = debug overlay blended max with normal image, 1 = full debug overlay");
+                ImGui::SliderInt("debug visualization tile", &render_data.settings.debug_visualization_tile, -1, 15);
+                ImGui::SetItemTooltip("-1 = full screen, 0-15 = draw into that tile slot (4x4 grid)");
+            }
+            if (ImGui::CollapsingHeader("Shading Settings"))
+            {
                 auto debug_material_quality = std::array{
                     "NONE",           // SHADING_QUALITY_NONE
                     "LOW",            // SHADING_QUALITY_LOW
                     "HIGH",           // SHADING_QUALITY_HIGH
                 };
                 ImGui::Combo("debug material quality", &render_data.settings.debug_material_quality, debug_material_quality.data(), s_cast<i32>(debug_material_quality.size()));
-                ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
-                ImGui::SliderFloat("debug visualization blend", &render_data.settings.debug_visualization_blend, 0.0f, 1.0f);
-                ImGui::SetItemTooltip("0 = debug overlay blended max with normal image, 1 = full debug overlay");
-                ImGui::SliderInt("debug visualization tile", &render_data.settings.debug_visualization_tile, -1, 15);
-                ImGui::SetItemTooltip("-1 = full screen, 0-15 = draw into that tile slot (4x4 grid)");
+                ImGui::Checkbox("enable emissives", r_cast<bool *>(&render_data.settings.enable_emissives));
+                ImGui::SetItemTooltip("When off, emissive material contribution is dropped everywhere.");
             }
             if (ImGui::CollapsingHeader("Geometry"))
             {
@@ -756,7 +761,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     }))
                 {
                     ImGui::SliderFloat("Shading AO Range", &render_data.rtgi_settings.shading_ao_range, 0.0f, 4.0f);
-                    ImGui::Checkbox("Use Compute Trace", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_compute_trace));
                     ImGui::Checkbox("Use Repacked Ray Dispatch", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_repacked_ray_dispatch));
                     ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);

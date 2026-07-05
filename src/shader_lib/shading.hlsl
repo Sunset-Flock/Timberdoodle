@@ -272,7 +272,8 @@ func shade_material<ShadingQuality SHADING_QUALITY, LIGHT_VIS_TESTER_T : LightVi
         diffuse_light += indirect_diffuse * ambient_occlusion;
     }
 
-    return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light + material_point.emissive, material_point.alpha);
+    const float3 emissive = globals.settings.enable_emissives != 0 ? material_point.emissive : float3(0, 0, 0);
+    return float4(material_point.albedo * M_FRAC_1_PI * diffuse_light + emissive, material_point.alpha);
 }
 
 static float3 DEBUG_atmosphere_direct_illuminnace;

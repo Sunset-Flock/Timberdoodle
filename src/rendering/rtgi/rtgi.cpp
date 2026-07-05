@@ -37,14 +37,13 @@ auto rtgi_default_settings() -> RtgiSettings
         .ao_guide_floor                = 0.2f,
         .max_visibility_pixel_range           = 36.0f,
         .post_blur_mode                       = 0,
-        .post_blur_use_lds                    = 0,
+        .post_blur_use_lds                    = 1,
         .post_blur_disocclusion_blur_enabled  = 1,
         .post_blur_stride                     = 2,
-        .post_blur_max_width                  = 10,
+        .post_blur_max_width                  = 16,
         .post_blur_atrous_iterations          = 4,
         .upscale_enabled                      = 1,
         .sh_resolve_enabled                   = 1,
-        .use_compute_trace                    = 0,
         .firefly_center_blur_enabled          = 1,
         .pre_blur_firefly_energy_compensation_enabled  = 1,
         .animate_noise                        = 1,
@@ -76,30 +75,16 @@ inline void rtgi_trace_diffuse_callback(daxa::TaskInterface ti, RenderContext * 
         .debug_primary_trace = static_cast<daxa::b32>(info.debug_primary_trace),
     };
     push.attach = ti.allocator->allocate_fill(RtgiTraceDiffuseH::AttachmentShaderBlob{ti.attachment_shader_blob}).value().device_address;
-    auto const & diffuse_raw = ti.info(AT.diffuse_raw).value();
-    if (render_context->render_data.rtgi_settings.use_compute_trace)
-    {
-        auto const & pipeline = render_context->gpu_context->compute_pipelines.at(rtgi_trace_diffuse_compute_compile_info().name);
-        ti.recorder.set_pipeline(*pipeline);
-        ti.recorder.push_constant(push);
-        ti.recorder.dispatch({
-            round_up_div(diffuse_raw.size.x, 8u),
-            round_up_div(diffuse_raw.size.y, 8u),
-            1,
-        });
-    }
-    else
-    {
-        auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
-        ti.recorder.set_pipeline(*rt_pipeline.pipeline);
-        ti.recorder.push_constant(push);
-        ti.recorder.trace_rays({
-            .width = diffuse_raw.size.x,
-            .height = diffuse_raw.size.y,
-            .depth = 1,
-            .shader_binding_table = rt_pipeline.sbt,
-        });
-    }
+    auto const & trace_target = ti.info(AT.perceptual_rgb_shortness).value();
+    auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
+    ti.recorder.set_pipeline(*rt_pipeline.pipeline);
+    ti.recorder.push_constant(push);
+    ti.recorder.trace_rays({
+        .width = trace_target.size.x,
+        .height = trace_target.size.y,
+        .depth = 1,
+        .shader_binding_table = rt_pipeline.sbt,
+    });
 }
 
 template <typename TaskPush>
@@ -142,7 +127,7 @@ inline void rtgi_temporal_accumulate_callback(daxa::TaskInterface ti, RenderCont
 inline void rtgi_pre_filter_prepare_callback(daxa::TaskInterface ti, RenderContext * render_context)
 {
     auto const & AT = RtgiPreFilterH::Info::AT;
-    dispatch_image_relative(RtgiPreFilterPush(), ti, render_context, AT.diffuse_raw, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_FILTER">(), rtgi_pre_filter_prepare_compile_info().name);
+    dispatch_image_relative(RtgiPreFilterPush(), ti, render_context, AT.perceptual_rgb_shortness, RTGI_PRE_BLUR_PREPARE_X, RenderTimes::index<"RTGI", "PRE_FILTER">(), rtgi_pre_filter_prepare_compile_info().name);
 }
 
 inline void rtgi_pre_blur_diffuse_callback(daxa::TaskInterface ti, RenderContext * render_context, u32 pass)
@@ -229,9 +214,9 @@ inline void rtgi_trace_from_list_callback(daxa::TaskInterface ti, RenderContext 
     auto const & rt_pipeline = render_context->gpu_context->ray_tracing_pipelines.at(rtgi_trace_diffuse_compile_info().name);
     ti.recorder.set_pipeline(*rt_pipeline.pipeline);
     ti.recorder.push_constant(push);
-    auto const & diffuse_raw = ti.info(AT.diffuse_raw).value();
+    auto const & trace_target = ti.info(AT.perceptual_rgb_shortness).value();
     // Must cover the whole oversized ray list capacity (base + extras), not just the pixel count.
-    const u32 ray_list_capacity = diffuse_raw.size.x * diffuse_raw.size.y * RTGI_RAY_LIST_CAPACITY_MUL;
+    const u32 ray_list_capacity = trace_target.size.x * trace_target.size.y * RTGI_RAY_LIST_CAPACITY_MUL;
     // Dispatch as (128, 1, ceil(capacity/128)): shader computes ray_index = z*128 + x.
     // Over-dispatch is fine; the shader guards on ray_index >= ray_list_count.
     ti.recorder.trace_rays({
@@ -266,11 +251,6 @@ auto rtgi_create_common_transient_image_info(RenderContext * render_context, dax
 }
 
 // rgb = diffuse radiance, a = ray travel distance
-auto rtgi_create_trace_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
-{
-    return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
-}
-
 auto rtgi_create_diffuse_image(daxa::TaskGraph & tg, RenderContext * render_context, std::string_view name, u32 scale_div = RTGI_PIXEL_SCALE_DIV)
 {
     return tg.create_task_image(rtgi_create_common_transient_image_info(render_context, daxa::Format::R16G16B16A16_SFLOAT, scale_div, name));
@@ -337,8 +317,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "temporal_perceptual_radiance_history_persistent",
     });
 
-    auto trace_diffuse_image = rtgi_create_diffuse_image(info.tg, &info.render_context, "rtgi_diffuse_raw_image");
-    auto trace_diffuse2_image = rtgi_create_diffuse2_image(info.tg, &info.render_context, "rtgi_diffuse2_raw_image");
     // Per-pixel: .rgb = geometric mean of the traced rays in log space (mean log rgb); .a = mean ray
     // shortness [0,1]. Feeds the pre-filter firefly ceiling / geometric mean (perceptual radiance inferred from
     // .rgb) and the ambient-occlusion guide (shortness). Replaces the old separate ray_length + radiance channel.
@@ -373,9 +351,9 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
     // Oversized so the list holds one base ray per pixel PLUS the adaptive extra-ray budget.
     const u32 ray_list_capacity = half_res_pixels * RTGI_RAY_LIST_CAPACITY_MUL;
 
-    auto ray_demand_buffer = info.tg.create_task_buffer({
-        .size = sizeof(RtgiRayDemand),
-        .name = "rtgi_ray_demand",
+    auto ray_counters_buffer = info.tg.create_task_buffer({
+        .size = sizeof(RtgiRayCounters),
+        .name = "rtgi_ray_counters",
     });
     auto ray_list_buffer = info.tg.create_task_buffer({
         .size = sizeof(RtgiRayEntry) * ray_list_capacity,
@@ -391,7 +369,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         .name = "rtgi_pixel_ray_alloc",
     });
 
-    info.tg.clear_buffer({.buffer = ray_demand_buffer, .name = "rtgi_ray_demand_clear"});
+    info.tg.clear_buffer({.buffer = ray_counters_buffer, .name = "rtgi_ray_counters_clear"});
 
     info.tg.add_task(daxa::HeadTask<RtgiTemporalReprojectH::Info>()
         .head_views(RtgiTemporalReprojectH::Info::Views{
@@ -405,7 +383,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .half_res_sample_count = half_res_sample_count_history.current(),
             .reproject_corner = reproject_corner_image,
             .reproject_weights = reproject_weights_image,
-            .ray_demand = ray_demand_buffer,
+            .ray_counters = ray_counters_buffer,
         })
         .executes(rtgi_temporal_reproject_callback, &info.render_context));
 
@@ -418,12 +396,10 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .head_views(RtgiTraceDiffuseH::Info::Views{
                     .globals = info.render_context.tgpu_render_data.view(),
                     .debug_image = info.debug_image,
-                            .diffuse_raw = trace_diffuse_image,
-                    .diffuse2_raw = trace_diffuse2_image,
                     .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
                     .ray_count_image = ray_count_image,
                     .rtgi_sample_count = half_res_sample_count_history.current(),
-                    .ray_demand = ray_demand_buffer,
+                    .ray_counters = ray_counters_buffer,
                     .ray_list = ray_list_buffer,
                     .ray_result = ray_result_buffer,
                     .pixel_ray_alloc = pixel_ray_alloc_image,
@@ -457,7 +433,7 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .head_views(RtgiDistributeRaysH::Info::Views{
                 .globals          = info.render_context.tgpu_render_data.view(),
                 .debug_image      = info.debug_image,
-                .ray_demand       = ray_demand_buffer,
+                .ray_counters     = ray_counters_buffer,
                 .rtgi_sample_count = half_res_sample_count_history.current(),
                 .ray_list         = ray_list_buffer,
                 .pixel_ray_alloc  = pixel_ray_alloc_image,
@@ -470,12 +446,10 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .head_views(RtgiTraceDiffuseH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
-                    .diffuse_raw = trace_diffuse_image,
-                .diffuse2_raw = trace_diffuse2_image,
                 .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
                 .ray_count_image = ray_count_image,
                 .rtgi_sample_count = half_res_sample_count_history.current(),
-                .ray_demand = ray_demand_buffer,
+                .ray_counters = ray_counters_buffer,
                 .ray_list = ray_list_buffer,
                 .ray_result = ray_result_buffer,
                 .pixel_ray_alloc = pixel_ray_alloc_image,
@@ -543,24 +517,10 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
         },
         .name = "ao_guide_image",
     });
-    // Footprint quality kept separate from the (temporally accumulated) ambient occlusion guide: multiplying them
-    // pre-accumulation streaked the history. Not accumulated — current-frame value, multiplied into the
-    // guide at pre-blur / post-blur consumption.
-    auto footprint_quality_image = info.tg.create_task_image({
-        .format = daxa::Format::R8_UNORM,
-        .size = {
-            info.render_context.render_data.settings.render_target_size.x / 2,
-            info.render_context.render_data.settings.render_target_size.y / 2,
-            1,
-        },
-        .name = "footprint_quality_image",
-    });
     info.tg.add_task(daxa::HeadTask<RtgiPreFilterH::Info>()
             .head_views(RtgiPreFilterH::Info::Views{
                 .globals = info.render_context.tgpu_render_data.view(),
                 .debug_image = info.debug_image,
-                    .diffuse_raw = trace_diffuse_image,
-                .diffuse2_raw = trace_diffuse2_image,
                 .perceptual_rgb_shortness = perceptual_rgb_shortness_image,
                 .ray_count_image = ray_count_image,
                 .pixel_ray_alloc = pixel_ray_alloc_image,
@@ -573,7 +533,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                 .firefly_factor_image = firefly_factor_image,
                 .perceptual_radiance_image = perceptual_radiance_image,
                 .ao_guide_image = ao_guide_image,
-                .footprint_quality_image = footprint_quality_image,
             })
             .executes(rtgi_pre_filter_prepare_callback, &info.render_context));
 
@@ -613,7 +572,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .firefly_factor_image = firefly_factor_image,
                         .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = ao_guide_image,
-                        .footprint_quality_image = footprint_quality_image,
                         .ray_count_image = ray_count_image,
                     })
                     .executes(rtgi_pre_blur_diffuse_callback, &info.render_context, i));
@@ -634,12 +592,12 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
             .ray_count_image = ray_count_image,
             .reproject_corner = reproject_corner_image,
             .reproject_weights = reproject_weights_image,
-            .half_res_diffuse_new = post_pre_blur_diffuse_image,
+            .half_res_diffuse_pre_blurred = post_pre_blur_diffuse_image,
             .pre_filtered_diffuse_new = pre_filtered_diffuse_image,
             .pre_filtered_diffuse2_new = pre_filtered_diffuse2_image,
             .half_res_diffuse_accumulated = half_res_diffuse_history.current(),
             .half_res_diffuse_history = half_res_diffuse_history.previous(),
-            .half_res_diffuse2_new = post_pre_blur_diffuse2_image,
+            .half_res_diffuse2_pre_blurred = post_pre_blur_diffuse2_image,
             .half_res_diffuse2_accumulated = half_res_diffuse2_history.current(),
             .half_res_diffuse2_history = half_res_diffuse2_history.previous(),
             .fast_temporal_history_accumulated = fast_temporal_history.current(),
@@ -677,7 +635,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_diffuse2_blurred = rtgi_post_blur_pass0_diffuse2_image,
                         .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
-                        .footprint_quality_image = footprint_quality_image,
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                     })
                     .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 0u));
@@ -698,7 +655,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                         .rtgi_diffuse2_blurred = rtgi_post_blur_diffuse2_image,
                         .perceptual_radiance_image = perceptual_radiance_image,
                         .ao_guide_image = half_res_ao_guide_history.current(),
-                        .footprint_quality_image = footprint_quality_image,
                         .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                     })
                     .executes(rtgi_post_blur_diffuse_callback, &info.render_context, 1u));
@@ -738,7 +694,6 @@ auto tasks_rtgi_main(TasksRtgiInfo const & info) -> TasksRtgiMainResult
                             .rtgi_diffuse2_blurred = dst2,
                             .perceptual_radiance_image = perceptual_radiance_image,
                             .ao_guide_image = half_res_ao_guide_history.current(),
-                            .footprint_quality_image = footprint_quality_image,
                             .temporal_perceptual_radiance = temporal_perceptual_radiance_history.current(),
                         })
                         .executes(rtgi_atrous_post_blur_callback, &info.render_context, i));

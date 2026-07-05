@@ -73,8 +73,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
     const float max_sample_count = rtgi_settings.max_temporal_samples;
 
-    // Ambient occlusion guide × footprint quality (footprint kept separate to avoid temporal streaking; combined here).
-    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord] * push.attach.footprint_quality_image.get()[pixel_coord];
+    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord];
     const float ao_guide_radius_scale = rtgi_settings.post_blur_ao_guiding ? lerp(rtgi_settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f;
     // Disabled -> 0 (not 1): frame_scale only *widens* the filter on disocclusion. At 1 it would force full
     // width every frame and override the guides; at 0 the width is driven purely by the guides from frame one.
@@ -92,7 +91,11 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
     {
         int2 xy = push.pass == 0 ? int2(i, 0) : int2(0, i);
 
-        const int2 sample_index = clamp(int2(pixel_coord) + xy, int2(0, 0), int2(push.size - 1));
+        // Taps that fall outside the image get zero weight rather than clamping onto (and
+        // over-weighting) the edge pixel. Index is still clamped so the loads stay in bounds.
+        const int2 raw_index = int2(pixel_coord) + xy;
+        const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
+        const int2 sample_index = clamp(raw_index, int2(0, 0), int2(push.size - 1));
 
         // Load sample data
         const PixelData sample = calc_pixel_data(uint2(sample_index), inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
@@ -101,6 +104,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
 
         // Calculate validity weights
         const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample.position_ws, sample.normal_ws);
+        const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample.normal_ws);
         const float gauss_weight = calc_gaussian_weight(float(abs(i))/float(filter_width));
 
         // The 5 nearest taps (center ± 2) are always sampled at stride 1 regardless of post_blur_stride.
@@ -128,7 +132,7 @@ func entry_post_blur(uint2 dtid : SV_DispatchThreadID)
             extra_weight = lerp(1.0f, raw_weight, guide_ramp);
         }
 
-        const float weight = geometric_weight * gauss_weight * extra_weight;
+        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * extra_weight);
 
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample.ndc.z == 0.0f;
@@ -220,15 +224,16 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
     if (any(pixel_coord >= push.size) || center_depth == 0.0f)
         return;
 
-    const float3 center_pos   = center_pd.xyz;
-    const float3 center_norm  = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[pixel_coord]);
+    // Center pixel via the shared helper. Per-tap samples in the loop still read their world position
+    // straight from the LDS preload, so this is the only unproject on the blur-axis hot path.
+    const PixelData pixel = calc_pixel_data(pixel_coord, inv_half_res_render_target_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
     const float  pixel_width_ws     = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, center_depth);
     const float  pixel_width_ws_rcp = rcp(pixel_width_ws);
 
     const uint2 halfres_pixel_index = pixel_coord;
     const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[halfres_pixel_index]);
 
-    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord] * push.attach.footprint_quality_image.get()[pixel_coord];
+    const float ao_guide    = push.attach.ao_guide_image.get()[pixel_coord];
     const float ao_guide_radius_scale = rtgi_settings.post_blur_ao_guiding ? lerp(rtgi_settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f;
     const float frame_scale = rtgi_settings.post_blur_disocclusion_blur_enabled ? lerp(1.0f, 0.0f, square(saturate(pixel_samplecnt / 16.0f))) : 0.0f;
     // Cap the width at the preloaded halo radius.
@@ -250,12 +255,16 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
         const float4 sample_pd = gs_pb_pos_depth[span][pp];
         const float  sample_depth = sample_pd.w;
         const float3 sample_pos   = sample_pd.xyz;
-        const int2 sample_index = clamp(int2(pixel_coord) + (push.pass == 0 ? int2(i, 0) : int2(0, i)), int2(0, 0), max_index);
+        const int2 raw_index = int2(pixel_coord) + (push.pass == 0 ? int2(i, 0) : int2(0, i));
+        // Out-of-bounds taps get zero weight; index still clamped so loads stay in bounds.
+        const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
+        const int2 sample_index = clamp(raw_index, int2(0, 0), max_index);
         const float3 sample_norm  = uncompress_normal_octahedral_32(push.attach.view_cam_half_res_face_normals.get()[uint2(sample_index)]);
         const float4 sample_sh_y  = push.attach.rtgi_diffuse_before.get()[sample_index];
         const float2 sample_cocg  = push.attach.rtgi_diffuse2_before.get()[sample_index].rg;
 
-        const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, center_pos, center_norm, sample_pos, sample_norm);
+        const float geometric_weight = calc_similar_surface_weight(pixel_width_ws_rcp, pixel.position_ws, pixel.normal_ws, sample_pos, sample_norm);
+        const float normal_weight = calc_similar_normal_weight(pixel.normal_ws, sample_norm);
         const float gauss_weight = calc_gaussian_weight(float(abs(i)) / float(filter_width));
 
         const bool is_near_center = abs(i) <= 2;
@@ -276,7 +285,7 @@ func entry_post_blur_lds(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
             extra_weight = lerp(1.0f, raw_weight, guide_ramp);
         }
 
-        const float weight = geometric_weight * gauss_weight * extra_weight;
+        const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * extra_weight);
         if (sample_depth != 0.0f) // skip sky
         {
             weight_accum   += weight;
@@ -320,8 +329,7 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
     const float pixel_samplecnt = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[pixel_index]);
 
     const float temporal_stability_scale = rtgi_settings.post_blur_disocclusion_blur_enabled ? 1.0f - square(saturate(pixel_samplecnt * rcp(16.0f))) : 0.0f;
-    // Ambient occlusion guide × footprint quality (footprint kept separate to avoid temporal streaking; combined here).
-    const float ao_guide    = push.attach.ao_guide_image.get()[dtid] * push.attach.footprint_quality_image.get()[dtid];
+    const float ao_guide    = push.attach.ao_guide_image.get()[dtid];
 
     // Ambient occlusion guide is calibrated for the pre blur that has a radius of 64, we take the lowest 25% of the guide as that rouughly matches our range here of 8-16 pixels.
     const float ao_guide_radius_scale = min(0.25f, rtgi_settings.post_blur_ao_guiding ? lerp(rtgi_settings.post_blur_ao_guide_floor, 1.0f, ao_guide) : 1.0f) * 4.0f;
@@ -341,7 +349,10 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
     {
         for (int dx = -1; dx <= 1; ++dx)
         {
-            const int2 sample_index = clamp(int2(pixel_index) + int2(dx, dy) * push.step_size, int2(0, 0), int2(push.size) - 1);
+            const int2 raw_index = int2(pixel_index) + int2(dx, dy) * push.step_size;
+            // Out-of-bounds taps get zero weight; index still clamped so loads stay in bounds.
+            const bool out_of_bounds = any(raw_index < int2(0, 0)) || any(raw_index >= int2(push.size));
+            const int2 sample_index = clamp(raw_index, int2(0, 0), int2(push.size) - 1);
 
             const PixelData sample = calc_pixel_data(uint2(sample_index), inv_half_res_size, camera, push.attach.view_cam_half_res_depth.get(), push.attach.view_cam_half_res_face_normals.get());
             if (sample.ndc.z == 0.0f) continue;
@@ -374,7 +385,7 @@ func entry_atrous_post_blur(uint2 dtid : SV_DispatchThreadID)
                 extra_weight = lerp(1.0f, raw_weight, guide_ramp);
             }
 
-            const float weight = geometric_weight * normal_weight * gauss_weight * sample_count_weight * extra_weight;
+            const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * gauss_weight * sample_count_weight * extra_weight);
 
             weight_accum += weight;
             diffuse_accum += weight * sample_sh_y;

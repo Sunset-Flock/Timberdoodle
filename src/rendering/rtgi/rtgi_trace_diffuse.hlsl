@@ -58,20 +58,11 @@ float3 rand_cosine_sample_hemi_stbn(uint2 pixel_frame)
     return float3(d.x, d.y, z);
 }
 
-interface TraceRayInterface
+void rtgi_trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload)
 {
-    static void trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload);
-};
-
-struct RTPipelineTraceRay : TraceRayInterface
-{
-    static void trace_and_shade(RayDesc ray, uint flags, inout RayPayload payload)
-    {
-        TraceRay(RaytracingAccelerationStructure::get(rtgi_trace_diffuse_push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
-    }
+    TraceRay(RaytracingAccelerationStructure::get(rtgi_trace_diffuse_push.attach.tlas), flags, ~0, 0, 0, 0, ray, payload);
 }
 
-__generic<TRACE_FUNCTOR : TraceRayInterface>
 void shade_ray_gen(uint2 dtid)
 {
     let clk_start = clockARB();
@@ -88,7 +79,7 @@ void shade_ray_gen(uint2 dtid)
     if (push.debug_primary_trace)
     {
         RayPayload payload = {};
-        
+
         RayDesc ray = {};
         ray.Origin = camera.position;
         ray.TMax = 1000000000.0f;
@@ -96,10 +87,9 @@ void shade_ray_gen(uint2 dtid)
         ray.Direction = primary_ray;
 
         payload.color = float3(0,0,0);
-        TRACE_FUNCTOR::trace_and_shade(ray, 0, payload);
+        rtgi_trace_and_shade(ray, 0, payload);
 
-        float4 value = float4(payload.color, 1.0f);
-        push.attach.diffuse_raw.get()[dtid.xy] = float4(payload.color,payload.t);
+        write_debug_image(push.attach.debug_image.get(), push.attach.globals.settings.debug_visualization_tile, dtid.xy, float4(payload.color, 2.0f), 2);
         return;
     }
 
@@ -126,7 +116,7 @@ void shade_ray_gen(uint2 dtid)
     uint samples = 0u;
     if (depth > 0.0f)
     {
-        const uint total_extra_ray_demands = push.attach.ray_demand->total_extra_rays;
+        const uint total_extra_ray_demands = push.attach.ray_counters->total_extra_rays;
         const uint max_extra_rays = (push.attach.globals.settings.render_target_size.x * push.attach.globals.settings.render_target_size.y) / 4;
         const float relative_allowed_rays = min(1.0f, float(max_extra_rays) / (float(total_extra_ray_demands) + 0.0001f));
         const float reproj_sample_count = rtgi_unpack_normal_count(push.attach.rtgi_sample_count.get()[dtid.xy]);
@@ -146,7 +136,7 @@ void shade_ray_gen(uint2 dtid)
     uint wave_base = 0u;
     if (WaveIsFirstLane())
     {
-        InterlockedAdd(push.attach.ray_demand->ray_list_count, wave_total, wave_base);
+        InterlockedAdd(push.attach.ray_counters->ray_list_count, wave_total, wave_base);
     }
     wave_base = WaveReadLaneFirst(wave_base);
     const uint my_offset = wave_base + lane_prefix;
@@ -196,7 +186,7 @@ void shade_ray_gen(uint2 dtid)
             const float3 sample_dir = mul(tbn, importance_rand_hemi_sample);
             ray.Direction = sample_dir;
             const uint flags = {};
-            TRACE_FUNCTOR::trace_and_shade(ray, flags, payload);
+            rtgi_trace_and_shade(ray, flags, payload);
 
             // Write this ray's result into the shared ray list (same layout the blend pass produced), so
             // the pre-filter re-blends (and per-ray firefly-clamps) it identically to the repacked path.
@@ -230,16 +220,12 @@ void ray_gen_from_list_body()
     let clk_start = clockARB();
     const uint ray_index = DispatchRaysIndex().z * 128u + DispatchRaysIndex().x;
 
-    if (ray_index >= push.attach.ray_demand->ray_list_count)
+    if (ray_index >= push.attach.ray_counters->ray_list_count)
         return;
 
     const RtgiRayEntry entry   = push.attach.ray_list[ray_index];
     const uint2 pixel_xy       = uint2(entry.packed_xy & 0xFFFFu, entry.packed_xy >> 16u);
-    // Cap with an UNSIGNED literal: `min(32, ...)` promotes the compare to signed, so a garbage-large
-    // sample_index (e.g. from a ray-list slot reserved but never written under the capacity clamp) turns
-    // negative, survives the min, and wraps back to a massive uint — driving the skip loop below for
-    // billions of iterations and hanging the GPU. 32u keeps the compare unsigned so the cap always holds.
-    const uint  sample_index   = min(32u, entry.sample_index);
+    const uint  sample_index   = entry.sample_index;
 
     const float depth = push.attach.view_cam_half_res_depth.get()[pixel_xy];
     if (depth == 0.0f)
@@ -295,7 +281,7 @@ void ray_gen_from_list_body()
     ray.TMax      = 100000000000.0f;
 
     const uint flags = {};
-    RTPipelineTraceRay::trace_and_shade(ray, flags, payload);
+    rtgi_trace_and_shade(ray, flags, payload);
 
     // Store the raw hit distance; the blend pass converts it to bounded shortness [0,1] per ray and
     // averages over the pixel's rays into the ray-length texture for a stable denoiser guide.
@@ -321,7 +307,7 @@ void ray_gen()
     }
     else
     {
-        shade_ray_gen<RTPipelineTraceRay>(DispatchRaysIndex().xy);
+        shade_ray_gen(DispatchRaysIndex().xy);
     }
 }
 

@@ -59,7 +59,6 @@ struct RtgiSettings
     daxa_i32 post_blur_atrous_iterations;
     daxa_i32 upscale_enabled;
     daxa_i32 sh_resolve_enabled;
-    daxa_i32 use_compute_trace;
     daxa_i32 firefly_center_blur_enabled;
     daxa_i32 pre_blur_firefly_energy_compensation_enabled;
     daxa_i32 animate_noise;
@@ -80,7 +79,7 @@ struct RtgiSettings
     daxa_i32 use_ray_redistribution;
 };
 
-struct RtgiRayDemand
+struct RtgiRayCounters
 {
     daxa_u32 total_extra_rays; // sum of (desired_rays - 1) per geometry pixel, written by reproject
     daxa_u32 ray_list_count;   // atomic write cursor filled by the allocate pass

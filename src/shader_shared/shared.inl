@@ -248,6 +248,7 @@ struct Settings
     // Tile slot for write_debug_image. -1 = full screen, >= 0 = specific tile index.
     daxa_i32 debug_visualization_tile;
     daxa_i32 debug_material_quality;
+    daxa_i32 enable_emissives;         // when 0, emissive material contribution is dropped everywhere
     daxa_b32 enable_mesh_cull;
     daxa_b32 enable_meshlet_cull;
     daxa_b32 enable_triangle_cull;
@@ -285,6 +286,7 @@ struct Settings
           debug_visualization_blend{0.8f},
           debug_visualization_tile{-1},
           debug_material_quality{0},
+          enable_emissives{1},
           enable_mesh_cull{1},
           enable_meshlet_cull{1},
           enable_triangle_cull{1},

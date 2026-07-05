@@ -66,8 +66,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         return;
     }
 
-    // Ambient occlusion guide × footprint quality (footprint kept separate to avoid temporal streaking; combined here).
-    const float ao_guide    = push.attach.ao_guide_image.get()[dtid.xy] * push.attach.footprint_quality_image.get()[dtid.xy];
+    const float ao_guide    = push.attach.ao_guide_image.get()[dtid.xy];
     const float ao_guide_radius_scale = rtgi_settings.pre_blur_ao_guiding ? lerp(rtgi_settings.ao_guide_floor, 1.0f, ao_guide) : 1.0f;
 
     const float iteration_scaling = rsqrt((float)rtgi_settings.pre_blur_iterations);

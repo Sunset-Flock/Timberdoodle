@@ -139,11 +139,6 @@ func calc_pixel_width_ws(float2 inv_render_target_size, float near_plane, float 
     return pixel_width_ws;
 }
 
-// Max extra rays a disoccluded pixel may request (beyond its 1 base ray). Capped at 31 so a pixel's
-// total ray count stays <= 32, matching the trace pass's per-pixel sample_index clamp (min(32u, ...))
-// beyond which the decorrelating RNG skip saturates and ray directions would start to duplicate.
-#define RTGI_MAX_EXTRA_RAYS 31u
-
 // Fixed uniform ray count per pixel used when ray redistribution is disabled: exactly
 // max(floor(ray_budget), 1) rays for every geometry pixel, in both the repacked and classic paths.
 func calc_fixed_rays_per_pixel(float ray_percentage) -> uint
@@ -156,11 +151,12 @@ func calc_fixed_rays_per_pixel(float ray_percentage) -> uint
 // (its deficit), not a flat "everyone under the target wants the max". A pixel missing 24 requests 24, one
 // missing 8 requests 8, so the allocator's demand-proportional budget split hands the scarce rays to the
 // freshest disocclusions (e.g. with 16 rays for a 24+8 pair -> 12 and 4) instead of splitting them evenly.
-// fast_convergence_samples is the sample count at which demand reaches zero. Capped at RTGI_MAX_EXTRA_RAYS.
+// fast_convergence_samples is the sample count at which demand reaches zero; it is also the upper bound
+// on the returned extras (deficit = fast_convergence_samples - reproj_sample_count, reproj >= 0).
 func calc_desired_extra_rays(float reproj_sample_count, float fast_convergence_samples) -> uint
 {
     const float deficit = fast_convergence_samples - reproj_sample_count;
-    return deficit <= 0.0f ? 0u : uint(min(deficit, float(RTGI_MAX_EXTRA_RAYS)));
+    return deficit <= 0.0f ? 0u : uint(deficit);
 }
 
 // Total rays a geometry pixel wants this frame: the mandatory base ray plus its adaptive extras. This is

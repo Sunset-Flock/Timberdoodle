@@ -23,7 +23,7 @@ static const int PRELOAD_SIZE_Y = RTGI_PRE_BLUR_PREPARE_Y + TOTAL_FILTER_REACH *
 
 // --- 2x2-blurred radiance grid and per-quad CoV ---
 // gs_radiance_blurred covers (WG/2 + 4) x (WG/2 + 4) = 12x12 entries.
-// Each entry is the average Y (radiance) of a 2x2 block of diffuse_raw, stride 2.
+// Each entry is the average Y (radiance) of a 2x2 block of the per-pixel ray means, stride 2.
 // Entries 0–1 and 10–11 extend 2 blur-cells (= 4 input pixels) past each workgroup edge.
 static const int NUM_QUADS_X      = RTGI_PRE_BLUR_PREPARE_X / 2;
 static const int NUM_QUADS_Y      = RTGI_PRE_BLUR_PREPARE_Y / 2;
@@ -35,7 +35,7 @@ static const int GS_RADIANCE_TOTAL   = GS_RADIANCE_DIM_X * GS_RADIANCE_DIM_Y;
 static const int QUAD_FILTER_DIM   = RTGI_QUAD_FILTER_EXTENT * 2 + 1;
 groupshared float4 gs_blur_color[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];     // .xyz = rgb, .w = radiance (geometry-aware averaged, perceptual space)
 groupshared float4 gs_quad_position_depth[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];        // .xyz = representative vs pos, .w = depth (sky→0)
-groupshared uint   gs_quad_normal_oct[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y]; // packed octahedral face normal per blur-cell
+groupshared float3 gs_quad_normal_ws[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y]; // unpacked face normal per blur-cell (precomputed so the quad loop skips the octahedral decode)
 groupshared float  gs_quad_rayshortness[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y]; // mean ray shortness [0,1] per blur-cell
 groupshared float  gs_quad_raycount[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];     // mean rays-shot per blur-cell (for firefly-ring ceiling reduction)
 groupshared float4 gs_quad_pos_depth[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];  // .xyz = ws pos, .w = depth; full 12×12 tile
@@ -63,7 +63,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, depth);
     const float pixel_width_ws_rcp = rcp(pixel_width_ws);
 
-    // === GS position preload: all 64 threads reconstruct WS positions for the full 12×12 tile ===
+    // === GS position preload: all 64 threads reconstruct WS positions for the full 16x16 area ===
     {
         [unroll]
         for (uint iter_x = 0; iter_x < round_up_div(PRELOAD_SIZE_X, RTGI_PRE_BLUR_PREPARE_X); ++iter_x)
@@ -106,7 +106,6 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const int2 src_base = int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) + int2(bx - QUAD_HALO_CELLS, by - QUAD_HALO_CELLS) * 2;
 
             // Load all 4 pixels including normals upfront — needed for normal-aware rep selection.
-            float  perceptual_radiances[4];
             float  depths[4];
             float3 ws_pos[4];
             float3 perceptual_rgbs[4];
@@ -130,44 +129,15 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 // Perceptual radiance is inferred from the log rgb (no dedicated radiance channel).
                 const float4 perceptual_geo = push.attach.perceptual_rgb_shortness.get()[src_idx];
                 perceptual_rgbs[pi]      = perceptual_geo.rgb;
-                perceptual_radiances[pi] = perceptual_radiance_from_rgb(perceptual_geo.rgb);
                 ray_shortness[pi]        = perceptual_geo.a;
             }
 
-            // Pick representative: normal-majority first, closest depth as tiebreaker.
-            // Each non-sky pixel scores +1 for every other non-sky pixel whose normal is within
-            // ~45° (dot > 0.707). The pixel with the highest score belongs to the largest
-            // surface group; depth breaks ties in favour of the foreground (reversed-Z: larger = closer).
-            // Sky pixels (depth==0) get score 0 and are only chosen when all four are sky.
-            int normal_score[4] = {0, 0, 0, 0};
-            [unroll]
-            for (int pi = 0; pi < 4; pi++)
-            {
-                if (depths[pi] == 0.0f) continue;
-                [unroll]
-                for (int pj = 0; pj < 4; pj++)
-                {
-                    if (depths[pj] != 0.0f && dot(normals_ws[pi], normals_ws[pj]) > 0.9f)
-                        normal_score[pi]++;
-                }
-            }
+            int rep_i = quad_downsample_representative(depths);
 
-            int rep_i = 0;
-            [unroll]
-            for (int pi = 1; pi < 4; pi++)
-            {
-                const bool better_normal = normal_score[pi] > normal_score[rep_i];
-                const bool same_normal   = normal_score[pi] == normal_score[rep_i];
-                const bool closer        = depths[pi] > depths[rep_i];
-                if (better_normal || (same_normal && closer))
-                    rep_i = pi;
-            }
-
-            const uint rep_normal_oct = normals_oct[rep_i];
+            const float3 rep_normal_ws = normals_ws[rep_i];
 
             // Accumulate in perceptual (log) space so the blur-cell stores the geometric mean,
             // not the arithmetic mean — avoids Jensen's inequality bias in firefly ceiling and CoV.
-            float  radiance_acc    = 0.0f;
             float3 rgb_acc     = float3(0.0f, 0.0f, 0.0f);
             float  radiance_weight = 0.0f;
             float  rs_acc      = 0.0f;
@@ -175,12 +145,10 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             float  diffuse_weight = 0.0f;
             if (depths[rep_i] != 0.0f)
             {
-                const float3 rep_normal_ws = uncompress_normal_octahedral_32(rep_normal_oct);
                 [unroll]
                 for (int pi = 0; pi < 4; pi++)
                 {
                     const float gw = depths[pi] != 0.0f ? calc_similar_surface_weight(pixel_width_ws_rcp, ws_pos[rep_i], rep_normal_ws, ws_pos[pi], normals_ws[pi], 4.0f) : 0.0f;
-                    radiance_acc += perceptual_radiances[pi] * gw;
                     rgb_acc  += perceptual_rgbs[pi]  * gw;
                     radiance_weight += gw;
                     rs_acc += ray_shortness[pi] * gw;
@@ -188,19 +156,18 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                     diffuse_weight += gw;
                 }
             }
-            const float  rep_perceptual_radiance       = perceptual_radiances[rep_i];
-            const float3 rep_perceptual_rgb        = perceptual_rgbs[rep_i];
-            const float  blur_perceptual_radiance = radiance_weight > 0.0f ? radiance_acc / radiance_weight : rep_perceptual_radiance;
-            const float3 blur_perceptual_rgb  = radiance_weight > 0.0f ? rgb_acc  / radiance_weight : rep_perceptual_rgb;
+            const float3 blur_perceptual_rgb  = radiance_weight > 0.0f ? rgb_acc / radiance_weight : perceptual_rgbs[rep_i];
+            // Perceptual radiance is derived from the (geometry-averaged) perceptual rgb, no separate accumulator.
+            const float  blur_perceptual_radiance = perceptual_radiance_from_rgb(blur_perceptual_rgb);
             gs_blur_color[bx][by]           = float4(blur_perceptual_rgb, blur_perceptual_radiance);
             gs_quad_position_depth[bx][by]  = float4(ws_pos[rep_i], depths[rep_i]);
-            gs_quad_normal_oct[bx][by]      = rep_normal_oct;
+            gs_quad_normal_ws[bx][by]       = rep_normal_ws;
             gs_quad_rayshortness[bx][by]    = radiance_weight > 0.0f ? rs_acc / radiance_weight : 0.0f;
             gs_quad_raycount[bx][by]        = radiance_weight > 0.0f ? rc_acc / radiance_weight : 1.0f;
         }
     }
 
-    GroupMemoryBarrierWithGroupSync(); // gs_blur_color, gs_quad_position_depth, gs_quad_normal_oct, gs_quad_rayshortness all visible
+    GroupMemoryBarrierWithGroupSync(); // gs_blur_color, gs_quad_position_depth, gs_quad_normal_ws, gs_quad_rayshortness all visible
 
     // === Per-pixel quad filter ===
     // Each pixel independently tests the (2*EXTENT+1)^2 surrounding quads against its own
@@ -245,7 +212,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const float4 sq_vs_data = gs_quad_position_depth[sq.x][sq.y];
             const float  sq_depth   = sq_vs_data.w;
             const bool   sq_sky     = sq_depth == 0.0f;
-            const float3 sq_normal_ws = uncompress_normal_octahedral_32(gs_quad_normal_oct[sq.x][sq.y]);
+            const float3 sq_normal_ws = gs_quad_normal_ws[sq.x][sq.y];
             const float  gw = !sq_sky ? calc_similar_surface_weight( pixel_width_ws_rcp, world_position, pixel_face_normal, sq_vs_data.xyz, sq_normal_ws, 4.0f) : 0.0f;
 
             // gs_blur_color is already in log (perceptual) space.
@@ -343,7 +310,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
 
     let rtgi = push.attach.globals->rtgi_settings;
 
-    // --- Firefly Filter ---
+    // === Firefly Filter ===
     float4 filtered_diffuse;
     float2 filtered_diffuse2;
     float firefly_energy_factor = 1.0f;
@@ -360,8 +327,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             rgb_mean_for_ceiling = min(rgb_mean_for_ceiling, firefly_rgb_mean);
         }
         ceiling_factor = ceiling_factor * neighborhood_sample_fitness_sharp;
-        const float max_channel_mean = max(max(rgb_mean_for_ceiling.r, rgb_mean_for_ceiling.g), rgb_mean_for_ceiling.b);
-        const float ceil_rgb_max = max_channel_mean * ceiling_factor; // hue-preserving per-ray ceiling
+        // Per-channel ceiling. Because rays are blended here in the pre-filter (rather than in a
+        // separate blend pass), each ray's rgb is clamped against the neighborhood mean channel-by-channel.
+        const float3 ceil_rgb = rgb_mean_for_ceiling * ceiling_factor;
 
         // Blend the pixel's rays directly from the ray list (directional SH radiance + CoCg averaged over the
         // rays, exactly like the old blend pass), hue-preservingly firefly-clamping EACH ray to the ceiling
@@ -384,9 +352,19 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 float3 clamped = ray_rgb;
                 if (do_clamp)
                 {
-                    const float3 ex    = ray_rgb / max(ceil_rgb_max, EPSILON);
-                    const float  maxex = max(max(ex.r, ex.g), ex.b);
-                    clamped = ray_rgb / max(maxex, 1.0f);
+                    if (ff_mono)
+                    {
+                        // Monochromatic (hue-preserving) clamp: scale all channels by the single largest
+                        // over-exposure so the ray keeps its hue while its brightest channel hits the ceiling.
+                        const float3 ex    = ray_rgb / max(ceil_rgb, EPSILON);
+                        const float  maxex = max(max(ex.r, ex.g), ex.b);
+                        clamped = ray_rgb / max(maxex, 1.0f);
+                    }
+                    else
+                    {
+                        // Per-channel clamp: each channel is limited to its own ceiling independently.
+                        clamped = min(ray_rgb, max(ceil_rgb, EPSILON));
+                    }
                 }
                 const float3 dir = uncompress_normal_octahedral_32(res.packed_dir);
                 float4 sh_y; float2 cocg;
@@ -408,16 +386,13 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // --- Ambient occlusion guide ---
     const float ao_guide = (1.0f - sqrt(ray_shortness_mean));
 
-    float written_mean = linear_to_perceptual(radiance_mean, push.attach.globals.inv_exposure);
+    const float radiance_mean_perceptual = linear_to_perceptual(radiance_mean, push.attach.globals.inv_exposure);
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;
     push.attach.firefly_factor_image.get()[dtid] = firefly_energy_factor;
-    push.attach.perceptual_radiance_image.get()[dtid] = written_mean;
+    push.attach.perceptual_radiance_image.get()[dtid] = radiance_mean_perceptual;
     push.attach.ao_guide_image.get()[dtid] = ao_guide;
-    // Neighborhood sample fitness stored separately (see rtgi_pre_filter.inl, attachment still named
-    // footprint_quality_image) — not accumulated, multiplied into the guide at pre-blur / post-blur time.
-    push.attach.footprint_quality_image.get()[dtid] = neighborhood_sample_fitness_sharp;
 
     const float debug_alpha = 1.0f + push.attach.globals.settings.debug_visualization_blend;
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_AO_GUIDE)
@@ -426,6 +401,6 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     }
     else if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_PERCEPTUAL_MEAN)
     {
-        write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(written_mean, push.attach.globals.exposure), debug_alpha + 1.0f), 2);
+        write_debug_image(dbg, push.attach.globals.settings.debug_visualization_tile, dtid, float4(perceptual_radiance_colormap(radiance_mean_perceptual, push.attach.globals.exposure), debug_alpha + 1.0f), 2);
     }
 }

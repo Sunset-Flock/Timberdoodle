@@ -22,15 +22,12 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec4>, rtgi_diffuse_blurr
 DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, rtgi_diffuse2_blurred)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, perceptual_radiance_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, ao_guide_image)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, footprint_quality_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, temporal_perceptual_radiance)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPostBlurPush
 {
     RtgiPostBlurH::AttachmentShaderBlob attach;
-    // Odd image-attachment count -> blob content is 4-mod-8. u64 pad aligns C++ (which pads the blob's
-    // sizeof to 8) and Slang (which does not) to the same offset. See RtgiPreFilterPush.
     daxa_u64 _pad_attach;
     daxa_u32vec2 size;
     daxa_b32 pass;
@@ -39,7 +36,6 @@ struct RtgiPostBlurPush
 struct RtgiAtrousPostBlurPush
 {
     RtgiPostBlurH::AttachmentShaderBlob attach;
-    // Odd image-attachment count -> blob content is 4-mod-8. See RtgiPostBlurPush / RtgiPreFilterPush.
     daxa_u64 _pad_attach;
     daxa_u32vec2 size;
     daxa_i32 step_size;

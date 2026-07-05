@@ -212,7 +212,6 @@ void Renderer::compile_pipelines(ThreadPool & in_thread_pool)
         {pgi_draw_debug_probes_compile_info()},
     };
     std::vector<daxa::ComputePipelineCompileInfo2> computes = {
-        {rtgi_trace_diffuse_compute_compile_info()},
         {rtgi_temporal_reproject_compile_info()},
         {rtgi_temporal_accumulate_compile_info()},
         {rtgi_pre_filter_prepare_compile_info()},

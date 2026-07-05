@@ -380,4 +380,57 @@ RayAABBResult intersect_ray_with_aabb( const float3 ray_origin, const float3 ray
     return RayAABBResult(max(t_near, 0.0), t_far);
 }
 
+// Picks the representative pixel of a 2x2 downsample block by depth.
+// The representative is the depth most central to the quad — not the closest, not the furthest —
+// found as the L1 geometric median of the four depths, which rejects both near outliers (a stray
+// foreground sliver) and far outliers (a background pixel bleeding in).
+// A small foreground term nudges the pick toward the nearer pixels. It is scaled by each pixel's
+// distance to the quad's nearest depth, so it only matters when the quad straddles a large depth gap
+// and vanishes when all four pixels sit close together.
+// Ties (flat surfaces, near-identical depths) keep the lower index; the layout is idx = x | (y<<1),
+// so that is top-then-left, resolving flat edges consistently instead of wobbling side to side.
+// Sky pixels (depth == 0) are excluded and only win when all four are sky.
+int quad_downsample_representative(float depths[4])
+{
+    // Reversed-Z: the largest depth is the nearest.
+    float max_depth = max(max(depths[0], depths[1]), max(depths[2], depths[3]));
+
+    // Small weight on distance-to-nearest. Kept low so it only breaks otherwise-close ties, and
+    // because it multiplies the depth gap it stays negligible on tight quads.
+    const float foreground_bias = 0.25f;
+
+    // L1 distance of each depth to all others (lower = more central = better representative), plus
+    // the foreground bias. Sky pixels stay "infinitely bad" so they never beat a real surface.
+    float depth_dist[4] = { 1e30f, 1e30f, 1e30f, 1e30f };
+    [unroll]
+    for (int i = 0; i < 4; ++i)
+    {
+        float dist = 
+            depths[0] != 0.0f ? abs(depths[i] - depths[0]) : 0.0f +
+            depths[1] != 0.0f ? abs(depths[i] - depths[1]) : 0.0f +
+            depths[2] != 0.0f ? abs(depths[i] - depths[2]) : 0.0f +
+            depths[3] != 0.0f ? abs(depths[i] - depths[3]) : 0.0f +
+            foreground_bias * (max_depth - depths[i]);
+        depth_dist[i] = depths[i] != 0.0f ? dist : 1e30f;
+    }
+
+    // Distances within this (depth-scaled) band count as equal, so a flat surface's near-identical
+    // depths all tie and fall through to the spatial (top-then-left) tiebreak below.
+    const float repr_tol = 0.02f * max_depth;
+
+    int rep = 0; // default when every pixel is sky
+    [unroll]
+    for (int i = 1; i < 4; ++i)
+    {
+        if (depths[i] == 0.0f) continue;
+        if (depths[rep] == 0.0f) { rep = i; continue; }
+
+        // Only replace when strictly better than the tolerance band; on a tie we keep the lower
+        // index (top-then-left), since i increases through the loop.
+        if (depth_dist[i] < depth_dist[rep] - repr_tol)
+            rep = i;
+    }
+    return rep;
+}
+
 /// ===== =====

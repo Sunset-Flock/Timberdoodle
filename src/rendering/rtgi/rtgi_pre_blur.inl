@@ -22,18 +22,12 @@ DAXA_TH_IMAGE_TYPED(WRITE, daxa::RWTexture2DId<daxa_f32vec2>, rtgi_diffuse2_blur
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, firefly_factor_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, perceptual_radiance_image)
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, ao_guide_image)
-DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_f32>, footprint_quality_image)
-// Rays shot per pixel this frame; optionally folded into the blur sample weights (well-sampled pixels
-// contribute more), gated by rtgi_settings.pre_blur_ray_count_sample_weighting.
 DAXA_TH_IMAGE_TYPED(SAMPLE, daxa::Texture2DIndex<daxa_u32>, ray_count_image)
 DAXA_DECL_TASK_HEAD_END
 
 struct RtgiPreBlurPush
 {
     RtgiPreBlurH::AttachmentShaderBlob attach;
-    // Image-attachment count is now EVEN (12) -> blob content is 0-mod-8, so C++ and Slang agree without a
-    // padding member. If you add/remove an image attachment and the count becomes ODD again, reinstate a
-    // `daxa_u64 _pad_attach;` here to force Slang to match C++'s 4-byte tail padding. See RtgiPreFilterPush.
     daxa_u32vec2 size;
     daxa_u32 iteration;
 };

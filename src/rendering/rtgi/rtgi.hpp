@@ -87,7 +87,6 @@ inline auto rtgi_trace_diffuse_compile_info() -> daxa::RayTracingPipelineCompile
 MAKE_COMPUTE_COMPILE_INFO(rtgi_distribute_rays_compile_info, "./src/rendering/rtgi/rtgi_distribute_rays.hlsl", "entry_distribute_rays")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_blend_rays_compile_info,    "./src/rendering/rtgi/rtgi_blend_rays.hlsl",    "entry_blend_rays")
 
-MAKE_COMPUTE_COMPILE_INFO(rtgi_trace_diffuse_compute_compile_info, "./src/rendering/rtgi/rtgi_trace_diffuse_compute.hlsl", "ray_gen_compute")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_reproject_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_temporal_reproject")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_temporal_accumulate_compile_info, "./src/rendering/rtgi/rtgi_temporal.hlsl", "entry_temporal_accumulate")
 MAKE_COMPUTE_COMPILE_INFO(rtgi_pre_filter_prepare_compile_info, "./src/rendering/rtgi/rtgi_pre_filter.hlsl", "entry_prepare")
