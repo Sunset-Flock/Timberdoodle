@@ -27,34 +27,13 @@ uint ray_priority_weight(uint disc_i)
 // One workgroup covers exactly one 8×8 tile.
 static const uint TILE_THREADS = RTGI_DISTRIBUTE_RAYS_X * RTGI_DISTRIBUTE_RAYS_Y; // 64
 
-// == Tile groupshared SLOT remap =============================================
-// The budgeting scan walks groupshared SLOTS 0..63 in numeric order and hands the fractional "+1" rays to
-// an evenly-strided subset of slot indices. If a pixel used its row-major linear index as its slot, that
-// stride would map straight to row/column stripes on screen. Instead each pixel addresses groupshared by a
-// PERMUTED slot, so a regular stride in slot space scatters across the tile in 2D.
-//
-// The permutation is a 6-bit BIT REVERSAL (van der Corput ordering): reversing the bit order sends
-// consecutive / low-stride slot indices to maximally-separated linear positions. bit_reverse6 is an
-// involution (reversing twice is identity), so the same function maps pixel->slot and slot->pixel.
-//
-// NOTE: this is ONLY the groupshared slot index. The wave/lane logic below stays on the linear index
-// (== the hardware lane), which the wave intrinsics require.
-uint bit_reverse6(uint v)
-{
-    uint r = 0u;
-    [unroll] for (uint b = 0u; b < 6u; ++b) { r |= ((v >> b) & 1u) << (5u - b); }
-    return r;
-}
-// Pixel tile-coords -> permuted groupshared slot.
-uint tile_pixel_to_slot(uint2 p)
-{
-    return bit_reverse6(p.y * RTGI_DISTRIBUTE_RAYS_X + p.x);
-}
-// Permuted groupshared slot -> pixel tile-coords (inverse of the above).
+// == Tile groupshared SLOT ===================================================
+// Each pixel addresses groupshared by its plain row-major linear index. (The base distribution is a
+// per-pixel Bayer dither and the extra distribution's only order-dependent part is a ±1 rounding
+// remainder, so no slot permutation is needed to keep either spatially even.)
 uint2 tile_slot_to_pixel(uint slot)
 {
-    const uint lin = bit_reverse6(slot);
-    return uint2(lin % RTGI_DISTRIBUTE_RAYS_X, lin / RTGI_DISTRIBUTE_RAYS_X);
+    return uint2(slot % RTGI_DISTRIBUTE_RAYS_X, slot / RTGI_DISTRIBUTE_RAYS_X);
 }
 
 // 8x8 ordered-dither (Bayer) rank in [0,63]. Thresholding rank/64 < f selects a spatially EVEN ~f fraction
@@ -86,7 +65,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
     let push = rtgi_distribute_rays_push;
     let rtgi_settings = push.attach.globals.rtgi_settings;
     const uint flat_id = gtid.y * RTGI_DISTRIBUTE_RAYS_X + gtid.x; // linear == hardware lane (wave logic)
-    const uint slot    = tile_pixel_to_slot(gtid);               // permuted groupshared slot (scan order)
+    const uint slot    = flat_id;                                // groupshared slot == row-major linear index
     const uint2 pixel_xy = gid * uint2(RTGI_DISTRIBUTE_RAYS_X, RTGI_DISTRIBUTE_RAYS_Y) + gtid;
     const bool in_bounds = all(pixel_xy < push.size);
 
