@@ -424,29 +424,6 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
     // stretched pixel's short fast window resets and the firefly clamp doesn't lock onto the smeared strip.
     const float accumulated_fast_frames = disocclusion ? 0.0f : (reprojected_fast_frames + 1.0f) * (1.0f - parallax_penalty);
 
-    // No-ray pixel (repacked dispatch only): this geometry pixel received no ray from the budget this
-    // frame, so there is no new radiance to integrate. As long as we have valid history (not a
-    // disocclusion), keep it 100% — write the reprojected history straight through and add nothing.
-    // rays_shot_virtual_samples is authored 0 by the blend pass for such pixels; the classic per-pixel trace always
-    // shoots >= 1 ray on geometry, so this branch never triggers there.
-    if (rays_shot_virtual_samples == 0.0f && !disocclusion)
-    {
-        // No new sample integrated this frame, so the fast history mean is unchanged — carry the fast
-        // frame count as-is (don't advance confidence for a frame that added no fast observation), but
-        // still apply the parallax stretch penalty so a stretched no-ray pixel drops its smeared history.
-        push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, reprojected_fast_frames * (1.0f - parallax_penalty)); // == reprojected carry (rays_shot_virtual_samples == 0)
-        push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = reprojected_diffuse;
-        push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = reprojected_diffuse2;
-        push.attach.fast_temporal_history_accumulated.get()[dtid] = float2(reprojected_fast_temporal_mean, reprojected_fast_temporal_variance);
-        push.attach.half_res_ao_guide_accumulated.get()[dtid.xy] = reprojected_ao_guide;
-        push.attach.temporal_perceptual_radiance_accumulated.get()[dtid.xy] = reprojected_perceptual_radiance;
-        // Draw debug overlays here too — this path returns before the main draw below, and skipping it
-        // is exactly what left holes on no-ray pixels in the temporal debug views. blend = 0 (no new
-        // sample integrated this frame).
-        rtgi_temporal_accumulate_debug_draw(dtid, accumulated_sample_count, 0.0f, reprojected_ao_guide, reprojected_perceptual_radiance);
-        return;
-    }
-
     // Load new diffuse data
     const bool diffuse_pre_blurred_present = !push.attach.half_res_diffuse_pre_blurred.index.is_empty();
 
@@ -505,6 +482,46 @@ func entry_temporal_accumulate(uint2 dtid : SV_DispatchThreadID)
         const float slow_to_fast_mean_ratio = max(slow_history_mean, accumulated_fast_mean) / (min(slow_history_mean, accumulated_fast_mean) + 0.00000001f);
         const float relevant_fast_to_slow_mean_ratio = max(1.0f, slow_to_fast_mean_ratio);
         fast_mean_diff_scaling = square(1.0f / relevant_fast_to_slow_mean_ratio);
+    }
+
+    // Debug tape (center pixel only): fast-history mean +/- its std dev, plus the slow-history
+    // radiance. fast_std_dev_relative is relative to the mean, so absolute std = mean * relative.
+    //   x (red)    = fast mean + std dev
+    //   y (green)  = fast mean - std dev
+    //   z (blue)   = fast mean
+    //   w (yellow) = slow-history radiance (brightness)
+    // const uint2 tape_center_pixel = uint2(half_res_render_target_size) / 2;
+    // if (all(dtid == tape_center_pixel))
+    // {
+    //     const float fast_std_dev_absolute = accumulated_fast_mean * reprojected_fast_temporal_variance;
+    //     push.attach.globals.readback.debug_value = float4(
+    //         accumulated_fast_mean + fast_std_dev_absolute,
+    //         accumulated_fast_mean,
+    //         accumulated_fast_mean - fast_std_dev_absolute,
+    //         reprojected_diffuse.w);
+    // }
+
+    // No-ray pixel (repacked dispatch only): this geometry pixel received no ray from the budget this
+    // frame, so there is no new radiance to integrate. As long as we have valid history (not a
+    // disocclusion), keep it 100% — write the reprojected history straight through and add nothing.
+    // rays_shot_virtual_samples is authored 0 by the blend pass for such pixels; the classic per-pixel trace always
+    // shoots >= 1 ray on geometry, so this branch never triggers there.
+    if (rays_shot_virtual_samples == 0.0f && !disocclusion)
+    {
+        // No new sample integrated this frame, so the fast history mean is unchanged — carry the fast
+        // frame count as-is (don't advance confidence for a frame that added no fast observation), but
+        // still apply the parallax stretch penalty so a stretched no-ray pixel drops its smeared history.
+        push.attach.half_res_sample_count.get()[dtid.xy] = rtgi_pack_sample_counts(accumulated_sample_count, reprojected_fast_frames * (1.0f - parallax_penalty)); // == reprojected carry (rays_shot_virtual_samples == 0)
+        push.attach.half_res_diffuse_accumulated.get()[dtid.xy] = reprojected_diffuse;
+        push.attach.half_res_diffuse2_accumulated.get()[dtid.xy] = reprojected_diffuse2;
+        push.attach.fast_temporal_history_accumulated.get()[dtid] = float2(reprojected_fast_temporal_mean, reprojected_fast_temporal_variance);
+        push.attach.half_res_ao_guide_accumulated.get()[dtid.xy] = reprojected_ao_guide;
+        push.attach.temporal_perceptual_radiance_accumulated.get()[dtid.xy] = reprojected_perceptual_radiance;
+        // Draw debug overlays here too — this path returns before the main draw below, and skipping it
+        // is exactly what left holes on no-ray pixels in the temporal debug views. blend = 0 (no new
+        // sample integrated this frame).
+        rtgi_temporal_accumulate_debug_draw(dtid, accumulated_sample_count, 0.0f, reprojected_ao_guide, reprojected_perceptual_radiance);
+        return;
     }
 
     const float max_sample_count = rtgi_settings.max_temporal_samples;

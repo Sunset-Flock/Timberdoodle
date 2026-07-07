@@ -33,18 +33,15 @@ struct ShaderDebugDrawContext
     CPUDebugDraws<ShaderDebugConeDraw> cone_draws = {.max_draws = 1u << 14u, .vertices = 64};
     CPUDebugDraws<ShaderDebugSphereDraw> sphere_draws = {.max_draws = 1u << 14u, .vertices = (5 * 64)};
     daxa::BufferId buffer = {};
-    ShaderDebugInput shader_debug_input = {};
-    ShaderDebugOutput shader_debug_output = {};
-    daxa_i32vec2 detector_window_position = {};
-    i32 detector_window_size = 15;
-    i32 old_detector_rt_size = 0;
+    // Rolling CPU-side ring of the per-frame debug tape values (readback of tape_value each
+    // frame). Indexed by frame_index wrapped with a bit mask. Graphed in the "Debug" UI section.
+    std::array<daxa_f32vec4, SHADER_DEBUG_TAPE_SIZE> tape = {};
+    // Exponential moving average of debug_value (blend factor 1/64 per frame), graphed alongside the raw tape.
+    daxa_f32vec4 tape_smoothed = {};
 
     daxa::ExternalTaskImage vsm_debug_meta_memory_table = {};
     daxa::ExternalTaskImage vsm_recreated_shadowmap_memory_table = {};
     daxa::ExternalTaskImage vsm_debug_page_table = {};
-    daxa::BufferId readback_queue = {};
-
-    u32 frame_index = 0;
 
     void init(daxa::Device & device)
     {
@@ -100,35 +97,12 @@ struct ShaderDebugDrawContext
                 .name = "vsm recreated shadowmap physical image",
             }),
         });
-
-        readback_queue = device.create_buffer({
-            .size = sizeof(ShaderDebugOutput) * (MAX_GPU_FRAMES_IN_FLIGHT),
-            .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM, // cpu side buffer.
-            .name = "shader debug readback queue",
-        });
-    }
-
-    void update(daxa::Device & device, [[maybe_unused]] daxa_u32vec2 render_target_size, [[maybe_unused]] i32vec2 window_size, [[maybe_unused]] u32 renderer_frame_index)
-    {
-        frame_index = renderer_frame_index;
-
-        // Readback
-        {
-            u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
-            auto & readback_buffer_ref = device.buffer_host_address_as<ShaderDebugOutput>(readback_queue).value()[readback_index];
-            shader_debug_output = readback_buffer_ref; // read back from previous frame
-            readback_buffer_ref = {};                  // clear for next frame
-        }
     }
 
     void update_debug_buffer(daxa::Device & device, daxa::CommandRecorder & recorder, daxa::TransferMemoryPool & allocator)
     {
-        u32 const readback_index = frame_index % MAX_GPU_FRAMES_IN_FLIGHT;
         u32 buffer_mem_offset = sizeof(ShaderDebugBufferHead);
-        auto head = ShaderDebugBufferHead{
-            .cpu_input = shader_debug_input,
-            .gpu_output = device.device_address(readback_queue).value() + sizeof(ShaderDebugOutput) * readback_index,
-        };
+        auto head = ShaderDebugBufferHead{};
 
         auto update_debug_draws = [&](auto & draws, auto & cpu_draws)
         {

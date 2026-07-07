@@ -27,6 +27,7 @@
 
 #include <daxa/types.hpp>
 #include <daxa/utils/pipeline_manager.hpp>
+#include <cmath>
 #include <thread>
 #include <variant>
 #include <iostream>
@@ -582,24 +583,6 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
     });
     tg.clear_image({debug_image, std::array{0.0f, 0.0f, 0.0f, 0.0f}});
 
-    tg.add_task(daxa::InlineTask::Transfer("readback shader debug")
-            .reads(render_context->tgpu_render_data)
-            .executes(
-                [=](daxa::TaskInterface ti)
-                {
-                    u32 const index = ((gpu_context->shader_debug_context.frame_index) % MAX_GPU_FRAMES_IN_FLIGHT);
-                    std::memcpy(&gpu_context->shader_debug_context.shader_debug_output, ti.device.buffer_host_address(gpu_context->shader_debug_context.readback_queue).value(), sizeof(ShaderDebugOutput));
-                    // Set the currently recording frame to write its debug output to the slot we just read from.
-                    ti.recorder.copy_buffer_to_buffer({
-                        .src_buffer = gpu_context->shader_debug_context.buffer,
-                        .dst_buffer = gpu_context->shader_debug_context.readback_queue,
-                        .src_offset = offsetof(ShaderDebugBufferHead, gpu_output),
-                        .dst_offset = sizeof(ShaderDebugOutput) * index,
-                        .size = sizeof(ShaderDebugOutput),
-                    }); 
-                }
-            )
-        );
     tg.add_task(daxa::InlineTask::Transfer("update global buffers")
             .writes(render_context->tgpu_render_data)
             .executes(
@@ -1385,6 +1368,20 @@ auto Renderer::prepare_frame(
         render_context->render_data.readback = gpu_context->device.buffer_device_address(general_readback_buffer).value() + sizeof(ReadbackValues) * index;
         render_context->general_readback = render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index];
         render_context->gpu_context->device.buffer_host_address_as<ReadbackValues>(general_readback_buffer).value()[index] = {}; // clear for next frame
+
+        gpu_context->shader_debug_context.tape[render_context->render_data.frame_index & (SHADER_DEBUG_TAPE_SIZE - 1)] = render_context->general_readback.debug_value;
+
+        auto & tape_smoothed = gpu_context->shader_debug_context.tape_smoothed;
+        f32vec4 new_value = std::bit_cast<f32vec4>(render_context->general_readback.debug_value);
+        f32vec4 const prev_smoothed = std::bit_cast<f32vec4>(tape_smoothed);
+        for (i32 i = 0; i < 4; ++i)
+        {
+            if (std::isnan(new_value[i]))
+            {
+                new_value[i] = prev_smoothed[i];
+            }
+        }
+        tape_smoothed = std::bit_cast<daxa_f32vec4>(prev_smoothed * (63.0f / 64.0f) + new_value * (1.0f / 64.0f));
     }
 
     if (sky_settings_changed)
@@ -1580,8 +1577,6 @@ auto Renderer::prepare_frame(
             });
         }
     }
-
-    gpu_context->shader_debug_context.update(gpu_context->device, render_target_size, window->size, render_context->render_data.frame_index);
 
     return true;
 }

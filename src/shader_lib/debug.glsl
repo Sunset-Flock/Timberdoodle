@@ -49,10 +49,6 @@ static bool _GPU_ASSERT_FAIL_BOOL = false;
         atomicAdd(deref(DEBUG_DATA).field ## _draws.draw_indirect.instance_count, 1);\
         deref_i(deref(DEBUG_DATA).field ## _draws.draws, index) = draw;\
     }\
-    else\
-    {\
-        atomicAdd(deref(DEBUG_DATA).gpu_output.exceeded_ ## field ## _draw_capacity, 1);\
-    }\
 }
 
 void debug_draw_line(daxa_RWBufferPtr(ShaderDebugBufferHead) debug_info, ShaderDebugLineDraw draw)

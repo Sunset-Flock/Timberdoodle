@@ -25,7 +25,7 @@ struct ReadbackValues
     // Written by pgi probe update
     daxa_u32 requested_probes;
     
-    // Written by vsm debug statictics
+    // Written by vsm debug statistics
     daxa_u32 cached_pages;
     daxa_u32 free_pages;
     daxa_u32 drawn_pages;
@@ -35,5 +35,8 @@ struct ReadbackValues
     daxa_u32 directional_cached_visible_pages;
     daxa_u32 drawn_point_spot_pages;
     daxa_u32 drawn_directional_pages;
+
+    // General debug values
+    daxa_f32vec4 debug_value;
 };
 DAXA_DECL_BUFFER_PTR(ReadbackValues)

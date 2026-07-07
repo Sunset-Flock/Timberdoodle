@@ -705,29 +705,6 @@ void Application::update()
         if (_window->key_just_pressed(GLFW_KEY_J)) { app_state.control_observer = !app_state.control_observer; }
         if (_window->key_just_pressed(GLFW_KEY_K)) { app_state.reset_observer = true; }
         if (_window->key_just_pressed(GLFW_KEY_F1)) { app_state.request_screenshot = true; }
-        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->button_just_pressed(GLFW_MOUSE_BUTTON_1))
-        {
-            _renderer->gpu_context->shader_debug_context.detector_window_position = {
-                _window->get_cursor_x(),
-                _window->get_cursor_y(),
-            };
-        }
-        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_LEFT))
-        {
-            _renderer->gpu_context->shader_debug_context.detector_window_position.x -= 1;
-        }
-        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_RIGHT))
-        {
-            _renderer->gpu_context->shader_debug_context.detector_window_position.x += 1;
-        }
-        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_UP))
-        {
-            _renderer->gpu_context->shader_debug_context.detector_window_position.y -= 1;
-        }
-        if (_window->key_pressed(GLFW_KEY_LEFT_ALT) && _window->key_just_pressed(GLFW_KEY_DOWN))
-        {
-            _renderer->gpu_context->shader_debug_context.detector_window_position.y += 1;
-        }
     }
 
     if (app_state.reset_observer)

@@ -10,6 +10,7 @@
 #include "../../scene/scene.hpp"
 #include "../../rendering/scene_renderer_context.hpp"
 #include "../../camera.hpp"
+#include "../../application_state.hpp"
 
 namespace tido
 {
@@ -19,12 +20,13 @@ namespace tido
         {
             PropertyViewer() = default;
             PropertyViewer(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
-            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, CameraController & camera);
+            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, ApplicationState & app_state);
 
             i32 selected = {};
             daxa::ImGuiRenderer * renderer = {};
             daxa::SamplerId linear_sampler = {};
             std::vector<daxa::ImageId> const * icons = {};
+            f32 fixed_camera_x_rotation_speed = 0.0f;
 
             static constexpr std::array selector_icons = {ICONS::SUN, ICONS::CAMERA, ICONS::MESH};
         };

@@ -7,6 +7,12 @@
 #define DEBUG_SHADER_DRAW_COORD_SPACE_NDC_MAIN_CAMERA 1
 #define DEBUG_SHADER_DRAW_COORD_SPACE_NDC_VIEW_CAMERA 2
 
+// Debug tape: a shader may write one float4 per frame into the general readback's debug_value.
+// It is appended into a CPU-side ring of this length, giving a rolling history of the last
+// SHADER_DEBUG_TAPE_SIZE frames to graph in the UI. Power of two so the CPU ring index can wrap
+// with a bit mask.
+#define SHADER_DEBUG_TAPE_SIZE 2048
+
 struct ShaderDebugLineDraw
 {
     daxa_f32vec3 start;
@@ -75,26 +81,6 @@ struct ShaderDebugSphereDraw
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugSphereDraw);
 
-struct ShaderDebugInput
-{
-    daxa_i32vec4 debug_ivec4;
-    daxa_f32vec4 debug_fvec4;
-};
-
-struct ShaderDebugOutput
-{
-    daxa_i32vec4 debug_ivec4;
-    daxa_f32vec4 debug_fvec4;
-    daxa_u32 exceeded_line_draw_capacity;
-    daxa_u32 exceeded_circle_draw_capacity;
-    daxa_u32 exceeded_rectangle_draw_capacity;
-    daxa_u32 exceeded_aabb_draw_capacity;
-    daxa_u32 exceeded_box_draw_capacity;
-    daxa_u32 exceeded_cone_draw_capacity;
-    daxa_u32 exceeded_sphere_draw_capacity;
-};
-DAXA_DECL_BUFFER_PTR(ShaderDebugOutput);
-
 #define DebugDraws(DRAW_TYPE) DebugDraws_ ## DRAW_TYPE
 #define DECL_DEBUG_DRAWS(DRAW_TYPE)\
 struct DebugDraws_ ## DRAW_TYPE\
@@ -122,8 +108,6 @@ struct ShaderDebugBufferHead
     DebugDraws(ShaderDebugBoxDraw) box_draws;
     DebugDraws(ShaderDebugConeDraw) cone_draws;
     DebugDraws(ShaderDebugSphereDraw) sphere_draws;
-    ShaderDebugInput cpu_input;
-    daxa_RWBufferPtr(ShaderDebugOutput) gpu_output;
 };
 DAXA_DECL_BUFFER_PTR(ShaderDebugBufferHead)
 

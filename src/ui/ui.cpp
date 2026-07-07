@@ -203,7 +203,6 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
             ImGui::MenuItem("Renderer Statistics", NULL, &widget_renderer_statistics);
             ImGui::MenuItem("Scene Hierarchy", NULL, &widget_scene_interface);
             ImGui::MenuItem("Camera Path Editor", NULL, &widget_camera_path_editor);
-            ImGui::MenuItem("Shader Debug Menu", NULL, &shader_debug_menu);
             ImGui::MenuItem("Widget Property Viewer", NULL, &widget_property_viewer);
             ImGui::MenuItem("TaskGraphDebugUi", NULL, &tg_debug_ui);
             ImGui::MenuItem("Imgui Demo", NULL, &demo_window);
@@ -246,7 +245,7 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     }
     if (widget_property_viewer)
     {
-        property_viewer.render(scene_interface, scene, render_context, app_state.camera_controller);
+        property_viewer.render(scene_interface, scene, render_context, app_state);
     }
     if (demo_window)
     {
@@ -255,68 +254,6 @@ void UIEngine::main_update(RenderContext & render_context, Scene & scene, Applic
     if (convert_vdb_window)
     {
         ui_convert_vdb_windw(app_state, &threadpool);
-    }
-    if (shader_debug_menu)
-    {
-        if (ImGui::Begin("Shader Debug Menu", nullptr, ImGuiWindowFlags_NoCollapse))
-        {
-            auto & cinematic_camera = app_state.cinematic_camera;
-            ImGui::SeparatorText("Observer Camera");
-            {
-                IMGUI_UINT_CHECKBOX2("draw from observer (H)", render_context.render_data.settings.draw_from_observer);
-                ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
-                app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
-                ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_first_pass));
-                ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_second_pass));
-            }
-            ImGui::SeparatorText("Cinematic Camera");
-            {
-                if (cinematic_camera.path_keyframes.size() > 0)
-                {
-                    ImGui::BeginDisabled(!app_state.use_preset_camera);
-                    ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
-                    ImGui::EndDisabled();
-                    cinematic_camera.override_keyframe &= app_state.use_preset_camera;
-                    ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
-                    i32 current_keyframe = cinematic_camera.current_keyframe_index;
-                    f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
-                    ImGui::SliderInt("keyframe", &current_keyframe, 0, s_cast<i32>(cinematic_camera.path_keyframes.size()) - 1);
-                    ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
-                    if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
-                    ImGui::EndDisabled();
-                    ImGui::Checkbox("use preset camera", &app_state.use_preset_camera);
-                    if (ImGui::Button("snap observer to cinematic"))
-                    {
-                        app_state.observer_camera_controller.position = cinematic_camera.position;
-                    }
-                    ImGui::InputFloat("Fixed X Camera Rotation speed", &fixed_camera_x_rotation_speed);
-                    app_state.camera_controller.yaw += fixed_camera_x_rotation_speed * app_state.delta_time;
-                }
-            }
-            ImGui::SeparatorText("Debug Shader Interface");
-            {
-                ImGui::InputFloat("debug f32vec4 drag speed", &debug_f32vec4_drag_speed);
-                ImGui::DragFloat4(
-                    "debug f32vec4",
-                    reinterpret_cast<f32 *>(&render_context.gpu_context->shader_debug_context.shader_debug_input.debug_fvec4), debug_f32vec4_drag_speed);
-                ImGui::DragInt4(
-                    "debug i32vec4",
-                    reinterpret_cast<i32 *>(&render_context.gpu_context->shader_debug_context.shader_debug_input.debug_ivec4));
-                ImGui::Text(
-                    "out debug f32vec4: (%f,%f,%f,%f)",
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.x,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.y,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.z,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_fvec4.w);
-                ImGui::Text(
-                    "out debug i32vec4: (%i,%i,%i,%i)",
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.x,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.y,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.z,
-                    render_context.gpu_context->shader_debug_context.shader_debug_output.debug_ivec4.w);
-            }
-        }
-        ImGui::End();
     }
     // tg_resource_debug_ui(
     //     imgui_renderer, 
@@ -473,7 +410,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SliderInt("Debug Spot Light Idx", &render_data.light_settings.selected_debug_spot_light, -1, render_data.light_settings.spot_light_count-1);
             }
             
-            if (ImGui::CollapsingHeader("Debug Image"))
+            if (ImGui::CollapsingHeader("Debug"))
             {
                 auto modes = std::array{
                     "NONE", // DEBUG_DRAW_MODE_NONE
@@ -529,6 +466,69 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 ImGui::SetItemTooltip("0 = debug overlay blended max with normal image, 1 = full debug overlay");
                 ImGui::SliderInt("debug visualization tile", &render_data.settings.debug_visualization_tile, -1, 15);
                 ImGui::SetItemTooltip("-1 = full screen, 0-15 = draw into that tile slot (4x4 grid)");
+
+                ImGui::SeparatorText("Debug Tape");
+                ImGui::TextUnformatted("Graphs the per-frame general readback debug_value float4 (x=red, y=green, z=blue, w=yellow).");
+                {
+                    auto & debug_ctx = render_context.gpu_context->shader_debug_context;
+
+                    daxa_f32vec4 const latest = render_context.general_readback.debug_value;
+                    daxa_f32vec4 const smoothed = debug_ctx.tape_smoothed;
+                    ImGui::Text("latest:   (% 10.4f, % 10.4f, % 10.4f, % 10.4f)", latest.x, latest.y, latest.z, latest.w);
+                    ImGui::Text("smoothed: (% 10.4f, % 10.4f, % 10.4f, % 10.4f)", smoothed.x, smoothed.y, smoothed.z, smoothed.w);
+                    ImGui::SetItemTooltip("Exponential moving average, blend factor 1/64 per frame.");
+
+                    static int tape_history = 512;
+                    static bool tape_auto_fit = true;
+                    static float tape_y_scale = 1.0f;
+                    ImGui::SliderInt("tape history (frames)", &tape_history, 16, SHADER_DEBUG_TAPE_SIZE);
+                    ImGui::Checkbox("tape auto fit Y", &tape_auto_fit);
+                    if (!tape_auto_fit)
+                    {
+                        ImGui::SameLine();
+                        ImGui::SetNextItemWidth(200.0f);
+                        ImGui::SliderFloat("Y scale", &tape_y_scale, 0.001f, 1000.0f, "%.3f", ImGuiSliderFlags_Logarithmic);
+                    }
+
+                    const i32 count = std::min<i32>(tape_history, SHADER_DEBUG_TAPE_SIZE);
+                    const u32 frame_index = render_context.render_data.frame_index;
+                    static std::vector<float> xs = {};
+                    static std::array<std::vector<float>, 4> ys = {};
+                    xs.resize(count);
+                    for (auto & y : ys) { y.resize(count); }
+                    // Unwrap the ring oldest -> newest. x is "frames ago" (negative), 0 = latest.
+                    for (i32 i = 0; i < count; ++i)
+                    {
+                        const u32 slot = (frame_index - u32(count - 1 - i)) & (SHADER_DEBUG_TAPE_SIZE - 1);
+                        const daxa_f32vec4 v = debug_ctx.tape[slot];
+                        xs[i] = static_cast<float>(i - (count - 1));
+                        ys[0][i] = v.x; ys[1][i] = v.y; ys[2][i] = v.z; ys[3][i] = v.w;
+                    }
+
+                    const ImVec4 line_colors[4] = {
+                        ImVec4{1.0f, 0.0f, 0.0f, 1.0f}, // x -> red
+                        ImVec4{0.0f, 1.0f, 0.0f, 1.0f}, // y -> green
+                        ImVec4{0.2f, 0.4f, 1.0f, 1.0f}, // z -> blue
+                        ImVec4{1.0f, 1.0f, 0.0f, 1.0f}, // w -> yellow
+                    };
+                    const char * const channel_names[4] = {"x", "y", "z", "w"};
+                    if (ImPlot::BeginPlot("##debug_tape", {ImGui::GetContentRegionAvail().x, 200.0f}))
+                    {
+                        const ImPlotAxisFlags y_flags = tape_auto_fit ? ImPlotAxisFlags_AutoFit : ImPlotAxisFlags_None;
+                        ImPlot::SetupAxes("frames ago", "value", ImPlotAxisFlags_AutoFit, y_flags);
+                        if (!tape_auto_fit)
+                        {
+                            ImPlot::SetupAxisLimits(ImAxis_Y1, -tape_y_scale, tape_y_scale, ImGuiCond_Always);
+                        }
+                        for (i32 c = 0; c < 4; ++c)
+                        {
+                            ImPlot::PushStyleColor(ImPlotCol_Line, ImGui::ColorConvertFloat4ToU32(line_colors[c]));
+                            ImPlot::PlotLine(channel_names[c], xs.data(), ys[c].data(), count);
+                            ImPlot::PopStyleColor();
+                        }
+                        ImPlot::EndPlot();
+                    }
+                }
             }
             if (ImGui::CollapsingHeader("Shading Settings"))
             {

@@ -96,7 +96,6 @@ auto GPUContext::dummy_string() -> std::string
 GPUContext::~GPUContext()
 {
     device.destroy_buffer(shader_debug_context.buffer);
-    device.destroy_buffer(shader_debug_context.readback_queue);
     device.destroy_image(shader_debug_context.vsm_debug_meta_memory_table.id());
     device.destroy_image(shader_debug_context.vsm_debug_page_table.id());
     device.destroy_image(shader_debug_context.vsm_recreated_shadowmap_memory_table.id());

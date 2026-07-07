@@ -14,7 +14,7 @@ namespace tido
         {
         }
 
-        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, CameraController & camera)
+        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context, ApplicationState & app_state)
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -234,19 +234,24 @@ namespace tido
             {
                 ImGui::BeginChild("Sun settings", {0, 0}, false, ImGuiWindowFlags_NoScrollbar);
                 {
-                    auto camera_settings = [&render_context, &camera]()
+                    auto camera_settings = [&render_context, &app_state, this]()
                     {
                         if (ImGui::CollapsingHeader("Camera"))
                         {
                             ImGui::Indent(12);
                             auto const horizontal_max_width = ImGui::GetContentRegionAvail().x / 2.5f;
                             auto & post = render_context.render_data.postprocess_settings;
+                            auto & camera = app_state.camera_controller;
+                            auto & cinematic_camera = app_state.cinematic_camera;
                             ImGui::PushStyleColor(ImGuiCol_ChildBg, bg_3);
+
+                            ImGui::SeparatorText("Exposure");
                             better_drag_float({"exposure bias", &post.exposure_bias, 0.1f, 0.01f, 10.0f, "%.1f", horizontal_max_width, -20});
                             better_drag_float({"sensor sensitivity", &post.sensor_sensitivity, 100.0f, 100.0f, 7000.0f, "%.0f", horizontal_max_width, -20});
                             better_drag_float({"calibration", &post.calibration, 0.1f, 1.0f, 30.0f, "%.1f", horizontal_max_width, -20});
                             better_drag_float({"adaption speed", &post.luminance_adaption_tau, 0.05f, 0.1f, 10.0f, "%.2f", horizontal_max_width, -20});
-                            ImGui::Separator();
+
+                            ImGui::SeparatorText("View Camera");
                             ImGui::InputFloat3("position", &camera.position.x);
                             if (ImGui::InputFloat3("forward", &camera.forward.x, "%.4f", ImGuiInputTextFlags_EnterReturnsTrue))
                             {
@@ -280,6 +285,43 @@ namespace tido
                                     camera.forward = fwd;
                                 }
                             }
+
+                            ImGui::SeparatorText("Observer Camera");
+                            {
+                                bool draw_from_observer = render_context.render_data.settings.draw_from_observer != 0;
+                                if (ImGui::Checkbox("draw from observer (H)", &draw_from_observer))
+                                {
+                                    render_context.render_data.settings.draw_from_observer = draw_from_observer ? 1 : 0;
+                                }
+                            }
+                            ImGui::Checkbox("control observer   (J)", &app_state.control_observer);
+                            app_state.reset_observer = app_state.reset_observer || (ImGui::Button("snap observer to main camera (K)"));
+                            ImGui::Checkbox("observer draw first pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_first_pass));
+                            ImGui::Checkbox("observer draw second pass", reinterpret_cast<bool *>(&render_context.render_data.settings.observer_draw_second_pass));
+
+                            ImGui::SeparatorText("Cinematic Camera");
+                            if (cinematic_camera.path_keyframes.size() > 0)
+                            {
+                                ImGui::BeginDisabled(!app_state.use_preset_camera);
+                                ImGui::Checkbox("Override keyframe (I)", &cinematic_camera.override_keyframe);
+                                ImGui::EndDisabled();
+                                cinematic_camera.override_keyframe &= app_state.use_preset_camera;
+                                ImGui::BeginDisabled(!cinematic_camera.override_keyframe);
+                                i32 current_keyframe = cinematic_camera.current_keyframe_index;
+                                f32 keyframe_progress = cinematic_camera.current_keyframe_time / cinematic_camera.path_keyframes.at(current_keyframe).transition_time;
+                                ImGui::SliderInt("keyframe", &current_keyframe, 0, s_cast<i32>(cinematic_camera.path_keyframes.size()) - 1);
+                                ImGui::SliderFloat("keyframe progress", &keyframe_progress, 0.0f, 1.0f);
+                                if (cinematic_camera.override_keyframe) { cinematic_camera.set_keyframe(current_keyframe, keyframe_progress); }
+                                ImGui::EndDisabled();
+                                ImGui::Checkbox("use preset camera", &app_state.use_preset_camera);
+                                if (ImGui::Button("snap observer to cinematic"))
+                                {
+                                    app_state.observer_camera_controller.position = cinematic_camera.position;
+                                }
+                                ImGui::InputFloat("Fixed X Camera Rotation speed", &fixed_camera_x_rotation_speed);
+                                app_state.camera_controller.yaw += fixed_camera_x_rotation_speed * app_state.delta_time;
+                            }
+
                             ImGui::PopStyleColor();
                             ImGui::Unindent(12);
                         }
