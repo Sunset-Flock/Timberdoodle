@@ -1832,7 +1832,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
                 daxa::ImageUsageFlagBits::TRANSFER_SRC | 
                 daxa::ImageUsageFlagBits::SHADER_STORAGE |
                 daxa::ImageUsageFlagBits::SHADER_SAMPLED,
-        .name = "pgi probe radiance",
+        .name = "pgi probe color",
     });
     daxa::ImageId probe_visibility_image = device.create_image({
         .dimensions = 2,
@@ -1882,7 +1882,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
 
     this->probe_color = daxa::ExternalTaskImage({
         .image = probe_color_image,
-        .name = "pgi probe radiance",
+        .name = "pgi probe color",
     });
     this->probe_visibility = daxa::ExternalTaskImage({
         .image = probe_visibility_image,
@@ -1910,7 +1910,7 @@ void PGIState::recreate_and_clear(daxa::Device& device, PGISettings const & sett
     tg.register_image(probe_visibility);
     tg.register_image(probe_info);
     tg.register_image(cell_requests);
-    tg.clear_image({.view = probe_color_view, .name = "clear pgi radiance"});
+    tg.clear_image({.view = probe_color_view, .name = "clear pgi color"});
     tg.clear_image({.view = probe_visibility_view, .name = "clear pgi visibility"});
     tg.clear_image({.view = probe_info_view, .name = "clear pgi info"});
     tg.clear_image({.view = cell_requests_view, .name = "clear pgi cell requests"});
@@ -2074,7 +2074,7 @@ auto task_pgi_main(TaskPgiUpdateInfo const & info) -> TaskPGIUpdateOut
 
     TaskPGIUpdateOut ret = {};
     ret.pgi_indirections = pgi_indirections;
-    ret.pgi_irradiance = info.pgi_state.probe_color_view;
+    ret.pgi_color = info.pgi_state.probe_color_view;
     ret.pgi_visibility = info.pgi_state.probe_visibility_view;
     ret.pgi_info = info.pgi_state.probe_info_view;
     ret.pgi_requests = info.pgi_state.cell_requests_view;

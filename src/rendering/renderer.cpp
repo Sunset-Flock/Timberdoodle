@@ -913,7 +913,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
 
     daxa::TaskBufferView pgi_indirections = daxa::NullTaskBuffer;
     daxa::TaskImageView pgi_screen_irrdiance = daxa::NullTaskImage;
-    daxa::TaskImageView pgi_irradiance = daxa::NullTaskImage;
+    daxa::TaskImageView pgi_color = daxa::NullTaskImage;
     daxa::TaskImageView pgi_visibility = daxa::NullTaskImage;
     daxa::TaskImageView pgi_info = daxa::NullTaskImage;
     daxa::TaskImageView pgi_requests = daxa::NullTaskImage;
@@ -936,7 +936,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
             vsm_point_spot_page_table_view,
         });
         pgi_indirections = ret.pgi_indirections;
-        pgi_irradiance = ret.pgi_irradiance;
+        pgi_color = ret.pgi_color;
         pgi_visibility = ret.pgi_visibility;
         pgi_info = ret.pgi_info;
         pgi_requests = ret.pgi_requests;
@@ -977,7 +977,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         info.sky = sky;
         info.sky_transmittance = transmittance.view();
         info.light_mask_volume = light_mask_volume;
-        info.pgi_irradiance = pgi_irradiance;
+        info.pgi_color = pgi_color;
         info.pgi_visibility = pgi_visibility;
         info.pgi_info = pgi_info;
         info.pgi_requests = pgi_requests;
@@ -1064,7 +1064,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                     .spot_lights = scene->_gpu_spot_lights.view(),
                     .mesh_instances = scene->mesh_instances_buffer.view(),
                     .light_mask_volume = light_mask_volume,
-                    .pgi_irradiance = pgi_irradiance,
+                    .pgi_color = pgi_color,
                     .pgi_visibility = pgi_visibility,
                     .pgi_info = pgi_info,
                     .pgi_requests = pgi_requests,

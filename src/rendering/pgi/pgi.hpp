@@ -92,7 +92,7 @@ struct TaskPgiUpdateInfo
 struct TaskPGIUpdateOut
 {
     daxa::TaskBufferView pgi_indirections = {};
-    daxa::TaskImageView pgi_irradiance = {};
+    daxa::TaskImageView pgi_color = {};
     daxa::TaskImageView pgi_visibility = {};
     daxa::TaskImageView pgi_info = {};
     daxa::TaskImageView pgi_requests = {};
@@ -108,7 +108,7 @@ struct TaskPGIEvalScreenIrradianceInfo
     daxa::TaskImageView view_camera_face_normal_image = {};
     daxa::TaskImageView view_camera_detail_normal_image = {};
     daxa::TaskImageView debug_image = {};
-    daxa::TaskImageView pgi_irradiance = {};
+    daxa::TaskImageView pgi_color = {};
     daxa::TaskImageView pgi_visibility = {};
     daxa::TaskImageView pgi_info = {};
     daxa::TaskImageView pgi_requests = {};

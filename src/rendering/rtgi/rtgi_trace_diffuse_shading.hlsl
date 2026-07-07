@@ -146,7 +146,7 @@ void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primi
             payload.color.rgb = pgi_sample_probe_volume(
                 push.attach.globals, &push.attach.globals.pgi_settings, info,
                 sample_position, push.attach.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
-                push.attach.pgi_irradiance.get(),
+                push.attach.pgi_color.get(),
                 push.attach.pgi_visibility.get(),
                 push.attach.pgi_info.get(),
                 push.attach.pgi_requests.get()
@@ -176,7 +176,7 @@ void shade_closest_hit(inout RayPayload payload, float2 barycentrics, uint primi
             ray_direction, 
             light_vis_tester, 
             push.attach.light_mask_volume.get(),
-            push.attach.pgi_irradiance.get(), 
+            push.attach.pgi_color.get(), 
             push.attach.pgi_visibility.get(), 
             push.attach.pgi_info.get(),
             push.attach.pgi_requests.get_formatted(),
@@ -216,7 +216,7 @@ void shade_miss(inout RayPayload payload, float3 origin, float3 ray_direction, f
             payload.color.rgb = pgi_sample_probe_volume(
                 push.attach.globals, &push.attach.globals.pgi_settings, info,
                 sample_position, push.attach.globals.view_camera.position, sample_direction, -sample_direction,
-                push.attach.pgi_irradiance.get(),
+                push.attach.pgi_color.get(),
                 push.attach.pgi_visibility.get(),
                 push.attach.pgi_info.get(),
                 push.attach.pgi_requests.get()

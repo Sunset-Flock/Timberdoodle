@@ -866,7 +866,7 @@ void entry_main_cs(
                 const float3 pgi_indirect_irradiance = pgi_sample_probe_volume(
                     AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
                     tri_point.world_position, camera.position, material_point.normal, tri_point.face_normal, 
-                    AT.pgi_irradiance.get(), AT.pgi_visibility.get(), AT.pgi_info.get(), AT.pgi_requests.get_formatted()
+                    AT.pgi_color.get(), AT.pgi_visibility.get(), AT.pgi_info.get(), AT.pgi_requests.get_formatted()
                 );
                 indirect_lighting = pgi_indirect_irradiance;
             }
@@ -1065,7 +1065,7 @@ void entry_main_cs(
                     let pgi_color = pgi_sample_probe_volume(
                         AT.globals, &AT.globals.pgi_settings, info,
                         tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
-                        AT.pgi_irradiance.get(),
+                        AT.pgi_color.get(),
                         AT.pgi_visibility.get(),
                         AT.pgi_info.get(),
                         AT.pgi_requests.get()
@@ -1079,7 +1079,7 @@ void entry_main_cs(
                     let pgi_color = pgi_sample_probe_volume(
                         AT.globals, &AT.globals.pgi_settings, info,
                         tri_point.world_position, AT.globals.view_camera.position, tri_point.face_normal, tri_point.face_normal,
-                        AT.pgi_irradiance.get(),
+                        AT.pgi_color.get(),
                         AT.pgi_visibility.get(),
                         AT.pgi_info.get(),
                         AT.pgi_requests.get()
@@ -1147,7 +1147,7 @@ void entry_main_cs(
                     let pgi_color = pgi_sample_probe_volume(
                         AT.globals, &AT.globals.pgi_settings, pgi_sample_info,
                         tri_point.world_position, AT.globals.view_camera.position, material_point.normal, tri_point.face_normal,
-                        AT.pgi_irradiance.get(),
+                        AT.pgi_color.get(),
                         AT.pgi_visibility.get(),
                         AT.pgi_info.get(),
                         AT.pgi_requests.get()
@@ -1200,7 +1200,7 @@ void entry_main_cs(
             output_value.rgb = ambient_occlusion * pgi_sample_probe_volume(
                 AT.globals, &AT.globals.pgi_settings, info,
                 tri_point.world_position, AT.globals.view_camera.position, reflect(primary_ray, material_point.normal), tri_point.face_normal,
-                AT.pgi_irradiance.get(),
+                AT.pgi_color.get(),
                 AT.pgi_visibility.get(),
                 AT.pgi_info.get(),
                 AT.pgi_requests.get()

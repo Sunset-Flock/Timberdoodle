@@ -114,7 +114,7 @@ struct TasksRtgiInfo
     daxa::TaskImageView sky = {};
     daxa::TaskImageView sky_transmittance = {};
     daxa::TaskImageView light_mask_volume = {};
-    daxa::TaskImageView pgi_irradiance = {};
+    daxa::TaskImageView pgi_color = {};
     daxa::TaskImageView pgi_visibility = {};
     daxa::TaskImageView pgi_info = {};
     daxa::TaskImageView pgi_requests = {};
