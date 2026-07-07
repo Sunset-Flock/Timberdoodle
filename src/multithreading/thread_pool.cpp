@@ -62,44 +62,47 @@ void ThreadPool::blocking_dispatch(std::shared_ptr<Task> task, TaskPriority prio
     task->not_finished = task->chunk_count;
     auto & selected_queue = priority == TaskPriority::HIGH ? shared_data->high_priority_tasks : shared_data->low_priority_tasks;
 
-    // chunk_index 0 will be worked on by this thread
     std::unique_lock lock{shared_data->threadpool_mutex};
 
-    for (u32 chunk_index = 1; chunk_index < task->chunk_count; chunk_index++)
+    // Enqueue ALL chunks. The caller participates as an extra worker until THIS task is done. 
+    // This is what lets blocking_dispatch work with a non-empty / mixed queue.
+    // The queue may already hold chunks of OTHER tasks, so we must never assume the queue front is one of ours.
+    for (u32 chunk_index = 0; chunk_index < task->chunk_count; chunk_index++)
     {
         selected_queue.push_back({task, chunk_index});
     }
-
     shared_data->work_available.notify_all();
-    // Contribute to finishing this task from this thread
-    u32 current_chunk_index = 0;
-    bool worked_on_last_chunk = false;
-    while (current_chunk_index != NO_MORE_CHUNKS_CODE)
+
+    // Each iteration runs whatever chunk is available high priority first.
+    while (task->not_finished != 0)
     {
-        task->started += 1;
+        std::deque<TaskChunk> * source_queue = nullptr;
+        if (!shared_data->high_priority_tasks.empty()) { source_queue = &shared_data->high_priority_tasks; }
+        else if (!shared_data->low_priority_tasks.empty()) { source_queue = &shared_data->low_priority_tasks; }
 
-        lock.unlock();
-        task->callback(current_chunk_index, EXTERNAL_THREAD_INDEX);
-        lock.lock();
-
-        task->not_finished -= 1;
-        bool more_chunks_in_queue = (task->started != task->chunk_count);
-        if (more_chunks_in_queue)
+        if (source_queue != nullptr)
         {
-            current_chunk_index = selected_queue.front().chunk_index;
-            selected_queue.pop_front();
+            TaskChunk chunk = std::move(source_queue->front());
+            source_queue->pop_front();
+            chunk.task->started += 1;
+
+            lock.unlock();
+            chunk.task->callback(chunk.chunk_index, EXTERNAL_THREAD_INDEX);
+            lock.lock();
+
+            chunk.task->not_finished -= 1;
+            // Working on last chunk of a task, notify in case there is a thread waiting for this task to be done
+            if (chunk.task->not_finished == 0) { shared_data->work_done.notify_all(); }
         }
-        else { current_chunk_index = NO_MORE_CHUNKS_CODE; }
-
-        worked_on_last_chunk = (task->not_finished == 0);
-    }
-
-    if (!worked_on_last_chunk)
-    {
-        // This thread was not the last one working on this task, therefore we wait here to be notified once
-        // the last worker thread processing this task is done
-        shared_data->work_done.wait(lock, [&]
-            { return task->not_finished == 0; });
+        else
+        {
+            // Nothing queued to help with, but our task isn't done. 
+            // All remaining chunks are in flight on other threads.
+            // Sleep until some task finishes (workers signal work_done when any task's last chunk completes).
+            // Our task's own completion is guaranteed to wake us.
+            shared_data->work_done.wait(lock, [&]
+                { return task->not_finished == 0; });
+        }
     }
 }
 
