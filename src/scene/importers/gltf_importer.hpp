@@ -58,29 +58,32 @@ struct GltfImporter
     std::vector<std::vector<u32>> mesh_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
-    // Every cooked texture / mesh artifact this import produced or read from the cache, recorded into
-    // the shared .tido_cache. cache_dirty is false when every artifact was served from an up-to-date
-    // cache (so the existing .tido_cache is already correct and need not be rewritten). Both lists are
-    // gathered single-threaded after the cook tasks finish (each task stores its own result), so no
-    // locking is needed.
+    // Every cooked texture / mesh artifact this import produced or read from the cache, recorded into the
+    // shared .tido_cache when it is (re)written. Both lists are gathered single-threaded after the cook
+    // tasks finish (each task stores its own result), so no locking is needed.
     std::vector<TidoTextureCookResult> cooked_texture_artifacts = {};
     std::vector<TidoMeshCookResult> cooked_mesh_artifacts = {};
-    bool cache_dirty = true;
 
     // The shared .tido_cache for this source file, loaded once by load_cache and reused by load_images +
-    // load_meshes to serve hits. cache_valid is true only when its key matches the current cook (version
-    // + mtime).
+    // load_meshes to serve hits. The per-kind validity flags are true only when the loaded cache's cook
+    // version matches this importer's (textures and meshes are versioned independently); per-artifact
+    // staleness (source mtime / content hash) is then checked entry-by-entry in load_images/load_meshes.
     std::optional<TidoCache> loaded_cache = {};
-    bool cache_valid = false;
+    bool texture_cache_valid = false;
+    bool mesh_cache_valid = false;
 
     auto parse() -> std::optional<Scene::LoadManifestErrorCode>;
     void collect_referenced_images();
-    // Loads the shared .tido_cache + sets cache_valid (before load_images / load_meshes use it).
+    // Loads the shared .tido_cache + sets the per-kind validity flags (before load_images / load_meshes use it).
     void load_cache();
-    void load_images();
-    void load_meshes();
-    // Writes the .tido_cache manifest recording the cook key + all cooked texture AND mesh artifacts.
-    void write_cache_manifest();
+    // load_images / load_meshes each return whether they dirtied the shared .tido_cache (cooked or
+    // refreshed anything, or their cache kind was stale) so import() can skip rewriting the cache when
+    // every artifact was a clean fast-path hit.
+    auto load_images() -> bool;
+    auto load_meshes() -> bool;
+    // Writes the .tido_cache manifest (cook key + all cooked texture AND mesh artifacts). No-op unless
+    // cache_dirty - a rewrite is only needed when a cook/refresh actually changed something.
+    void write_cache_manifest(bool cache_dirty);
     void translate_materials();
     void translate_mesh_groups();
     auto translate_entities() -> RenderEntityId;

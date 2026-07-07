@@ -58,7 +58,7 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
     // content hash: two distinct primitives with byte-identical geometry must NOT share a .tido path,
     // or the parallel cook tasks race on a single file (trunc-open while another reads). The key is also
     // deterministic from the source, so a re-cook overwrites the same file rather than orphaning it.
-    std::string const stem = fmt::format("{}_{:016x}", tido_sanitize_stem(name), cache_key);
+    std::string const stem = tido_stem(name, cache_key);
     std::filesystem::path const tido_path = cache_dir / (stem + ".tido");
 
     std::ofstream ofs{tido_path, std::ios::binary | std::ios::trunc};

@@ -55,15 +55,19 @@ auto tido_hash(std::string_view bytes) -> u64
     return tido_fnv1a(std::as_bytes(std::span{bytes.data(), bytes.size()}));
 }
 
-auto tido_make_cache_key(std::filesystem::path const & source_path, u32 importer_version) -> TidoCacheKey
+auto tido_source_identity_key(std::filesystem::path const & source_path, std::string const & name, std::string const & disambiguator) -> u64
+{
+    // generic_string() so the hash is stable across path separators / how the path was spelled.
+    return tido_hash(fmt::format("{}#{}#{}", source_path.generic_string(), name, disambiguator));
+}
+
+auto tido_make_cache_key(std::filesystem::path const & source_path, u32 texture_cook_version, u32 mesh_cook_version) -> TidoCacheKey
 {
     TidoCacheKey key = {};
     // generic_string() so the hash is stable across path separators / how the path was spelled.
     key.source_hash = tido_hash(source_path.generic_string());
-    std::error_code ec = {};
-    auto const modified = std::filesystem::last_write_time(source_path, ec);
-    key.source_modified = ec ? 0 : modified.time_since_epoch().count();
-    key.importer_version = importer_version;
+    key.texture_cook_version = texture_cook_version;
+    key.mesh_cook_version = mesh_cook_version;
     return key;
 }
 
@@ -95,6 +99,9 @@ void append_texture_entry(std::vector<std::byte> & entries, TidoTextureCookResul
     std::string const path = texture.tido_path.generic_string();
     tido_append_pod(entries, s_cast<u32>(path.size()));
     tido_append_bytes(entries, path.data(), path.size());
+
+    tido_append_pod(entries, texture.source_modified);
+    tido_append_pod(entries, texture.content_hash);
 }
 
 // Serializes one mesh entry into the entries blob (see the layout comment in tido_cache.hpp). AABB /
@@ -122,6 +129,9 @@ void append_mesh_entry(std::vector<std::byte> & entries, TidoMeshCookResult cons
     std::string const path = mesh.tido_path.generic_string();
     tido_append_pod(entries, s_cast<u32>(path.size()));
     tido_append_bytes(entries, path.data(), path.size());
+
+    tido_append_pod(entries, mesh.source_modified);
+    tido_append_pod(entries, mesh.content_hash);
 }
 } // namespace
 
@@ -155,9 +165,9 @@ auto write_tido_cache(std::filesystem::path const & cache_path, TidoCacheKey con
 
     // Header.
     ofs.write(TIDO_CACHE_MAGIC.data(), TIDO_CACHE_MAGIC.size());
-    write_pod(ofs, key.importer_version);
+    write_pod(ofs, key.texture_cook_version);
+    write_pod(ofs, key.mesh_cook_version);
     write_pod(ofs, key.source_hash);
-    write_pod(ofs, key.source_modified);
     write_pod(ofs, s_cast<u32>(textures.size()));
     write_pod(ofs, s_cast<u32>(meshes.size()));
 
@@ -201,11 +211,21 @@ auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<
     }
 
     TidoCache cache = {};
-    cache.key.importer_version = reader.read_pod<u32>();
+    cache.key.texture_cook_version = reader.read_pod<u32>();
+    cache.key.mesh_cook_version = reader.read_pod<u32>();
     cache.key.source_hash = reader.read_pod<u64>();
-    cache.key.source_modified = reader.read_pod<i64>();
     u32 const texture_count = reader.read_pod<u32>();
     u32 const mesh_count = reader.read_pod<u32>();
+    if (!reader.ok) { return std::nullopt; }
+    // Guard against a corrupt / stale-format header: the two indexes must fit in the bytes that remain
+    // (each index entry is 16 bytes). This both rejects corruption and makes a .tido_cache format change
+    // self-invalidating - an old cache whose header layout differs mis-parses these counts as huge values
+    // and is dropped here (-> treated as "no cache" -> recook) instead of throwing on reserve.
+    u64 const index_entry_size = sizeof(u64) + sizeof(u64);
+    if ((s_cast<u64>(texture_count) + mesh_count) * index_entry_size > s_cast<u64>(data.size()) - reader.cursor)
+    {
+        return std::nullopt;
+    }
     cache.texture_index.reserve(texture_count);
     cache.mesh_index.reserve(mesh_count);
     for (u32 i = 0; i < texture_count; ++i)
@@ -252,6 +272,9 @@ auto TidoCache::lookup_texture(u64 cache_key) const -> std::optional<TidoTexture
     u32 const path_size = reader.read_pod<u32>();
     result.tido_path = reader.read_string(path_size);
 
+    result.source_modified = reader.read_pod<i64>();
+    result.content_hash = reader.read_pod<u64>();
+
     if (!reader.ok) { return std::nullopt; } // corrupt / truncated entry
     return result;
 }
@@ -285,6 +308,9 @@ auto TidoCache::lookup_mesh(u64 cache_key) const -> std::optional<TidoMeshCookRe
 
     u32 const path_size = reader.read_pod<u32>();
     result.tido_path = reader.read_string(path_size);
+
+    result.source_modified = reader.read_pod<i64>();
+    result.content_hash = reader.read_pod<u64>();
 
     if (!reader.ok) { return std::nullopt; } // corrupt / truncated entry
     return result;

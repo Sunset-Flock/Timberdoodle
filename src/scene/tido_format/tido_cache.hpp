@@ -28,9 +28,9 @@ using namespace tido::types;
 /// packing/padding is irrelevant; the small fixed-layout math structs AABB/BoundingSphere are written
 /// as raw POD since they are tightly packed float arrays):
 ///   magic "TIDC"
-///   u32 importer_version
+///   u32 texture_cook_version
+///   u32 mesh_cook_version
 ///   u64 source_hash
-///   i64 source_modified
 ///   u32 texture_count
 ///   u32 mesh_count
 ///   texture index: texture_count × { u64 key, u64 entry_offset }   (entry_offset = absolute file offset)
@@ -41,6 +41,8 @@ using namespace tido::types;
 ///     subresource_count × { u64 offset, u32 byte_size }
 ///     u32 tido_path_byte_count
 ///     tido_path bytes (utf-8, no terminator)
+///     i64 source_modified                 ← per-artifact staleness (max source mtime at cook time)
+///     u64 content_hash                    ← per-artifact staleness (FNV-1a of raw source bytes)
 ///   }
 ///   mesh entries: mesh_count × {
 ///     TidoMeshDescriptor (u32 lod_count)
@@ -52,6 +54,8 @@ using namespace tido::types;
 ///     }
 ///     u32 tido_path_byte_count
 ///     tido_path bytes (utf-8, no terminator)
+///     i64 source_modified                 ← per-artifact staleness (max source mtime at cook time)
+///     u64 content_hash                    ← per-artifact staleness (FNV-1a of raw source bytes)
 ///   }
 
 inline constexpr std::array<char, 4> TIDO_CACHE_MAGIC = {'T', 'I', 'D', 'C'};
@@ -59,17 +63,27 @@ inline constexpr std::array<char, 4> TIDO_CACHE_MAGIC = {'T', 'I', 'D', 'C'};
 // FNV-1a 64-bit — the hash used for cache keys and source-path hashing.
 auto tido_hash(std::string_view bytes) -> u64;
 
-// Identifies a cooked source asset for staleness checking. A cache is valid only if all three match
-// the source at load time; any mismatch (bumped importer, edited or replaced file) forces a re-cook.
+// The stable per-artifact source-identity key, shared by textures and meshes:
+//   FNV-1a of "{source path}#{artifact name}#{disambiguator}".
+// Used identically as BOTH the .tido_cache index key AND the .tido file-stem disambiguator, so it must be
+// globally unique across all imported files (the path is folded in) and recomputable from the source at
+// re-import. `disambiguator` separates artifacts that share a name within one file: the gltf image index
+// for a texture, "{mesh}.{primitive}" for a mesh.
+auto tido_source_identity_key(std::filesystem::path const & source_path, std::string const & name, std::string const & disambiguator) -> u64;
+
+// Identifies a cooked source file for staleness checking. The cache file is LOCATED by source_hash; the
+// per-kind cook versions gate whether its cached artifacts are still usable (bumping one recooks all of
+// that kind). Per-artifact staleness (source mtime / content hash) lives on each entry, NOT here - the
+// source file changing (e.g. a new entity) no longer invalidates artifacts whose bytes are unchanged.
 struct TidoCacheKey
 {
-    u64 source_hash = {};      // hash of the source asset path
-    i64 source_modified = {};  // source file last-write-time, in filesystem-clock ticks (0 if unknown)
-    u32 importer_version = {}; // hardcoded per importer; bump to invalidate every cache it wrote
+    u64 source_hash = {};          // hash of the source asset path (names/locates the .tido_cache file)
+    u32 texture_cook_version = {}; // bump to invalidate every cached TEXTURE artifact this importer wrote
+    u32 mesh_cook_version = {};    // bump to invalidate every cached MESH artifact this importer wrote
 };
 
-// Builds the cache key for a source asset: hashes its path and reads its last-write-time.
-auto tido_make_cache_key(std::filesystem::path const & source_path, u32 importer_version) -> TidoCacheKey;
+// Builds the cache key for a source asset: hashes its path and stamps the current per-kind cook versions.
+auto tido_make_cache_key(std::filesystem::path const & source_path, u32 texture_cook_version, u32 mesh_cook_version) -> TidoCacheKey;
 
 // The cache file name for a source path (stem is the hashed path, so lookup is deterministic):
 // "<source_hash hex>.tido_cache".

@@ -1,5 +1,6 @@
 #include "gltf_importer.hpp"
 
+#include <algorithm>
 #include <cmath>
 #include <fstream>
 #include <span>
@@ -15,10 +16,14 @@
 #include "../streamer.hpp"
 #include "../tido_format/tido_cache.hpp"
 #include "../tido_format/tido_mesh.hpp"
+#include "../tido_format/tido_util.hpp"
 
-// Bumped whenever the importer's cook output or the .tido layout changes; stamped into every
-// .tido_cache this importer writes so a stale cache (older version) is detected and re-cooked (T5).
-static constexpr u32 GLTF_IMPORTER_VERSION = 1;
+// Per-kind cook versions, stamped into every .tido_cache this importer writes. Bump the relevant one
+// whenever that pipeline's cook output or .tido layout changes; on re-import a mismatching version marks
+// all of that kind's cached artifacts stale and recooks them (T5). Versioned independently so a texture-
+// cook change does not needlessly recook meshes and vice versa.
+static constexpr u32 GLTF_TEXTURE_COOK_VERSION = 1;
+static constexpr u32 GLTF_MESH_COOK_VERSION = 1;
 
 // =================== Mesh extraction: glTF accessors -> format-neutral RawMesh ====================
 // The only place that reads glTF vertex/index accessors. Mirrors the texture part-1 (load_raw_image):
@@ -212,6 +217,68 @@ static auto extract_raw_mesh(
         .uvs = std::move(uvs),
     };
 }
+
+// Last-write-time of a single file in filesystem-clock ticks; nullopt if it can't be stat'd (missing /
+// unresolved). A nullopt means "unknown", so callers must NOT fast-path a cache hit on it. Read cheaply -
+// no file contents. The per-artifact staleness timestamp is built from this (any touched source bumps it).
+static auto file_mtime(std::filesystem::path const & path) -> std::optional<i64>
+{
+    std::error_code ec = {};
+    auto const t = std::filesystem::last_write_time(path, ec);
+    if (ec) { return std::nullopt; }
+    return t.time_since_epoch().count();
+}
+
+// Max file_mtime over `paths` (a mesh's geometry can span several buffer files); nullopt if none stat'd.
+static auto max_source_mtime(std::span<std::filesystem::path const> paths) -> std::optional<i64>
+{
+    std::optional<i64> newest = std::nullopt;
+    for (auto const & p : paths)
+    {
+        if (auto const t = file_mtime(p)) { newest = newest.has_value() ? std::max(newest.value(), t.value()) : t.value(); }
+    }
+    return newest;
+}
+
+// FNV-1a over a primitive's extracted (raw, unoptimized) geometry - all four arrays hashed as one stream.
+// This is the authoritative change detector: identical bytes => identical cook, so the .tido is reused.
+static auto raw_mesh_content_hash(RawMesh const & raw) -> u64
+{
+    u64 hash = tido_fnv1a(std::as_bytes(std::span{raw.indices}));
+    hash = tido_fnv1a(std::as_bytes(std::span{raw.positions}), hash);
+    hash = tido_fnv1a(std::as_bytes(std::span{raw.normals}), hash);
+    hash = tido_fnv1a(std::as_bytes(std::span{raw.uvs}), hash);
+    return hash;
+}
+
+// The distinct external buffer files a primitive's accessors (index / position / uv / normal) read from -
+// the mesh's staleness is the max mtime over these. Mirrors extract_raw_mesh's accessor set so the mtime
+// tracks exactly the files the cook consumes. Empty if a source is embedded/unsupported (mtime unknown).
+static auto mesh_source_paths(fastgltf::Asset const & asset, std::filesystem::path const & asset_path, u32 gltf_mesh_index, u32 gltf_primitive_index) -> std::vector<std::filesystem::path>
+{
+    std::filesystem::path const root_path = std::filesystem::path{asset_path}.remove_filename();
+    std::vector<std::filesystem::path> paths = {};
+    auto add_accessor_source = [&](fastgltf::Accessor const & accessor)
+    {
+        if (!accessor.bufferViewIndex.has_value()) { return; }
+        fastgltf::BufferView const & view = asset.bufferViews.at(accessor.bufferViewIndex.value());
+        fastgltf::Buffer const & buffer = asset.buffers.at(view.bufferIndex);
+        if (auto const * uri = std::get_if<fastgltf::sources::URI>(&buffer.data))
+        {
+            std::filesystem::path p = root_path / uri->uri.fspath();
+            if (std::find(paths.begin(), paths.end(), p) == paths.end()) { paths.push_back(std::move(p)); }
+        }
+    };
+    fastgltf::Mesh const & mesh = asset.meshes.at(gltf_mesh_index);
+    fastgltf::Primitive const & prim = mesh.primitives.at(gltf_primitive_index);
+    if (prim.indicesAccessor.has_value()) { add_accessor_source(asset.accessors.at(prim.indicesAccessor.value())); }
+    for (std::string_view const attr : {VERT_ATTRIB_POSITION_NAME, VERT_ATTRIB_TEXCOORD0_NAME, VERT_ATTRIB_NORMAL_NAME})
+    {
+        auto const it = prim.findAttribute(attr);
+        if (it != prim.attributes.end()) { add_accessor_source(asset.accessors.at(it->accessorIndex)); }
+    }
+    return paths;
+}
 } // namespace
 
 // =================== Texture loading, part 1: load + decode the raw image data ===================
@@ -339,6 +406,29 @@ static auto load_raw_image(fastgltf::Asset const & asset, u32 gltf_image_index, 
         .name = raw_image_data.image_path.filename().string(),
     };
 }
+
+// The external source file an image reads from: the URI image file, or the .bin behind a buffer-view
+// image. Empty if the source is embedded/unsupported (mtime unknown). The image's staleness keys off this
+// single file (unlike a mesh, whose geometry can span several buffers - see mesh_source_paths).
+static auto image_source_path(fastgltf::Asset const & asset, u32 gltf_image_index, std::filesystem::path const & asset_path) -> std::filesystem::path
+{
+    fastgltf::Image const & image = asset.images.at(gltf_image_index);
+    std::filesystem::path const scene_dir_path = std::filesystem::path(asset_path).remove_filename();
+    if (auto const * uri = std::get_if<fastgltf::sources::URI>(&image.data))
+    {
+        if (uri->uri.isLocalPath()) { return {scene_dir_path / uri->uri.fspath()}; }
+    }
+    else if (auto const * buffer_view = std::get_if<fastgltf::sources::BufferView>(&image.data))
+    {
+        fastgltf::BufferView const & view = asset.bufferViews.at(buffer_view->bufferViewIndex);
+        fastgltf::Buffer const & buffer = asset.buffers.at(view.bufferIndex);
+        if (auto const * uri = std::get_if<fastgltf::sources::URI>(&buffer.data))
+        {
+            return {scene_dir_path / uri->uri.fspath()};
+        }
+    }
+    return {};
+}
 } // namespace
 
 GltfImporter::GltfImporter(Scene & scene, Scene::LoadManifestInfo const & info)
@@ -359,16 +449,16 @@ auto GltfImporter::import() -> std::variant<RenderEntityId, Scene::LoadManifestE
     // translate pass wires the consumer (materials reference images; mesh groups reference meshes).
     collect_referenced_images(); // pass 1: resolve each used texture to its image (+ type); skip unreferenced.
     load_cache();                // load the shared .tido_cache once (used by load_images + load_meshes).
-    load_images();               // pass 2: cook every referenced image, then add it to the manifest.
+    bool const textures_dirtied_cache = load_images(); // pass 2: cook every referenced image, then add it.
     translate_materials();       // pass 3: a material's images are loaded -> its entry is complete -> add it.
-    load_meshes();               // pass 4: cook every mesh, then add it to the manifest.
+    bool const meshes_dirtied_cache = load_meshes();   // pass 4: cook every mesh, then add it to the manifest.
     translate_mesh_groups();     // pass 5: a group's meshes are added -> add the group over them.
     RenderEntityId const root_r_ent_id = translate_entities(); // pass 6: entities reference mesh groups.
     scene._root_render_entities.push_back(root_r_ent_id);
 
     // Persist the cook once every artifact (textures + meshes) is final: record the key + all cooked
-    // artifacts into the shared .tido_cache.
-    write_cache_manifest();
+    // artifacts into the shared .tido_cache - but only if a cook/refresh actually changed it.
+    write_cache_manifest(textures_dirtied_cache || meshes_dirtied_cache);
 
     return root_r_ent_id;
 }
@@ -478,38 +568,30 @@ auto GltfImporter::gltf_texture_to_image_index(u32 const gltf_texture_index) -> 
 
 void GltfImporter::load_cache()
 {
-    // Load this source file's shared .tido_cache and accept it only if its key matches the current cook
-    // (importer version + source mtime). On a match, referenced images / meshes are reconstructed from it
-    // - no cooking. Stored as members so both load_images and load_meshes reuse the one loaded cache.
-    TidoCacheKey const current_key = tido_make_cache_key(file_path, GLTF_IMPORTER_VERSION);
+    // Load this source file's shared .tido_cache. It is LOCATED by the source-path hash; whether its
+    // entries are usable is decided per kind by the cook version (a bumped version stales all of that
+    // kind), and then per artifact by mtime/content hash in load_images/load_meshes. The source file
+    // merely changing (a new entity, reordered nodes) no longer invalidates anything on its own. Stored as
+    // members so both load_images and load_meshes reuse the one loaded cache.
+    TidoCacheKey const current_key = tido_make_cache_key(file_path, GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
     loaded_cache = read_tido_cache(TIDO_ASSET_CACHE_DIR / tido_cache_file_name(current_key.source_hash));
-    cache_valid = loaded_cache.has_value() &&
-        loaded_cache->key.importer_version == current_key.importer_version &&
-        loaded_cache->key.source_hash == current_key.source_hash &&
-        loaded_cache->key.source_modified == current_key.source_modified;
+    texture_cache_valid = loaded_cache.has_value() && loaded_cache->key.texture_cook_version == current_key.texture_cook_version;
+    mesh_cache_valid = loaded_cache.has_value() && loaded_cache->key.mesh_cook_version == current_key.mesh_cook_version;
 
-    if (cache_valid)
+    if (!loaded_cache.has_value())
     {
-        DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': cache hit ({} texture + {} mesh entries) - skipping cook",
-            info.asset_name.string(), loaded_cache->texture_index.size(), loaded_cache->mesh_index.size()));
-    }
-    else if (!loaded_cache.has_value())
-    {
-        DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': no cache - cooking", info.asset_name.string()));
+        DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': no cache - cooking everything", info.asset_name.string()));
     }
     else
     {
-        // Cache present but stale: report which part of the key changed.
-        char const * reason =
-            loaded_cache->key.importer_version != current_key.importer_version ? "importer version changed" :
-            loaded_cache->key.source_modified != current_key.source_modified   ? "source file modified" :
-                                                                                 "source hash mismatch";
-        DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': cache stale ({}) - recooking",
-            info.asset_name.string(), reason));
+        DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': cache loaded ({} texture + {} mesh entries); textures {}, meshes {}",
+            info.asset_name.string(), loaded_cache->texture_index.size(), loaded_cache->mesh_index.size(),
+            texture_cache_valid ? "valid" : "stale (cook version changed) - recooking",
+            mesh_cache_valid ? "valid" : "stale (cook version changed) - recooking"));
     }
 }
 
-void GltfImporter::load_images()
+auto GltfImporter::load_images() -> bool
 {
     // Second pass: cook every referenced image, then add each to the manifest with its cooked result
     // in hand. An image is added ONLY after it is cooked, so the moment it is in the manifest it is
@@ -524,12 +606,13 @@ void GltfImporter::load_images()
             std::filesystem::path asset_path = {};
             u32 gltf_image_index = {};
             TextureMaterialType type = {};
+            u64 cache_key = {};
+            // Current max source mtime, stamped onto the (re)cooked or refreshed artifact.
+            i64 current_mtime = {};
         };
 
         TaskInfo info = {};
-        // Outputs, valid iff `succeeded`.
-        TidoTextureCookResult cooked_artifact = {};
-        bool succeeded = {};
+        std::optional<TidoTextureCookResult> cooked_artifact = {};
 
         LoadImageTask(TaskInfo const & info)
             : info{info}
@@ -539,12 +622,28 @@ void GltfImporter::load_images()
 
         virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
         {
-            // Part 1: read the raw image bytes (+ tag their source format). No decoding here.
+            // On a failed (re)cook, fall back to the last good cook (the pre-seeded `cached`, if any) and
+            // mark the current source version as handled by refreshing its stored mtime - so a source we
+            // cannot (re)process is NOT re-flagged "out of date" on every subsequent import (perpetual
+            // recook). A later real edit bumps the mtime again and re-triggers a cook attempt. If there is
+            // no cached fallback (first cook), cooked_artifact stays nullopt and the collect loop skips it.
+            auto keep_cached_fallback = [&] { if (cooked_artifact.has_value()) { cooked_artifact->source_modified = info.current_mtime; } };
+
+            // Part 1: read the raw image bytes (+ tag their source format).
             auto raw = load_raw_image(*info.asset, info.gltf_image_index, info.asset_path, info.type);
             if (!raw.has_value())
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to load image index {} name {}",
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
+                keep_cached_fallback();
+                return;
+            }
+
+            // Verify whether the content of the image actually changed using a content hash over the raw data.
+            u64 const content_hash = tido_fnv1a(std::as_bytes(std::span{raw.value().data}));
+            if (cooked_artifact.has_value() && cooked_artifact->content_hash == content_hash && std::filesystem::exists(cooked_artifact->tido_path))
+            {
+                cooked_artifact->source_modified = info.current_mtime;
                 return;
             }
             // Part 2: process the raw bytes into GPU-ready cooked CPU memory (decode/transcode/compress).
@@ -553,101 +652,112 @@ void GltfImporter::load_images()
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to process image index {} name {}",
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
+                keep_cached_fallback();
                 return;
             }
             ProcessedImage const & processed = std::get<ProcessedImage>(processed_ret);
-            // Part 3: write the cooked image out as a .tido artifact (mirrors write_mesh_tido). The GPU
-            // upload is NOT done here: Scene::add_texture drives the streamer to make it resident.
-            auto tido_result = write_texture_tido(processed, TIDO_ASSET_CACHE_DIR, raw.value().name);
+            // Part 3: write the cooked image out as a .tido artifact.
+            auto tido_result = write_texture_tido(processed, TIDO_ASSET_CACHE_DIR, raw.value().name, info.cache_key);
             if (!tido_result.has_value())
             {
                 DEBUG_MSG(fmt::format("[WARN][write_texture_tido] failed to write .tido for image '{}'", raw.value().name));
+                keep_cached_fallback();
                 return;
             }
+
             DEBUG_MSG(fmt::format("[write_texture_tido] cooked '{}' -> {} ({}x{}, {} mips) -> '{}'",
                 raw.value().name, s_cast<u32>(processed.image_info.format), processed.image_info.size.x,
                 processed.image_info.size.y, processed.mips_to_copy, tido_result.value().tido_path.string()));
-            cooked_artifact = std::move(tido_result.value());
-            succeeded = true;
+            cooked_artifact = tido_result.value();
+            cooked_artifact->source_modified = info.current_mtime;
+            cooked_artifact->content_hash = content_hash;
         };
     };
 
     image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
 
-    // Stable per-image cache key (source identity). Recomputed identically on re-import so a valid
-    // cache can be hit without cooking. Name + gltf index makes it unique within this file.
+    // Stable per-image source-identity key. Recomputed identically on re-import so a valid cache can be
+    // hit without cooking. It also forms the .tido file stem, so it folds in the source path to stay
+    // unique across ALL imported files (the .tido files share one cache dir) - identical scheme to
+    // mesh_cache_key (tido_source_identity_key), with the gltf image index as the in-file disambiguator.
     auto image_cache_key = [&](u32 gltf_image_index) -> u64
     {
-        return tido_hash(fmt::format("{}#{}", asset.images[gltf_image_index].name.c_str(), gltf_image_index));
+        return tido_source_identity_key(file_path, asset.images[gltf_image_index].name.c_str(), fmt::format("{}", gltf_image_index));
     };
 
     // Records a cooked texture (fresh cook or cache hit) into the .tido_cache collection + the scene
     // manifest (which queues it for async streaming). cache_key must already be set on the artifact.
-    auto add_cooked_texture = [&](u32 gltf_image_index, TidoTextureCookResult artifact)
+    auto add_cooked_texture = [&](u32 gltf_image_index, const TidoTextureCookResult & artifact)
     {
         cooked_texture_artifacts.push_back(artifact);
         u32 const image_manifest_index = scene.add_texture(TextureManifestEntry{
             .type = image_types.at(gltf_image_index),
             .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
-            .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
+            .cooked_artifact = artifact,              // .tido reference; streamed in by the scene.
             .name = asset.images[gltf_image_index].name.c_str(),
         });
         image_manifest_indices.at(gltf_image_index) = image_manifest_index;
     };
 
-    // For each referenced image (skip the unreferenced ones found in pass 1): serve it from the cache
-    // if present, else dispatch a cook task.
-    u32 cached_count = 0;
+    // For each referenced image (skip the unreferenced ones found in pass 1) decide:
+    //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido exists)
+    //     is reused WITHOUT reading the source at all.
+    //   - otherwise dispatch a task that reads the source, content-hashes it, and either reuses the cached
+    //     .tido and only updates the metadata or recooks the image.
+    u32 fast_hits = 0;
     std::vector<std::shared_ptr<LoadImageTask>> image_cook_tasks = {};
-    for (u32 i = 0; i < s_cast<u32>(asset.images.size()); ++i)
+    for (u32 image_index = 0; image_index < s_cast<u32>(asset.images.size()); ++image_index)
     {
-        if (image_types.at(i) == TextureMaterialType::NONE)
+        if (image_types.at(image_index) == TextureMaterialType::NONE)
         {
             continue; // Unreferenced image - do not cook or add it.
         }
-        if (cache_valid)
+        std::optional<TidoTextureCookResult> cached = texture_cache_valid ? loaded_cache->lookup_texture(image_cache_key(image_index)) : std::nullopt;
+        std::filesystem::path const src_path = image_source_path(asset, image_index, file_path);
+        std::optional<i64> const src_mtime = src_path.empty() ? std::nullopt : file_mtime(src_path);
+
+        // mtime fast path: reuse the cached .tido without reading the source.
+        if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() && std::filesystem::exists(cached->tido_path))
         {
-            // Serve from cache only if the entry exists AND its referenced .tido is still on disk
-            // (a deleted .tido with a surviving cache must fall through to a re-cook, not hit).
-            if (auto cached = loaded_cache->lookup_texture(image_cache_key(i));
-                cached.has_value() && std::filesystem::exists(cached->tido_path))
-            {
-                add_cooked_texture(i, std::move(cached.value())); // cache hit: skip cooking.
-                ++cached_count;
-                continue;
-            }
+            add_cooked_texture(image_index, cached.value());
+            ++fast_hits;
+            continue;
         }
         auto task = std::make_shared<LoadImageTask>(LoadImageTask::TaskInfo{
             .asset = &asset,
             .asset_path = file_path,
-            .gltf_image_index = i,
-            .type = image_types.at(i),
+            .gltf_image_index = image_index,
+            .type = image_types.at(image_index),
+            .cache_key = image_cache_key(image_index),
+            .current_mtime = src_mtime.value_or(0),
         });
+        task->cooked_artifact = cached; // May be nullopt if no cache entry exists.
         info.thread_pool->async_dispatch(task, TaskPriority::LOW);
         image_cook_tasks.push_back(std::move(task));
     }
 
-    // Wait for the freshly cooked images, key them, and add them.
+    // Wait for the dispatched images and add them. Each task set source_modified + content_hash; a task may
+    // have reused the cached .tido on a content match rather than recooking.
     for (auto const & task : image_cook_tasks)
     {
         info.thread_pool->block_on(task);
-        if (!task->succeeded)
+        if (!task->cooked_artifact.has_value())
         {
             continue;
         }
-        u32 const gltf_image_index = task->info.gltf_image_index;
-        task->cooked_artifact.cache_key = image_cache_key(gltf_image_index);
-        add_cooked_texture(gltf_image_index, std::move(task->cooked_artifact));
+        add_cooked_texture(task->info.gltf_image_index, task->cooked_artifact.value());
     }
 
-    // Only (re)write the cache if we cooked something; a full cache hit is already on disk and current.
-    cache_dirty = !image_cook_tasks.empty() || !cache_valid;
+    // The cache needs rewriting if anything changed: any dispatched task (a recook OR an mtime refresh
+    // both change the persisted metadata) or a stale/absent texture cache. A pure fast-path run does not.
+    bool const dirtied_cache = !image_cook_tasks.empty() || !texture_cache_valid;
 
-    DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': {} textures ({} from cache, {} cooked)",
-        info.asset_name.string(), cached_count + s_cast<u32>(image_cook_tasks.size()), cached_count, image_cook_tasks.size()));
+    DEBUG_MSG(fmt::format("[GltfImporter::load_images] '{}': {} textures ({} mtime-hit, {} read)",
+        info.asset_name.string(), fast_hits + s_cast<u32>(image_cook_tasks.size()), fast_hits, image_cook_tasks.size()));
+    return dirtied_cache;
 }
 
-void GltfImporter::load_meshes()
+auto GltfImporter::load_meshes() -> bool
 {
     /// NOTE: fastgltf::Mesh is a MeshGroup, fastgltf::Primitive is a Mesh (MeshLodGroup).
     // Fourth pass (mirrors load_images): cook every mesh, then add each to the manifest with its cooked
@@ -663,12 +773,12 @@ void GltfImporter::load_meshes()
             u32 gltf_mesh_index = {};
             u32 gltf_primitive_index = {};
             u64 cache_key = {};
+            // Current max source mtime, stamped onto the (re)cooked or refreshed artifact.
+            i64 current_mtime = {};
         };
 
         TaskInfo info = {};
-        // Outputs, valid iff `succeeded`.
-        TidoMeshCookResult cooked_artifact = {};
-        bool succeeded = {};
+        std::optional<TidoMeshCookResult> cooked_artifact = {};
 
         LoadMeshTask(TaskInfo const & info)
             : info{info}
@@ -679,28 +789,44 @@ void GltfImporter::load_meshes()
         virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
         {
             std::string const mesh_name = std::string(info.asset->meshes[info.gltf_mesh_index].name.c_str()) + "." + std::to_string(info.gltf_primitive_index);
+            // On a failed (re)cook, fall back to the last good cook (the pre-seeded `cached`, if any) and
+            // refresh its stored mtime so an un-processable source is not re-flagged "out of date" every
+            // import. No fallback (first cook) -> stays nullopt -> the collect loop skips it. Mirrors load_images.
+            auto keep_cached_fallback = [&] { if (cooked_artifact.has_value()) { cooked_artifact->source_modified = info.current_mtime; } };
+
             // Part 1: extract the glTF accessors into a format-neutral RawMesh (importer).
             auto raw = extract_raw_mesh(*info.asset, info.asset_path, info.gltf_mesh_index, info.gltf_primitive_index);
             if (!raw.has_value())
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to extract mesh group {} mesh {}",
                     info.gltf_mesh_index, info.gltf_primitive_index));
+                keep_cached_fallback();
+                return;
+            }
+            // Content hash of the raw extracted geometry: the authoritative change detector.
+            u64 const content_hash = raw_mesh_content_hash(raw.value());
+            if (cooked_artifact.has_value() && cooked_artifact->content_hash == content_hash && std::filesystem::exists(cooked_artifact->tido_path))
+            {
+                // Geometry unchanged (only the mtime moved): keep the existing .tido, just refresh the
+                // stored mtime so the next import fast-paths without reading the source again.
+                cooked_artifact->source_modified = info.current_mtime;
                 return;
             }
             // Part 2: cook the raw streams into the runtime form (optimizer).
             ProcessedMesh const processed = optimize_mesh(raw.value());
-            // Part 3: write the cooked mesh out as a .tido artifact (mirrors write_texture_tido for
-            // images). The GPU upload is NOT done here: Scene::add_mesh marks it for the streamer.
+            // Part 3: write the cooked mesh out as a .tido artifact.
             auto tido_result = write_mesh_tido(processed, TIDO_ASSET_CACHE_DIR, mesh_name, info.cache_key);
             if (!tido_result.has_value())
             {
                 DEBUG_MSG(fmt::format("[WARN][write_mesh_tido] failed to write .tido for mesh '{}'", mesh_name));
+                keep_cached_fallback();
                 return;
             }
             DEBUG_MSG(fmt::format("[write_mesh_tido] cooked '{}' ({} LODs) -> '{}'",
                 mesh_name, tido_result.value().descriptor.lod_count, tido_result.value().tido_path.string()));
-            cooked_artifact = std::move(tido_result.value());
-            succeeded = true;
+            cooked_artifact = tido_result.value();
+            cooked_artifact->source_modified = info.current_mtime;
+            cooked_artifact->content_hash = content_hash;
         };
     };
 
@@ -718,12 +844,11 @@ void GltfImporter::load_meshes()
     // path, two scenes that both have e.g. an unnamed mesh at index 0 would hash to the same key, write to
     // the same .tido, and clobber each other (→ "LOD blob out of .tido bounds" when loading the second).
     // The path also disambiguates byte-identical primitives within a file (so parallel cook tasks never
-    // race on one .tido). Unlike textures (whose .tido stem is a content hash, cross-file-safe by content),
-    // the mesh stem is identity-based, so the identity must carry the file.
+    // race on one .tido). Textures use the identical scheme (tido_source_identity_key) for their stem.
     auto mesh_cache_key = [&](u32 gltf_mesh_index, u32 gltf_primitive_index) -> u64
     {
-        return tido_hash(fmt::format("{}#{}#{}.{}",
-            file_path.generic_string(), asset.meshes[gltf_mesh_index].name.c_str(), gltf_mesh_index, gltf_primitive_index));
+        return tido_source_identity_key(file_path, asset.meshes[gltf_mesh_index].name.c_str(),
+            fmt::format("{}.{}", gltf_mesh_index, gltf_primitive_index));
     };
 
     // Records a cooked mesh (fresh cook or cache hit) into the .tido_cache collection + the scene manifest
@@ -745,25 +870,30 @@ void GltfImporter::load_meshes()
         mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
     };
 
-    // For each mesh: serve it from the cache if present, else dispatch a cook task.
-    u32 cached_count = 0;
+    // For each mesh decide per artifact (mirrors load_images):
+    //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido exists)
+    //     is reused WITHOUT reading the source at all.
+    //   - otherwise dispatch a task that extracts the geometry, content-hashes it, and either reuses the
+    //     cached .tido (bytes unchanged, just refresh the mtime) or recooks (bytes changed / no entry).
+    u32 fast_hits = 0;
     std::vector<std::shared_ptr<LoadMeshTask>> mesh_cook_tasks = {};
     for (u32 g = 0; g < s_cast<u32>(asset.meshes.size()); ++g)
     {
         for (u32 p = 0; p < s_cast<u32>(asset.meshes[g].primitives.size()); ++p)
         {
             u64 const key = mesh_cache_key(g, p);
-            if (cache_valid)
+            std::optional<TidoMeshCookResult> cached =
+                mesh_cache_valid ? loaded_cache->lookup_mesh(key) : std::nullopt;
+            std::vector<std::filesystem::path> const src_paths = mesh_source_paths(asset, file_path, g, p);
+            std::optional<i64> const src_mtime = max_source_mtime(src_paths);
+
+            // mtime fast path: reuse the cached .tido without reading the source.
+            if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() &&
+                std::filesystem::exists(cached->tido_path))
             {
-                // Serve from cache only if the entry exists AND its referenced .tido is still on disk
-                // (a deleted .tido with a surviving cache must fall through to a re-cook, not hit).
-                if (auto cached = loaded_cache->lookup_mesh(key);
-                    cached.has_value() && std::filesystem::exists(cached->tido_path))
-                {
-                    add_cooked_mesh(g, p, std::move(cached.value())); // cache hit: skip cooking.
-                    ++cached_count;
-                    continue;
-                }
+                add_cooked_mesh(g, p, std::move(cached.value()));
+                ++fast_hits;
+                continue;
             }
             auto task = std::make_shared<LoadMeshTask>(LoadMeshTask::TaskInfo{
                 .asset = &asset,
@@ -771,39 +901,44 @@ void GltfImporter::load_meshes()
                 .gltf_mesh_index = g,
                 .gltf_primitive_index = p,
                 .cache_key = key,
+                .current_mtime = src_mtime.value_or(0),
             });
+            task->cooked_artifact = cached;
             info.thread_pool->async_dispatch(task, TaskPriority::LOW);
             mesh_cook_tasks.push_back(std::move(task));
         }
     }
 
-    // Wait for the freshly cooked meshes and add them.
+    // Wait for the dispatched meshes and add them. Each task set source_modified + content_hash; a task may
+    // have reused the cached .tido on a content match rather than recooking.
     for (auto const & task : mesh_cook_tasks)
     {
         info.thread_pool->block_on(task);
-        if (!task->succeeded)
+        if (!task->cooked_artifact.has_value())
         {
             continue;
         }
-        add_cooked_mesh(task->info.gltf_mesh_index, task->info.gltf_primitive_index, std::move(task->cooked_artifact));
+        add_cooked_mesh(task->info.gltf_mesh_index, task->info.gltf_primitive_index, task->cooked_artifact.value());
     }
 
-    // Only (re)write the cache if we cooked something; a full cache hit is already on disk and current.
-    cache_dirty = cache_dirty || !mesh_cook_tasks.empty();
+    // The cache needs rewriting if anything changed: any dispatched task (a recook OR an mtime refresh
+    // both change the persisted metadata) or a stale/absent mesh cache. A pure fast-path run does not.
+    bool const dirtied_cache = !mesh_cook_tasks.empty() || !mesh_cache_valid;
 
-    DEBUG_MSG(fmt::format("[GltfImporter::load_meshes] '{}': {} meshes ({} from cache, {} cooked)",
-        info.asset_name.string(), cached_count + s_cast<u32>(mesh_cook_tasks.size()), cached_count, mesh_cook_tasks.size()));
+    DEBUG_MSG(fmt::format("[GltfImporter::load_meshes] '{}': {} meshes ({} mtime-hit, {} read)",
+        info.asset_name.string(), fast_hits + s_cast<u32>(mesh_cook_tasks.size()), fast_hits, mesh_cook_tasks.size()));
+    return dirtied_cache;
 }
 
-void GltfImporter::write_cache_manifest()
+void GltfImporter::write_cache_manifest(bool cache_dirty)
 {
-    // Nothing to do if every artifact came from an already-current cache.
+    // Nothing to do if every artifact came from an already-current cache (all fast-path hits, versions ok).
     if (!cache_dirty) { return; }
-    // Key the cache on the source path + its modified time + the hardcoded importer version, and record
-    // every cooked texture + mesh artifact. The file is named by the hashed source path so a future
-    // import can find it deterministically (T5). IO failure is non-fatal: the cook already ran this
-    // session.
-    TidoCacheKey const key = tido_make_cache_key(file_path, GLTF_IMPORTER_VERSION);
+    // Key the cache on the source path + the per-kind cook versions, and record every cooked texture +
+    // mesh artifact (each carrying its own source mtime + content hash for per-artifact staleness). The
+    // file is named by the hashed source path so a future import can find it deterministically (T5). IO
+    // failure is non-fatal: the cook already ran this session.
+    TidoCacheKey const key = tido_make_cache_key(file_path, GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
     std::filesystem::path const cache_path = TIDO_ASSET_CACHE_DIR / tido_cache_file_name(key.source_hash);
     if (write_tido_cache(cache_path, key, cooked_texture_artifacts, cooked_mesh_artifacts))
     {

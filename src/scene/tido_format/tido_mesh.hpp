@@ -64,6 +64,12 @@ struct TidoMeshCookResult
     // Stable per-artifact lookup key (hash of the mesh's source identity). Used as the key of the
     // .tido_cache index so an importer can find this entry by recomputing the key from the source.
     u64 cache_key = {};
+    // Per-artifact staleness metadata (persisted in the .tido_cache): the max last-write-time over the
+    // source file(s) at cook time, and the FNV-1a content hash of the raw (unoptimized) source geometry.
+    // On re-import a matching mtime reuses the .tido without reading the source; on a mtime miss a matching
+    // content hash still reuses it (only the stored mtime is refreshed) - only a content change recooks.
+    i64 source_modified = {};
+    u64 content_hash = {};
     TidoMeshDescriptor descriptor = {};
     std::array<TidoMeshLodDescriptor, MAX_MESHES_PER_LOD_GROUP> lods = {}; // first descriptor.lod_count valid
     std::filesystem::path tido_path = {};                                 // the written .tido data file

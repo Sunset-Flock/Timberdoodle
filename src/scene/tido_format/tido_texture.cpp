@@ -86,7 +86,7 @@ auto subresource_byte_size(FormatBlockInfo const & block, u32 width, u32 height,
 
 } // namespace
 
-auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>
+auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name, u64 cache_key) -> std::optional<TidoTextureCookResult>
 {
     auto const & image_info = processed.image_info;
     u32 const mip_count = processed.mips_to_copy;
@@ -105,7 +105,9 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
     std::error_code ec = {};
     std::filesystem::create_directories(cache_dir, ec); // ignore "already exists"; the open below reports real failures
 
-    std::string const stem = fmt::format("{}_{:016x}", tido_sanitize_stem(name), tido_fnv1a(processed.src_data));
+    // Stem disambiguator is the texture's source-identity key (NOT a content hash): distinct textures get
+    // distinct paths, and a re-cook of the same source overwrites the same file. Identical to write_mesh_tido.
+    std::string const stem = tido_stem(name, cache_key);
     std::filesystem::path const tido_path = cache_dir / (stem + ".tido");
 
     // Build the .tido payload mip-major, coarse-first; all (single) layers of a mip are contiguous.
@@ -137,6 +139,7 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
     if (!ofs.good()) { return std::nullopt; }
 
     TidoTextureCookResult result = {};
+    result.cache_key = cache_key;
     result.descriptor = {
         .format = s_cast<u32>(image_info.format),
         .width = width,

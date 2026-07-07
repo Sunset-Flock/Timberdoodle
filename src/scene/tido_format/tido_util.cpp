@@ -1,10 +1,11 @@
 #include "tido_util.hpp"
 
 #include <cctype>
+#include <fmt/format.h>
 
-auto tido_fnv1a(std::span<std::byte const> bytes) -> u64
+auto tido_fnv1a(std::span<std::byte const> bytes, u64 seed) -> u64
 {
-    u64 hash = 0xcbf29ce484222325ull;
+    u64 hash = seed;
     for (std::byte const b : bytes)
     {
         hash ^= s_cast<u64>(s_cast<u8>(b));
@@ -27,4 +28,9 @@ auto tido_sanitize_stem(std::string const & name) -> std::string
     if (dot != std::string::npos) { out.erase(dot); }
     if (out.empty()) { out = "unnamed"; }
     return out;
+}
+
+auto tido_stem(std::string const & name, u64 identity_key) -> std::string
+{
+    return fmt::format("{}_{:016x}", tido_sanitize_stem(name), identity_key);
 }

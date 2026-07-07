@@ -63,6 +63,12 @@ struct TidoTextureCookResult
     // Stable per-artifact lookup key (hash of the texture's source identity). Used as the key of the
     // .tido_cache index so an importer can find this entry by recomputing the key from the source.
     u64 cache_key = {};
+    // Per-artifact staleness metadata (persisted in the .tido_cache): the max last-write-time over the
+    // source file(s) at cook time, and the FNV-1a content hash of the raw (unoptimized) source bytes. On
+    // re-import a matching mtime reuses the .tido without reading the source; on a mtime miss a matching
+    // content hash still reuses it (only the stored mtime is refreshed) - only a content change recooks.
+    i64 source_modified = {};
+    u64 content_hash = {};
     TidoTextureDescriptor descriptor = {};
     std::vector<TidoSubresourceEntry> subresources = {}; // size == array_layers * mip_count
     std::filesystem::path tido_path = {};                // the written .tido data file
@@ -73,7 +79,9 @@ struct TidoTextureCookResult
 inline std::filesystem::path const TIDO_ASSET_CACHE_DIR = "tido_asset_cache";
 
 // Writes <cache_dir>/<name>.tido (raw data, mip-major coarse-first) from an already-processed image and
-// returns its descriptor + subresource offset table. Does NOT write the .tido_cache manifest yet (that
-// is aggregated per imported file in a later step). Mirrors write_mesh_tido. Returns std::nullopt on an
-// IO failure.
-auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name) -> std::optional<TidoTextureCookResult>;
+// returns its descriptor + subresource offset table. `cache_key` is the texture's stable source-identity
+// hash (tido_source_identity_key); it is recorded on the result AND forms the .tido file stem, so two
+// distinct textures never resolve to the same path and a re-cook overwrites the same file. Identical
+// scheme to write_mesh_tido. Does NOT write the .tido_cache manifest yet (that is aggregated per imported
+// file in a later step). Returns std::nullopt on an IO failure.
+auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path const & cache_dir, std::string const & name, u64 cache_key) -> std::optional<TidoTextureCookResult>;
