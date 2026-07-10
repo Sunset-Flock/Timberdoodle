@@ -45,9 +45,15 @@ struct TidoCacheKey
 // Builds the cache key for a source asset: hashes its path and stamps the current per-kind cook versions.
 auto tido_make_cache_key(std::filesystem::path const & source_path, u32 texture_cook_version, u32 mesh_cook_version) -> TidoCacheKey;
 
-// The cache file name for a source path (stem is the hashed path, so lookup is deterministic):
-// "<source_hash hex>.tido_cache".
-auto tido_cache_file_name(u64 source_hash) -> std::string;
+// The cache file name for a source asset: "<asset stem>_<source_hash hex>.tido_cache". Carries the asset
+// name for readability; the appended source hash makes it unique and deterministic - the same stem scheme
+// the .tido data files use (tido_stem).
+auto tido_cache_file_name(std::string const & asset_name, u64 source_hash) -> std::string;
+
+// The per-import output directory: "<TIDO_ASSET_CACHE_DIR>/<asset stem>_<source_hash hex>". Every artifact
+// a source produces - its .tido_cache and all .tido data files - is written here, so one import's output is
+// grouped in a single folder named after the source asset.
+auto tido_cache_dir(std::string const & asset_name, u64 source_hash) -> std::filesystem::path;
 
 // A loaded .tido_cache: the cook key + the cooked artifacts, each keyed by its stable source-identity
 // hash (cache_key). Look artifacts up by the same key the writer stored, in the map matching the kind.

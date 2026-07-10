@@ -1,8 +1,11 @@
 #pragma once
 
 #include <filesystem>
+#include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
+#include <string>
 #include <variant>
 #include <vector>
 
@@ -10,6 +13,7 @@
 
 #include "../scene.hpp"
 #include "../tido_format/tido_cache.hpp"
+#include "../../json_utils/tido_cache.hpp" // .tido_cache read + record serializers
 
 /// --- glTF Importer ---
 /// The ONLY place fastgltf lives. Parses a glTF/GLB file and translates it into the generic scene
@@ -58,11 +62,6 @@ struct GltfImporter
     std::vector<std::vector<u32>> mesh_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
-    // Every cooked texture / mesh artifact this import produced or read from the cache, recorded into the
-    // shared .tido_cache when it is (re)written. Both lists are gathered single-threaded after the cook
-    // tasks finish (each task stores its own result), so no locking is needed.
-    std::vector<TidoTextureCookResult> cooked_texture_artifacts = {};
-    std::vector<TidoMeshCookResult> cooked_mesh_artifacts = {};
 
     // The shared .tido_cache for this source file, loaded once by load_cache and reused by load_images +
     // load_meshes to serve hits. The per-kind validity flags are true only when the loaded cache's cook
@@ -72,18 +71,46 @@ struct GltfImporter
     bool texture_cache_valid = false;
     bool mesh_cache_valid = false;
 
+    // The per-import output directory (TIDO_ASSET_CACHE_DIR / "<asset stem>_<source hash>"), computed once
+    // by load_cache. Every artifact this import produces - the .tido_cache and all .tido data files - is
+    // written here, grouping one source's output in a single folder named after it.
+    std::filesystem::path cache_output_dir = {};
+
+    // The shared .tido_cache open for writing. import() decides whether a rewrite is needed (rewriting_cache =
+    // !validate_cache()) and only then calls open_cache_writer; when validate_cache reports the loaded cache
+    // fully usable, rewriting_cache stays false, open_cache_writer is never called, and cache_stream stays
+    // closed. A rewrite truncates the file, writes the header, and load_images / load_meshes stream every
+    // artifact's record into it as its cook drains - so a rewrite contains each key exactly once (no duplicates).
+    // cache_write_mutex guards cache_stream: cook chunks append records to it concurrently.
+    std::ofstream cache_stream = {};
+    std::mutex cache_write_mutex = {};
+    bool rewriting_cache = false;
+
     auto parse() -> std::optional<Scene::LoadManifestErrorCode>;
     void collect_referenced_images();
     // Loads the shared .tido_cache + sets the per-kind validity flags (before load_images / load_meshes use it).
     void load_cache();
-    // load_images / load_meshes each return whether they dirtied the shared .tido_cache (cooked or
-    // refreshed anything, or their cache kind was stale) so import() can skip rewriting the cache when
-    // every artifact was a clean fast-path hit.
-    auto load_images() -> bool;
-    auto load_meshes() -> bool;
-    // Writes the .tido_cache manifest (cook key + all cooked texture AND mesh artifacts). No-op unless
-    // cache_dirty - a rewrite is only needed when a cook/refresh actually changed something.
-    void write_cache_manifest(bool cache_dirty);
+    // Whether the loaded cache is fully usable as-is: it exists, its per-kind cook versions match, and every
+    // referenced artifact has a cached entry whose source is unchanged (mtime match + .tido present). import()
+    // calls this to decide rewriting_cache; reused verbatim if true, rewritten fresh (open_cache_writer) if not.
+    auto validate_cache() -> bool;
+    // Opens the shared .tido_cache for a fresh write: truncates it and writes the header record. Always opens
+    // unconditionally - the caller (import()) is responsible for only calling this when rewriting_cache is true.
+    void open_cache_writer();
+    // Appends one serialized record (+ a separating newline) to the open cache_stream and flushes, under
+    // cache_write_mutex so parallel cook chunks append safely. record must not be empty (asserted) - the
+    // caller must not attempt to write a failed serialization. A no-op if the stream is not open (a real
+    // open failure, already logged by open_cache_writer, not a programming error - the artifact recooks
+    // next import rather than crashing this one).
+    void write_cache_record(std::string const & record);
+    // Cook + add every referenced image / mesh, streaming each artifact's record into the .tido_cache (when a
+    // rewrite is underway) as its cook finishes.
+    void load_images();
+    void load_meshes();
+    // Stable per-artifact source-identity key (also the .tido file stem), shared by the cache validation and
+    // the load passes so both derive the same key.
+    auto image_cache_key(u32 gltf_image_index) -> u64;
+    auto mesh_cache_key(u32 gltf_mesh_index, u32 gltf_primitive_index) -> u64;
     void translate_materials();
     void translate_mesh_groups();
     auto translate_entities() -> RenderEntityId;

@@ -1,6 +1,5 @@
 #include "tido_cache.hpp"
 
-#include <fstream>
 #include <charconv>
 #include <string>
 #include <string_view>
@@ -40,13 +39,14 @@ auto parse_dec(std::string_view text) -> std::optional<T>
     return value;
 }
 
-// The header record's payload: the cook key plus the artifact counts (counts are informational - the
-// reader rebuilds the maps from the records themselves).
+// The header record: the cook key's fields inlined (per-kind cook versions + source hash). No artifact
+// counts are stored - the reader rebuilds the maps from the records themselves, and counts would only go
+// stale as records are appended incrementally.
 struct TidoCacheHeader
 {
-    TidoCacheKey key = {};
-    u64 texture_count = {};
-    u64 mesh_count = {};
+    u32 texture_cook_version = {};
+    u32 mesh_cook_version = {};
+    u64 source_hash = {};
 };
 
 // One parsed record, tagged by which "kind" it was so the reader can route it into the right map.
@@ -229,15 +229,11 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoCacheHeader const & h
     builder.start_object();
     builder.append_key_value("kind", std::string_view("header"));
     builder.append_comma();
-    builder.append_key_value("texture_cook_version", static_cast<u64>(header.key.texture_cook_version));
+    builder.append_key_value("texture_cook_version", static_cast<u64>(header.texture_cook_version));
     builder.append_comma();
-    builder.append_key_value("mesh_cook_version", static_cast<u64>(header.key.mesh_cook_version));
+    builder.append_key_value("mesh_cook_version", static_cast<u64>(header.mesh_cook_version));
     builder.append_comma();
-    builder.append_key_value("source_hash", hex_u64(header.key.source_hash));
-    builder.append_comma();
-    builder.append_key_value("texture_count", header.texture_count);
-    builder.append_comma();
-    builder.append_key_value("mesh_count", header.mesh_count);
+    builder.append_key_value("source_hash", hex_u64(header.source_hash));
     builder.end_object();
 }
 
@@ -357,40 +353,31 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoMeshCookResult const 
 
 namespace
 {
-// Serialize one record to a pretty (FracturedJson) block and append it, blank-line separated. Returns
-// false on a serialization or IO failure (via error codes, no exceptions).
+// Serialize one record to its pretty-printed (FracturedJson) JSON block. Returns an empty string on a
+// serialization failure (via error codes, no exceptions) - never expected for these fixed-shape records.
 template <typename Record>
-auto write_record(std::ofstream & ofs, Record const & record) -> bool
+auto serialize_record(Record const & record) -> std::string
 {
     std::string compact;
-    if (simdjson::to_json(record).get(compact)) { return false; }
-    std::string const pretty = simdjson::fractured_json_string(compact);
-    std::string_view const out = pretty.empty() ? std::string_view(compact) : std::string_view(pretty);
-    ofs.write(out.data(), static_cast<std::streamsize>(out.size()));
-    ofs.write("\n\n", 2);
-    return static_cast<bool>(ofs);
+    if (simdjson::to_json(record).get(compact)) { return {}; }
+    std::string pretty = simdjson::fractured_json_string(compact);
+    return pretty.empty() ? std::move(compact) : std::move(pretty);
 }
 } // namespace
 
-auto write_tido_cache(std::filesystem::path const & cache_path, TidoCacheKey const & key,
-    std::span<TidoTextureCookResult const> textures, std::span<TidoMeshCookResult const> meshes) -> bool
+auto serialize_tido_cache_header(TidoCacheKey const & key) -> std::string
 {
-    std::error_code ec = {};
-    std::filesystem::create_directories(cache_path.parent_path(), ec); // ignore "already exists"
+    return serialize_record(TidoCacheHeader{key.texture_cook_version, key.mesh_cook_version, key.source_hash});
+}
 
-    std::ofstream ofs{cache_path, std::ios::binary | std::ios::trunc};
-    if (!ofs) { return false; }
+auto serialize_tido_cache_texture(TidoTextureCookResult const & texture) -> std::string
+{
+    return serialize_record(texture);
+}
 
-    if (!write_record(ofs, TidoCacheHeader{key, textures.size(), meshes.size()})) { return false; }
-    for (TidoTextureCookResult const & texture : textures)
-    {
-        if (!write_record(ofs, texture)) { return false; }
-    }
-    for (TidoMeshCookResult const & mesh : meshes)
-    {
-        if (!write_record(ofs, mesh)) { return false; }
-    }
-    return static_cast<bool>(ofs);
+auto serialize_tido_cache_mesh(TidoMeshCookResult const & mesh) -> std::string
+{
+    return serialize_record(mesh);
 }
 
 auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<TidoCache>
@@ -415,11 +402,28 @@ auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<
                 cache_path.string(), simdjson::error_message(error)));
             return std::nullopt;
         }
+        // A whole cache is written by one import, which emits each key exactly once, so a duplicate key here
+        // means a corrupt file: assert rather than silently pick a winner.
         switch (record.kind)
         {
-            case TidoCacheRecord::Kind::HEADER:  cache.key = record.header_key; header_seen = true; break;
-            case TidoCacheRecord::Kind::TEXTURE: cache.textures.emplace(record.texture.cache_key, std::move(record.texture)); break;
-            case TidoCacheRecord::Kind::MESH:    cache.meshes.emplace(record.mesh.cache_key, std::move(record.mesh)); break;
+            case TidoCacheRecord::Kind::HEADER:
+                cache.key = record.header_key;
+                header_seen = true;
+                break;
+            case TidoCacheRecord::Kind::TEXTURE:
+            {
+                [[maybe_unused]] u64 const cache_key = record.texture.cache_key;
+                [[maybe_unused]] bool const inserted = cache.textures.emplace(cache_key, std::move(record.texture)).second;
+                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate texture key {:#018x} in .tido_cache '{}'", cache_key, cache_path.string()));
+                break;
+            }
+            case TidoCacheRecord::Kind::MESH:
+            {
+                [[maybe_unused]] u64 const cache_key = record.mesh.cache_key;
+                [[maybe_unused]] bool const inserted = cache.meshes.emplace(cache_key, std::move(record.mesh)).second;
+                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate mesh key {:#018x} in .tido_cache '{}'", cache_key, cache_path.string()));
+                break;
+            }
         }
     }
 

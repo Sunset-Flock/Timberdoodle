@@ -25,9 +25,14 @@ auto tido_make_cache_key(std::filesystem::path const & source_path, u32 texture_
     return key;
 }
 
-auto tido_cache_file_name(u64 source_hash) -> std::string
+auto tido_cache_file_name(std::string const & asset_name, u64 source_hash) -> std::string
 {
-    return fmt::format("{:016x}.tido_cache", source_hash);
+    return tido_stem(asset_name, source_hash) + ".tido_cache";
+}
+
+auto tido_cache_dir(std::string const & asset_name, u64 source_hash) -> std::filesystem::path
+{
+    return TIDO_ASSET_CACHE_DIR / tido_stem(asset_name, source_hash);
 }
 
 auto TidoCache::lookup_texture(u64 cache_key) const -> std::optional<TidoTextureCookResult>
