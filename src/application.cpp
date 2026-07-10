@@ -48,7 +48,7 @@ std::filesystem::path const DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH = "deps\\timberd
 
 Application::Application()
 {
-    _threadpool = std::make_unique<ThreadPool>(6);
+    _threadpool = std::make_unique<ThreadPool>(std::thread::hardware_concurrency() - 2);
     _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _scene = std::make_unique<Scene>(_gpu_context->device, _gpu_context.get());

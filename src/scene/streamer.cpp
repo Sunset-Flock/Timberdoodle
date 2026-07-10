@@ -63,6 +63,7 @@ auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & ar
             // Table is in storage order (coarse-first); see TidoSubresourceEntry indexing.
             u32 const subresource_index = (desc.mip_count - 1u - mip) * desc.array_layers + layer;
             TidoSubresourceEntry const & entry = artifact.subresources.at(subresource_index);
+            DBG_ASSERT_TRUE_M(entry.offset + entry.byte_size <= file_data.size(), "make_resident_image: subresource out of .tido bounds");
             cr.copy_buffer_to_image({
                 .src_buffer = staging_buffer,
                 .buffer_offset = entry.offset,

@@ -12,12 +12,9 @@
 using namespace tido::types;
 
 /// --- Image Optimizer ---
-/// Generic image cook (part 2 of texture loading). Takes the raw image data produced by an importer
-/// (decoded pixels or a basis-compressed KTX2 container) and produces the GPU-ready, compressed CPU
-/// memory (a ProcessedImage). It does NOT write the .tido and does NOT create a daxa image - the caller
-/// writes the cooked memory out with write_texture_tido (part 3) and the streamer makes it resident.
-/// Mirrors the geometry optimizer exactly: optimize_mesh -> ProcessedMesh, process_image -> ProcessedImage;
-/// raw CPU in -> processed CPU out, no GPU work, no source-format knowledge.
+/// Generic image cook (part 2 of texture loading): takes raw image data from an importer (encoded PNG/KTX2
+/// bytes) and produces GPU-ready, block-compressed CPU memory (a ProcessedImage) with a full mip chain.
+/// CPU-only and format-agnostic.
 
 // How an image is used; determines the block-compression format the optimizer targets.
 enum struct TextureMaterialType
@@ -66,8 +63,6 @@ enum struct ImageOptimizeError
     FAILED_TO_DECODE_PNG,
 };
 
-// Turn raw source bytes into GPU-ready cooked CPU memory. Decodes/transcodes/compresses per the source
-// format (PNG -> decode (-> BC compression, TODO); KTX2 -> basis transcode to BCn) and returns the
-// processed image. Does NOT write the .tido: the caller writes it with write_texture_tido (mirrors
-// optimize_mesh, whose result is written by write_mesh_tido).
+// Turn raw source bytes into GPU-ready cooked CPU memory: PNG is decoded, mipped and BC-compressed; KTX2
+// is basis-transcoded to BCn (mips already in the container).
 auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>;

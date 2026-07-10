@@ -120,6 +120,11 @@ void ThreadPool::async_dispatch(std::shared_ptr<Task> task, TaskPriority priorit
     shared_data->work_available.notify_all();
 }
 
+// WARNING: this pure-sleeps and does NOT help drain the queue, so it must only be called from a
+// non-worker (external / main) thread. Calling it from a worker thread parks that worker while it waits,
+// which can starve or deadlock a fully-busy pool (the worker contributes nothing while the task it waits
+// on may have chunks sitting in the queue that only it could run). To wait from within a worker/task
+// callback, use blocking_dispatch instead - it participates as a worker while waiting.
 void ThreadPool::block_on(std::shared_ptr<Task> task)
 {
     std::unique_lock lock{shared_data->threadpool_mutex};

@@ -215,6 +215,7 @@ auto Scene::add_material(MaterialManifestEntry material) -> u32
     {
         if (!info->has_value()) { continue; }
         u32 const tex_index = info->value().tex_manifest_index;
+        DBG_ASSERT_TRUE_M(tex_index < _material_texture_manifest.size(), "add_material: texture info references an invalid manifest index");
         if (std::find(seen.begin(), seen.begin() + seen_count, tex_index) != seen.begin() + seen_count) { continue; }
         seen[seen_count++] = tex_index;
         _material_texture_manifest.at(tex_index).material_manifest_indices.push_back({.material_manifest_index = index});

@@ -1,7 +1,11 @@
 #include "tex_compression.hpp"
 #include "sdf_bc1_compressor.hpp"
 #include <CMP_Core.h>
+#include <algorithm>
+#include <array>
 #include <iostream>
+
+#include "../../shader_shared/shared.inl" // round_up_div
 
 static constexpr u32 DEFAULT_BLOCKS_PER_CHUNK = 128;
 
@@ -25,12 +29,16 @@ struct CompressTask : Task
         :  info{info}
          , blocks_per_chunk{DEFAULT_BLOCKS_PER_CHUNK}
     {
-        blocks_per_layer = (info.image_dimensions.x / 4) * (info.image_dimensions.y / 4);
-        blocks_per_row = (info.image_dimensions.x / 4);
+        // Ceil-based block counts so non-4-aligned extents (and sub-4x4 mip levels) still produce a full
+        // set of blocks - the partial edge blocks are padded by clamping in the gather loop below. This
+        // matches write_texture_tido, which sizes every mip with ceil(dim/4) blocks.
+        blocks_per_row = round_up_div(info.image_dimensions.x, 4u);
+        u32 const blocks_per_col = round_up_div(info.image_dimensions.y, 4u);
+        blocks_per_layer = blocks_per_row * blocks_per_col;
         blocks_total = blocks_per_layer * info.image_dimensions.z;
         pixels_per_layer = info.image_dimensions.x * info.image_dimensions.y;
 
-        chunk_count = (blocks_total + blocks_per_chunk - 1) / blocks_per_chunk;
+        chunk_count = round_up_div(blocks_total, blocks_per_chunk);
     }
 
     virtual void callback(u32 chunk_index, [[maybe_unused]] u32 thread_index) override
@@ -60,23 +68,25 @@ struct CompressTask : Task
                 block_start_image_coords.z < info.image_dimensions.z,
                 "Calculated coordinates outside of image bounds");
 
-            // Inner loop that writes the data for the conversion
+            // Gather the 4x4 source block one texel at a time, clamping to the image bounds. Clamping
+            // (rather than a single 4-wide row memcpy) is what lets non-4-aligned extents and sub-4x4 mip
+            // levels compress: an edge / partial block replicates its last in-bounds texel instead of
+            // reading past the row or image end.
             for (u32 block_y = 0; block_y < 4; ++block_y)
             {
-                u32 const linear_src_pixel_index = 
-                    (block_start_image_coords.x) +
-                    ((block_start_image_coords.y + block_y) * info.image_dimensions.x) +
-                    (block_start_image_coords.z * pixels_per_layer);
+                for (u32 block_x = 0; block_x < 4; ++block_x)
+                {
+                    u32 const src_x = std::min(block_start_image_coords.x + block_x, info.image_dimensions.x - 1);
+                    u32 const src_y = std::min(block_start_image_coords.y + block_y, info.image_dimensions.y - 1);
+                    u32 const src_z = block_start_image_coords.z;
 
-                DBG_ASSERT_TRUE_M(
-                    linear_src_pixel_index < info.image_dimensions.x * info.image_dimensions.y * info.image_dimensions.z,
-                    "Calculated linear source pixel index outside of image bounds");
+                    u32 const linear_src_pixel_index = src_x + (src_y * info.image_dimensions.x) + (src_z * pixels_per_layer);
+                    u32 const linear_src_data_index = linear_src_pixel_index * sizeof(Pixel);
+                    DBG_ASSERT_TRUE_M(linear_src_data_index < info.in_data.size(), "Calculated linear source data index outside of image bounds");
 
-                u32 const linear_src_data_index = linear_src_pixel_index * sizeof(Pixel);
-                DBG_ASSERT_TRUE_M(linear_src_data_index < info.in_data.size(), "Calculate linear source data index outside of image bounds");
-
-                u32 const block_linear_index = (block_y * 4);
-                std::memcpy(&data_block_to_compress[block_linear_index], &info.in_data[linear_src_data_index], 4 * sizeof(Pixel));
+                    u32 const block_linear_index = (block_y * 4) + block_x;
+                    std::memcpy(&data_block_to_compress[block_linear_index], &info.in_data[linear_src_data_index], sizeof(Pixel));
+                }
             }
 
             u32 const stride_in_bytes = 4 * sizeof(Pixel);
@@ -96,11 +106,28 @@ struct CompressTask : Task
                     CompressBlockBC1SDF(destination, std::span<float>(reinterpret_cast<float*>(data_block_to_compress.data()), 16));
                     break;
                 }
-                case Compression::BC4: 
-                { 
+                case Compression::BC4:
+                {
                     // BC4 stores 8 byes per block.
                     unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 8]);
                     CompressBlockBC4(reinterpret_cast<unsigned char const* const>(data_block_to_compress.data()), stride_in_bytes, destination);
+                    break;
+                }
+                case Compression::BC5:
+                {
+                    // For some reason the BC5 commpress function wants the two channels not interleaved.
+                    std::array<unsigned char, 16> red_block = {};
+                    std::array<unsigned char, 16> green_block = {};
+                    auto const * const interleaved = reinterpret_cast<unsigned char const *>(data_block_to_compress.data());
+                    for (u32 texel_in_block = 0; texel_in_block < 16; ++texel_in_block)
+                    {
+                        red_block[texel_in_block] = interleaved[texel_in_block * 2 + 0];
+                        green_block[texel_in_block] = interleaved[texel_in_block * 2 + 1];
+                    }
+                    // BC5 stores 16 byes per block.
+                    unsigned char * const destination = reinterpret_cast<unsigned char *>(&info.out_data[block_index * 16]);
+                    // BC5 takes stride per channel not per pixel, so the stride is half the interleaved stride since there are two channels.
+                    CompressBlockBC5(red_block.data(), stride_in_bytes / 2, green_block.data(), stride_in_bytes / 2, destination);
                     break;
                 }
                 case Compression::BC6: 
@@ -133,9 +160,8 @@ struct CompressTask : Task
 auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<Task>
 {
     DBG_ASSERT_TRUE_M(info.compression != Compression::UNDEFINED, "Undefined block compression format!");
-    DBG_ASSERT_TRUE_M((info.image_dimensions.x % 4 == 0) && (info.image_dimensions.y % 4 == 0),
-                      "Dimensions of block compressed images must be 4 aligned");
-
+    // Non-4-aligned extents are allowed: the block loop pads partial edge blocks by clamping (so sub-4x4
+    // mip levels compress too). The .tido subresource sizes use the same ceil(dim/4) block count.
 
     u32 texel_size_in_bytes = 0;
     switch(info.compression)
@@ -143,6 +169,7 @@ auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<T
         case Compression::BC1    : { texel_size_in_bytes = 4u; break; }
         case Compression::BC1_SDF: { texel_size_in_bytes = 4u; break; }
         case Compression::BC4    : { texel_size_in_bytes = 1u; break; }
+        case Compression::BC5    : { texel_size_in_bytes = 2u; break; }
         case Compression::BC6    : { texel_size_in_bytes = 6u; break; }
         case Compression::BC7    : { texel_size_in_bytes = 4u; break; }
         default:
@@ -166,11 +193,15 @@ auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<T
         { 
             return std::make_shared<CompressTask<4>>(info);
         }
-        case Compression::BC4: 
+        case Compression::BC4:
         {
             return std::make_shared<CompressTask<1>>(info);
         }
-        case Compression::BC6: 
+        case Compression::BC5:
+        {
+            return std::make_shared<CompressTask<2>>(info);
+        }
+        case Compression::BC6:
         { 
             return std::make_shared<CompressTask<6>>(info);
         }

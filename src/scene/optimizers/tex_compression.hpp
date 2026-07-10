@@ -12,6 +12,7 @@ enum struct Compression
     BC1,
     BC1_SDF,
     BC4,
+    BC5,
     BC6,
     BC7,
     UNDEFINED

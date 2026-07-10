@@ -612,6 +612,8 @@ auto GltfImporter::load_images() -> bool
         };
 
         TaskInfo info = {};
+        // At the start can hold an artifact loaded from .tido_cache which failed the staleness check.
+        // At the end holds the result of the task.
         std::optional<TidoTextureCookResult> cooked_artifact = {};
 
         LoadImageTask(TaskInfo const & info)
@@ -622,20 +624,13 @@ auto GltfImporter::load_images() -> bool
 
         virtual void callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index) override
         {
-            // On a failed (re)cook, fall back to the last good cook (the pre-seeded `cached`, if any) and
-            // mark the current source version as handled by refreshing its stored mtime - so a source we
-            // cannot (re)process is NOT re-flagged "out of date" on every subsequent import (perpetual
-            // recook). A later real edit bumps the mtime again and re-triggers a cook attempt. If there is
-            // no cached fallback (first cook), cooked_artifact stays nullopt and the collect loop skips it.
-            auto keep_cached_fallback = [&] { if (cooked_artifact.has_value()) { cooked_artifact->source_modified = info.current_mtime; } };
-
             // Part 1: read the raw image bytes (+ tag their source format).
             auto raw = load_raw_image(*info.asset, info.gltf_image_index, info.asset_path, info.type);
             if (!raw.has_value())
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to load image index {} name {}",
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
-                keep_cached_fallback();
+                cooked_artifact = std::nullopt;
                 return;
             }
 
@@ -652,7 +647,7 @@ auto GltfImporter::load_images() -> bool
             {
                 DEBUG_MSG(fmt::format("[ERROR] Failed to process image index {} name {}",
                     info.gltf_image_index, info.asset->images.at(info.gltf_image_index).name));
-                keep_cached_fallback();
+                cooked_artifact = std::nullopt;
                 return;
             }
             ProcessedImage const & processed = std::get<ProcessedImage>(processed_ret);
@@ -661,7 +656,7 @@ auto GltfImporter::load_images() -> bool
             if (!tido_result.has_value())
             {
                 DEBUG_MSG(fmt::format("[WARN][write_texture_tido] failed to write .tido for image '{}'", raw.value().name));
-                keep_cached_fallback();
+                cooked_artifact = std::nullopt;
                 return;
             }
 
@@ -957,9 +952,13 @@ void GltfImporter::translate_materials()
     // Images are already added; a material references them by resolving each texture to its image and
     // looking up the image's manifest index. Scene::add_material fills the texture -> material back-refs.
     // (sampler_index is a placeholder until samplers are translated - see T6.6.)
-    auto image_manifest_index_of = [&](u32 const gltf_texture_index) -> u32
+    // An image whose cook failed keeps INVALID_MANIFEST_INDEX, so its textures resolve to nullopt and the
+    // material renders without them rather than referencing a texture that will never become resident.
+    auto resolve_texture_info = [&](u32 const gltf_texture_index, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
     {
-        return image_manifest_indices.at(gltf_texture_to_image_index(gltf_texture_index).value());
+        u32 const manifest_index = image_manifest_indices.at(gltf_texture_to_image_index(gltf_texture_index).value());
+        if (manifest_index == INVALID_MANIFEST_INDEX) { return std::nullopt; }
+        return MaterialManifestEntry::TextureInfo{.tex_manifest_index = manifest_index, .sampler_index = sampler_index};
     };
     material_manifest_indices.reserve(asset.materials.size());
     for (u32 material_index = 0; material_index < s_cast<u32>(asset.materials.size()); material_index++)
@@ -971,19 +970,16 @@ void GltfImporter::translate_materials()
         std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
         if (material.pbrData.baseColorTexture.has_value())
         {
-            u32 const manifest_index = image_manifest_index_of(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex));
-            diffuse_texture_info = {.tex_manifest_index = manifest_index, .sampler_index = {}};
-            opacity_texture_info = {.tex_manifest_index = manifest_index, .sampler_index = {}};
+            diffuse_texture_info = resolve_texture_info(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex), {});
+            opacity_texture_info = diffuse_texture_info;
         }
         if (material.normalTexture.has_value())
         {
-            u32 const gltf_image_index = gltf_texture_to_image_index(s_cast<u32>(material.normalTexture.value().textureIndex)).value();
-            normal_texture_info = {.tex_manifest_index = image_manifest_indices.at(gltf_image_index), .sampler_index = 0};
+            normal_texture_info = resolve_texture_info(s_cast<u32>(material.normalTexture.value().textureIndex), 0);
         }
         if (material.pbrData.metallicRoughnessTexture.has_value())
         {
-            u32 const manifest_index = image_manifest_index_of(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex));
-            roughness_metalness_info = {.tex_manifest_index = manifest_index, .sampler_index = 0};
+            roughness_metalness_info = resolve_texture_info(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex), 0);
         }
         u32 const material_manifest_index = scene.add_material(MaterialManifestEntry{
             .diffuse_info = diffuse_texture_info,
