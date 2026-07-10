@@ -30,11 +30,28 @@ if (NOT TARGET fmt::fmt)
     FetchContent_MakeAvailable(fmt)
 endif()
 
+# Declared before fastgltf on purpose: fastgltf only downloads its own single-header simdjson when the
+# simdjson::simdjson target does not already exist, so providing it here makes both fastgltf and us share
+# one simdjson.
+if (NOT TARGET simdjson::simdjson)
+    FetchContent_Declare(
+        simdjson
+        GIT_REPOSITORY https://github.com/simdjson/simdjson
+        GIT_TAG        v4.6.4
+        EXCLUDE_FROM_ALL
+    )
+    FetchContent_MakeAvailable(simdjson)
+endif()
+
 if (NOT TARGET fastgltf::fastgltf)
+    # Off because we provide simdjson ourselves: fastgltf's install(EXPORT) otherwise fails since our
+    # simdjson target is not in fastgltf's export set (fastgltf's own option comment flags this). FORCE so
+    # it overrides a value already cached from an earlier configure.
+    set(FASTGLTF_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(
         fastgltf
         GIT_REPOSITORY https://github.com/spnda/fastgltf
-        GIT_TAG        v0.9.0
+        GIT_TAG        a31be255ff041fa1d6697e5040fef3c9b6405795
         EXCLUDE_FROM_ALL
     )
     FetchContent_MakeAvailable(fastgltf)

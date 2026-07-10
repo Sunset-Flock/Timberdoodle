@@ -28,7 +28,9 @@ add_executable(${PROJECT_NAME}
     "src/camera.cpp"
     "src/application.cpp"
     "src/gpu_context.cpp"
-    "src/json_handler.cpp"
+    "src/json_utils/camera_animation.cpp"
+    "src/json_utils/sky_settings.cpp"
+    "src/json_utils/tido_cache.cpp"
     "src/ui/ui.cpp"
     "src/ui/widgets/scene_graph.cpp"
     "src/ui/widgets/property_viewer.cpp"
@@ -81,6 +83,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
     KTX::ktx
     png_static
     nlohmann_json::nlohmann_json
+    simdjson::simdjson
     implot::implot
     glm::glm
     CMP_Core

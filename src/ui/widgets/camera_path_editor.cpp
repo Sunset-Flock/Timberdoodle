@@ -1,5 +1,5 @@
 #include "camera_path_editor.hpp"
-#include "../../json_handler.hpp"
+#include "../../json_utils/camera_animation.hpp"
 
 namespace tido
 {

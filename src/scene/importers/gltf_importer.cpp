@@ -17,6 +17,7 @@
 #include "../tido_format/tido_cache.hpp"
 #include "../tido_format/tido_mesh.hpp"
 #include "../tido_format/tido_util.hpp"
+#include "../../json_utils/tido_cache.hpp" // read_tido_cache / write_tido_cache (JSON, simdjson)
 
 // Per-kind cook versions, stamped into every .tido_cache this importer writes. Bump the relevant one
 // whenever that pipeline's cook output or .tido layout changes; on re-import a mismatching version marks
@@ -585,7 +586,7 @@ void GltfImporter::load_cache()
     else
     {
         DEBUG_MSG(fmt::format("[GltfImporter::load_cache] '{}': cache loaded ({} texture + {} mesh entries); textures {}, meshes {}",
-            info.asset_name.string(), loaded_cache->texture_index.size(), loaded_cache->mesh_index.size(),
+            info.asset_name.string(), loaded_cache->textures.size(), loaded_cache->meshes.size(),
             texture_cache_valid ? "valid" : "stale (cook version changed) - recooking",
             mesh_cache_valid ? "valid" : "stale (cook version changed) - recooking"));
     }

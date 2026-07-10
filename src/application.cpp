@@ -1,5 +1,6 @@
 #include "application.hpp"
-#include "json_handler.hpp"
+#include "json_utils/camera_animation.hpp"
+#include "json_utils/sky_settings.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
 
