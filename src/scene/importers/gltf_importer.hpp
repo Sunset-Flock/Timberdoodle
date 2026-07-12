@@ -14,6 +14,7 @@
 #include "../scene.hpp"
 #include "../tido_format/tido_cache.hpp"
 #include "../../json_utils/tido_cache.hpp" // .tido_cache read + record serializers
+#include "importer_task_result.hpp"
 
 /// --- glTF Importer ---
 /// The ONLY place fastgltf lives. Parses a glTF/GLB file and translates it into the generic scene
@@ -33,7 +34,7 @@ struct GltfImporter
 {
     GltfImporter(Scene & scene, Scene::LoadManifestInfo const & info);
 
-    auto import() -> std::variant<RenderEntityId, Scene::LoadManifestErrorCode>;
+    auto import() -> std::variant<ImporterTaskResult::SceneMetadataBatch, Scene::LoadManifestErrorCode>;
 
   private:
     Scene & scene;
@@ -47,25 +48,34 @@ struct GltfImporter
     // Suffix for naming this import's root entity (file-agnostic running count, not a manifest offset).
     u32 import_index = {};
 
-    // gltf-local index -> global manifest index, filled by the add_* return values as we translate.
-    // This replaces capturing manifest base offsets: dependent entries are wired up through these
-    // returned indices, so the importer never assumes a contiguous manifest layout.
-    // image_manifest_indices is keyed by gltf IMAGE index (INVALID_MANIFEST_INDEX for unreferenced,
-    // hence not added, images). Materials map their texture -> image -> manifest index.
+    // gltf-local index -> this batch's local manifest index (an index into `batch`, e.g. `batch.textures`),
+    // filled by the batch-append return values as we translate. This replaces capturing manifest base
+    // offsets: dependent entries are wired up through these returned indices, so the importer never assumes
+    // a contiguous manifest layout. SceneRuntime resolves these batch-local indices to global manifest
+    // indices when it appends the batch. image_manifest_indices is keyed by gltf IMAGE index
+    // (INVALID_MANIFEST_INDEX for unreferenced, hence not added, images). Materials map their texture ->
+    // image -> manifest index.
     std::vector<u32> image_manifest_indices = {};
-    // Parallel to image_manifest_indices: gltf IMAGE index -> the manifest index of its split-off opacity
-    // texture (see TC.4 / the DIFFUSE split in image_optimizer's process_image), or INVALID_MANIFEST_INDEX
-    // when that image has no alpha (most images) or isn't a DIFFUSE image at all.
+    // Parallel to image_manifest_indices: gltf IMAGE index -> the batch-local index of its split-off opacity
+    // texture (see image_needs_opacity_split), or INVALID_MANIFEST_INDEX when no Mask material uses this
+    // image (most images) or it isn't a DIFFUSE image at all.
     std::vector<u32> opacity_manifest_indices = {};
     std::vector<u32> material_manifest_indices = {};
     std::vector<u32> mesh_group_manifest_indices = {};
-    // Keyed [gltf mesh-group index][in-group primitive index] -> that mesh's manifest index (or
+    // Keyed [gltf mesh-group index][in-group primitive index] -> that mesh's batch-local index (or
     // INVALID_MANIFEST_INDEX if its cook failed). Filled by load_meshes (a mesh is added only after it is
     // cooked); read by translate_mesh_groups to build each group over its already-added meshes. The mesh
     // analog of image_manifest_indices (nested because a gltf mesh-group owns a list of primitives).
     std::vector<std::vector<u32>> mesh_manifest_indices = {};
     // Per gltf image: the type it is used as (NONE == not referenced by any material -> skipped).
     std::vector<TextureMaterialType> image_types = {};
+    // Parallel to image_types: whether a Mask-mode material samples this image as an alpha cutoff, as
+    // opposed to merely having an alpha channel in its source pixels.
+    std::vector<bool> image_needs_opacity_split = {};
+
+    ImporterTaskResult::SceneMetadataBatch batch = {};
+    // Guards concurrent appends to `batch` during parallel cook chunks.
+    std::mutex batch_mutex = {};
 
     // The shared .tido_cache for this source file, loaded once by load_cache and reused by load_images +
     // load_meshes to serve hits. The per-kind validity flags are true only when the loaded cache's cook
@@ -120,7 +130,8 @@ struct GltfImporter
     auto mesh_cache_key(u32 gltf_mesh_index, u32 gltf_primitive_index) -> u64;
     void translate_materials();
     void translate_mesh_groups();
-    auto translate_entities() -> RenderEntityId;
+    // Returns the batch-local index (into batch.entities) of the imported subtree's synthetic root entity.
+    auto translate_entities() -> u32;
     auto translate_light(fastgltf::Light const & light) -> u32;
 
     auto gltf_texture_to_image_index(u32 gltf_texture_index) -> std::optional<u32>;
@@ -128,8 +139,8 @@ struct GltfImporter
 
 /// --- Async import task ---
 // A single-chunk task running a whole GltfImporter::import() on a worker thread.
-// Application::load_scene dispatches one and stores it as ApplicationState::pending_scene_import;
-// Application::poll_scene_import polls `finished` each frame and consumes `result` once it flips.
+// SceneRuntime::request_import dispatches one and stores it as its pending import;
+// SceneRuntime::poll polls `finished` each frame and consumes `result` once it flips.
 // `finished` uses release/acquire ordering so the polling thread's read of `result` is ordered
 // after the worker's write.
 struct GltfImportTask : Task
@@ -139,7 +150,7 @@ struct GltfImportTask : Task
     // lived task: ThreadPool's destructor joins all workers - finishing any in-flight import - before
     // either referent is destroyed (Application's member order guarantees it).
     Scene::LoadManifestInfo info;
-    std::variant<RenderEntityId, Scene::LoadManifestErrorCode> result = {};
+    std::variant<ImporterTaskResult::SceneMetadataBatch, Scene::LoadManifestErrorCode> result = {};
     std::atomic<bool> finished = false;
 
     GltfImportTask(Scene * scene, Scene::LoadManifestInfo info)

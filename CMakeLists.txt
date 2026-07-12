@@ -40,6 +40,7 @@ add_executable(${PROJECT_NAME}
     "src/multithreading/thread_pool.cpp"
     "src/daxa_helper.cpp"
     "src/scene/scene.cpp"
+    "src/scene/scene_runtime.cpp"
     "src/scene/asset_processor.cpp"
     "src/scene/importers/gltf_importer.cpp"
     "src/scene/importers/openvdb_importer.cpp"

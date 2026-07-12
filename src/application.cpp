@@ -53,11 +53,11 @@ Application::Application()
     _threadpool = std::make_unique<ThreadPool>(std::thread::hardware_concurrency() - 2);
     _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
-    _scene = std::make_unique<Scene>(_gpu_context->device, _gpu_context.get());
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
+    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _asset_manager);
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
-    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene.get(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
+    _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene_runtime->scene_ptr(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
 
     std::filesystem::path const DEFAULT_SKY_SETTINGS_PATH = "settings\\sky\\default.json";
     // std::filesystem::path const DEFAULT_CAMERA_ANIMATION_PATH = "settings\\camera\\cam_path_sun_temple.json";
@@ -74,8 +74,8 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    auto const cloud_volume_index = _scene->lock().add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
-    _scene->lock().add_entity({
+    auto const cloud_volume_index = _scene_runtime->scene().lock().add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
+    _scene_runtime->scene().lock().add_entity({
         .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
         .cloud_volume_index = cloud_volume_index,
         .type = EntityType::CLOUD_VOLUME,
@@ -108,49 +108,7 @@ using FpMicroSeconds = std::chrono::duration<float, std::chrono::microseconds::p
 
 void Application::load_scene(std::filesystem::path const & path)
 {
-    if (!path.has_filename() || !path.has_parent_path())
-    {
-        return;
-    }
-    DBG_ASSERT_TRUE_M(app_state.pending_scene_import == nullptr, "Only one scene import may be in flight at a time (poll_scene_import guards this)");
-
-    auto import_task = std::make_shared<GltfImportTask>(_scene.get(), Scene::LoadManifestInfo{
-        .root_path = path.parent_path(),
-        .asset_name = path.filename(),
-        .thread_pool = _threadpool,
-        .asset_processor = _asset_manager,
-    });
-    _threadpool->async_dispatch(import_task, TaskPriority::LOW);
-    app_state.pending_scene_import = std::move(import_task);
-}
-
-void Application::poll_scene_import()
-{
-    if (app_state.pending_scene_import == nullptr)
-    {
-        // No import in flight - start one if a scene load is requested. While an import runs the
-        // path is left untouched (a request made mid-import is not dropped, the newest one wins).
-        if (!app_state.desired_scene_path.empty())
-        {
-            fmt::print("Requested load: {}\n", app_state.desired_scene_path);
-            load_scene(app_state.desired_scene_path);
-            app_state.desired_scene_path.clear();
-        }
-        return;
-    }
-
-    GltfImportTask & import_task = *app_state.pending_scene_import;
-    if (!import_task.finished.load(std::memory_order_acquire))
-    {
-        return; // Still importing.
-    }
-
-    std::string const path_string = (import_task.info.root_path / import_task.info.asset_name).string();
-    if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&import_task.result))
-    {
-        DEBUG_MSG(fmt::format("[WARN][Application::poll_scene_import()] Loading \"{}\" Error: {}", path_string, Scene::to_string(*err)));
-    }
-    app_state.pending_scene_import = nullptr;
+    _scene_runtime->request_import(path);
 }
 
 auto Application::run() -> i32
@@ -223,29 +181,30 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    poll_scene_import();
+    _scene_runtime->poll(app_state.desired_scene_path);
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
-    auto const scene_instances = _scene->process_entities(_renderer->render_context->render_data);
-    _scene->current_frame_mesh_instances = scene_instances.mesh_instances;
-    _scene->current_frame_cloud_volume_instances = scene_instances.cloud_volume_instances;
+    Scene & scene = _scene_runtime->scene();
+    auto const scene_instances = scene.process_entities(_renderer->render_context->render_data);
+    scene.current_frame_mesh_instances = scene_instances.mesh_instances;
+    scene.current_frame_cloud_volume_instances = scene_instances.cloud_volume_instances;
 
     // ===== Update GPU Scene Buffers =====
 
-    _scene->write_gpu_mesh_instances_buffer(_scene->current_frame_mesh_instances);
-    _scene->write_gpu_cloud_volume_instances_buffer(_scene->current_frame_cloud_volume_instances);
+    scene.write_gpu_mesh_instances_buffer(scene.current_frame_mesh_instances);
+    scene.write_gpu_cloud_volume_instances_buffer(scene.current_frame_cloud_volume_instances);
 
     usize cmd_list_count = 0ull;
     std::array<daxa::ExecutableCommandList, 16> cmd_lists = {};
 
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
-    
-    cmd_lists.at(cmd_list_count++) = _scene->update_scene({
+
+    cmd_lists.at(cmd_list_count++) = _scene_runtime->update({
         .thread_pool = _threadpool.get(),
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
-    cmd_lists.at(cmd_list_count++) = _scene->create_mesh_acceleration_structures();
+    cmd_lists.at(cmd_list_count++) = _scene_runtime->create_mesh_acceleration_structures();
     _gpu_context->device.submit_commands({
         .command_lists = std::span{cmd_lists.data(), cmd_list_count},
     });
@@ -259,7 +218,7 @@ void Application::update()
     {
         return;
     }
-    _ui_engine->main_update(*_renderer->render_context, *_scene, app_state, *_threadpool);
+    _ui_engine->main_update(*_renderer->render_context, _scene_runtime->scene(), app_state, *_threadpool);
     if (_renderer->main_task_graph.get() && _ui_engine->tg_debug_ui)
     {
         _ui_engine->tg_debug_ui = _ui_engine->main_task_graph_debug_ui.update(_renderer->main_task_graph);
@@ -327,8 +286,8 @@ Application::~Application()
 {
     _threadpool.reset();
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
-    // Thread pool is gone here: update_scene won't spawn new texture streams, just flushes GPU updates.
-    auto manifest_update_commands = _scene->update_scene({
+    // Thread pool is gone here: update won't spawn new texture streams, just flushes GPU updates.
+    auto manifest_update_commands = _scene_runtime->update({
         .thread_pool = nullptr,
         .uploaded_textures = asset_data_upload_info.uploaded_textures,
     });
