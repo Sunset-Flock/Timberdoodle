@@ -726,8 +726,9 @@ void GltfImporter::load_images()
         u32 const image_manifest_index = scene.lock().add_texture(TextureManifestEntry{
             .type = image_types.at(gltf_image_index),
             .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
-            .cooked_artifact = artifact,              // .tido reference; streamed in by the scene.
             .name = asset.images[gltf_image_index].name.c_str(),
+            .streamer_data = make_texture_streamer_data(artifact), // .tido reference; streamed in by the scene.
+            .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = gltf_image_index},
         });
         image_manifest_indices.at(gltf_image_index) = image_manifest_index;
 
@@ -737,8 +738,9 @@ void GltfImporter::load_images()
             u32 const opacity_manifest_index = scene.lock().add_texture(TextureManifestEntry{
                 .type = TextureMaterialType::OPACITY,
                 .material_manifest_indices = {},
-                .cooked_artifact = opacity_artifact.value(),
                 .name = std::string(asset.images[gltf_image_index].name.c_str()) + "_opacity",
+                .streamer_data = make_texture_streamer_data(opacity_artifact.value()),
+                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = gltf_image_index},
             });
             opacity_manifest_indices.at(gltf_image_index) = opacity_manifest_index;
         }
@@ -929,8 +931,9 @@ void GltfImporter::load_images()
             u32 const image_manifest_index = locked.add_texture(TextureManifestEntry{
                 .type = image_types.at(entry.gltf_image_index),
                 .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
-                .cooked_artifact = entry.color,            // .tido reference; streamed in by the scene.
                 .name = asset.images[entry.gltf_image_index].name.c_str(),
+                .streamer_data = make_texture_streamer_data(entry.color), // .tido reference; streamed in by the scene.
+                .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = entry.gltf_image_index},
             });
             image_manifest_indices.at(entry.gltf_image_index) = image_manifest_index;
 
@@ -939,8 +942,9 @@ void GltfImporter::load_images()
                 u32 const opacity_manifest_index = locked.add_texture(TextureManifestEntry{
                     .type = TextureMaterialType::OPACITY,
                     .material_manifest_indices = {},
-                    .cooked_artifact = entry.opacity.value(),
                     .name = std::string(asset.images[entry.gltf_image_index].name.c_str()) + "_opacity",
+                    .streamer_data = make_texture_streamer_data(entry.opacity.value()),
+                    .importer_data = TextureManifestEntry::GltfImporterData{.src_gltf = file_path, .image_index = entry.gltf_image_index},
                 });
                 opacity_manifest_indices.at(entry.gltf_image_index) = opacity_manifest_index;
             }
@@ -997,7 +1001,8 @@ void GltfImporter::load_meshes()
         u32 const mesh_manifest_index = scene.lock().add_mesh(MeshLodGroupManifestEntry{
             .material_index = material_index,
             .name = gltf_mesh.name.c_str(),
-            .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
+            .streamer_data = make_mesh_streamer_data(artifact),   // .tido reference; streamed in by the scene.
+            .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = gltf_mesh_index, .primitive_index = gltf_primitive_index},
         });
         mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
     };
@@ -1147,7 +1152,8 @@ void GltfImporter::load_meshes()
             u32 const mesh_manifest_index = locked.add_mesh(MeshLodGroupManifestEntry{
                 .material_index = material_index,
                 .name = gltf_mesh.name.c_str(),
-                .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
+                .streamer_data = make_mesh_streamer_data(artifact),   // .tido reference; streamed in by the scene.
+                .importer_data = MeshLodGroupManifestEntry::GltfImporterData{.src_gltf = file_path, .mesh_index = gltf_mesh_index, .primitive_index = gltf_primitive_index},
             });
             mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
         }

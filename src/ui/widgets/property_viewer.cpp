@@ -342,7 +342,7 @@ namespace tido
                                 ImGui::Text(fmt::format("  * double_sided             {}", material_manifest.double_sided).c_str());              
                                 ImGui::Text(fmt::format("  * blend_enabled            {}", material_manifest.blend_enabled).c_str());              
                                 bool const normal_compressed_bc5_rg = material_manifest.normal_info.has_value() &&
-                                    tido_format_is_bc5_rg(locked.texture(material_manifest.normal_info.value().tex_manifest_index).cooked_artifact.descriptor.format);
+                                    tido_format_is_bc5_rg(locked.texture(material_manifest.normal_info.value().tex_manifest_index).streamer_data.info.format);
                                 ImGui::Text(fmt::format("  * normal_compressed_bc5_rg {}", normal_compressed_bc5_rg).c_str());
                                 ImGui::Text(fmt::format("  * is_metal                 {}", material_manifest.is_metal).c_str());          
                             }

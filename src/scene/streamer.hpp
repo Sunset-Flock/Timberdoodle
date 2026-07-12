@@ -16,9 +16,9 @@ using namespace tido::types;
 /// cooked .tido data file on disk (the streamer no longer receives the cooked bytes in memory). This
 /// grows into the full .tido streaming back-end later.
 
-// Creates a resident daxa image described by the cooked artifact and uploads its texel data, read
-// back from the artifact's .tido file on disk. Reads every subresource (full residency for now).
-auto make_resident_image(daxa::Device & device, TidoTextureCookResult const & artifact) -> daxa::ImageId;
+// Creates a resident daxa image described by the streamer data and uploads its texel data, read back
+// from the .tido file on disk. Reads every subresource (full residency for now).
+auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & artifact) -> daxa::ImageId;
 
 // The GPU-resident result of a cooked mesh: the per-LOD GPUMesh array (each packed into its own BDA
 // buffer) plus the manifest slot it belongs to. Consumed by Scene::update_scene, which
@@ -32,7 +32,7 @@ struct MeshLodGroupUploadInfo
 
 struct MakeResidentMeshInfo
 {
-    TidoMeshCookResult const & artifact;
+    TidoMeshStreamerData const & artifact;
     u32 mesh_lod_manifest_index = {};
     u32 material_manifest_index = {};
     std::string name = {};

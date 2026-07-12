@@ -74,6 +74,23 @@ struct TidoTextureCookResult
     std::filesystem::path tido_path = {};                // the written .tido data file
 };
 
+struct TidoTextureStreamerData
+{
+    std::filesystem::path bin_source = {};             // the .tido data file to stream from
+    std::vector<TidoSubresourceEntry> subresources = {}; // subresource offset/size table (storage order)
+    TidoTextureDescriptor info = {};                   // extents + format + mip/layer counts
+};
+
+// Projects a cooked texture down to the streaming subset carried on the manifest entry.
+inline auto make_texture_streamer_data(TidoTextureCookResult const & cook) -> TidoTextureStreamerData
+{
+    return TidoTextureStreamerData{
+        .bin_source = cook.tido_path,
+        .subresources = cook.subresources,
+        .info = cook.descriptor,
+    };
+}
+
 // Default directory the optimizer writes cooked .tido artifacts into (relative to the working dir,
 // matching how the other asset paths are resolved).
 inline std::filesystem::path const TIDO_ASSET_CACHE_DIR = "tido_asset_cache";

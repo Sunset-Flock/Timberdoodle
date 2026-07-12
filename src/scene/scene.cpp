@@ -132,14 +132,14 @@ Scene::~Scene()
 
     for (auto & mesh : _mesh_lod_group_manifest)
     {
-        if (mesh.runtime.has_value())
+        if (mesh.runtime_data.has_value())
         {
-            for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
+            for (daxa_u32 lod = 0; lod < mesh.runtime_data.value().lod_count; ++lod)
             {
-                _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
-                if (!mesh.runtime.value().blas_lods[lod].is_empty())
+                _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime_data.value().lods[lod].mesh_buffer));
+                if (!mesh.runtime_data.value().blas_lods[lod].is_empty())
                 {
-                    _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
+                    _device.destroy_blas(mesh.runtime_data.value().blas_lods[lod]);
                 }
             }
         }
@@ -147,9 +147,9 @@ Scene::~Scene()
 
     for (auto & texture : _texture_manifest)
     {
-        if (texture.runtime_texture.has_value())
+        if (texture.runtime_data.image.has_value())
         {
-            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_texture.value()));
+            _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.image.value()));
         }
     }
 
@@ -170,7 +170,7 @@ Scene::~Scene()
 auto Scene::Locked::add_texture(TextureManifestEntry texture) -> u32
 {
     // Textures must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
-    DBG_ASSERT_TRUE_M(!texture.cooked_artifact.tido_path.empty(), "Texture must have a valid cooked artifact path");
+    DBG_ASSERT_TRUE_M(!texture.streamer_data.bin_source.empty(), "Texture must have a valid cooked artifact path");
     DBG_ASSERT_TRUE_M(_scene._texture_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
 
     u32 const index = s_cast<u32>(_scene._texture_manifest.size());
@@ -211,7 +211,7 @@ auto Scene::Locked::add_material(MaterialManifestEntry material) -> u32
 auto Scene::Locked::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
 {
     // Meshes must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
-    DBG_ASSERT_TRUE_M(!mesh.cooked_artifact.tido_path.empty(), "Mesh must have a valid cooked artifact path");
+    DBG_ASSERT_TRUE_M(!mesh.streamer_data.bin_source.empty(), "Mesh must have a valid cooked artifact path");
     DBG_ASSERT_TRUE_M(_scene._mesh_lod_group_manifest.size() < MAX_MESH_LOD_GROUPS, "Exceeded MAX_MESH_LOD_GROUPS");
 
     u32 const index = s_cast<u32>(_scene._mesh_lod_group_manifest.size());
@@ -499,7 +499,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             continue;
         }
         TextureManifestEntry & texture = _texture_manifest.at(task.texture_manifest_index);
-        texture.runtime_texture = task.result;
+        texture.runtime_data.image = task.result;
         for (TextureManifestEntry::MaterialManifestIndex const & ref : texture.material_manifest_indices)
         {
             _dirty_material_indices.push_back(ref.material_manifest_index);
@@ -515,7 +515,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             auto task = std::make_shared<TextureStreamTask>();
             task->chunk_count = 1;
             task->device = _device;
-            task->artifact = _texture_manifest.at(texture_index).cooked_artifact;
+            task->artifact = _texture_manifest.at(texture_index).streamer_data;
             task->texture_manifest_index = texture_index;
             info.thread_pool->async_dispatch(task, TaskPriority::LOW);
             _inflight_texture_streams.push_back(std::move(task));
@@ -535,7 +535,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             continue;
         }
         MeshLodGroupUploadInfo const & upload = task.result;
-        _mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime = MeshLodGroupManifestEntry::Runtime{
+        _mesh_lod_group_manifest.at(upload.mesh_lod_manifest_index).runtime_data = MeshLodGroupManifestEntry::Runtime{
             .lods = upload.lods,
             .lod_count = upload.lod_count,
         };
@@ -551,7 +551,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             auto task = std::make_shared<MeshStreamTask>();
             task->chunk_count = 1;
             task->device = _device;
-            task->artifact = entry.cooked_artifact;
+            task->artifact = entry.streamer_data;
             task->mesh_lod_manifest_index = mesh_index;
             task->material_manifest_index = entry.material_index.value_or(INVALID_MANIFEST_INDEX);
             task->name = entry.name;
@@ -726,10 +726,10 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
 
             std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
             u32 lod_count = 0;
-            if (mesh_lod_group.runtime.has_value())
+            if (mesh_lod_group.runtime_data.has_value())
             {
-                lods = mesh_lod_group.runtime.value().lods;
-                lod_count = mesh_lod_group.runtime.value().lod_count;
+                lods = mesh_lod_group.runtime_data.value().lods;
+                lod_count = mesh_lod_group.runtime_data.value().lod_count;
                 DAXA_DBG_ASSERT_TRUE_M(lods[0].material_index == mesh_lod_group.material_index.value_or(INVALID_MANIFEST_INDEX), "IMPOSSIBLE CASE! material index MUST MATCH!");
 
                 // Queue every newly resident LOD for a BLAS build.
@@ -749,7 +749,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
                     u32 const range[] = {mesh_group.mesh_lod_group_manifest_indices_array_offset, mesh_group.mesh_lod_group_manifest_indices_array_offset + mesh_group.mesh_lod_group_count};
                     for (u32 mesh_idx_array_idx = range[0]; mesh_idx_array_idx < range[1]; mesh_idx_array_idx++)
                     {
-                        if (!_mesh_lod_group_manifest.at(_mesh_lod_group_manifest_indices.at(mesh_idx_array_idx)).runtime.has_value())
+                        if (!_mesh_lod_group_manifest.at(_mesh_lod_group_manifest_indices.at(mesh_idx_array_idx)).runtime_data.has_value())
                         {
                             is_completely_loaded = false;
                             break;
@@ -800,7 +800,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
         auto resolve_texture_id = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> daxa::ImageId
         {
             if (!info.has_value()) { return {}; }
-            return _texture_manifest.at(info.value().tex_manifest_index).runtime_texture.value_or(daxa::ImageId{});
+            return _texture_manifest.at(info.value().tex_manifest_index).runtime_data.image.value_or(daxa::ImageId{});
         };
 
         // The normal map's BC5 encoding is deduced from its cooked texture format, not tracked through
@@ -808,7 +808,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
         auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> bool
         {
             if (!info.has_value()) { return false; }
-            return tido_format_is_bc5_rg(_texture_manifest.at(info.value().tex_manifest_index).cooked_artifact.descriptor.format);
+            return tido_format_is_bc5_rg(_texture_manifest.at(info.value().tex_manifest_index).streamer_data.info.format);
         };
 
         for (u32 i = 0; i < dirty_material_count; ++i)
@@ -842,7 +842,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
     // only stash their runtime image id - no material update needed.
     for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
     {
-        _texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.image;
+        _texture_manifest.at(texture_upload.texture_manifest_index).runtime_data.image = texture_upload.image;
     }
 
     /// TODO: Taskgraph this shit.
@@ -882,7 +882,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
             is_alpha_discard = _material_manifest.at(mesh_lod_group.material_index.value()).alpha_discard_enabled;
         }
 
-        GPUMesh const & mesh = mesh_lod_group.runtime.value().lods[lod];
+        GPUMesh const & mesh = mesh_lod_group.runtime_data.value().lods[lod];
 
         // Must store geometries in vector as the memory address must persist for outside of the loop!
         build_geometries.push_back(daxa::BlasTriangleGeometryInfo{
@@ -919,7 +919,7 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
             .name = mesh_lod_group.name.empty() ? "mesh_lod_group blas" : mesh_lod_group.name.c_str(),
         });
         blas_build_info.dst_blas = blas;
-        mesh_lod_group.runtime->blas_lods[lod] = blas;
+        mesh_lod_group.runtime_data->blas_lods[lod] = blas;
 
         build_infos.push_back(std::move(blas_build_info));
         _mesh_as_build_queue.pop_back();
@@ -954,8 +954,8 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
         auto const lod = mesh_instance.mesh_index % MAX_MESHES_PER_LOD_GROUP;
         auto const lod_group = mesh_instance.mesh_index / MAX_MESHES_PER_LOD_GROUP;
 
-        if (!_mesh_lod_group_manifest[lod_group].runtime.has_value()) { continue; }
-        if (_mesh_lod_group_manifest[lod_group].runtime.value().blas_lods[lod].is_empty()) { continue; }
+        if (!_mesh_lod_group_manifest[lod_group].runtime_data.has_value()) { continue; }
+        if (_mesh_lod_group_manifest[lod_group].runtime_data.value().blas_lods[lod].is_empty()) { continue; }
 
         RenderEntity const * render_entity = _render_entities.slot_by_index(mesh_instance.entity_index);
         auto const & t = render_entity->combined_transform;
@@ -969,7 +969,7 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
             .mask = 0xFF,
             .instance_shader_binding_table_record_offset = ((mesh_instance.flags & MESH_INSTANCE_FLAG_MASKED) != 0) ? 1u : 0u,
             .flags = 0,
-            .blas_device_address = _device.blas_device_address(_mesh_lod_group_manifest[lod_group].runtime.value().blas_lods[lod]).value(),
+            .blas_device_address = _device.blas_device_address(_mesh_lod_group_manifest[lod_group].runtime_data.value().blas_lods[lod]).value(),
         });
     }
 
@@ -1062,14 +1062,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                 cloud_volume_instance.albedo = 1.0f;
                 cloud_volume_instance.density_scale = 0.1f;
 
-                cloud_volume_instance.cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.cloud_sdf_texture = _texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.detail_noise_texture = _texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_sdf_texture = _texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.detail_noise_texture = _texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_data.image.value_or(daxa::ImageId{}).default_view();
 
                 cloud_volume_instance.texture_size = {0u, 0u, 0u};
                 if(_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
                 {
-                    daxa::ImageId cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
+                    daxa::ImageId cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_data.image.value();
                     daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
                     cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
                 }
@@ -1309,14 +1309,14 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
 
         for (auto & mesh : _mesh_lod_group_manifest)
         {
-            if (mesh.runtime.has_value())
+            if (mesh.runtime_data.has_value())
             {
-                for (daxa_u32 lod = 0; lod < mesh.runtime.value().lod_count; ++lod)
+                for (daxa_u32 lod = 0; lod < mesh.runtime_data.value().lod_count; ++lod)
                 {
-                    _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime.value().lods[lod].mesh_buffer));
-                    if (!mesh.runtime.value().blas_lods[lod].is_empty())
+                    _device.destroy_buffer(std::bit_cast<daxa::BufferId>(mesh.runtime_data.value().lods[lod].mesh_buffer));
+                    if (!mesh.runtime_data.value().blas_lods[lod].is_empty())
                     {
-                        _device.destroy_blas(mesh.runtime.value().blas_lods[lod]);
+                        _device.destroy_blas(mesh.runtime_data.value().blas_lods[lod]);
                     }
                 }
             }
@@ -1324,9 +1324,9 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
 
         for (auto & texture : _texture_manifest)
         {
-            if (texture.runtime_texture.has_value())
+            if (texture.runtime_data.image.has_value())
             {
-                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_texture.value()));
+                _device.destroy_image(std::bit_cast<daxa::ImageId>(texture.runtime_data.image.value()));
             }
             // if (texture.secondary_runtime_texture.has_value())
             // {

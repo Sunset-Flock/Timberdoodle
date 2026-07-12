@@ -43,20 +43,39 @@ struct TextureManifestEntry
         u32 material_manifest_index = {};
     };
 
+    // The live GPU handle for this texture; empty until the streamer has made it resident.
+    struct RuntimeData
+    {
+        std::optional<daxa::ImageId> image = {};
+    };
+
+    // Provenance: which importer + source can reproduce this asset (the hot-reload enabler).
+    struct GltfImporterData
+    {
+        std::filesystem::path src_gltf = {};
+        u32 image_index = {};
+    };
+    struct RawImporterData
+    {
+        std::filesystem::path src = {};
+    };
+
     // The type is determined by the materials that reference it.
     TextureMaterialType type = {};
     // List of materials that use this texture and how they use it
     // The GPUMaterial contrains ImageIds directly,
     // So the GPUMaterial Need to be updated when the texture changes.
     std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
-    std::optional<daxa::ImageId> runtime_texture = {};
-    // Reference to the cooked .tido artifact (descriptor + subresource offset table + path). The
-    // streamer reads this to make runtime_texture resident; kept so the texture can be re-streamed
-    // (loaded/unloaded) later without the source file. Empty for non-gltf textures (e.g. cloud volumes).
-    TidoTextureCookResult cooked_artifact = {};
     std::string name = {};
 
-    auto loaded() const -> bool{ return runtime_texture.has_value(); }
+    // What the streamer needs to (re)make this texture resident from its .tido data file. Kept so the
+    // texture can be re-streamed later without the source file. Empty (bin_source unset) for non-gltf
+    // textures (e.g. cloud volumes) until they are cooked.
+    TidoTextureStreamerData streamer_data = {};
+    RuntimeData runtime_data = {};
+    std::variant<GltfImporterData, RawImporterData> importer_data = {};
+
+    auto loaded() const -> bool{ return runtime_data.image.has_value(); }
 };
 
 struct MaterialManifestEntry
@@ -81,21 +100,39 @@ struct MaterialManifestEntry
 
 struct MeshLodGroupManifestEntry
 {
-    // Unset until a mesh group claims this mesh (add_mesh_group runs after add_mesh, so a mesh can be
-    // resident - or even become resident - before it belongs to any group).
-    std::optional<u32> mesh_group_manifest_index = {};
-    std::optional<u32> material_index = {};
-    std::string name = {}; // TODO(pahrens): fill out.
-    TidoMeshCookResult cooked_artifact = {};
+    // The live per-LOD GPU handles; empty until the streamer has made the mesh resident.
     struct Runtime
     {
         std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
         std::array<daxa::BlasId, MAX_MESHES_PER_LOD_GROUP> blas_lods = {};
         daxa_u32 lod_count = {};
     };
-    std::optional<Runtime> runtime = {};
 
-    auto loaded() const -> bool{ return runtime.has_value(); }
+    // Provenance: which importer + source can reproduce this asset (the hot-reload enabler).
+    struct GltfImporterData
+    {
+        std::filesystem::path src_gltf = {};
+        u32 mesh_index = {};
+        u32 primitive_index = {};
+    };
+    struct RawImporterData
+    {
+        std::filesystem::path src = {};
+    };
+
+    // Unset until a mesh group claims this mesh (add_mesh_group runs after add_mesh, so a mesh can be
+    // resident - or even become resident - before it belongs to any group).
+    std::optional<u32> mesh_group_manifest_index = {};
+    std::optional<u32> material_index = {};
+    std::string name = {}; // TODO(pahrens): fill out.
+
+    // What the streamer needs to (re)make this mesh resident from its .tido data file. Kept so the mesh
+    // can be re-streamed later without the source file.
+    TidoMeshStreamerData streamer_data = {};
+    std::optional<Runtime> runtime_data = {};
+    std::variant<GltfImporterData, RawImporterData> importer_data = {};
+
+    auto loaded() const -> bool{ return runtime_data.has_value(); }
 };
 
 struct MeshGroupManifestEntry
@@ -146,7 +183,7 @@ struct TextureStreamTask : Task
 {
     daxa::Device device = {};
     // Copied (not referenced) so it stays valid if _texture_manifest reallocates mid-stream.
-    TidoTextureCookResult artifact = {};
+    TidoTextureStreamerData artifact = {};
     u32 texture_manifest_index = {};
     daxa::ImageId result = {};
     std::atomic<bool> finished = false;
@@ -163,7 +200,7 @@ struct MeshStreamTask : Task
 {
     daxa::Device device = {};
     // Copied (not referenced) so it stays valid if _mesh_lod_group_manifest reallocates mid-stream.
-    TidoMeshCookResult artifact = {};
+    TidoMeshStreamerData artifact = {};
     u32 mesh_lod_manifest_index = {};
     u32 material_manifest_index = {};
     std::string name = {};
