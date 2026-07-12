@@ -1,7 +1,7 @@
 #include <daxa/daxa.inl>
 #include "autoexposure.inl"
 
-shared uint shared_histogram[LUM_HISTOGRAM_BIN_COUNT];
+shared ae_hist_t shared_histogram[LUM_HISTOGRAM_BIN_COUNT];
 
 #if defined(GEN_HISTOGRAM)
 const vec3 PERCEIVED_LUMINANCE_WEIGHTS = vec3(0.2127, 0.7152, 0.0722);
@@ -33,27 +33,30 @@ void main()
         const float clamped_luminance = clamp(remapped_luminance, 0.0, 1.0);
         const uint bin_index = daxa_u32(clamped_luminance * 255);
 
-        atomicAdd(shared_histogram[bin_index], 1);
+        vec2 uv = (vec2(gl_GlobalInvocationID.xy) + 0.5) / vec2(deref(push.globals).settings.render_target_size);
+        // weight center pixels greater than edge pixels.
+        float influence = exp(-8 * pow(length(uv - 0.5), 2));
+        ae_hist_t quantizedInfluence = ae_hist_t(influence * 10.0);
+
+        atomicAdd(shared_histogram[bin_index], quantizedInfluence);
     }
     memoryBarrierShared();
     barrier();
 
     if (gl_LocalInvocationIndex < LUM_HISTOGRAM_BIN_COUNT)
     {
-        atomicAdd(deref(push.histogram[gl_LocalInvocationIndex]), shared_histogram[gl_LocalInvocationIndex]);
+        atomicAdd(deref(push.histogram).bins[gl_LocalInvocationIndex], shared_histogram[gl_LocalInvocationIndex]);
     }
 }
 #endif // GEN_HISTOGRAM
 #if defined(GEN_AVERAGE)
 
-uint saturating_sub(uint a, uint b)
+ae_hist_t saturating_sub(ae_hist_t a, ae_hist_t b)
 {
     return a - min(a, b);
 }
 
 #extension GL_EXT_shader_atomic_int64 : require
-
-#define ae_hist_t uint
 
 shared ae_hist_t sum;
 
@@ -69,6 +72,33 @@ float compute_exposure(float ev)
     return exposure;
 }
 
+#include "exposure.glsl"
+
+void auto_exposure_update(daxa_RWBufferPtr(AutoExposureHistogram) self, float ev)
+{
+	ev = clamp(ev, -16.0, 16.0);
+
+	deref(self).desired_ev = ev;
+	ev = eval_exposure_compensation_curve_ev(ev);
+
+	float dt = deref(push.globals).delta_time * deref(push.globals).postprocess_settings.luminance_adaption_tau;
+
+	float tFast = 1.0 - exp(-4.0 * dt);
+	deref(self).ev_fast = (ev - deref(self).ev_fast) * tFast + deref(self).ev_fast;
+
+	float tSlow = 1.0 - exp(-1.0 * dt);
+	deref(self).ev_slow = (ev - deref(self).ev_slow) * tSlow + deref(self).ev_slow;
+
+	if (isnan(deref(self).ev_fast))
+		deref(self).ev_fast = 1;
+	if (isnan(deref(self).ev_slow))
+		deref(self).ev_slow = 1;
+
+	deref(self).ev_slow = clamp(deref(self).ev_slow, -16.0, 16.0);
+	deref(self).ev_fast = clamp(deref(self).ev_fast, -16.0, 16.0);
+}
+
+
 layout(local_size_x = LUM_HISTOGRAM_BIN_COUNT) in;
 void main()
 {
@@ -76,8 +106,9 @@ void main()
     {
         sum = 0;
     }
-    ae_hist_t countForThisBin = deref(push.histogram[gl_LocalInvocationIndex]);
+    ae_hist_t countForThisBin = deref(push.histogram).bins[gl_LocalInvocationIndex];
     shared_histogram[gl_LocalInvocationIndex] = countForThisBin;
+    memoryBarrierShared();
     barrier();
 
     // Do an inclusive prefix sum on all the histogram values, store in shared memory (writing over the histogram)
@@ -92,9 +123,11 @@ void main()
             uint wr_idx = rd_idx + 1 + (idx & mask);
             shared_histogram[wr_idx] += shared_histogram[rd_idx];
         }
+        memoryBarrierShared();
         barrier();
     }
 
+    memoryBarrierShared();
     barrier();
 
     // Use the prefix sum to eliminate the top and bottom outliers based on percentage.
@@ -103,6 +136,9 @@ void main()
     float outlierFracLo = deref(push.globals).postprocess_settings.auto_exposure_histogram_clip_lo;
     float outlierFracHi = deref(push.globals).postprocess_settings.auto_exposure_histogram_clip_hi;
     ae_hist_t totalEntryCount = shared_histogram[LUM_HISTOGRAM_BIN_COUNT - 1];
+
+    atomicMax(deref(push.histogram).max_bin_value, countForThisBin);
+    atomicAdd(deref(push.histogram).bins_total_count, countForThisBin);
 
     ae_hist_t rejectLoEntryCount = ae_hist_t(float(totalEntryCount) * outlierFracLo);
     ae_hist_t entryCountToUse = ae_hist_t(float(totalEntryCount) * (outlierFracHi - outlierFracLo));
@@ -119,22 +155,21 @@ void main()
 
     atomicAdd(sum, ae_hist_t(t * float(countToUse)));
 
+    memoryBarrierShared();
     barrier();
 
     if (gl_LocalInvocationIndex == 0)
-    {
-        const float valid_pixel_count = max(float(entryCountToUse), 1);
-        const float weighed_average_log2 = float(sum) / valid_pixel_count;
-        const float desired_ev =
-            (weighed_average_log2 * deref(push.globals).postprocess_settings.luminance_log2_range) + deref(push.globals).postprocess_settings.min_luminance_log2;
+    { 
+        float mean = float(sum) / max(float(entryCountToUse), 1);
+        float image_log2_lum = deref(push.globals).postprocess_settings.min_luminance_log2 + mean * deref(push.globals).postprocess_settings.luminance_log2_range;
+        float desiredEv = -image_log2_lum;
+        if (entryCountToUse < 10)
+            desiredEv = 0;
 
-        const float prev_ev = deref(push.globals).exposure_ev;
+        auto_exposure_update(push.histogram, desiredEv);
 
-        const float tau = deref(push.globals).postprocess_settings.luminance_adaption_tau;
-        const float luminance_adapt_factor = 1.0 - exp(-deref(push.globals).delta_time * tau);
-        const float adapted_ev = prev_ev + (desired_ev - prev_ev) * luminance_adapt_factor;
-
-        const float exposure_value = compute_exposure(adapted_ev);
+        const float adapted_ev = auto_exposure_get_ev_smoothed(push.histogram);
+        const float exposure_value = compute_exposure(-adapted_ev);
         deref(push.exposure_state).ev = adapted_ev;
         deref(push.exposure_state).exposure = exposure_value;
         deref(push.exposure_state).inv_exposure = 1.0 / exposure_value;

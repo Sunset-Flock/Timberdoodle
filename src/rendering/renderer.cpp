@@ -626,7 +626,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
         .size = {render_context->render_data.sky_settings.sky_dimensions.x, render_context->render_data.sky_settings.sky_dimensions.y, 1},
         .name = "sky look up table",
     });
-    auto luminance_histogram = tg.create_task_buffer({.size = sizeof(u32) * (LUM_HISTOGRAM_BIN_COUNT), .name = "luminance_histogram"});
+    auto luminance_histogram = tg.create_task_buffer({.size = sizeof(AutoExposureHistogram), .lifetime_type = daxa::TaskResourceLifetimeType::PERSISTENT, .name = "luminance_histogram"});
 
     auto misc_tasks_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
     auto tlas_build_task_queue = render_context->render_data.settings.enable_async_compute ? daxa::QUEUE_COMPUTE_0 : daxa::QUEUE_MAIN;
@@ -1107,7 +1107,7 @@ auto Renderer::create_main_task_graph() -> daxa::TaskGraph
                 .executes(compose_clouds_callback, render_context.get()));
     }
 
-    tg.clear_buffer({.buffer = luminance_histogram, .clear_value = 0});
+    tg.clear_buffer({.buffer = luminance_histogram, .offset = offsetof(AutoExposureHistogram, bins), .size = offsetof(AutoExposureHistogram, ev_fast) - offsetof(AutoExposureHistogram, bins), .clear_value = 0});
     tg.add_task(daxa::HeadTask<GenLuminanceHistogramH::Info>()
             .head_views(GenLuminanceHistogramH::Info::Views{
                 .globals = render_context->tgpu_render_data.view(),
@@ -1264,7 +1264,7 @@ auto Renderer::prepare_frame(
                 {
                     this->gpu_context->device.destroy_buffer(pipe.sbt_buffer);
                     auto sbt_info = pipe.pipeline->create_default_sbt();
-                    pipe.sbt        = sbt_info.table;
+                    pipe.sbt = sbt_info.table;
                     pipe.sbt_buffer = sbt_info.buffer;
                 }
             }
@@ -1483,7 +1483,7 @@ auto Renderer::prepare_frame(
 
     if (render_context->visualize_clouds_bounds)
     {
-        for(u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.instances.size(); ++cloud_volume)
+        for (u32 cloud_volume = 0; cloud_volume < scene->current_frame_cloud_volume_instances.instances.size(); ++cloud_volume)
         {
             auto const & volume = scene->current_frame_cloud_volume_instances.instances.at(cloud_volume);
             auto const bottom_left_corner = mat_4x3_to_4x4(std::bit_cast<f32mat4x3>(volume.transform)) * f32vec4(0.0f, 0.0f, 0.0f, 1.0f);
