@@ -11,7 +11,7 @@
 #include "shader_shared/geometry.inl"
 #include "shader_shared/globals.inl"
 
-static const float RAY_MIN_POSITION_OFFSET = 0.01f;
+static const float RAY_MIN_POSITION_OFFSET = 0.001f;
 
 float3 rt_calc_ray_start(float3 position, float3 geo_normal, float3 view_ray)
 {

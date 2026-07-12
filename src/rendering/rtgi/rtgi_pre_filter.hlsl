@@ -9,15 +9,6 @@
 
 [[vk::push_constant]] RtgiPreFilterPush rtgi_pre_filter_prepare_push;
 
-// Relative perceived brightness of the three color channels, normalized so the brightest (green) is 1.
-// Derived from the Rec.709 luma weights (0.2126, 0.7152, 0.0722) divided by the green weight.
-static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS = float3(0.2973f, 1.0f, 0.1009f);
-
-// Same relationship expressed in perceptual (natural-log) space relative to green: ln(brightness / green).
-// Green is 0; the others are negative because red and blue are perceived dimmer than green. Natural log so
-// it can be added directly to the ln-based perceptual values (linear_to_perceptual / perceptual_to_linear).
-static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN = float3(-1.2129f, 0.0f, -2.2936f);
-
 // Outer gather reaches EXTENT cells at STRIDE spacing → EXTENT*STRIDE cells = EXTENT*STRIDE*2 pixels per side.
 static const int QUAD_HALO_CELLS   = RTGI_QUAD_FILTER_EXTENT * RTGI_QUAD_FILTER_STRIDE;
 static const int TOTAL_FILTER_REACH = QUAD_HALO_CELLS * 2;
@@ -312,7 +303,8 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         // needs proportionally more linear energy to look as bright.
         const float perceptual_tolerance = rtgi.firefly_perceptual_tolerance * (pixel_matches_quad ? 1.0f : 0.1f);
         const float3 ceil_rgb = perceptual_to_linear(
-            perceptual_rgb_for_ceiling + perceptual_tolerance - RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN);
+            perceptual_rgb_for_ceiling + perceptual_tolerance);
+        const float ceil_merged = dot(ceil_rgb,       RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
 
         // Blend the pixel's rays directly from the ray list (directional SH radiance + CoCg averaged over the
         // rays, exactly like the old blend pass), hue-preservingly firefly-clamping EACH ray to the ceiling
@@ -336,7 +328,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 float3 clamped = ray_rgb;
                 if (do_clamp)
                 {
-                    const float3 c = max(ceil_rgb, EPSILON);
+                    const float ray_merged  = dot(ray_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
                     // Both modes scale ALL channels by one over-exposure ratio (hue-preserving); they only
                     // differ in how that ratio is derived from the per-channel ceilings:
                     //   monochrome: merge ray + ceiling into a single perceived-brightness scalar, then take
@@ -347,14 +339,12 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                     float over;
                     if (ff_mono)
                     {
-                        const float ray_merged  = dot(ray_rgb, RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
-                        const float ceil_merged = dot(c,       RTGI_CHANNEL_PERCEIVED_BRIGHTNESS);
-                        over = ray_merged / max(ceil_merged, EPSILON);
+                        over = (ray_merged / ceil_merged);
                     }
                     else
                     {
-                        const float3 ex = ray_rgb / c;
-                        over = max(max(ex.r, ex.g), ex.b);
+                        const float3 ex = (ray_rgb * RTGI_CHANNEL_PERCEIVED_BRIGHTNESS) / ceil_rgb;
+                        over = max(ex.r, max(ex.g, ex.b));
                     }
                     clamped = ray_rgb / max(over, 1.0f);
                 }

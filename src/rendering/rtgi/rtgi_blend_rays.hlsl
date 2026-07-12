@@ -47,7 +47,7 @@ func entry_blend_rays(uint2 dtid : SV_DispatchThreadID)
         const RtgiRayResult res = push.attach.ray_result[ray_offset + s];
         const float3 ray_rgb    = res.radiance;
 
-        mean_perceptual_rgb += linear_to_perceptual(ray_rgb, push.attach.globals.inv_exposure) * inv_count;
+        mean_perceptual_rgb += linear_to_perceptual_rgb(ray_rgb, push.attach.globals.inv_exposure) * inv_count;
         acc_ray_shortness += calc_ray_shortness(res.t, ws_px_size, rtgi_settings.max_visibility_pixel_range) * inv_count;
     }
 

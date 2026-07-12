@@ -8,7 +8,7 @@
 #define RTGI_QUAD_FILTER_EXTENT 2  // valid: 1 (3x3), 2 (5x5)
 #define RTGI_QUAD_FILTER_STRIDE 1  // cell spacing of the outer gather; >1 widens reach at same tap count (e.g. extent 1 + stride 2)
 
-#define VALUE_MULTIPLIER (1e4f)
+#define RTGI_RADIANCE_SCALE (1e4f)
 
 // == Packed history sample counters ===========================================
 // The normal (slow) temporal sample count and the fast-history frame count are packed into a single
@@ -86,6 +86,15 @@ func calc_ray_shortness(float ray_length, float pixel_width_ws, float max_visibi
     return 1.0f - min(1.0f, square(ray_length * rcp(max(max_visibility_raylen, 1e-8f))));
 }
 
+// Relative perceived brightness of the three color channels, normalized so the brightest (green) is 1.
+// Derived from the Rec.709 luma weights (0.2126, 0.7152, 0.0722) divided by the green weight.
+static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS = float3(0.2973f, 1.0f, 0.1009f);
+
+// Same relationship expressed in perceptual (natural-log) space relative to green: ln(brightness / green).
+// Green is 0; the others are negative because red and blue are perceived dimmer than green. Natural log so
+// it can be added directly to the ln-based perceptual values (linear_to_perceptual / perceptual_to_linear).
+static const float3 RTGI_CHANNEL_PERCEIVED_BRIGHTNESS_LN = float3(-1.2129f, 0.0f, -2.2936f);
+
 // Lower clamp for a radiance value BEFORE taking its log, when accumulating a geometric (log) mean.
 // Human brightness perception is logarithmic (Weber-Fechner law), so below a certain luminance — scaled
 // by the current exposure — darker values are perceptually indistinguishable from black. Without a floor,
@@ -96,7 +105,7 @@ func calc_ray_shortness(float ray_length, float pixel_width_ws, float max_visibi
 // log().
 func calc_perceptual_radiance_floor(float inv_exposure) -> float
 {
-    return inv_exposure * 16.0f;
+    return inv_exposure * RTGI_RADIANCE_SCALE * 1e-3f;
 }
 
 func linear_to_perceptual(float v, float inv_exposure) -> float
@@ -104,8 +113,7 @@ func linear_to_perceptual(float v, float inv_exposure) -> float
     return log(max(v, calc_perceptual_radiance_floor(inv_exposure)));
 }
 
-__generic<uint N>
-func linear_to_perceptual(vector<float, N> v, float inv_exposure) -> vector<float, N>
+func linear_to_perceptual_rgb(float3 v, float inv_exposure) -> float3
 {
     return log(max(v, calc_perceptual_radiance_floor(inv_exposure)));
 }

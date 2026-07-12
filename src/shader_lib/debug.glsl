@@ -143,7 +143,11 @@ void write_debug_image(RWTexture2D<float4> tex, int slot, uint2 sv_position, flo
                 const uint2 dst = dst_position + uint2(x, y);
                 if (all(dst < full_res))
                 {
-                    tex[dst] = color;
+                    const float alpha = tex[dst].a;
+                    if (color.a > alpha)
+                    {
+                        tex[dst] = color;
+                    }
                 }
             }
         }
@@ -161,5 +165,9 @@ void write_debug_image(RWTexture2D<float4> tex, int slot, uint2 sv_position, flo
     }
     const uint2 slot_coord = uint2(slot % 4, slot / 4);
     const uint2 dst_position = slot_coord * slot_size + dst_in_slot;
-    tex[dst_position] = color;
+    const float alpha = tex[dst_position].a;
+    if (color.a > alpha)
+    {
+        tex[dst_position] = color;
+    }
 }

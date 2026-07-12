@@ -182,5 +182,5 @@ func entry_upscale_diffuse(uint2 dtid : SV_DispatchThreadID, uint in_group_index
         }
     }
 
-    push.attach.diffuse_resolved.get()[dtid] = float4((upscaled_diffuse) / VALUE_MULTIPLIER, 1.0f);
+    push.attach.diffuse_resolved.get()[dtid] = float4((upscaled_diffuse) / RTGI_RADIANCE_SCALE, 1.0f);
 }

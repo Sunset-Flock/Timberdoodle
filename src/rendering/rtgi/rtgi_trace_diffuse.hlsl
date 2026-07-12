@@ -190,10 +190,10 @@ void shade_ray_gen(uint2 dtid)
 
             // Write this ray's result into the shared ray list (same layout the blend pass produced), so
             // the pre-filter re-blends (and per-ray firefly-clamps) it identically to the repacked path.
-            const float3 ray_rgb = payload.color * VALUE_MULTIPLIER;
+            const float3 ray_rgb = payload.color * RTGI_RADIANCE_SCALE;
             push.attach.ray_result[my_offset + i] = RtgiRayResult(ray_rgb, payload.t, compress_normal_octahedral_32(sample_dir));
 
-            mean_perceptual_rgb += linear_to_perceptual(ray_rgb, push.attach.globals.inv_exposure) * inv_samples;
+            mean_perceptual_rgb += linear_to_perceptual_rgb(ray_rgb, push.attach.globals.inv_exposure) * inv_samples;
             acc_ray_shortness   += calc_ray_shortness(payload.t, ws_px_size, rtgi_settings.max_visibility_pixel_range) * inv_samples;
         }
     }
@@ -285,7 +285,7 @@ void ray_gen_from_list_body()
 
     // Store the raw hit distance; the blend pass converts it to bounded shortness [0,1] per ray and
     // averages over the pixel's rays into the ray-length texture for a stable denoiser guide.
-    push.attach.ray_result[ray_index] = RtgiRayResult(payload.color * VALUE_MULTIPLIER, payload.t, compress_normal_octahedral_32(sample_dir));
+    push.attach.ray_result[ray_index] = RtgiRayResult(payload.color * RTGI_RADIANCE_SCALE, payload.t, compress_normal_octahedral_32(sample_dir));
 
     if (push.attach.globals.settings.debug_draw_mode == DEBUG_DRAW_MODE_RTGI_TRACE_CLOCKS)
     {

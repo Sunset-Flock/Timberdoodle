@@ -11,7 +11,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .shading_ao_range                             = 1.0f,
         .firefly_filter_enabled               = 1,
         .firefly_perceptual_tolerance         = 4.0f,
-        .firefly_clamp_mode                   = 1,
+        .firefly_clamp_mode                   = 0,
         .pre_blur_enabled                     = 1,
         .pre_blur_ao_guiding           = 1,
         .pre_blur_perceptual_difference_guiding               = 1,
