@@ -1140,6 +1140,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                 render_context.render_data.volumetric_settings.enable = enable;
             }
         }
+        ImGui::PopItemWidth();
     }
     if (debug_visualization_index_override != 0)
     {
@@ -1149,7 +1150,6 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
     {
         render_data.settings.debug_draw_mode = debug_visualization_index;
     }
-    ImGui::PopItemWidth();
     ImGui::End();
 }
 

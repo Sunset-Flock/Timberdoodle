@@ -24,15 +24,30 @@ struct AutoExposureState
 
 DAXA_DECL_BUFFER_PTR(AutoExposureState)
 
+#define ae_hist_t daxa_u32
+
+struct AutoExposureHistogram
+{
+    ae_hist_t bins[LUM_HISTOGRAM_BIN_COUNT];
+    ae_hist_t max_bin_value;
+    ae_hist_t bins_total_count;
+
+    float ev_fast;
+    float ev_slow;
+    float desired_ev;
+};
+
+DAXA_DECL_BUFFER_PTR(AutoExposureHistogram)
+
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceHistogramH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(WRITE, daxa_BufferPtr(daxa_u32), histogram)
+DAXA_TH_BUFFER_PTR(WRITE, daxa_RWBufferPtr(AutoExposureHistogram), histogram)
 DAXA_TH_IMAGE_ID(READ, REGULAR_2D, color_image)
 DAXA_DECL_TASK_HEAD_END
 
 DAXA_DECL_COMPUTE_TASK_HEAD_BEGIN(GenLuminanceAverageH)
 DAXA_TH_BUFFER_PTR(READ_WRITE_CONCURRENT, daxa_BufferPtr(RenderGlobalData), globals)
-DAXA_TH_BUFFER_PTR(READ, daxa_BufferPtr(daxa_u32), histogram)
+DAXA_TH_BUFFER_PTR(READ_WRITE, daxa_RWBufferPtr(AutoExposureHistogram), histogram)
 // Writes this frame's exposure into the double-buffered .current() slot. The previous frame's exposure
 // (needed for the EMA) is read from globals.exposure_ev, which the copy task filled from .previous().
 DAXA_TH_BUFFER_PTR(WRITE, daxa_BufferPtr(AutoExposureState), exposure_state)
