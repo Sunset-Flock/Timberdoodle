@@ -732,7 +732,7 @@ auto AssetProcessor::load_nonmanifest_texture(LoadNonManifestTextureInfo const &
             return std::get<AssetProcessor::AssetLoadResultCode>(raw_data_ret);
         }
         ImageFromRawInfo & raw_data = std::get<ImageFromRawInfo>(raw_data_ret);
-        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), TextureMaterialType::DIFFUSE_OPACITY, info.load_as_srgb);
+        ParsedImageRet parsed_data_ret = libpng_parse_raw_image_data(std::move(raw_data), TextureMaterialType::DIFFUSE, info.load_as_srgb);
         if (auto const * error = std::get_if<AssetProcessor::AssetLoadResultCode>(&parsed_data_ret))
         {
             return *error;

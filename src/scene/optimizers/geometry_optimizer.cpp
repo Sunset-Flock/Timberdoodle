@@ -273,40 +273,40 @@ auto optimize_mesh(RawMesh const & raw) -> ProcessedMesh
         std::vector<AABB> meshlet_aabbs(meshlet_count);
         glm::vec3 mesh_min_pos;
         glm::vec3 mesh_max_pos;
-        for (size_t meshlet_i = 0; meshlet_i < meshlet_count; ++meshlet_i)
+        for (size_t meshlet_index = 0; meshlet_index < meshlet_count; ++meshlet_index)
         {
             meshopt_Bounds raw_bounds = meshopt_computeMeshletBounds(
-                &meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset],
-                &meshlet_micro_indices[meshlets[meshlet_i].triangle_offset],
-                meshlets[meshlet_i].triangle_count,
+                &meshlet_indirect_vertices[meshlets[meshlet_index].vertex_offset],
+                &meshlet_micro_indices[meshlets[meshlet_index].triangle_offset],
+                meshlets[meshlet_index].triangle_count,
                 r_cast<float *>(optimized_vert_positions.data()),
                 s_cast<usize>(unique_vertices),
                 sizeof(glm::vec3));
-            meshlet_bounds[meshlet_i].center.x = raw_bounds.center[0];
-            meshlet_bounds[meshlet_i].center.y = raw_bounds.center[1];
-            meshlet_bounds[meshlet_i].center.z = raw_bounds.center[2];
-            meshlet_bounds[meshlet_i].radius = raw_bounds.radius;
+            meshlet_bounds[meshlet_index].center.x = raw_bounds.center[0];
+            meshlet_bounds[meshlet_index].center.y = raw_bounds.center[1];
+            meshlet_bounds[meshlet_index].center.z = raw_bounds.center[2];
+            meshlet_bounds[meshlet_index].radius = raw_bounds.radius;
 
-            glm::vec3 min_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
-            glm::vec3 max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset]];
+            glm::vec3 min_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_index].vertex_offset]];
+            glm::vec3 max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_index].vertex_offset]];
 
-            if (meshlet_i == 0)
+            if (meshlet_index == 0)
             {
                 mesh_min_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
                 mesh_max_pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[0].vertex_offset]];
             }
 
-            for (u32 vert_i = 1; vert_i < meshlets[meshlet_i].vertex_count; ++vert_i)
+            for (u32 vertex_index = 1; vertex_index < meshlets[meshlet_index].vertex_count; ++vertex_index)
             {
-                glm::vec3 pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_i].vertex_offset + vert_i]];
+                glm::vec3 pos = optimized_vert_positions[meshlet_indirect_vertices[meshlets[meshlet_index].vertex_offset + vertex_index]];
                 min_pos = glm::min(min_pos, pos);
                 max_pos = glm::max(max_pos, pos);
             }
             mesh_min_pos = glm::min(mesh_min_pos, min_pos);
             mesh_max_pos = glm::max(mesh_max_pos, max_pos);
 
-            meshlet_aabbs[meshlet_i].center = std::bit_cast<daxa_f32vec3>((max_pos + min_pos) * 0.5f);
-            meshlet_aabbs[meshlet_i].size = std::bit_cast<daxa_f32vec3>(max_pos - min_pos);
+            meshlet_aabbs[meshlet_index].center = std::bit_cast<daxa_f32vec3>((max_pos + min_pos) * 0.5f);
+            meshlet_aabbs[meshlet_index].size = std::bit_cast<daxa_f32vec3>(max_pos - min_pos);
         }
         AABB mesh_aabb;
         mesh_aabb.center = std::bit_cast<daxa_f32vec3>((mesh_max_pos + mesh_min_pos) * 0.5f);

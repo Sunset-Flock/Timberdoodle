@@ -7,6 +7,7 @@
 #define WARP_SIZE_MULTIPLE_MASK (WARP_SIZE - 1u)
 #define MAX_ENTITIES (1u << 20u)
 #define MAX_MATERIALS (1u << 16u)
+#define MAX_TEXTURES (1u << 16u)
 #define MAX_POINT_LIGHTS 64
 #define MAX_SPOT_LIGHTS 64
 #define MAX_MESH_LOD_GROUPS 10000

@@ -134,7 +134,7 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
     });
 }
 
-void UIEngine::main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state, ThreadPool & threadpool)
+void UIEngine::main_update(RenderContext & render_context, Scene const & scene, ApplicationState & app_state, ThreadPool & threadpool)
 {
     ImGui_ImplGlfw_NewFrame();
     ImGui::NewFrame();

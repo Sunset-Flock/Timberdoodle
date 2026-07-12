@@ -119,7 +119,7 @@ struct UIEngine
 
         UIEngine(Window &window, AssetProcessor & asset_processor, GPUContext * gpu_context);
         ~UIEngine();
-        void main_update(RenderContext & render_context, Scene & scene, ApplicationState & app_state, ThreadPool & threadpool);
+        void main_update(RenderContext & render_context, Scene const & scene, ApplicationState & app_state, ThreadPool & threadpool);
 
     private:
         struct DebugCloneUiState

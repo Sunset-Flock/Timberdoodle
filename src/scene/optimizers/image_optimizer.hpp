@@ -21,7 +21,6 @@ enum struct TextureMaterialType
 {
     NONE,
     DIFFUSE,
-    DIFFUSE_OPACITY,
     OPACITY,
     NORMAL,
     ROUGHNESS_METALNESS,
@@ -57,6 +56,16 @@ struct ProcessedImage
     std::array<u64, 16> mip_copy_offsets = {};
 };
 
+// The optimizer's full output for one source image: the primary (color) output, plus an opacity output
+// when the source is a DIFFUSE image that genuinely carried an alpha channel (source color_type/tRNS for
+// PNG, basis component count for KTX2 - not the material's alphaMode). Color drops/ignores alpha (BC7
+// RGB-only information content); opacity is the alpha channel alone (BC4).
+struct ProcessedImageResult
+{
+    ProcessedImage color;
+    std::optional<ProcessedImage> opacity = {};
+};
+
 enum struct ImageOptimizeError
 {
     FAILED_TO_PROCESS_KTX,
@@ -64,5 +73,6 @@ enum struct ImageOptimizeError
 };
 
 // Turn raw source bytes into GPU-ready cooked CPU memory: PNG is decoded, mipped and BC-compressed; KTX2
-// is basis-transcoded to BCn (mips already in the container).
-auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>;
+// is basis-transcoded to BCn (mips already in the container). A DIFFUSE source that genuinely had alpha
+// additionally yields a dedicated opacity output (see ProcessedImageResult).
+auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImageResult>;

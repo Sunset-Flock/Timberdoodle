@@ -53,6 +53,10 @@ struct GltfImporter
     // image_manifest_indices is keyed by gltf IMAGE index (INVALID_MANIFEST_INDEX for unreferenced,
     // hence not added, images). Materials map their texture -> image -> manifest index.
     std::vector<u32> image_manifest_indices = {};
+    // Parallel to image_manifest_indices: gltf IMAGE index -> the manifest index of its split-off opacity
+    // texture (see TC.4 / the DIFFUSE split in image_optimizer's process_image), or INVALID_MANIFEST_INDEX
+    // when that image has no alpha (most images) or isn't a DIFFUSE image at all.
+    std::vector<u32> opacity_manifest_indices = {};
     std::vector<u32> material_manifest_indices = {};
     std::vector<u32> mesh_group_manifest_indices = {};
     // Keyed [gltf mesh-group index][in-group primitive index] -> that mesh's manifest index (or
@@ -94,8 +98,8 @@ struct GltfImporter
     // referenced artifact has a cached entry whose source is unchanged (mtime match + .tido present). import()
     // calls this to decide rewriting_cache; reused verbatim if true, rewritten fresh (open_cache_writer) if not.
     auto validate_cache() -> bool;
-    // Opens the shared .tido_cache for a fresh write: truncates it and writes the header record. Always opens
-    // unconditionally - the caller (import()) is responsible for only calling this when rewriting_cache is true.
+    // Opens the shared .tido_cache for a fresh write: truncates it and writes the header record. Asserts
+    // rewriting_cache is already true.
     void open_cache_writer();
     // Appends one serialized record (+ a separating newline) to the open cache_stream and flushes, under
     // cache_write_mutex so parallel cook chunks append safely. record must not be empty (asserted) - the
@@ -110,6 +114,9 @@ struct GltfImporter
     // Stable per-artifact source-identity key (also the .tido file stem), shared by the cache validation and
     // the load passes so both derive the same key.
     auto image_cache_key(u32 gltf_image_index) -> u64;
+    // The split opacity artifact's own identity key (see opacity_manifest_indices): same source image as
+    // image_cache_key but a distinct disambiguator, so it gets its own cache entry and .tido stem.
+    auto image_opacity_cache_key(u32 gltf_image_index) -> u64;
     auto mesh_cache_key(u32 gltf_mesh_index, u32 gltf_primitive_index) -> u64;
     void translate_materials();
     void translate_mesh_groups();
@@ -117,4 +124,29 @@ struct GltfImporter
     auto translate_light(fastgltf::Light const & light) -> u32;
 
     auto gltf_texture_to_image_index(u32 gltf_texture_index) -> std::optional<u32>;
+};
+
+/// --- Async import task ---
+// A single-chunk task running a whole GltfImporter::import() on a worker thread.
+// Application::load_scene dispatches one and stores it as ApplicationState::pending_scene_import;
+// Application::poll_scene_import polls `finished` each frame and consumes `result` once it flips.
+// `finished` uses release/acquire ordering so the polling thread's read of `result` is ordered
+// after the worker's write.
+struct GltfImportTask : Task
+{
+    Scene * scene = {};
+    // Holds references (the thread-pool + asset-processor unique_ptrs). Safe to keep in this longer-
+    // lived task: ThreadPool's destructor joins all workers - finishing any in-flight import - before
+    // either referent is destroyed (Application's member order guarantees it).
+    Scene::LoadManifestInfo info;
+    std::variant<RenderEntityId, Scene::LoadManifestErrorCode> result = {};
+    std::atomic<bool> finished = false;
+
+    GltfImportTask(Scene * scene, Scene::LoadManifestInfo info)
+        : scene{scene}, info{std::move(info)}
+    {
+        chunk_count = 1;
+    }
+
+    void callback(u32 chunk_index, u32 thread_index) override;
 };

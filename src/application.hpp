@@ -29,6 +29,7 @@ public:
 
 private:
     void update();
+    void poll_scene_import();
     /**
         * EXPLANATION: Why do we use unique pointers here?
         * Many of these members are non-movable.

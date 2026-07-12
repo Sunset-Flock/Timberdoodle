@@ -4,6 +4,7 @@
 #include <variant>
 #include <mutex>
 #include <span>
+#include <string_view>
 
 #include "../timberdoodle.hpp"
 
@@ -80,13 +81,11 @@ struct MaterialManifestEntry
 
 struct MeshLodGroupManifestEntry
 {
-    u32 mesh_group_manifest_index = {};
+    // Unset until a mesh group claims this mesh (add_mesh_group runs after add_mesh, so a mesh can be
+    // resident - or even become resident - before it belongs to any group).
+    std::optional<u32> mesh_group_manifest_index = {};
     std::optional<u32> material_index = {};
     std::string name = {}; // TODO(pahrens): fill out.
-    // Reference to the cooked .tido artifact (descriptor + per-LOD offset table + path). The streamer
-    // reads this to make `runtime` resident; kept so the mesh can be re-streamed (loaded/unloaded) later
-    // without the source file. Attached at add_mesh time (the mesh is added only after it is cooked).
-    // Mirrors TextureManifestEntry.
     TidoMeshCookResult cooked_artifact = {};
     struct Runtime
     {
@@ -139,33 +138,6 @@ struct CloudVolume
     u32 detail_noise_texture_manifest_index = {};
 };
 
-// A thread-safe list of manifest indices that changed (were added, or had their runtime data updated)
-// since the last GPU manifest sync. Every manifest that is mirrored on the GPU owns one; importers
-// mark indices from worker threads as they populate the scene, and update_scene drains
-// it to re-upload exactly those entries (instead of assuming a contiguous tail of new entries).
-// Manifests that are not shared with the GPU (e.g. the texture manifest) do not need one.
-struct DirtyManifestList
-{
-    // Records that `index` changed. Safe to call concurrently from multiple importer threads.
-    void mark(u32 index)
-    {
-        std::lock_guard<std::mutex> lock{*_mutex};
-        _indices.push_back(index);
-    }
-    // Moves the accumulated indices out and leaves the list empty. Called by the GPU sync.
-    auto drain() -> std::vector<u32>
-    {
-        std::lock_guard<std::mutex> lock{*_mutex};
-        std::vector<u32> out = std::move(_indices);
-        _indices.clear();
-        return out;
-    }
-
-    std::vector<u32> _indices = {};
-    // unique_ptr so the owning Scene stays movable (std::mutex is not movable), matching _manifest_mutex.
-    std::unique_ptr<std::mutex> _mutex = std::make_unique<std::mutex>();
-};
-
 // An async texture residency job. update_scene spawns one per newly dirtied texture: on a worker
 // thread it reads the cooked .tido off disk and uploads it to the GPU (the streamer). update_scene
 // polls `finished` each frame; once set it publishes `result` as the texture's runtime image and
@@ -173,7 +145,7 @@ struct DirtyManifestList
 struct TextureStreamTask : Task
 {
     daxa::Device device = {};
-    // Copied (not referenced) so it stays valid if _material_texture_manifest reallocates mid-stream.
+    // Copied (not referenced) so it stays valid if _texture_manifest reallocates mid-stream.
     TidoTextureCookResult artifact = {};
     u32 texture_manifest_index = {};
     daxa::ImageId result = {};
@@ -278,18 +250,6 @@ struct Scene
     daxa::ExternalTaskBuffer _gpu_point_lights = {};
     daxa::ExternalTaskBuffer _gpu_spot_lights = {};
 
-    RenderEntitySlotMap _render_entities = {};
-    std::vector<RenderEntityId> _dirty_render_entities = {};
-    struct ModifiedEntityInfo
-    {
-        RenderEntityId entity = {};
-        glm::mat4x4 prev_transform = {};
-        glm::mat4x4 curr_transform = {};
-    };
-    std::vector<ModifiedEntityInfo> _modified_render_entities = {};
-
-    std::vector<u32> _newly_completed_mesh_groups = {};
-    std::vector<u32> _mesh_as_build_queue = {};
     /**
      * NOTES:
      * -    growing and initializing the manifest on the gpu is recorded in the scene,
@@ -314,35 +274,6 @@ struct Scene
     static constexpr u32 _gpu_tlas_build_scratch_buffer_size = 1u << 24u;
     static constexpr u32 _indirections_count = (1 << 26);
     static constexpr u32 MAX_MESH_BLAS_BUILDS_PER_FRAME = 64;
-    // Root entity of each imported asset's entity sub-tree (file-agnostic; replaces the old per-file session list).
-    std::vector<RenderEntityId> _root_render_entities = {};
-    std::vector<TextureManifestEntry> _material_texture_manifest = {};
-    std::vector<MaterialManifestEntry> _material_manifest = {};
-    std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
-    std::vector<u32> _mesh_lod_group_manifest_indices = {};
-    std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
-    // Per GPU-resident manifest: the indices changed since the last GPU sync (see DirtyManifestList).
-    DirtyManifestList _dirty_material_manifest = {};
-    DirtyManifestList _dirty_mesh_lod_group_manifest = {};
-    DirtyManifestList _dirty_mesh_group_manifest = {};
-    // Texture indices whose cooked artifact still needs streaming in. update_scene drains this to spawn
-    // async stream tasks; it is not a GPU-resident manifest itself (textures reach the GPU only as
-    // ImageIds inside GPUMaterial), but it drives the residency + the material re-dirtying.
-    DirtyManifestList _dirty_material_texture_manifest = {};
-    // Texture stream jobs currently in flight (spawned by update_scene, collected once finished).
-    std::vector<std::shared_ptr<TextureStreamTask>> _inflight_texture_streams = {};
-    // Mesh-lod-group indices whose cooked artifact still needs streaming in (separate from the GPU-sync
-    // dirty list above: this only drives async residency). update_scene drains it to spawn stream tasks;
-    // a finished stream then marks _dirty_mesh_lod_group_manifest so the GPU sync uploads the real data.
-    DirtyManifestList _dirty_mesh_lod_group_streaming = {};
-    // Mesh stream jobs currently in flight (spawned by update_scene, collected once finished).
-    std::vector<std::shared_ptr<MeshStreamTask>> _inflight_mesh_streams = {};
-    std::vector<PointLight> _point_lights = {};
-    std::vector<SpotLight> _spot_lights = {};
-    std::vector<CloudVolume> _cloud_volumes = {};
-
-    std::vector<u32> _cloud_volumes_requesting_load = {};
-
 
     daxa::BlasId _scene_blas = {};
     daxa::ExternalTaskBuffer _scene_as_indirections = {};
@@ -368,9 +299,10 @@ struct Scene
             case LoadManifestErrorCode::COULD_NOT_LOAD_ASSET:        return "COULD_NOT_LOAD_ASSET";
             case LoadManifestErrorCode::INVALID_GLTF_FILE_TYPE:      return "INVALID_GLTF_FILE_TYPE";
             case LoadManifestErrorCode::COULD_NOT_PARSE_ASSET_NODES: return "COULD_NOT_PARSE_ASSET_NODES";
-            default:                                                 return "UNKNOWN";
+            default:
+                DBG_ASSERT_TRUE_M(false, "Unhandled LoadManifestErrorCode");
+                return "UNKNOWN";
         }
-        return "UNKNOWN";
     }
     struct LoadManifestInfo
     {
@@ -379,38 +311,63 @@ struct Scene
         std::unique_ptr<ThreadPool> & thread_pool;
         std::unique_ptr<AssetProcessor> & asset_processor;
     };
-    auto load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>;
 
-    /// --- Generic, format-agnostic scene builder API ---
-    // Each add_* appends a fully-built (format-neutral) entry and returns its global manifest index.
-    // Importers reference already-added entries by these returned indices (never by a captured base
-    // offset), so multiple importers can populate the scene concurrently. All adds are internally
-    // synchronized via _manifest_mutex; the scene maintains all cross-references (texture<->material
-    // back-refs, mesh<->mesh-group links).
-    std::unique_ptr<std::mutex> _manifest_mutex = std::make_unique<std::mutex>();
-    auto add_texture(TextureManifestEntry texture) -> u32;
-    auto add_material(MaterialManifestEntry material) -> u32;
-    auto add_mesh(MeshLodGroupManifestEntry mesh) -> u32;
-    // Adds a mesh group over the given (already-added) mesh manifest indices. Fills the group's
-    // index range + count and back-links each mesh to this group.
-    auto add_mesh_group(MeshGroupManifestEntry mesh_group, std::span<u32 const> mesh_manifest_indices) -> u32;
-    auto add_point_light(PointLight light) -> u32;
-    auto add_spot_light(SpotLight light) -> u32;
-    auto add_entity(RenderEntity entity) -> RenderEntityId;
+    /**
+     * NOTES:
+     * The LockedConst and Locked structs are the only way to access the scene's manifests and entities from outside scene.cpp.
+     * They exist for thread safety, so that scene can be safely read and modified from multiple threads.
+     * The LockConst API is a subset of the Locked API, and is used for read-only access to the scene's manifests and entities.
+     * */
+    struct LockedConst
+    {
+        auto entity(RenderEntityId id) const -> std::optional<RenderEntity>;
+        auto entity_by_index(u32 entity_index) const -> std::optional<RenderEntity>;
+        auto entity_by_name(std::string_view name) const -> std::optional<RenderEntityId>;
+        auto root_entity_count() const -> u32;
+        auto mesh_group(u32 index) const -> MeshGroupManifestEntry;
+        auto mesh_lod_group(u32 index) const -> MeshLodGroupManifestEntry;
+        auto material(u32 index) const -> MaterialManifestEntry;
+        auto material_count() const -> u32;
+        auto texture(u32 index) const -> TextureManifestEntry;
+        auto point_lights() const -> std::vector<PointLight>;
+        auto spot_lights() const -> std::vector<SpotLight>;
 
-    auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
+    protected:
+        friend struct Scene;
+        LockedConst(Scene const & scene, std::unique_lock<std::mutex> lock) : _scene(scene), _lock(std::move(lock)) {}
+        Scene const & _scene;
+        std::unique_lock<std::mutex> _lock;
+    };
+
+    struct Locked : LockedConst
+    {
+        auto add_texture(TextureManifestEntry texture) -> u32;
+        auto add_material(MaterialManifestEntry material) -> u32;
+        auto add_mesh(MeshLodGroupManifestEntry mesh) -> u32;
+        auto add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32;
+        auto add_point_light(PointLight light) -> u32;
+        auto add_spot_light(SpotLight light) -> u32;
+        auto add_entity(RenderEntity entity) -> RenderEntityId;
+        auto update_entity(RenderEntityId id, RenderEntity entity) -> void;
+        auto add_root_entity(RenderEntityId root_entity_id) -> void;
+        auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
+
+    private:
+        friend struct Scene;
+        Locked(Scene & scene, std::unique_lock<std::mutex> lock) : LockedConst(scene, std::move(lock)), _scene(scene) {}
+        // The base's _scene is const; the mutators write through this one (same object).
+        Scene & _scene;
+    };
+    [[nodiscard]] auto lock() -> Locked { return Locked{*this, std::unique_lock<std::mutex>{*_manifest_mutex}}; }
+    [[nodiscard]] auto lock() const -> LockedConst { return LockedConst{*this, std::unique_lock<std::mutex>{*_manifest_mutex}}; }
 
     struct UpdateSceneInfo
     {
-        // Used to spawn async texture- and mesh-streaming jobs (reading cooked .tido off disk). May be
-        // null (e.g. at shutdown after the pool is gone) - then no new streams are spawned this call.
         ThreadPool * thread_pool = {};
-        // Cloud volume textures still arrive via the AssetProcessor queue (their load path is not yet
-        // ported); gltf meshes/textures now go straight into the manifest via add_mesh/add_texture.
+        // Only used for cloud volumes which still arrive via the AssetProcessor queue.
+        // TODO(saky) Remove this once cloud volume path is included in the scene rewrite.
         std::span<const AssetProcessor::LoadedTextureInfo> uploaded_textures = {};
     };
-    // Streams in newly added textures, collects finished streams (publishing their runtime image + re-
-    // marking referencing materials dirty), then records the GPU manifest updates for the frame.
     auto update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableCommandList;
 
     auto create_mesh_acceleration_structures() -> daxa::ExecutableCommandList;
@@ -431,4 +388,53 @@ struct Scene
     void write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const& cloud_volume_instances);
 
     void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);
+
+private:
+    RenderEntitySlotMap _render_entities = {};
+    std::vector<RenderEntityId> _dirty_render_entities = {};
+
+    std::vector<u32> _newly_completed_mesh_groups = {};
+    std::vector<u32> _mesh_as_build_queue = {};
+
+    // Root entity of each imported asset's entity sub-tree.
+    std::vector<RenderEntityId> _root_render_entities = {};
+    std::vector<TextureManifestEntry> _texture_manifest = {};
+    std::vector<MaterialManifestEntry> _material_manifest = {};
+    std::vector<MeshLodGroupManifestEntry> _mesh_lod_group_manifest = {};
+    std::vector<MeshGroupManifestEntry> _mesh_group_manifest = {};
+    std::vector<u32> _mesh_lod_group_manifest_indices = {};
+
+    std::vector<PointLight> _point_lights = {};
+    std::vector<SpotLight> _spot_lights = {};
+    std::vector<CloudVolume> _cloud_volumes = {};
+
+    // Manifest indices that changed (were added, or had their runtime data updated) since the last GPU
+    // manifest sync. Every manifest that is mirrored on the GPU owns one; the Locked add_* methods and
+    // update_scene both only ever touch these while holding _manifest_mutex, so plain vectors are safe -
+    // update_scene drains each one to re-upload exactly those entries (instead of assuming a contiguous
+    // tail of new entries). Manifests that are not shared with the GPU (e.g. the texture manifest) do
+    // not need one.
+    std::vector<u32> _dirty_material_indices = {};
+    std::vector<u32> _dirty_mesh_lod_group_indices = {};
+    std::vector<u32> _dirty_mesh_group_indices = {};
+    std::vector<u32> _dirty_texture_indices = {};
+
+    // Texture stream jobs currently in flight.
+    std::vector<std::shared_ptr<TextureStreamTask>> _inflight_texture_streams = {};
+
+    // Mesh-lod-group indices whose cooked artifact still needs streaming in (separate from the GPU-sync
+    // dirty list above: this only drives async residency). update_scene drains it to spawn stream tasks;
+    // a finished stream then marks _dirty_mesh_lod_group_indices so the GPU sync uploads the real data.
+    std::vector<u32> _dirty_mesh_lod_group_streaming_indices = {};
+    // Mesh stream jobs currently in flight (spawned by update_scene, collected once finished).
+    std::vector<std::shared_ptr<MeshStreamTask>> _inflight_mesh_streams = {};
+
+    std::vector<u32> _cloud_volumes_requesting_load = {};
+
+    // unique_ptr so Scene stays movable (std::mutex is not movable).
+    std::unique_ptr<std::mutex> _manifest_mutex = std::make_unique<std::mutex>();
+
+    // Dispatches an async load task for every cloud volume in _cloud_volumes_requesting_load, then
+    // clears the request list.
+    void start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_processor, ThreadPool * thread_pool);
 };

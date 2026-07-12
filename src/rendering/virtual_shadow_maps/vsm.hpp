@@ -469,7 +469,7 @@ inline void recreate_shadow_map_callback(daxa::TaskInterface ti, RenderContext *
 
 struct TaskDrawVSMsInfo
 {
-    Scene * scene = {};
+    Scene const * scene = {};
     RenderContext * render_context = {};
     daxa::TaskGraph * tg = {};
     VSMState * vsm_state = {};

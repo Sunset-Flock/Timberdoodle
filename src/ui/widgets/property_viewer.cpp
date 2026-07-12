@@ -14,7 +14,7 @@ namespace tido
         {
         }
 
-        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context)
+        void PropertyViewer::render(SceneInterfaceState & scene_interface, Scene const & scene, RenderContext & render_context)
         {
             ImGui::PushStyleVar(ImGuiStyleVar_WindowTitleAlign, {0.5f, 0.5f});
             ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 0.0f);
@@ -316,20 +316,22 @@ namespace tido
                             ImGui::Text("Entity: idx:           %i", scene_interface.picked_entity);
                             if (scene_interface.picked_entity != ~0)
                             {
+                                // One Locked for the whole dependent lookup chain (atomic against
+                                // concurrent importers); every getter copies its entry out.
+                                auto locked = scene.lock();
+                                RenderEntity const entity = locked.entity_by_index(scene_interface.picked_entity).value();
 
-                                auto ent_slot = scene._render_entities.slot_by_index(scene_interface.picked_entity);
-    
-                                auto mesh_group_manifest_index = scene._render_entities.slot_by_index(scene_interface.picked_entity)->mesh_group_manifest_index.value();
-                                auto const & mesh_group = scene._mesh_group_manifest.at(mesh_group_manifest_index);
+                                auto mesh_group_manifest_index = entity.mesh_group_manifest_index.value();
+                                auto const mesh_group = locked.mesh_group(mesh_group_manifest_index);
                                 auto const mesh_lod_group_manifest_index = mesh_group.mesh_lod_group_manifest_indices_array_offset + scene_interface.picked_mesh_in_meshgroup;
-                                MeshLodGroupManifestEntry const & mesh_lod_group_manifest = scene._mesh_lod_group_manifest[mesh_lod_group_manifest_index];
+                                MeshLodGroupManifestEntry const mesh_lod_group_manifest = locked.mesh_lod_group(mesh_lod_group_manifest_index);
                                 auto const material_idx = mesh_lod_group_manifest.material_index.value_or(0);
-                                MaterialManifestEntry const & material_manifest = scene._material_manifest.at(material_idx);
+                                MaterialManifestEntry const material_manifest = locked.material(material_idx);
                                 ImGui::Text(fmt::format("MeshGroup: idx:        {} \"{}\"", mesh_group_manifest_index, mesh_group.name).c_str());
 
                                 ImGui::Text(fmt::format("Entiy Position:     X: {}\n"
                                                         "                    Y: {}\n"
-                                                        "                    Z: {}", ent_slot->combined_transform[3][0], ent_slot->combined_transform[3][1], ent_slot->combined_transform[3][2]).c_str());
+                                                        "                    Z: {}", entity.combined_transform[3][0], entity.combined_transform[3][1], entity.combined_transform[3][2]).c_str());
                                 ImGui::Text(fmt::format("Mesh: idx:             {}", scene_interface.picked_mesh).c_str());
                                 ImGui::Text(fmt::format("Mesh In Meshgroup Idx: {}", scene_interface.picked_mesh_in_meshgroup).c_str());
                                 ImGui::Text(fmt::format("Meshlet: idx:          {}", scene_interface.picked_meshlet_in_mesh).c_str());
@@ -340,7 +342,7 @@ namespace tido
                                 ImGui::Text(fmt::format("  * double_sided             {}", material_manifest.double_sided).c_str());              
                                 ImGui::Text(fmt::format("  * blend_enabled            {}", material_manifest.blend_enabled).c_str());              
                                 bool const normal_compressed_bc5_rg = material_manifest.normal_info.has_value() &&
-                                    tido_format_is_bc5_rg(scene._material_texture_manifest.at(material_manifest.normal_info.value().tex_manifest_index).cooked_artifact.descriptor.format);
+                                    tido_format_is_bc5_rg(locked.texture(material_manifest.normal_info.value().tex_manifest_index).cooked_artifact.descriptor.format);
                                 ImGui::Text(fmt::format("  * normal_compressed_bc5_rg {}", normal_compressed_bc5_rg).c_str());
                                 ImGui::Text(fmt::format("  * is_metal                 {}", material_manifest.is_metal).c_str());          
                             }

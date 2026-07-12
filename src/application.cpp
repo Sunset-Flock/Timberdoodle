@@ -1,6 +1,7 @@
 #include "application.hpp"
 #include "json_utils/camera_animation.hpp"
 #include "json_utils/sky_settings.hpp"
+#include "scene/importers/gltf_importer.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
 
@@ -73,14 +74,13 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    auto const cloud_volume_index = _scene->add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
-    const RenderEntityId cloud_entity_id = _scene->_render_entities.create_slot({
+    auto const cloud_volume_index = _scene->lock().add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
+    _scene->lock().add_entity({
         .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
         .cloud_volume_index = cloud_volume_index,
         .type = EntityType::CLOUD_VOLUME,
         .name = "Default cloud volume",
     });
-    _scene->_dirty_render_entities.push_back(cloud_entity_id);
 
     struct CompPipelinesTask : Task
     {
@@ -112,38 +112,45 @@ void Application::load_scene(std::filesystem::path const & path)
     {
         return;
     }
+    DBG_ASSERT_TRUE_M(app_state.pending_scene_import == nullptr, "Only one scene import may be in flight at a time (poll_scene_import guards this)");
 
-    auto const result = _scene->load_manifest_from_gltf({
+    auto import_task = std::make_shared<GltfImportTask>(_scene.get(), Scene::LoadManifestInfo{
         .root_path = path.parent_path(),
         .asset_name = path.filename(),
         .thread_pool = _threadpool,
         .asset_processor = _asset_manager,
     });
+    _threadpool->async_dispatch(import_task, TaskPriority::LOW);
+    app_state.pending_scene_import = std::move(import_task);
+}
 
-    if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&result))
+void Application::poll_scene_import()
+{
+    if (app_state.pending_scene_import == nullptr)
     {
-        DEBUG_MSG(fmt::format("[WARN][Application::Application()] Loading \"{}\" Error: {}",
-            path.string(), Scene::to_string(*err)));
-    }
-    // TODO(msakmary) HACKY - fix this
-    // =========================================================================
-    else
-    {
-        auto const r_id = std::get<RenderEntityId>(result);
-        app_state.root_id = r_id;
-
-        for (u32 entity_i = 0; entity_i < _scene->_render_entities.capacity(); ++entity_i)
+        // No import in flight - start one if a scene load is requested. While an import runs the
+        // path is left untouched (a request made mid-import is not dropped, the newest one wins).
+        if (!app_state.desired_scene_path.empty())
         {
-            RenderEntity const * r_ent = _scene->_render_entities.slot_by_index(entity_i);
-            if (r_ent->name == "DYNAMIC_sphere")
-            {
-                app_state.dynamic_ball = _scene->_render_entities.id_from_index(entity_i);
-            }
+            fmt::print("Requested load: {}\n", app_state.desired_scene_path);
+            load_scene(app_state.desired_scene_path);
+            app_state.desired_scene_path.clear();
         }
-
-        DEBUG_MSG(fmt::format("[INFO][Application::Application()] Loading \"{}\" Success", path.string()));
+        return;
     }
-    // =========================================================================
+
+    GltfImportTask & import_task = *app_state.pending_scene_import;
+    if (!import_task.finished.load(std::memory_order_acquire))
+    {
+        return; // Still importing.
+    }
+
+    std::string const path_string = (import_task.info.root_path / import_task.info.asset_name).string();
+    if (Scene::LoadManifestErrorCode const * err = std::get_if<Scene::LoadManifestErrorCode>(&import_task.result))
+    {
+        DEBUG_MSG(fmt::format("[WARN][Application::poll_scene_import()] Loading \"{}\" Error: {}", path_string, Scene::to_string(*err)));
+    }
+    app_state.pending_scene_import = nullptr;
 }
 
 auto Application::run() -> i32
@@ -216,12 +223,7 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    if (!app_state.desired_scene_path.empty())
-    {
-        fmt::print("Requested load: {}\n", app_state.desired_scene_path);
-        load_scene(app_state.desired_scene_path);
-        app_state.desired_scene_path.clear();
-    }
+    poll_scene_import();
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 

@@ -70,7 +70,9 @@ constexpr auto daxa_image_format_from_pixel_info(PixelInfo const & info) -> daxa
         case ChannelDataType::UNSIGNED_INT: channel_format_idx = 0u; break;
         case ChannelDataType::SIGNED_INT: channel_format_idx = 1u; break;
         case ChannelDataType::FLOATING_POINT: channel_format_idx = 2u; break;
-        default: return daxa::Format::UNDEFINED;
+        default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled ChannelDataType");
+            return daxa::Format::UNDEFINED;
     }
     auto format = translation[channel_byte_size_idx][channel_count_idx][channel_format_idx];
     if (info.load_as_srgb)
@@ -91,6 +93,9 @@ struct DecodedPixels
     u32 channel_count = {};
     u32 channel_byte_size = {};
     bool srgb = {};
+    // Whether the SOURCE genuinely carried alpha (original color_type/tRNS, before png_set_add_alpha pads
+    // every image to 4 channels) - the TC.4 opacity-split trigger. Not the same as channel_count == 4.
+    bool had_alpha = {};
 };
 
 // Decode PNG file bytes into raw RGB(A) pixels.
@@ -125,6 +130,12 @@ auto decode_png(std::span<std::byte const> png_bytes, bool load_as_srgb) -> std:
     png_get_IHDR(png_ptr, info_ptr, &width, &height, &bit_depth, &color_type, &interlace_type, nullptr, nullptr);
     int channel_count = png_get_channels(png_ptr, info_ptr);
 
+    // Capture alpha presence from the ORIGINAL color_type/tRNS before any transform below runs -
+    // png_set_add_alpha pads every image to 4 channels regardless, so channel_count after transformation
+    // can no longer tell a genuinely-transparent source from an opaque one padded for uniform layout.
+    bool const had_alpha = color_type == PNG_COLOR_TYPE_RGB_ALPHA || color_type == PNG_COLOR_TYPE_GRAY_ALPHA ||
+                            png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS);
+
     if (color_type == PNG_COLOR_TYPE_PALETTE) png_set_palette_to_rgb(png_ptr);
     if (color_type == PNG_COLOR_TYPE_GRAY && bit_depth < 8) png_set_expand_gray_1_2_4_to_8(png_ptr);
     if (png_get_valid(png_ptr, info_ptr, PNG_INFO_tRNS)) png_set_tRNS_to_alpha(png_ptr);
@@ -146,12 +157,13 @@ auto decode_png(std::span<std::byte const> png_bytes, bool load_as_srgb) -> std:
     ret.channel_count = s_cast<u32>(channel_count);
     ret.channel_byte_size = s_cast<u32>(bit_depth / 8);
     ret.srgb = load_as_srgb;
+    ret.had_alpha = had_alpha;
     ret.data.resize(width * height * channel_count * (bit_depth / 8));
 
     std::vector<png_bytep> row_pointers(height);
-    for (u32 y = 0; y < height; y++)
+    for (u32 row_index = 0; row_index < height; row_index++)
     {
-        row_pointers[y] = (png_bytep)(ret.data.data() + width * y * channel_count * bit_depth / 8);
+        row_pointers[row_index] = (png_bytep)(ret.data.data() + width * row_index * channel_count * bit_depth / 8);
     }
     png_read_image(png_ptr, row_pointers.data());
     return ret;
@@ -368,16 +380,22 @@ auto compression_target_for(TextureMaterialType type, bool srgb) -> CompressionT
         case TextureMaterialType::NORMAL:              return {daxa::Format::BC5_UNORM_BLOCK, Compression::BC5, 2u};
         case TextureMaterialType::ROUGHNESS_METALNESS: return {daxa::Format::BC7_UNORM_BLOCK, Compression::BC7, 4u};
         case TextureMaterialType::OPACITY:             return {daxa::Format::BC4_UNORM_BLOCK, Compression::BC4, 1u};
-        case TextureMaterialType::DIFFUSE:
-        case TextureMaterialType::DIFFUSE_OPACITY:
-        default:                                       return {srgb ? daxa::Format::BC7_SRGB_BLOCK : daxa::Format::BC7_UNORM_BLOCK, Compression::BC7, 4u};
+        case TextureMaterialType::DIFFUSE:             return {srgb ? daxa::Format::BC7_SRGB_BLOCK : daxa::Format::BC7_UNORM_BLOCK, Compression::BC7, 4u};
+        case TextureMaterialType::NONE:
+        default:
+            DBG_ASSERT_TRUE_M(false, "compression_target_for: unreferenced/unhandled TextureMaterialType");
+            return {daxa::Format::BC7_UNORM_BLOCK, Compression::BC7, 4u};
     }
 }
 
 // Repack a mip's interleaved pixels into the tightly packed 8-bit, out_channels-interleaved layout
 // compress_image expects. 16-bit samples are narrowed to 8-bit; requesting more channels than the source
-// has clamps to its last channel.
-auto repack_interleaved_8bit(std::span<std::byte const> pixels, u32 width, u32 height, PixelInfo const & pixel_info, u32 out_channels) -> std::vector<std::byte>
+// has clamps to its last channel. src_channel_offset shifts which source channel becomes output channel 0
+// (3 to pull out just the alpha channel into a single-channel target, e.g. for the split opacity output -
+// see TC.4). force_opaque_alpha writes a constant 255 for output channel 3 instead of reading the source,
+// used for the color output once its alpha has been split into a dedicated opacity artifact.
+auto repack_interleaved_8bit(std::span<std::byte const> pixels, u32 width, u32 height, PixelInfo const & pixel_info,
+    u32 out_channels, u32 src_channel_offset = 0u, bool force_opaque_alpha = false) -> std::vector<std::byte>
 {
     u32 const channel_count = pixel_info.channel_count;
     u32 const channel_byte_size = pixel_info.channel_byte_size;
@@ -387,7 +405,12 @@ auto repack_interleaved_8bit(std::span<std::byte const> pixels, u32 width, u32 h
     {
         for (u32 channel = 0; channel < out_channels; ++channel)
         {
-            u32 const src_channel = std::min(channel, channel_count - 1u);
+            if (force_opaque_alpha && channel == 3u)
+            {
+                packed[texel_index * out_channels + channel] = s_cast<std::byte>(s_cast<u8>(255));
+                continue;
+            }
+            u32 const src_channel = std::min(src_channel_offset + channel, channel_count - 1u);
             std::byte const * sample_ptr = pixels.data() + (texel_index * channel_count + src_channel) * channel_byte_size;
             f32 const sample = std::clamp(read_normalized(sample_ptr, channel_byte_size), 0.0f, 1.0f);
             packed[texel_index * out_channels + channel] = s_cast<std::byte>(s_cast<u8>(sample * 255.0f + 0.5f));
@@ -396,19 +419,20 @@ auto repack_interleaved_8bit(std::span<std::byte const> pixels, u32 width, u32 h
     return packed;
 }
 
-// Cook decoded pixels into GPU-ready BC memory: box-filter a mip chain, then BC-compress each level into
-// src_data (mip 0 = finest, contiguous), format chosen per texture usage.
-auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type, std::string name) -> ProcessedImage
+// BC-compress an already-mip-chained decoded image into one ProcessedImage. src_channel_offset shifts
+// which source channel becomes output channel 0 (see repack_interleaved_8bit); force_opaque_alpha writes
+// a constant opaque alpha for the color output once its real alpha has been split into its own artifact.
+// Shared by the color and opacity outputs of pixels_to_processed so mip generation (the expensive box
+// filter pass) runs only once per source image even when both are produced.
+auto compress_mip_chain(DecodedPixels const & pixels, ProcessedImage const & mip_chain, CompressionTarget const & target,
+    u32 src_channel_offset, bool force_opaque_alpha, std::string name) -> ProcessedImage
 {
-    CompressionTarget const target = compression_target_for(type, pixels.srgb);
     u32 const block_bytes = bc_block_bytes(target.compression);
     PixelInfo const pixel_info = pixel_info_of(pixels);
-
-    ProcessedImage const mip_chain = generate_mip_chain(pixels);
     u32 const mip_count = mip_chain.mips_to_copy;
 
     ProcessedImage ret = {};
-    DBG_ASSERT_TRUE_M(mip_count <= ret.mip_copy_offsets.size(), "pixels_to_processed: mip count exceeds mip_copy_offsets capacity");
+    DBG_ASSERT_TRUE_M(mip_count <= ret.mip_copy_offsets.size(), "compress_mip_chain: mip count exceeds mip_copy_offsets capacity");
 
     // Pass 1: size the compressed payload and record each mip's offset. The ceil-based block count makes
     // each mip's slice exactly the byte size write_texture_tido reads back for that subresource.
@@ -432,7 +456,8 @@ auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type,
         u32 const mip_width = std::max(1u, pixels.width >> mip);
         u32 const mip_height = std::max(1u, pixels.height >> mip);
         std::span<std::byte const> const mip_pixels = std::span<std::byte const>(mip_chain.src_data).subspan(mip_chain.mip_copy_offsets[mip]);
-        std::vector<std::byte> const mip_input = repack_interleaved_8bit(mip_pixels, mip_width, mip_height, pixel_info, target.in_channels);
+        std::vector<std::byte> const mip_input =
+            repack_interleaved_8bit(mip_pixels, mip_width, mip_height, pixel_info, target.in_channels, src_channel_offset, force_opaque_alpha);
         CreateCompressedImageInfo const compress_info = {
             .in_data = mip_input,
             .out_data = std::span<std::byte>(ret.src_data).subspan(ret.mip_copy_offsets[mip], mip_sizes[mip]),
@@ -458,15 +483,41 @@ auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type,
     return ret;
 }
 
+// Cook decoded pixels into GPU-ready BC memory: box-filter a mip chain once, then BC-compress it into the
+// color output, format chosen per texture usage. A DIFFUSE source that genuinely had alpha (pixels.had_alpha
+// - see decode_png) additionally gets a dedicated opacity output (BC4 of the alpha channel alone), and the
+// color output's own alpha is forced fully opaque since the split opacity artifact is now its source of truth.
+auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type, std::string name) -> ProcessedImageResult
+{
+    bool const split_opacity = type == TextureMaterialType::DIFFUSE && pixels.had_alpha;
+    CompressionTarget const color_target = compression_target_for(type, pixels.srgb);
+    ProcessedImage const mip_chain = generate_mip_chain(pixels);
+
+    ProcessedImageResult ret = {};
+    ret.color = compress_mip_chain(pixels, mip_chain, color_target, /*src_channel_offset=*/0u, /*force_opaque_alpha=*/split_opacity, name);
+    if (split_opacity)
+    {
+        CompressionTarget const opacity_target = compression_target_for(TextureMaterialType::OPACITY, false);
+        ret.opacity = compress_mip_chain(pixels, mip_chain, opacity_target, /*src_channel_offset=*/3u, /*force_opaque_alpha=*/false, name + "_opacity");
+    }
+    return ret;
+}
+
 // KTX2 -> basis transcode to BCn.
 auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType type, std::string name) -> std::variant<ImageOptimizeError, ProcessedImage>
 {
     ktx_transcode_fmt_e transcode_format;
     switch (type)
     {
-        case TextureMaterialType::NORMAL:          transcode_format = KTX_TTF_BC5_RG; break;
-        case TextureMaterialType::DIFFUSE_OPACITY: transcode_format = KTX_TTF_BC4_R; break;
-        default:                                   transcode_format = KTX_TTF_BC7_RGBA; break;
+        case TextureMaterialType::NORMAL:               transcode_format = KTX_TTF_BC5_RG; break;
+        case TextureMaterialType::OPACITY:               transcode_format = KTX_TTF_BC4_R; break;
+        case TextureMaterialType::DIFFUSE:
+        case TextureMaterialType::ROUGHNESS_METALNESS:   transcode_format = KTX_TTF_BC7_RGBA; break;
+        case TextureMaterialType::NONE:
+        default:
+            DBG_ASSERT_TRUE_M(false, "ktx_transcode: unreferenced/unhandled TextureMaterialType");
+            transcode_format = KTX_TTF_BC7_RGBA;
+            break;
     }
 
     ktxTexture2 * texture;
@@ -483,7 +534,7 @@ auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType ty
     }
 
     ktx_transcode_flags flags = KTX_TF_HIGH_QUALITY;
-    flags |= type == TextureMaterialType::DIFFUSE_OPACITY ? KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS : 0u;
+    flags |= type == TextureMaterialType::OPACITY ? KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS : 0u;
     result = ktxTexture2_TranscodeBasis(texture, transcode_format, flags);
     if (result != KTX_SUCCESS)
     {
@@ -533,9 +584,30 @@ auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType ty
     ktxTexture_Destroy(ktxTexture(texture));
     return ret;
 }
+
+// Peek a KTX2 container's component count (from its DFD, no image-data load) to detect whether the source
+// genuinely carries alpha, before deciding whether to split off a dedicated opacity artifact - mirrors the
+// PNG path's had_alpha (decode_png). Returns nullopt if the container can't even be opened; the real
+// transcode right after this call will hit and report the same failure.
+auto ktx_source_has_alpha(std::span<std::byte const> ktx2_bytes) -> std::optional<bool>
+{
+    ktxTexture2 * texture;
+    KTX_error_code const result = ktxTexture2_CreateFromMemory(
+        r_cast<ktx_uint8_t const *>(ktx2_bytes.data()),
+        ktx2_bytes.size(),
+        KTX_TEXTURE_CREATE_NO_FLAGS,
+        &texture);
+    if (result != KTX_SUCCESS)
+    {
+        return std::nullopt;
+    }
+    u32 const num_components = ktxTexture2_GetNumComponents(texture);
+    ktxTexture_Destroy(ktxTexture(texture));
+    return num_components == 4;
+}
 } // namespace
 
-auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>
+auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImageResult>
 {
     // Decode/transcode into GPU-ready cooked CPU memory and return it. The PNG decode path box-filters a
     // mip chain and BC-compresses each level; KTX2 already carries BCn + its mips.
@@ -543,7 +615,31 @@ auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimize
     {
         case ImageFileFormat::KTX2:
         {
-            return ktx_transcode(info.data, info.type, info.name);
+            // A DIFFUSE source that genuinely carries basis alpha gets a second, dedicated transcode of just
+            // its alpha channel (OPACITY -> KTX_TTF_BC4_R with KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS,
+            // see ktx_transcode) - a ktxTexture2 can only be transcoded once, so this re-opens the container
+            // from the same source bytes rather than reusing the color transcode's object.
+            bool const split_opacity = info.type == TextureMaterialType::DIFFUSE && ktx_source_has_alpha(info.data).value_or(false);
+
+            auto color_ret = ktx_transcode(info.data, info.type, info.name);
+            if (std::holds_alternative<ImageOptimizeError>(color_ret))
+            {
+                return std::get<ImageOptimizeError>(color_ret);
+            }
+
+            ProcessedImageResult ret = {};
+            ret.color = std::move(std::get<ProcessedImage>(color_ret));
+            if (split_opacity)
+            {
+                auto opacity_ret = ktx_transcode(info.data, TextureMaterialType::OPACITY, info.name + "_opacity");
+                if (std::holds_alternative<ProcessedImage>(opacity_ret))
+                {
+                    ret.opacity = std::move(std::get<ProcessedImage>(opacity_ret));
+                }
+                // A failed opacity transcode does not fail the whole cook - the color output stays usable and
+                // the material simply renders without a dedicated opacity texture (diffuse.a fallback).
+            }
+            return ret;
         }
         case ImageFileFormat::PNG:
         {
@@ -555,6 +651,8 @@ auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimize
             }
             return pixels_to_processed(decoded.value(), info.type, info.name);
         }
+        default:
+            DBG_ASSERT_TRUE_M(false, "process_image: unhandled ImageFileFormat");
+            return ImageOptimizeError::FAILED_TO_DECODE_PNG;
     }
-    return ImageOptimizeError::FAILED_TO_DECODE_PNG;
 }

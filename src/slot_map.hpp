@@ -58,7 +58,15 @@ namespace tido
             }
             auto slot_by_index(size_t index) -> T *
             {
-                if (index < this->_slots.size())
+                if (index < this->_slots.size() && _slots[index].has_value())
+                {
+                    return &_slots[index].value();
+                }
+                return nullptr;
+            }
+            auto slot_by_index(size_t index) const -> T const *
+            {
+                if (index < this->_slots.size() && _slots[index].has_value())
                 {
                     return &_slots[index].value();
                 }
@@ -85,7 +93,7 @@ namespace tido
                 auto const uz_index = s_cast<size_t>(id.index);
                 return uz_index < _slots.size() && _versions[uz_index] == id.version;
             }
-            auto id_from_index(size_t index) -> Id
+            auto id_from_index(size_t index) const -> Id
             {
                 if (index < _slots.size())
                 {

@@ -1243,8 +1243,18 @@ auto Renderer::prepare_frame(
         return false;
     }
 
-    render_context->render_data.vsm_settings.point_light_count = s_cast<u32>(scene->_point_lights.size());
-    render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(scene->_spot_lights.size());
+    std::vector<PointLight> point_lights = {};
+    std::vector<SpotLight> spot_lights = {};
+    u32 material_count = {};
+    {
+        auto locked = scene->lock();
+        point_lights = locked.point_lights();
+        spot_lights = locked.spot_lights();
+        material_count = locked.material_count();
+    }
+
+    render_context->render_data.vsm_settings.point_light_count = s_cast<u32>(point_lights.size());
+    render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(spot_lights.size());
 
     // Calculate frame relevant values.
     daxa_u32vec2 render_target_size = {static_cast<daxa_u32>(window->size.x), static_cast<daxa_u32>(window->size.y)};
@@ -1418,7 +1428,7 @@ auto Renderer::prepare_frame(
         render_context->render_data.scene.mesh_groups = device.device_address(scene->_gpu_mesh_group_manifest.id()).value();
         render_context->render_data.scene.entity_to_meshgroup = device.device_address(scene->_gpu_entity_mesh_groups.id()).value();
         render_context->render_data.scene.materials = device.device_address(scene->_gpu_material_manifest.id()).value();
-        render_context->render_data.scene.material_count = scene->_material_manifest.size();
+        render_context->render_data.scene.material_count = material_count;
         render_context->render_data.scene.entity_transforms = device.device_address(scene->_gpu_entity_transforms.id()).value();
         render_context->render_data.scene.entity_combined_transforms = device.device_address(scene->_gpu_entity_combined_transforms.id()).value();
         render_context->render_data.scene.point_lights = device.device_address(scene->_gpu_point_lights.id()).value();
@@ -1447,7 +1457,7 @@ auto Renderer::prepare_frame(
         vsm_state.clip_projections_cpu.at(clip).page_offset.y = vsm_state.clip_projections_cpu.at(clip).page_offset.y % VSM_DIRECTIONAL_PAGE_TABLE_RESOLUTION;
     }
     vsm_state.globals_cpu.clip_0_texel_world_size = (2.0f * render_context->render_data.vsm_settings.clip_0_frustum_scale) / VSM_DIRECTIONAL_TEXTURE_RESOLUTION;
-    vsm_state.update_vsm_lights(scene->_point_lights, scene->_spot_lights);
+    vsm_state.update_vsm_lights(point_lights, spot_lights);
 
     lights_resolve_settings(render_context->render_data);
 
@@ -1521,7 +1531,7 @@ auto Renderer::prepare_frame(
         }
         for (u32 i = range[0]; i < range[1]; ++i)
         {
-            PointLight const & light = scene->_point_lights.at(i);
+            PointLight const & light = point_lights.at(i);
 
             gpu_context->shader_debug_context.sphere_draws.draw(ShaderDebugSphereDraw{
                 .position = {
@@ -1546,7 +1556,7 @@ auto Renderer::prepare_frame(
         }
         for (u32 i = range[0]; i < range[1]; ++i)
         {
-            SpotLight const & light = scene->_spot_lights.at(i);
+            SpotLight const & light = spot_lights.at(i);
 
             glm::mat4 transform4 = glm::mat4(
                 glm::vec4(light.transform[0], 0.0f),

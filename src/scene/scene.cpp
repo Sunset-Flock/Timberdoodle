@@ -4,8 +4,6 @@
 #include <array>
 #include <algorithm>
 
-#include <fastgltf/core.hpp>
-
 #include <fmt/format.h>
 #include <glm/gtx/quaternion.hpp>
 #include <thread>
@@ -19,7 +17,6 @@
 #include "../rendering/tasks/misc.hpp"
 
 #include "mesh_lod.hpp"
-#include "importers/gltf_importer.hpp"
 
 Scene::Scene(daxa::Device device, GPUContext * gpu_context)
     : _device{std::move(device)}, gpu_context{gpu_context}
@@ -148,7 +145,7 @@ Scene::~Scene()
         }
     }
 
-    for (auto & texture : _material_texture_manifest)
+    for (auto & texture : _texture_manifest)
     {
         if (texture.runtime_texture.has_value())
         {
@@ -166,31 +163,19 @@ Scene::~Scene()
         _device.destroy_buffer(cloud_volume_instances_buffer.id());
     }
 }
-static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcessor * asset_processor, ThreadPool * thread_pool);
+/// --- Generic, format-agnostic scene builder API (Scene::Locked) ---
+// None of these lock - the caller already holds _manifest_mutex for the lifetime of the Locked
+// instance they're called through (see Scene::lock()).
 
-auto Scene::load_manifest_from_gltf(LoadManifestInfo const & info) -> std::variant<RenderEntityId, LoadManifestErrorCode>
+auto Scene::Locked::add_texture(TextureManifestEntry texture) -> u32
 {
-    // All glTF parsing + translation lives in the GltfImporter. It populates the scene exclusively
-    // through the generic Scene::add_* builder API and owns the parsed fastgltf::Asset transiently.
-    return GltfImporter{*this, info}.import();
-}
+    // Textures must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
+    DBG_ASSERT_TRUE_M(!texture.cooked_artifact.tido_path.empty(), "Texture must have a valid cooked artifact path");
+    DBG_ASSERT_TRUE_M(_scene._texture_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
 
-/// --- Generic, format-agnostic scene builder API ---
-
-auto Scene::add_texture(TextureManifestEntry texture) -> u32
-{
-    // add_texture stays cheap + non-blocking: it only records the entry and marks it for streaming.
-    // The actual GPU upload happens asynchronously, driven by update_scene (which spawns the stream
-    // task and later publishes the resident image). Entries without a cooked artifact (e.g. cloud
-    // volumes, made resident elsewhere) are not queued.
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    u32 const index = s_cast<u32>(_material_texture_manifest.size());
-    bool const needs_streaming = !texture.cooked_artifact.tido_path.empty();
-    _material_texture_manifest.push_back(std::move(texture));
-    if (needs_streaming)
-    {
-        _dirty_material_texture_manifest.mark(index);
-    }
+    u32 const index = s_cast<u32>(_scene._texture_manifest.size());
+    _scene._texture_manifest.push_back(std::move(texture));
+    _scene._dirty_texture_indices.push_back(index);
     return index;
 }
 
@@ -201,70 +186,78 @@ void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unuse
     finished.store(true, std::memory_order_release);
 }
 
-auto Scene::add_material(MaterialManifestEntry material) -> u32
+auto Scene::Locked::add_material(MaterialManifestEntry material) -> u32
 {
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    u32 const index = s_cast<u32>(_material_manifest.size());
-    // Wire up the texture -> material back-references. Dedup so a texture used in two roles by the
-    // same material (e.g. diffuse + opacity sharing one image) is only recorded once.
-    std::array<std::optional<MaterialManifestEntry::TextureInfo> const *, 4> const infos = {
-        &material.diffuse_info, &material.opacity_mask_info, &material.normal_info, &material.roughness_metalness_info};
-    std::array<u32, 4> seen = {};
-    u32 seen_count = 0;
+    DBG_ASSERT_TRUE_M(_scene._material_manifest.size() < MAX_MATERIALS, "Exceeded MAX_MATERIALS");
+
+    u32 const index = s_cast<u32>(_scene._material_manifest.size());
+
+    std::array<std::optional<MaterialManifestEntry::TextureInfo> const *, 4> const infos = 
+        { &material.diffuse_info, &material.opacity_mask_info, &material.normal_info, &material.roughness_metalness_info};
+
     for (auto const * info : infos)
     {
         if (!info->has_value()) { continue; }
         u32 const tex_index = info->value().tex_manifest_index;
-        DBG_ASSERT_TRUE_M(tex_index < _material_texture_manifest.size(), "add_material: texture info references an invalid manifest index");
-        if (std::find(seen.begin(), seen.begin() + seen_count, tex_index) != seen.begin() + seen_count) { continue; }
-        seen[seen_count++] = tex_index;
-        _material_texture_manifest.at(tex_index).material_manifest_indices.push_back({.material_manifest_index = index});
+        DBG_ASSERT_TRUE_M(tex_index < _scene._texture_manifest.size(), "Texture info references an invalid manifest index");
+        _scene._texture_manifest.at(tex_index).material_manifest_indices.push_back({.material_manifest_index = index});
     }
-    _material_manifest.push_back(std::move(material));
-    _dirty_material_manifest.mark(index);
-    DBG_ASSERT_TRUE_M(_material_manifest.size() <= MAX_MATERIALS, "EXCEEDED MAX_MATERIALS");
+
+    _scene._material_manifest.push_back(std::move(material));
+    _scene._dirty_material_indices.push_back(index);
     return index;
 }
 
-auto Scene::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
+auto Scene::Locked::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
 {
-    // Mirrors add_texture: records the entry (cooked artifact already attached) and marks it for async
-    // streaming. The GPU upload happens later, driven by update_scene. We also mark the GPU-resident mesh
-    // manifest so its slot is initialized now (zeroed -> "not loaded yet") until the stream publishes the
-    // real data. Entries without a cooked artifact are not queued for streaming.
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    u32 const index = s_cast<u32>(_mesh_lod_group_manifest.size());
-    bool const needs_streaming = !mesh.cooked_artifact.tido_path.empty();
-    _mesh_lod_group_manifest.push_back(std::move(mesh));
-    _dirty_mesh_lod_group_manifest.mark(index);
-    if (needs_streaming)
-    {
-        _dirty_mesh_lod_group_streaming.mark(index);
-    }
+    // Meshes must be immediately streamable when they are added to the manifest, so they must have a valid cooked .tido path.
+    DBG_ASSERT_TRUE_M(!mesh.cooked_artifact.tido_path.empty(), "Mesh must have a valid cooked artifact path");
+    DBG_ASSERT_TRUE_M(_scene._mesh_lod_group_manifest.size() < MAX_MESH_LOD_GROUPS, "Exceeded MAX_MESH_LOD_GROUPS");
+
+    u32 const index = s_cast<u32>(_scene._mesh_lod_group_manifest.size());
+    _scene._mesh_lod_group_manifest.push_back(std::move(mesh));
+    _scene._dirty_mesh_lod_group_indices.push_back(index);
+    _scene._dirty_mesh_lod_group_streaming_indices.push_back(index);
     return index;
 }
 
-auto Scene::add_mesh_group(MeshGroupManifestEntry mesh_group, std::span<u32 const> mesh_manifest_indices) -> u32
+auto Scene::Locked::add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32
 {
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    u32 const group_index = s_cast<u32>(_mesh_group_manifest.size());
-    // Allocate this group's contiguous slice of the shared indices array, record its meshes, and
-    // back-link each mesh to this group (resolving the mesh<->group cycle on the scene side).
-    mesh_group.mesh_lod_group_manifest_indices_array_offset = s_cast<u32>(_mesh_lod_group_manifest_indices.size());
+    DBG_ASSERT_TRUE_M(mesh_manifest_indices.size() <= MAX_MESHES_PER_LOD_GROUP, "Exceeded MAX_MESHES_PER_LOD_GROUP");
+
+    MeshGroupManifestEntry mesh_group = {};
+    mesh_group.name = std::string{name};
+    u32 const group_index = s_cast<u32>(_scene._mesh_group_manifest.size());
+
+    // Mesh group points to meshes through a contiguous range of indices.
+    mesh_group.mesh_lod_group_manifest_indices_array_offset = s_cast<u32>(_scene._mesh_lod_group_manifest_indices.size());
     mesh_group.mesh_lod_group_count = s_cast<u32>(mesh_manifest_indices.size());
     for (u32 const mesh_manifest_index : mesh_manifest_indices)
     {
-        _mesh_lod_group_manifest_indices.push_back(mesh_manifest_index);
-        _mesh_lod_group_manifest.at(mesh_manifest_index).mesh_group_manifest_index = group_index;
+        DBG_ASSERT_TRUE_M(mesh_manifest_index < _scene._mesh_lod_group_manifest.size(), "Mesh group references an invalid mesh manifest index");
+        _scene._mesh_lod_group_manifest_indices.push_back(mesh_manifest_index);
+        MeshLodGroupManifestEntry & mesh_lod_group = _scene._mesh_lod_group_manifest.at(mesh_manifest_index);
+        mesh_lod_group.mesh_group_manifest_index = group_index;
+        // A mesh can finish streaming before this group exists to claim it (add_mesh_group runs after
+        // add_mesh); count it as already loaded rather than waiting for a residency event that already happened.
+        if (mesh_lod_group.loaded())
+        {
+            mesh_group.loaded_mesh_lod_groups += 1;
+        }
     }
-    _mesh_group_manifest.push_back(std::move(mesh_group));
-    _dirty_mesh_group_manifest.mark(group_index);
+    bool const is_completely_loaded = mesh_group.loaded_mesh_lod_groups == mesh_group.mesh_lod_group_count;
+    if (is_completely_loaded)
+    {
+        _scene._newly_completed_mesh_groups.push_back(group_index);
+    }
+    _scene._mesh_group_manifest.push_back(std::move(mesh_group));
+    _scene._dirty_mesh_group_indices.push_back(group_index);
     return group_index;
 }
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
+    // Read the cooked .tido off disk and upload it to the GPU (streamer).
     result = make_resident_mesh(device, MakeResidentMeshInfo{
         .artifact = artifact,
         .mesh_lod_manifest_index = mesh_lod_manifest_index,
@@ -274,34 +267,114 @@ void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]]
     finished.store(true, std::memory_order_release);
 }
 
-auto Scene::add_point_light(PointLight light) -> u32
+auto Scene::Locked::add_point_light(PointLight light) -> u32
 {
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    DBG_ASSERT_TRUE_M(_point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
-    u32 const index = s_cast<u32>(_point_lights.size());
-    light.point_light_ptr = _device.buffer_device_address(_gpu_point_lights.id()).value() + index * sizeof(GPUPointLight);
-    _point_lights.push_back(light);
+    DBG_ASSERT_TRUE_M(_scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
+
+    u32 const index = s_cast<u32>(_scene._point_lights.size());
+    light.point_light_ptr = _scene._device.buffer_device_address(_scene._gpu_point_lights.id()).value() + index * sizeof(GPUPointLight);
+    _scene._point_lights.push_back(light);
     return index;
 }
 
-auto Scene::add_spot_light(SpotLight light) -> u32
+auto Scene::Locked::add_spot_light(SpotLight light) -> u32
 {
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    DBG_ASSERT_TRUE_M(_spot_lights.size() < MAX_SPOT_LIGHTS, "Maximum spot light limit is currently hardcoded");
-    u32 const index = s_cast<u32>(_spot_lights.size());
-    light.spot_light_ptr = _device.buffer_device_address(_gpu_spot_lights.id()).value() + index * sizeof(GPUSpotLight);
-    _spot_lights.push_back(light);
+    DBG_ASSERT_TRUE_M(_scene._spot_lights.size() < MAX_SPOT_LIGHTS, "Maximum spot light limit is currently hardcoded");
+
+    u32 const index = s_cast<u32>(_scene._spot_lights.size());
+    light.spot_light_ptr = _scene._device.buffer_device_address(_scene._gpu_spot_lights.id()).value() + index * sizeof(GPUSpotLight);
+    _scene._spot_lights.push_back(light);
     return index;
 }
 
-auto Scene::add_entity(RenderEntity entity) -> RenderEntityId
+auto Scene::Locked::add_entity(RenderEntity entity) -> RenderEntityId
 {
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-    RenderEntityId const id = _render_entities.create_slot(std::move(entity));
-    _dirty_render_entities.push_back(id);
+    RenderEntityId const id = _scene._render_entities.create_slot(std::move(entity));
+    _scene._dirty_render_entities.push_back(id);
     return id;
 }
-auto Scene::add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32
+
+auto Scene::Locked::add_root_entity(RenderEntityId root_entity_id) -> void
+{
+    _scene._root_render_entities.push_back(root_entity_id);
+}
+
+auto Scene::Locked::update_entity(RenderEntityId id, RenderEntity entity) -> void
+{
+    RenderEntity * slot = _scene._render_entities.slot(id);
+    DBG_ASSERT_TRUE_M(slot != nullptr, "update_entity: invalid entity id");
+    *slot = std::move(entity);
+    _scene._dirty_render_entities.push_back(id);
+}
+
+auto Scene::LockedConst::entity(RenderEntityId id) const -> std::optional<RenderEntity>
+{
+    RenderEntity const * slot = _scene._render_entities.slot(id);
+    if (slot == nullptr) { return std::nullopt; }
+    return *slot;
+}
+
+auto Scene::LockedConst::entity_by_index(u32 entity_index) const -> std::optional<RenderEntity>
+{
+    RenderEntity const * slot = _scene._render_entities.slot_by_index(entity_index);
+    if (slot == nullptr) { return std::nullopt; }
+    return *slot;
+}
+
+auto Scene::LockedConst::entity_by_name(std::string_view name) const -> std::optional<RenderEntityId>
+{
+    for (u32 entity_index = 0; entity_index < s_cast<u32>(_scene._render_entities.capacity()); ++entity_index)
+    {
+        RenderEntity const * slot = _scene._render_entities.slot_by_index(entity_index);
+        if (slot != nullptr && slot->name == name)
+        {
+            return _scene._render_entities.id_from_index(entity_index);
+        }
+    }
+    return std::nullopt;
+}
+
+auto Scene::LockedConst::root_entity_count() const -> u32
+{
+    return s_cast<u32>(_scene._root_render_entities.size());
+}
+
+auto Scene::LockedConst::mesh_group(u32 index) const -> MeshGroupManifestEntry
+{
+    return _scene._mesh_group_manifest.at(index);
+}
+
+auto Scene::LockedConst::mesh_lod_group(u32 index) const -> MeshLodGroupManifestEntry
+{
+    return _scene._mesh_lod_group_manifest.at(index);
+}
+
+auto Scene::LockedConst::material(u32 index) const -> MaterialManifestEntry
+{
+    return _scene._material_manifest.at(index);
+}
+
+auto Scene::LockedConst::material_count() const -> u32
+{
+    return s_cast<u32>(_scene._material_manifest.size());
+}
+
+auto Scene::LockedConst::texture(u32 index) const -> TextureManifestEntry
+{
+    return _scene._texture_manifest.at(index);
+}
+
+auto Scene::LockedConst::point_lights() const -> std::vector<PointLight>
+{
+    return _scene._point_lights;
+}
+
+auto Scene::LockedConst::spot_lights() const -> std::vector<SpotLight>
+{
+    return _scene._spot_lights;
+}
+
+auto Scene::Locked::add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32
 {
     CloudVolume cpu_cloud_volume = {};
     cpu_cloud_volume.cloud_volume_data_path = cloud_volume_data_path;
@@ -309,27 +382,27 @@ auto Scene::add_cloud_volume(std::string const & cloud_volume_data_path, std::st
 
     // Preallocate manifest entries for all possible textures.
     // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
-    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading and not thread safe at all).
+    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading).
     // In the future this should be rewritten but for now this will work fine.
-    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
+    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
 
-    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
+    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
 
-    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(_material_texture_manifest.size());
-    _material_texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
+    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
+    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
 
-    u32 const cloud_volume_manifest_index = s_cast<u32>(_cloud_volumes.size());
-    _cloud_volumes.push_back(cpu_cloud_volume);
+    u32 const cloud_volume_manifest_index = s_cast<u32>(_scene._cloud_volumes.size());
+    _scene._cloud_volumes.push_back(cpu_cloud_volume);
 
-    _cloud_volumes_requesting_load.push_back(cloud_volume_manifest_index);
-    start_async_loads_of_dirty_cloud_volumes(*this, asset_processor, thread_pool);
+    _scene._cloud_volumes_requesting_load.push_back(cloud_volume_manifest_index);
+    _scene.start_async_loads_of_dirty_cloud_volumes(asset_processor, thread_pool);
 
     return cloud_volume_manifest_index;
 }
 
-static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcessor * asset_processor, ThreadPool * thread_pool)
+void Scene::start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_processor, ThreadPool * thread_pool)
 {
     struct LoadCloudVolumeTask : Task
     {
@@ -387,20 +460,33 @@ static void start_async_loads_of_dirty_cloud_volumes(Scene & scene, AssetProcess
 }
 ;
 
-for (u32 cloud_volume_manifest_index : scene._cloud_volumes_requesting_load)
+for (u32 cloud_volume_manifest_index : _cloud_volumes_requesting_load)
 {
     // Launch loading of this cloud volume
     auto task = std::make_shared<LoadCloudVolumeTask>(LoadCloudVolumeTask::TaskInfo{
         .asset_processor = asset_processor,
-        .volume = &scene._cloud_volumes.at(cloud_volume_manifest_index),
+        .volume = &_cloud_volumes.at(cloud_volume_manifest_index),
     });
     thread_pool->async_dispatch(task, TaskPriority::LOW);
 }
-scene._cloud_volumes_requesting_load.clear();
+_cloud_volumes_requesting_load.clear();
+}
+
+// Moves the accumulated indices out of a dirty-index vector and leaves it empty. Only ever called
+// from update_scene, which holds _manifest_mutex for its whole duration - the same lock the Locked
+// add_* methods push indices under - so no lock is needed here.
+static auto drain_dirty_indices(std::vector<u32> & indices) -> std::vector<u32>
+{
+    std::vector<u32> out = std::move(indices);
+    indices.clear();
+    return out;
 }
 
 auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableCommandList
 {
+    // Touches manifests/entities throughout; importer worker threads may be appending concurrently.
+    std::lock_guard<std::mutex> lock{*_manifest_mutex};
+
     // --- Texture residency (async) ---
     // 1. Collect finished texture streams: publish each resident image as the texture's runtime, and
     //    re-mark the materials referencing it dirty so their GPUMaterial picks up the resolved id below.
@@ -412,11 +498,11 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             ++it;
             continue;
         }
-        TextureManifestEntry & texture = _material_texture_manifest.at(task.texture_manifest_index);
+        TextureManifestEntry & texture = _texture_manifest.at(task.texture_manifest_index);
         texture.runtime_texture = task.result;
         for (TextureManifestEntry::MaterialManifestIndex const & ref : texture.material_manifest_indices)
         {
-            _dirty_material_manifest.mark(ref.material_manifest_index);
+            _dirty_material_indices.push_back(ref.material_manifest_index);
         }
         it = _inflight_texture_streams.erase(it);
     }
@@ -424,19 +510,19 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
     //    at shutdown - those textures simply never become resident, which is fine.)
     if (info.thread_pool != nullptr)
     {
-        for (u32 const texture_index : _dirty_material_texture_manifest.drain())
+        for (u32 const texture_index : drain_dirty_indices(_dirty_texture_indices))
         {
             auto task = std::make_shared<TextureStreamTask>();
             task->chunk_count = 1;
             task->device = _device;
-            task->artifact = _material_texture_manifest.at(texture_index).cooked_artifact;
+            task->artifact = _texture_manifest.at(texture_index).cooked_artifact;
             task->texture_manifest_index = texture_index;
             info.thread_pool->async_dispatch(task, TaskPriority::LOW);
             _inflight_texture_streams.push_back(std::move(task));
         }
     }
 
-    // --- Mesh residency (async) --- (mirrors the texture residency above)
+    // --- Mesh residency (async) ---
     // 1. Collect finished mesh streams: publish the uploaded GPUMesh array as the entry's runtime and
     //    mark the mesh-lod-group manifest dirty so the GPU sync below uploads the real data and does the
     //    BLAS-build + mesh-group completeness bookkeeping (the runtime.has_value() branch there).
@@ -453,13 +539,13 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
             .lods = upload.lods,
             .lod_count = upload.lod_count,
         };
-        _dirty_mesh_lod_group_manifest.mark(upload.mesh_lod_manifest_index);
+        _dirty_mesh_lod_group_indices.push_back(upload.mesh_lod_manifest_index);
         it = _inflight_mesh_streams.erase(it);
     }
     // 2. Spawn a stream task for every newly requested mesh. (No-op without a thread pool, e.g. shutdown.)
     if (info.thread_pool != nullptr)
     {
-        for (u32 const mesh_index : _dirty_mesh_lod_group_streaming.drain())
+        for (u32 const mesh_index : drain_dirty_indices(_dirty_mesh_lod_group_streaming_indices))
         {
             MeshLodGroupManifestEntry const & entry = _mesh_lod_group_manifest.at(mesh_index);
             auto task = std::make_shared<MeshStreamTask>();
@@ -481,13 +567,13 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
     daxa::BufferId staging_buffer = {};
     usize staging_offset = 0;
     std::byte * host_ptr = {};
-    if (_dirty_render_entities.size() > 0 || _modified_render_entities.size() > 0)
+    if (_dirty_render_entities.size() > 0)
     {
         usize required_staging_size = 0;
-        required_staging_size += sizeof(GPUEntityMetaData);                                                                   // _gpu_entity_meta
-        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_transforms
-        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size() + _modified_render_entities.size()); // _gpu_entity_combined_transforms
-        required_staging_size += sizeof(GPUMeshGroup) * (_dirty_render_entities.size() + _modified_render_entities.size());   // _gpu_entity_mesh_groups
+        required_staging_size += sizeof(GPUEntityMetaData);                                // _gpu_entity_meta
+        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size()); // _gpu_entity_transforms
+        required_staging_size += sizeof(daxa_f32mat4x3) * (_dirty_render_entities.size()); // _gpu_entity_combined_transforms
+        required_staging_size += sizeof(GPUMeshGroup) * (_dirty_render_entities.size());   // _gpu_entity_mesh_groups
         staging_buffer = _device.create_buffer({
             .size = required_staging_size,
             .memory_flags = daxa::MemoryFlagBits::HOST_ACCESS_RANDOM,
@@ -579,13 +665,12 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
     }
 
     _dirty_render_entities.clear();
-    _modified_render_entities.clear();
 
     // Drain the per-manifest dirty-index lists: the indices that were added/updated since the last
     // sync. We re-upload exactly these entries rather than assuming a contiguous tail of new entries.
-    std::vector<u32> const dirty_mesh_groups = _dirty_mesh_group_manifest.drain();
-    std::vector<u32> const dirty_mesh_lod_groups = _dirty_mesh_lod_group_manifest.drain();
-    std::vector<u32> const dirty_materials = _dirty_material_manifest.drain();
+    std::vector<u32> const dirty_mesh_groups = drain_dirty_indices(_dirty_mesh_group_indices);
+    std::vector<u32> const dirty_mesh_lod_groups = drain_dirty_indices(_dirty_mesh_lod_group_indices);
+    std::vector<u32> const dirty_materials = drain_dirty_indices(_dirty_material_indices);
 
     // Add new mesh group manifest entries
     if (!dirty_mesh_groups.empty())
@@ -653,21 +738,27 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
                     _mesh_as_build_queue.push_back(mesh_lod_manifest_index * MAX_MESHES_PER_LOD_GROUP + lod);
                 }
                 // Bump the owning mesh group's loaded count; if every mesh in it is now resident, mark it complete.
-                MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(mesh_lod_group.mesh_group_manifest_index);
-                mesh_group.loaded_mesh_lod_groups += 1;
-                bool is_completely_loaded = true;
-                u32 const range[] = {mesh_group.mesh_lod_group_manifest_indices_array_offset, mesh_group.mesh_lod_group_manifest_indices_array_offset + mesh_group.mesh_lod_group_count};
-                for (u32 mesh_idx_array_idx = range[0]; mesh_idx_array_idx < range[1]; mesh_idx_array_idx++)
+                // A mesh can become resident before it is assigned to any mesh group (add_mesh_group runs after
+                // add_mesh), in which case there is nothing to bump yet - add_mesh_group counts it as loaded
+                // once the group is created.
+                if (mesh_lod_group.mesh_group_manifest_index.has_value())
                 {
-                    if (!_mesh_lod_group_manifest.at(_mesh_lod_group_manifest_indices.at(mesh_idx_array_idx)).runtime.has_value())
+                    MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(mesh_lod_group.mesh_group_manifest_index.value());
+                    mesh_group.loaded_mesh_lod_groups += 1;
+                    bool is_completely_loaded = true;
+                    u32 const range[] = {mesh_group.mesh_lod_group_manifest_indices_array_offset, mesh_group.mesh_lod_group_manifest_indices_array_offset + mesh_group.mesh_lod_group_count};
+                    for (u32 mesh_idx_array_idx = range[0]; mesh_idx_array_idx < range[1]; mesh_idx_array_idx++)
                     {
-                        is_completely_loaded = false;
-                        break;
+                        if (!_mesh_lod_group_manifest.at(_mesh_lod_group_manifest_indices.at(mesh_idx_array_idx)).runtime.has_value())
+                        {
+                            is_completely_loaded = false;
+                            break;
+                        }
                     }
-                }
-                if (is_completely_loaded)
-                {
-                    _newly_completed_mesh_groups.push_back(mesh_lod_group.mesh_group_manifest_index);
+                    if (is_completely_loaded)
+                    {
+                        _newly_completed_mesh_groups.push_back(mesh_lod_group.mesh_group_manifest_index.value());
+                    }
                 }
             }
 
@@ -709,7 +800,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
         auto resolve_texture_id = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> daxa::ImageId
         {
             if (!info.has_value()) { return {}; }
-            return _material_texture_manifest.at(info.value().tex_manifest_index).runtime_texture.value_or(daxa::ImageId{});
+            return _texture_manifest.at(info.value().tex_manifest_index).runtime_texture.value_or(daxa::ImageId{});
         };
 
         // The normal map's BC5 encoding is deduced from its cooked texture format, not tracked through
@@ -717,7 +808,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
         auto normal_is_bc5_rg = [&](std::optional<MaterialManifestEntry::TextureInfo> const & info) -> bool
         {
             if (!info.has_value()) { return false; }
-            return tido_format_is_bc5_rg(_material_texture_manifest.at(info.value().tex_manifest_index).cooked_artifact.descriptor.format);
+            return tido_format_is_bc5_rg(_texture_manifest.at(info.value().tex_manifest_index).cooked_artifact.descriptor.format);
         };
 
         for (u32 i = 0; i < dirty_material_count; ++i)
@@ -751,7 +842,7 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
     // only stash their runtime image id - no material update needed.
     for (AssetProcessor::LoadedTextureInfo const & texture_upload : info.uploaded_textures)
     {
-        _material_texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.image;
+        _texture_manifest.at(texture_upload.texture_manifest_index).runtime_texture = texture_upload.image;
     }
 
     /// TODO: Taskgraph this shit.
@@ -765,6 +856,9 @@ auto Scene::update_scene(UpdateSceneInfo const & info) -> daxa::ExecutableComman
 
 auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 {
+    // Reads the mesh/material manifests; importer worker threads may be appending concurrently.
+    std::lock_guard<std::mutex> lock{*_manifest_mutex};
+
     u64 const scratch_buffer_offset_alignment =
         _device.properties().acceleration_structure_properties.value().min_acceleration_structure_scratch_offset_alignment;
 
@@ -847,6 +941,9 @@ auto Scene::create_mesh_acceleration_structures() -> daxa::ExecutableCommandList
 
 void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas)
 {
+    // Reads the mesh manifest + entities; importer worker threads may be appending concurrently.
+    std::lock_guard<std::mutex> lock{*_manifest_mutex};
+
     auto & mesh_instances = this->current_frame_mesh_instances;
 
     std::vector<daxa_BlasInstanceData> blas_instances = {};
@@ -925,6 +1022,9 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
 
 auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstances
 {
+    // Reads entities + manifests throughout; importer worker threads may be appending concurrently.
+    std::lock_guard<std::mutex> lock{*_manifest_mutex};
+
     CPUSceneInstances ret = {};
 
     auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.id()).value();
@@ -933,10 +1033,11 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
     for (u32 entity_i = 0; entity_i < _render_entities.capacity(); ++entity_i)
     {
         RenderEntity * r_ent = _render_entities.slot_by_index(entity_i);
+        if (r_ent == nullptr) { continue; }
         bool const is_entity_dirty = r_ent->dirty;
         r_ent->dirty = false;
 
-        if (r_ent != nullptr && r_ent->cloud_volume_index.has_value())
+        if (r_ent->cloud_volume_index.has_value())
         {
             DBG_ASSERT_TRUE_M(r_ent->type == EntityType::CLOUD_VOLUME, "IMPOSSIBLE CASE! Only cloud volume entities can have cloud volume index");
             auto const & cloud_volume = _cloud_volumes.at(r_ent->cloud_volume_index.value());
@@ -961,14 +1062,14 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
                 cloud_volume_instance.albedo = 1.0f;
                 cloud_volume_instance.density_scale = 0.1f;
 
-                cloud_volume_instance.cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.cloud_sdf_texture = _material_texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
-                cloud_volume_instance.detail_noise_texture = _material_texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.cloud_sdf_texture = _texture_manifest.at(cloud_volume.sdf_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
+                cloud_volume_instance.detail_noise_texture = _texture_manifest.at(cloud_volume.detail_noise_texture_manifest_index).runtime_texture.value_or(daxa::ImageId{}).default_view();
 
                 cloud_volume_instance.texture_size = {0u, 0u, 0u};
-                if(_material_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
+                if(_texture_manifest.at(cloud_volume.data_texture_manifest_index).loaded())
                 {
-                    daxa::ImageId cloud_data_texture = _material_texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
+                    daxa::ImageId cloud_data_texture = _texture_manifest.at(cloud_volume.data_texture_manifest_index).runtime_texture.value();
                     daxa::ImageInfo const & cloud_data_texture_info = _device.image_info(cloud_data_texture).value();
                     cloud_volume_instance.texture_size = {cloud_data_texture_info.size.x, cloud_data_texture_info.size.y, cloud_data_texture_info.size.z};
                 }
@@ -977,7 +1078,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
 
         }
 
-        if (r_ent != nullptr && r_ent->light_index.has_value())
+        if (r_ent->light_index.has_value())
         {
             if (r_ent->type == EntityType::POINT_LIGHT)
             {
@@ -1016,7 +1117,7 @@ auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstance
             }
         }
 
-        if (r_ent != nullptr && r_ent->mesh_group_manifest_index.has_value())
+        if (r_ent->mesh_group_manifest_index.has_value())
         {
             usize mesh_group_index = r_ent->mesh_group_manifest_index.value();
             MeshGroupManifestEntry & mesh_group = _mesh_group_manifest.at(mesh_group_index);
@@ -1181,6 +1282,12 @@ void Scene::write_gpu_cloud_volume_instances_buffer(CPUCloudVolumeInstaces const
 
 void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor)
 {
+    // WARNING: Currently unused (no call site anywhere). Before wiring this up (e.g. an "unload
+    // scene" button), it must refuse to run - or wait - while a scene import
+    // (ApplicationState::pending_scene_import) is in flight: the importer's add_* calls and any
+    // in-flight stream task would publish into manifest indices this wipes.
+    std::lock_guard<std::mutex> manifest_lock{*_manifest_mutex};
+
     // for (auto &task : scene_load_tasks)
     // {
     //     thread_pool->block_on(task);
@@ -1215,7 +1322,7 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
             }
         }
 
-        for (auto & texture : _material_texture_manifest)
+        for (auto & texture : _texture_manifest)
         {
             if (texture.runtime_texture.has_value())
             {
@@ -1238,12 +1345,11 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
     {
         _render_entities.clear();
         _dirty_render_entities.clear();
-        _modified_render_entities.clear();
         _newly_completed_mesh_groups.clear();
         _mesh_as_build_queue.clear();
 
         _root_render_entities.clear();
-        _material_texture_manifest.clear();
+        _texture_manifest.clear();
         _material_manifest.clear();
         _mesh_lod_group_manifest.clear();
         _mesh_lod_group_manifest_indices.clear();
@@ -1252,11 +1358,11 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
         _spot_lights.clear();
 
         // Discard any pending dirty indices; the manifests they referred to are gone.
-        _dirty_material_manifest.drain();
-        _dirty_mesh_lod_group_manifest.drain();
-        _dirty_mesh_group_manifest.drain();
-        _dirty_material_texture_manifest.drain();
-        _dirty_mesh_lod_group_streaming.drain();
+        _dirty_material_indices.clear();
+        _dirty_mesh_lod_group_indices.clear();
+        _dirty_mesh_group_indices.clear();
+        _dirty_texture_indices.clear();
+        _dirty_mesh_lod_group_streaming_indices.clear();
         // In-flight stream tasks reference manifest indices that are about to be invalid; drop them.
         _inflight_texture_streams.clear();
         _inflight_mesh_streams.clear();

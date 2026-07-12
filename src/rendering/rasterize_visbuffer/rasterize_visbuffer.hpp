@@ -21,7 +21,7 @@ namespace raster_visbuf
     {
         daxa::TaskGraph & tg;
         std::unique_ptr<RenderContext> & render_context;
-        Scene * scene;
+        Scene const * scene;
         daxa::TaskBufferView meshlet_instances;
         daxa::TaskBufferView visible_meshlet_instances;
         daxa::TaskImageView debug_image;

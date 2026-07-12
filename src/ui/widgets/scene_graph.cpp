@@ -211,7 +211,7 @@ namespace tido
         {
             RetNodeState state = add_inner_node(&entity, entity.name, no_draw, ICONS::MESHGROUP);
             if (state != RetNodeState::OPEN) { return RetNodeState::CLOSED; }
-            MeshGroupManifestEntry const & meshgroup_manifest_entry = scene._mesh_group_manifest.at(entity.mesh_group_manifest_index.value());
+            MeshGroupManifestEntry const meshgroup_manifest_entry = scene.lock().mesh_group(entity.mesh_group_manifest_index.value());
 
             add_level();
             /// TODO: SAKY

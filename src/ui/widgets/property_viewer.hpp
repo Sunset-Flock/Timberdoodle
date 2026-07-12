@@ -18,7 +18,7 @@ namespace tido
         {
             PropertyViewer() = default;
             PropertyViewer(daxa::ImGuiRenderer * renderer, std::vector<daxa::ImageId> const * icons, daxa::SamplerId linear_sampler);
-            void render(SceneInterfaceState & scene_interface, Scene & scene, RenderContext & render_context);
+            void render(SceneInterfaceState & scene_interface, Scene const & scene, RenderContext & render_context);
 
             i32 selected = {};
             daxa::ImGuiRenderer * renderer = {};

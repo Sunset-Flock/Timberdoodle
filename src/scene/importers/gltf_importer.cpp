@@ -226,18 +226,18 @@ static auto extract_raw_mesh(
 static auto file_mtime(std::filesystem::path const & path) -> std::optional<i64>
 {
     std::error_code ec = {};
-    auto const t = std::filesystem::last_write_time(path, ec);
+    auto const write_time = std::filesystem::last_write_time(path, ec);
     if (ec) { return std::nullopt; }
-    return t.time_since_epoch().count();
+    return write_time.time_since_epoch().count();
 }
 
 // Max file_mtime over `paths` (a mesh's geometry can span several buffer files); nullopt if none stat'd.
 static auto max_source_mtime(std::span<std::filesystem::path const> paths) -> std::optional<i64>
 {
     std::optional<i64> newest = std::nullopt;
-    for (auto const & p : paths)
+    for (auto const & path : paths)
     {
-        if (auto const t = file_mtime(p)) { newest = newest.has_value() ? std::max(newest.value(), t.value()) : t.value(); }
+        if (auto const mtime = file_mtime(path)) { newest = newest.has_value() ? std::max(newest.value(), mtime.value()) : mtime.value(); }
     }
     return newest;
 }
@@ -461,9 +461,15 @@ auto GltfImporter::import() -> std::variant<RenderEntityId, Scene::LoadManifestE
     load_meshes();               // pass 4: cook every mesh, then add it to the manifest.
     translate_mesh_groups();     // pass 5: a group's meshes are added -> add the group over them.
     RenderEntityId const root_r_ent_id = translate_entities(); // pass 6: entities reference mesh groups.
-    scene._root_render_entities.push_back(root_r_ent_id);
+    scene.lock().add_root_entity(root_r_ent_id);
 
     return root_r_ent_id;
+}
+
+void GltfImportTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+{
+    result = GltfImporter{*scene, info}.import();
+    finished.store(true, std::memory_order_release);
 }
 
 auto GltfImporter::parse() -> std::optional<Scene::LoadManifestErrorCode>
@@ -513,7 +519,7 @@ auto GltfImporter::parse() -> std::optional<Scene::LoadManifestErrorCode>
     }
 
     // Only used as a suffix for the root entity name; not a manifest offset.
-    import_index = s_cast<u32>(scene._root_render_entities.size());
+    import_index = scene.lock().root_entity_count();
     return std::nullopt;
 }
 
@@ -604,6 +610,13 @@ auto GltfImporter::image_cache_key(u32 gltf_image_index) -> u64
     return tido_source_identity_key(file_path, asset.images[gltf_image_index].name.c_str(), fmt::format("{}", gltf_image_index));
 }
 
+// Same source image as image_cache_key, disambiguated with an "_opacity" suffix so the split opacity
+// artifact (TC.4) gets its own cache entry and .tido stem instead of colliding with the color artifact's.
+auto GltfImporter::image_opacity_cache_key(u32 gltf_image_index) -> u64
+{
+    return tido_source_identity_key(file_path, asset.images[gltf_image_index].name.c_str(), fmt::format("{}_opacity", gltf_image_index));
+}
+
 // Stable per-primitive source-identity key. It both indexes the mesh in the .tido_cache AND forms the
 // .tido data-file stem, so it must be unique across ALL imported files (the .tido files share one
 // cache dir): the source file path is folded in alongside the (mesh, primitive) index. Without the
@@ -657,8 +670,8 @@ auto GltfImporter::validate_cache() -> bool
 void GltfImporter::open_cache_writer()
 {
     // Truncates the cache file and writes the header record; load_images / load_meshes then append one record
-    // per artifact as its cook drains. Unconditional - the caller (import()) only calls this when it has
-    // already decided a rewrite is needed (rewriting_cache), so opening never needs to be gated here.
+    // per artifact as its cook drains.
+    DBG_ASSERT_TRUE_M(rewriting_cache, "[ERROR][GltfImporter::open_cache_writer] called without a rewrite decided (rewriting_cache is false)");
     TidoCacheKey const key = tido_make_cache_key(file_path, GLTF_TEXTURE_COOK_VERSION, GLTF_MESH_COOK_VERSION);
     std::filesystem::path const cache_path = cache_output_dir / tido_cache_file_name(info.asset_name.string(), key.source_hash);
     std::error_code ec = {};
@@ -697,21 +710,38 @@ void GltfImporter::load_images()
     // chunk per image that needs cooking; the chunks run in parallel and each adds its own image on
     // completion (add_cooked is thread-safe), so there is no separate collection pass.
     image_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
+    opacity_manifest_indices.assign(asset.images.size(), INVALID_MANIFEST_INDEX);
 
     // Records a cooked texture (fresh cook or cache hit) into the scene manifest (which queues it for async
     // streaming) and, when a cache rewrite is underway, appends its record to the open .tido_cache. Thread-safe:
     // the scene guards its manifest and write_cache_record guards the cache stream, and each call writes a
-    // distinct image_manifest_indices slot, so cook chunks add concurrently. cache_key is already set on the artifact.
-    auto add_cooked_texture = [&](u32 gltf_image_index, TidoTextureCookResult const & artifact)
+    // distinct image_manifest_indices/opacity_manifest_indices slot, so cook chunks add concurrently. cache_key
+    // is already set on the artifact. Used only by the cook task's completion callback below - the fast path
+    // (single-threaded, no cook chunks in flight) adds its batch directly further down instead of going
+    // through this per entry. opacity_artifact is only present for a DIFFUSE image that genuinely had alpha
+    // (see TC.4 / image_optimizer's process_image split); it becomes its own OPACITY-typed manifest entry.
+    auto add_cooked_texture = [&](u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)
     {
         if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(artifact)); }
-        u32 const image_manifest_index = scene.add_texture(TextureManifestEntry{
+        u32 const image_manifest_index = scene.lock().add_texture(TextureManifestEntry{
             .type = image_types.at(gltf_image_index),
             .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
             .cooked_artifact = artifact,              // .tido reference; streamed in by the scene.
             .name = asset.images[gltf_image_index].name.c_str(),
         });
         image_manifest_indices.at(gltf_image_index) = image_manifest_index;
+
+        if (opacity_artifact.has_value())
+        {
+            if (rewriting_cache) { write_cache_record(serialize_tido_cache_texture(opacity_artifact.value())); }
+            u32 const opacity_manifest_index = scene.lock().add_texture(TextureManifestEntry{
+                .type = TextureMaterialType::OPACITY,
+                .material_manifest_indices = {},
+                .cooked_artifact = opacity_artifact.value(),
+                .name = std::string(asset.images[gltf_image_index].name.c_str()) + "_opacity",
+            });
+            opacity_manifest_indices.at(gltf_image_index) = opacity_manifest_index;
+        }
     };
 
     struct LoadImagesTask final : Task
@@ -721,9 +751,12 @@ void GltfImporter::load_images()
             u32 gltf_image_index = {};
             TextureMaterialType type = {};
             u64 cache_key = {};
+            u64 opacity_cache_key = {}; // only meaningful when type == DIFFUSE
             i64 current_mtime = {}; // current max source mtime, stamped onto the (re)cooked or refreshed artifact
-            // Pre-seeded cache entry that failed the mtime fast path; reused if its content hash still matches.
-            std::optional<TidoTextureCookResult> cached = {};
+            // Pre-seeded cache entries that failed the mtime fast path; reused if their content hash still
+            // matches. cached_opacity is absent when the previous cook found no alpha for this image.
+            std::optional<TidoTextureCookResult> cached_color = {};
+            std::optional<TidoTextureCookResult> cached_opacity = {};
         };
 
         // Immutable for the run of the task: set once at construction (before dispatch) and only ever read
@@ -732,10 +765,10 @@ void GltfImporter::load_images()
         std::filesystem::path const asset_path;
         std::filesystem::path const cache_dir; // per-import output folder for the .tido data files
         std::vector<Item> const items;
-        std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact)> const add_cooked;
+        std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)> const add_cooked;
 
         LoadImagesTask(fastgltf::Asset const * asset, std::filesystem::path asset_path, std::filesystem::path cache_dir,
-            std::vector<Item> items, std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact)> add_cooked)
+            std::vector<Item> items, std::function<void(u32 gltf_image_index, TidoTextureCookResult const & artifact, std::optional<TidoTextureCookResult> const & opacity_artifact)> add_cooked)
             : asset{asset}, asset_path{std::move(asset_path)}, cache_dir{std::move(cache_dir)},
               items{std::move(items)}, add_cooked{std::move(add_cooked)}
         {
@@ -755,13 +788,20 @@ void GltfImporter::load_images()
             }
 
             // Verify whether the content of the image actually changed using a content hash over the raw data.
+            // The split opacity artifact derives from these same raw bytes, so it shares this content hash.
             u64 const content_hash = tido_fnv1a(std::as_bytes(std::span{raw.value().data}));
-            if (item.cached.has_value() && item.cached->content_hash == content_hash && std::filesystem::exists(item.cached->tido_path))
+            if (item.cached_color.has_value() && item.cached_color->content_hash == content_hash && std::filesystem::exists(item.cached_color->tido_path))
             {
-                // Bytes unchanged (only the mtime moved): reuse the cached .tido, just refresh the stored mtime.
-                TidoTextureCookResult artifact = item.cached.value();
-                artifact.source_modified = item.current_mtime;
-                add_cooked(item.gltf_image_index, artifact);
+                // Bytes unchanged (only the mtime moved): reuse the cached .tido(s), just refresh their mtime.
+                TidoTextureCookResult color_artifact = item.cached_color.value();
+                color_artifact.source_modified = item.current_mtime;
+                std::optional<TidoTextureCookResult> opacity_artifact = {};
+                if (item.cached_opacity.has_value() && std::filesystem::exists(item.cached_opacity->tido_path))
+                {
+                    opacity_artifact = item.cached_opacity.value();
+                    opacity_artifact->source_modified = item.current_mtime;
+                }
+                add_cooked(item.gltf_image_index, color_artifact, opacity_artifact);
                 return;
             }
 
@@ -773,10 +813,10 @@ void GltfImporter::load_images()
                 return;
             }
 
-            ProcessedImage const & processed = std::get<ProcessedImage>(processed_ret);
+            ProcessedImageResult const & processed = std::get<ProcessedImageResult>(processed_ret);
 
-            // Part 3: write the cooked image out as a .tido artifact.
-            auto tido_result = write_texture_tido(processed, cache_dir, raw.value().name, item.cache_key);
+            // Part 3: write the cooked color image out as a .tido artifact.
+            auto tido_result = write_texture_tido(processed.color, cache_dir, raw.value().name, item.cache_key);
             if (!tido_result.has_value())
             {
                 DEBUG_MSG(fmt::format("[WARN][write_texture_tido] failed to write .tido for image '{}'", raw.value().name));
@@ -784,22 +824,55 @@ void GltfImporter::load_images()
             }
 
             DEBUG_MSG(fmt::format("[write_texture_tido] cooked '{}' -> {} ({}x{}, {} mips) -> '{}'",
-                raw.value().name, s_cast<u32>(processed.image_info.format), processed.image_info.size.x,
-                processed.image_info.size.y, processed.mips_to_copy, tido_result.value().tido_path.string()));
+                raw.value().name, s_cast<u32>(processed.color.image_info.format), processed.color.image_info.size.x,
+                processed.color.image_info.size.y, processed.color.mips_to_copy, tido_result.value().tido_path.string()));
 
-            TidoTextureCookResult artifact = tido_result.value();
-            artifact.source_modified = item.current_mtime;
-            artifact.content_hash = content_hash;
-            add_cooked(item.gltf_image_index, artifact);
+            TidoTextureCookResult color_artifact = tido_result.value();
+            color_artifact.source_modified = item.current_mtime;
+            color_artifact.content_hash = content_hash;
+
+            // Part 3b: if the cook split off an opacity image (DIFFUSE + genuine source alpha), write its
+            // own .tido artifact too. A failed write here does not fail the whole cook - the color output
+            // stays usable and the material simply renders without a dedicated opacity texture.
+            std::optional<TidoTextureCookResult> opacity_artifact = {};
+            if (processed.opacity.has_value())
+            {
+                std::string const opacity_name = raw.value().name + "_opacity";
+                auto opacity_tido_result = write_texture_tido(processed.opacity.value(), cache_dir, opacity_name, item.opacity_cache_key);
+                if (opacity_tido_result.has_value())
+                {
+                    DEBUG_MSG(fmt::format("[write_texture_tido] cooked '{}' -> {} ({}x{}, {} mips) -> '{}'",
+                        opacity_name, s_cast<u32>(processed.opacity->image_info.format), processed.opacity->image_info.size.x,
+                        processed.opacity->image_info.size.y, processed.opacity->mips_to_copy, opacity_tido_result.value().tido_path.string()));
+                    opacity_artifact = opacity_tido_result.value();
+                    opacity_artifact->source_modified = item.current_mtime;
+                    opacity_artifact->content_hash = content_hash;
+                }
+                else
+                {
+                    DEBUG_MSG(fmt::format("[WARN][write_texture_tido] failed to write opacity .tido for image '{}'", opacity_name));
+                }
+            }
+
+            add_cooked(item.gltf_image_index, color_artifact, opacity_artifact);
         }
     };
 
     // For each referenced image (skip the unreferenced ones found in pass 1) decide:
-    //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido exists)
-    //     is reused WITHOUT reading the source at all - added here on the calling thread.
+    //   - mtime fast path: a cached color entry whose stored source mtime still matches (and whose .tido
+    //     exists) is reused WITHOUT reading the source at all - collected here and added in one batch below,
+    //     under a single lock, rather than reacquiring the scene lock per image. Its opacity counterpart (if
+    //     any - only present when a previous cook found this image had alpha) rides along on the same mtime.
     //   - otherwise it becomes a chunk of the cook task, which reads the source, content-hashes it, and either
-    //     reuses the cached .tido (bytes unchanged, refresh the mtime) or recooks the image.
+    //     reuses the cached .tido(s) (bytes unchanged, refresh the mtime) or recooks the image.
     u32 fast_hits = 0;
+    struct FastHitEntry
+    {
+        u32 gltf_image_index = {};
+        TidoTextureCookResult color = {};
+        std::optional<TidoTextureCookResult> opacity = {};
+    };
+    std::vector<FastHitEntry> fast_hit_entries = {};
     std::vector<LoadImagesTask::Item> items_to_cook = {};
     for (u32 image_index = 0; image_index < s_cast<u32>(asset.images.size()); ++image_index)
     {
@@ -807,24 +880,71 @@ void GltfImporter::load_images()
         {
             continue; // Unreferenced image - do not cook or add it.
         }
-        std::optional<TidoTextureCookResult> cached = texture_cache_valid ? loaded_cache->lookup_texture(image_cache_key(image_index)) : std::nullopt;
+        u64 const key = image_cache_key(image_index);
+        u64 const opacity_key = image_opacity_cache_key(image_index);
+        std::optional<TidoTextureCookResult> cached_color = texture_cache_valid ? loaded_cache->lookup_texture(key) : std::nullopt;
+        std::optional<TidoTextureCookResult> cached_opacity = texture_cache_valid ? loaded_cache->lookup_texture(opacity_key) : std::nullopt;
         std::filesystem::path const src_path = image_source_path(asset, image_index, file_path);
         std::optional<i64> const src_mtime = src_path.empty() ? std::nullopt : file_mtime(src_path);
 
-        // mtime fast path: reuse the cached .tido without reading the source.
-        if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() && std::filesystem::exists(cached->tido_path))
+        // mtime fast path: reuse the cached color .tido without reading the source.
+        if (cached_color.has_value() && src_mtime.has_value() && cached_color->source_modified == src_mtime.value() && std::filesystem::exists(cached_color->tido_path))
         {
-            add_cooked_texture(image_index, cached.value());
+            std::optional<TidoTextureCookResult> opacity_hit = {};
+            if (cached_opacity.has_value() && cached_opacity->source_modified == src_mtime.value() && std::filesystem::exists(cached_opacity->tido_path))
+            {
+                opacity_hit = cached_opacity;
+            }
+            fast_hit_entries.push_back(FastHitEntry{.gltf_image_index = image_index, .color = cached_color.value(), .opacity = opacity_hit});
             ++fast_hits;
             continue;
         }
         items_to_cook.push_back(LoadImagesTask::Item{
             .gltf_image_index = image_index,
             .type = image_types.at(image_index),
-            .cache_key = image_cache_key(image_index),
+            .cache_key = key,
+            .opacity_cache_key = opacity_key,
             .current_mtime = src_mtime.value_or(0),
-            .cached = std::move(cached),
+            .cached_color = std::move(cached_color),
+            .cached_opacity = std::move(cached_opacity),
         });
+    }
+
+    // Fast path: append every mtime-hit entry's cache record(s) first (no scene lock held - just the cache
+    // stream), then add all of them to the manifest under a single scene lock (no cook chunks are in
+    // flight yet, so this loop is entirely sequential and safe to batch).
+    if (rewriting_cache)
+    {
+        for (auto const & entry : fast_hit_entries)
+        {
+            write_cache_record(serialize_tido_cache_texture(entry.color));
+            if (entry.opacity.has_value()) { write_cache_record(serialize_tido_cache_texture(entry.opacity.value())); }
+        }
+    }
+    if (!fast_hit_entries.empty())
+    {
+        auto locked = scene.lock();
+        for (auto const & entry : fast_hit_entries)
+        {
+            u32 const image_manifest_index = locked.add_texture(TextureManifestEntry{
+                .type = image_types.at(entry.gltf_image_index),
+                .material_manifest_indices = {},          // Back-refs are filled by Scene::add_material (pass 3).
+                .cooked_artifact = entry.color,            // .tido reference; streamed in by the scene.
+                .name = asset.images[entry.gltf_image_index].name.c_str(),
+            });
+            image_manifest_indices.at(entry.gltf_image_index) = image_manifest_index;
+
+            if (entry.opacity.has_value())
+            {
+                u32 const opacity_manifest_index = locked.add_texture(TextureManifestEntry{
+                    .type = TextureMaterialType::OPACITY,
+                    .material_manifest_indices = {},
+                    .cooked_artifact = entry.opacity.value(),
+                    .name = std::string(asset.images[entry.gltf_image_index].name.c_str()) + "_opacity",
+                });
+                opacity_manifest_indices.at(entry.gltf_image_index) = opacity_manifest_index;
+            }
+        }
     }
 
     // One task, one chunk per image that needs cooking; the caller participates as a worker until every chunk
@@ -863,7 +983,8 @@ void GltfImporter::load_meshes()
     // streaming) and, when a cache rewrite is underway, appends its record to the open .tido_cache. Thread-safe:
     // the scene guards its manifest and write_cache_record guards the cache stream, and each call writes a
     // distinct mesh_manifest_indices slot, so cook chunks add concurrently. cache_key is already set on the
-    // artifact. Mirrors add_cooked_texture.
+    // artifact. Used only by the cook task's completion callback below - the fast path (single-threaded, no
+    // cook chunks in flight) adds its batch directly further down instead of going through this per entry.
     auto add_cooked_mesh = [&](u32 gltf_mesh_index, u32 gltf_primitive_index, TidoMeshCookResult artifact)
     {
         if (rewriting_cache) { write_cache_record(serialize_tido_cache_mesh(artifact)); }
@@ -873,7 +994,7 @@ void GltfImporter::load_meshes()
             gltf_primitive.materialIndex.has_value()
                 ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
                 : std::nullopt;
-        u32 const mesh_manifest_index = scene.add_mesh(MeshLodGroupManifestEntry{
+        u32 const mesh_manifest_index = scene.lock().add_mesh(MeshLodGroupManifestEntry{
             .material_index = material_index,
             .name = gltf_mesh.name.c_str(),
             .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
@@ -967,10 +1088,12 @@ void GltfImporter::load_meshes()
 
     // For each mesh decide per artifact (mirrors load_images):
     //   - mtime fast path: a cached entry whose stored source mtime still matches (and whose .tido exists)
-    //     is reused WITHOUT reading the source at all - added here on the calling thread.
+    //     is reused WITHOUT reading the source at all - collected here and added in one batch below, under
+    //     a single lock, rather than reacquiring the scene lock per mesh.
     //   - otherwise it becomes a chunk of the cook task, which extracts the geometry, content-hashes it, and
     //     either reuses the cached .tido (bytes unchanged, refresh the mtime) or recooks (bytes changed / no entry).
     u32 fast_hits = 0;
+    std::vector<std::tuple<u32, u32, TidoMeshCookResult>> fast_hit_entries = {}; // gltf_mesh_index, gltf_primitive_index -> artifact
     std::vector<LoadMeshesTask::Item> items_to_cook = {};
     for (u32 mesh_group_index = 0; mesh_group_index < s_cast<u32>(asset.meshes.size()); ++mesh_group_index)
     {
@@ -986,7 +1109,7 @@ void GltfImporter::load_meshes()
             if (cached.has_value() && src_mtime.has_value() && cached->source_modified == src_mtime.value() &&
                 std::filesystem::exists(cached->tido_path))
             {
-                add_cooked_mesh(mesh_group_index, primitive_index, std::move(cached.value()));
+                fast_hit_entries.emplace_back(mesh_group_index, primitive_index, std::move(cached.value()));
                 ++fast_hits;
                 continue;
             }
@@ -997,6 +1120,36 @@ void GltfImporter::load_meshes()
                 .current_mtime = src_mtime.value_or(0),
                 .cached = std::move(cached),
             });
+        }
+    }
+
+    // Fast path: append every mtime-hit entry's cache record first (no scene lock held - just the cache
+    // stream), then add all of them to the manifest under a single scene lock (no cook chunks are in
+    // flight yet, so this loop is entirely sequential and safe to batch).
+    if (rewriting_cache)
+    {
+        for (auto const & [gltf_mesh_index, gltf_primitive_index, artifact] : fast_hit_entries)
+        {
+            write_cache_record(serialize_tido_cache_mesh(artifact));
+        }
+    }
+    if (!fast_hit_entries.empty())
+    {
+        auto locked = scene.lock();
+        for (auto & [gltf_mesh_index, gltf_primitive_index, artifact] : fast_hit_entries)
+        {
+            auto const & gltf_mesh = asset.meshes.at(gltf_mesh_index);
+            auto const & gltf_primitive = gltf_mesh.primitives.at(gltf_primitive_index);
+            std::optional<u32> const material_index =
+                gltf_primitive.materialIndex.has_value()
+                    ? std::optional{material_manifest_indices.at(s_cast<u32>(gltf_primitive.materialIndex.value()))}
+                    : std::nullopt;
+            u32 const mesh_manifest_index = locked.add_mesh(MeshLodGroupManifestEntry{
+                .material_index = material_index,
+                .name = gltf_mesh.name.c_str(),
+                .cooked_artifact = std::move(artifact),   // .tido reference; streamed in by the scene.
+            });
+            mesh_manifest_indices.at(gltf_mesh_index).at(gltf_primitive_index) = mesh_manifest_index;
         }
     }
 
@@ -1019,7 +1172,7 @@ void GltfImporter::translate_materials()
 {
     // Images are already added; a material references them by resolving each texture to its image and
     // looking up the image's manifest index. Scene::add_material fills the texture -> material back-refs.
-    // (sampler_index is a placeholder until samplers are translated - see T6.6.)
+    // (sampler_index is a placeholder until samplers are translated.)
     // An image whose cook failed keeps INVALID_MANIFEST_INDEX, so its textures resolve to nullopt and the
     // material renders without them rather than referencing a texture that will never become resident.
     auto resolve_texture_info = [&](u32 const gltf_texture_index, u32 const sampler_index) -> std::optional<MaterialManifestEntry::TextureInfo>
@@ -1038,8 +1191,19 @@ void GltfImporter::translate_materials()
         std::optional<MaterialManifestEntry::TextureInfo> roughness_metalness_info = {};
         if (material.pbrData.baseColorTexture.has_value())
         {
-            diffuse_texture_info = resolve_texture_info(s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex), {});
-            opacity_texture_info = diffuse_texture_info;
+            u32 const gltf_texture_index = s_cast<u32>(material.pbrData.baseColorTexture.value().textureIndex);
+            diffuse_texture_info = resolve_texture_info(gltf_texture_index, {});
+            // The split opacity texture (see TC.4 / opacity_manifest_indices) only exists when the diffuse
+            // image genuinely had alpha; otherwise the material simply has no opacity texture.
+            auto const gltf_image_index = gltf_texture_to_image_index(gltf_texture_index);
+            if (gltf_image_index.has_value())
+            {
+                u32 const opacity_manifest_index = opacity_manifest_indices.at(gltf_image_index.value());
+                if (opacity_manifest_index != INVALID_MANIFEST_INDEX)
+                {
+                    opacity_texture_info = MaterialManifestEntry::TextureInfo{.tex_manifest_index = opacity_manifest_index, .sampler_index = {}};
+                }
+            }
         }
         if (material.normalTexture.has_value())
         {
@@ -1049,12 +1213,21 @@ void GltfImporter::translate_materials()
         {
             roughness_metalness_info = resolve_texture_info(s_cast<u32>(material.pbrData.metallicRoughnessTexture.value().textureIndex), 0);
         }
-        u32 const material_manifest_index = scene.add_material(MaterialManifestEntry{
+
+        bool const alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask && opacity_texture_info.has_value();
+
+        if(material.alphaMode == fastgltf::AlphaMode::Mask && !opacity_texture_info.has_value())
+        {
+            DEBUG_MSG(fmt::format("[WARN] Material '{}' has alphaMode=MASK but no opacity texture (diffuse image had no alpha)", material.name));
+        }
+
+
+        u32 const material_manifest_index = scene.lock().add_material(MaterialManifestEntry{
             .diffuse_info = diffuse_texture_info,
             .opacity_mask_info = opacity_texture_info,
             .normal_info = normal_texture_info,
             .roughness_metalness_info = roughness_metalness_info,
-            .alpha_discard_enabled = material.alphaMode == fastgltf::AlphaMode::Mask,
+            .alpha_discard_enabled = alpha_discard_enabled,
             .double_sided = material.doubleSided,
             .blend_enabled = material.alphaMode == fastgltf::AlphaMode::Blend,
             .base_color = f32vec3(material.pbrData.baseColorFactor[0], material.pbrData.baseColorFactor[1], material.pbrData.baseColorFactor[2]),
@@ -1087,9 +1260,7 @@ void GltfImporter::translate_mesh_groups()
             }
         }
 
-        u32 const mesh_group_manifest_index = scene.add_mesh_group(
-            MeshGroupManifestEntry{.name = gltf_mesh.name.c_str()},
-            group_mesh_manifest_indices);
+        u32 const mesh_group_manifest_index = scene.lock().add_mesh_group( group_mesh_manifest_indices, gltf_mesh.name.c_str()); 
         mesh_group_manifest_indices.push_back(mesh_group_manifest_index);
     }
 }
@@ -1112,7 +1283,7 @@ auto GltfImporter::translate_light(fastgltf::Light const & light) -> u32
             cpu_point_light.intensity = (light.intensity * 4.0f * glm::pi<f32>()) / LUMENS_PER_WATT;
             // When the cutoff is not specified attempt to calculate one based on a minimum energy.
             cpu_point_light.cutoff = light.range.value_or(std::sqrt(light.intensity / E_min));
-            return scene.add_point_light(cpu_point_light);
+            return scene.lock().add_point_light(cpu_point_light);
         }
         case fastgltf::LightType::Spot:
         {
@@ -1125,29 +1296,54 @@ auto GltfImporter::translate_light(fastgltf::Light const & light) -> u32
             cpu_spot_light.outer_cone_angle = light.outerConeAngle.value();
             DBG_ASSERT_TRUE_M(light.range.has_value(), "Currently no auto deduce of range from intensity for spot lights");
             cpu_spot_light.cutoff = light.range.value();
-            return scene.add_spot_light(cpu_spot_light);
+            return scene.lock().add_spot_light(cpu_spot_light);
         }
         case fastgltf::LightType::Directional:
         {
             // TODO(msakmary) add handling of directional lights.
             DBG_ASSERT_TRUE_M(false, "TODO(msakmary) implement directional lights");
-            break;
+            return s_cast<u32>(-1);
         }
+        default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled fastgltf::LightType");
+            return s_cast<u32>(-1);
     }
-    return s_cast<u32>(-1);
 }
 
 auto GltfImporter::translate_entities() -> RenderEntityId
 {
     /// NOTE: fastgltf::Node is Entity
     DBG_ASSERT_TRUE_M(asset.nodes.size() != 0, "[ERROR][GltfImporter::translate_entities()] Empty node array - what to do now?");
+
+    // Resolve every node's light manifest index before taking the manifest lock below: translate_light
+    // locks the scene itself (scene.lock().add_*_light), and the mutex is non-recursive, so calling it
+    // while the entity-tree lock (held for the whole wiring below) is already held would deadlock.
+    std::vector<std::optional<u32>> node_light_manifest_indices(asset.nodes.size(), std::nullopt);
+    for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
+    {
+        fastgltf::Node const & node = asset.nodes[node_index];
+        if (node.lightIndex.has_value())
+        {
+            node_light_manifest_indices[node_index] = translate_light(asset.lights.at(node.lightIndex.value()));
+        }
+    }
+
+    // Builds the whole entity subtree under one held lock - a partially-linked tree must never be
+    // observable to a concurrent reader (see Scene::lock). The ids are allocated up front as empty
+    // slots (an entity's parent/child/sibling ids must all exist before they can be referenced), the
+    // fully-wired entities are built in local storage, then each one is committed by value via
+    // update_entity at the end.
+    auto locked = scene.lock();
     std::vector<RenderEntityId> node_index_to_entity_id = {};
     /// NOTE: Here we allocate space for each entity and create a translation table between node index and entity id
     for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
     {
-        node_index_to_entity_id.push_back(scene._render_entities.create_slot());
-        scene._dirty_render_entities.push_back(node_index_to_entity_id.back());
+        node_index_to_entity_id.push_back(locked.add_entity({}));
     }
+    // The imported subtree's root entity, parenting every parentless node entity (wired below).
+    RenderEntityId const root_r_ent_id = locked.add_entity({});
+
+    std::vector<RenderEntity> node_entities(asset.nodes.size());
     for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
     {
         // TODO: For now store transform as a matrix - later should be changed to something else (TRS: translation, rotor, scale).
@@ -1174,7 +1370,7 @@ auto GltfImporter::translate_entities() -> RenderEntityId
 
         fastgltf::Node const & node = asset.nodes[node_index];
         RenderEntityId const parent_r_ent_id = node_index_to_entity_id[node_index];
-        RenderEntity & r_ent = *scene._render_entities.slot(parent_r_ent_id);
+        RenderEntity & r_ent = node_entities[node_index];
         r_ent.mesh_group_manifest_index = node.meshIndex.has_value() ? std::optional<u32>(mesh_group_manifest_indices.at(s_cast<u32>(node.meshIndex.value()))) : std::optional<u32>(std::nullopt);
         r_ent.transform = fastgltf_to_glm_mat4x3_transform(node.transform);
         r_ent.name = node.name.c_str();
@@ -1191,7 +1387,7 @@ auto GltfImporter::translate_entities() -> RenderEntityId
         if (node.lightIndex.has_value())
         {
             fastgltf::Light const & light = asset.lights.at(node.lightIndex.value());
-            r_ent.light_index = translate_light(light);
+            r_ent.light_index = node_light_manifest_indices[node_index];
             r_ent.type = light.type == fastgltf::LightType::Point ? EntityType::POINT_LIGHT : EntityType::SPOT_LIGHT;
         }
         else if (node.meshIndex.has_value())
@@ -1215,8 +1411,7 @@ auto GltfImporter::translate_entities() -> RenderEntityId
         for (u32 curr_child_vec_idx = 0; curr_child_vec_idx < node.children.size(); curr_child_vec_idx++)
         {
             u64 const curr_child_node_idx = node.children[curr_child_vec_idx];
-            RenderEntityId const curr_child_r_ent_id = node_index_to_entity_id[curr_child_node_idx];
-            RenderEntity & curr_child_r_ent = *scene._render_entities.slot(curr_child_r_ent_id);
+            RenderEntity & curr_child_r_ent = node_entities[curr_child_node_idx];
             curr_child_r_ent.parent = parent_r_ent_id;
             bool const has_next_sibling = curr_child_vec_idx < (node.children.size() - 1ull);
             if (has_next_sibling)
@@ -1229,37 +1424,42 @@ auto GltfImporter::translate_entities() -> RenderEntityId
 
     /// NOTE: Find all root render entities (aka render entities that have no parent) and store them as
     //        Child root entites under scene root node
-    RenderEntityId root_r_ent_id = scene._render_entities.create_slot({
+    RenderEntity root_r_ent = {
         .transform = glm::mat4x3(glm::identity<glm::mat4x3>()),
         .first_child = std::nullopt,
         .next_sibling = std::nullopt,
         .parent = std::nullopt,
         .mesh_group_manifest_index = std::nullopt,
+        .type = EntityType::ROOT,
         .name = info.asset_name.filename().replace_extension("").string() + "_" + std::to_string(import_index),
-    });
+    };
 
-    scene._dirty_render_entities.push_back(root_r_ent_id);
-    RenderEntity & root_r_ent = *scene._render_entities.slot(root_r_ent_id);
-    root_r_ent.type = EntityType::ROOT;
-    std::optional<RenderEntityId> root_r_ent_prev_child = {};
+    std::optional<u32> root_r_ent_prev_child_node_index = {};
     for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
     {
         RenderEntityId const r_ent_id = node_index_to_entity_id[node_index];
-        RenderEntity & r_ent = *scene._render_entities.slot(r_ent_id);
+        RenderEntity & r_ent = node_entities[node_index];
         if (!r_ent.parent.has_value())
         {
             r_ent.parent = root_r_ent_id;
-            if (!root_r_ent_prev_child.has_value()) // First child
+            if (!root_r_ent_prev_child_node_index.has_value()) // First child
             {
                 root_r_ent.first_child = r_ent_id;
             }
             else // We have other root children already
             {
-                scene._render_entities.slot(root_r_ent_prev_child.value())->next_sibling = r_ent_id;
+                node_entities[root_r_ent_prev_child_node_index.value()].next_sibling = r_ent_id;
             }
-            root_r_ent_prev_child = r_ent_id;
+            root_r_ent_prev_child_node_index = node_index;
         }
     }
+
+    // Commit the fully-wired entities into their reserved slots.
+    for (u32 node_index = 0; node_index < s_cast<u32>(asset.nodes.size()); node_index++)
+    {
+        locked.update_entity(node_index_to_entity_id[node_index], std::move(node_entities[node_index]));
+    }
+    locked.update_entity(root_r_ent_id, std::move(root_r_ent));
     return root_r_ent_id;
 }
 

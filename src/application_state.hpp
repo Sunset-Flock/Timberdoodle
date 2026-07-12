@@ -5,6 +5,7 @@
 #include "scene/asset_processor.hpp"
 #include "scene/importers/openvdb_importer.hpp"
 
+struct GltfImportTask;
 
 struct ApplicationState
 {
@@ -30,6 +31,7 @@ struct ApplicationState
     std::chrono::time_point<std::chrono::steady_clock> startup_time_point = {};
     std::chrono::time_point<std::chrono::steady_clock> last_time_point = {};
     std::string desired_scene_path = {};
+    std::shared_ptr<GltfImportTask> pending_scene_import = {};
 
     struct VDBManagementState
     {

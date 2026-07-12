@@ -369,8 +369,10 @@ auto to_string(TestSamplerType type) -> std::string_view
         case TEST_SAMPLER_TYPE_LINEAR_REPEAT: return "LINEAR_REPEAT";
         case TEST_SAMPLER_TYPE_NEAREST_CLAMP: return "NEAREST_CLAMP";
         case TEST_SAMPLER_TYPE_NEAREST_REPEAT: return "NEAREST_REPEAT";
+        default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled TestSamplerType");
+            return "";
     }
-    return "";
 }
 
 auto to_string(TestTextureType type) -> std::string_view
@@ -381,8 +383,10 @@ auto to_string(TestTextureType type) -> std::string_view
         case TEST_TEXTURE_TYPE_2D_ARRAY: return "2D_ARRAY";
         case TEST_TEXTURE_TYPE_3D: return "3D";
         case TEST_TEXTURE_TYPE_3D_EMULATED: return "3D_EMULATED";
+        default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled TestTextureType");
+            return "";
     }
-    return "";
 }
 
 auto to_string(TestIndexingType type) -> std::string_view
@@ -394,8 +398,10 @@ auto to_string(TestIndexingType type) -> std::string_view
         case TEST_INDEXING_TYPE_RANDOM: return "RANDOM";
         case TEST_INDEXING_TYPE_RANDOM_WALK: return "RANDOM_WALK";
         case TEST_INDEXING_TYPE_RANDOM_WALK_LINE: return "RANDOM_WALK_LINE";
+        default:
+            DBG_ASSERT_TRUE_M(false, "Unhandled TestIndexingType");
+            return "";
     }
-    return "";
 }
 
 void test_image(TestContext & ctx, std::array<daxa::ImageId, 3> images, u32vec3 texture_dimensions)
