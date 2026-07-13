@@ -163,234 +163,6 @@ Scene::~Scene()
         _device.destroy_buffer(cloud_volume_instances_buffer.id());
     }
 }
-/// --- Generic, format-agnostic scene builder API (Scene::Locked) ---
-// None of these lock - the caller already holds _manifest_mutex for the lifetime of the Locked
-// instance they're called through (see Scene::lock()).
-
-auto Scene::Locked::add_texture(TextureManifestEntry texture) -> u32
-{
-    // Added metadata-only; set_texture_streamer_data fills the cooked artifact in once its cook lands.
-    DBG_ASSERT_TRUE_M(_scene._texture_manifest.size() < MAX_TEXTURES, "Exceeded MAX_TEXTURES");
-
-    u32 const index = s_cast<u32>(_scene._texture_manifest.size());
-    _scene._texture_manifest.push_back(std::move(texture));
-    return index;
-}
-
-auto Scene::Locked::set_texture_streamer_data(u32 texture_manifest_index, TidoTextureStreamerData streamer_data) -> void
-{
-    DBG_ASSERT_TRUE_M(texture_manifest_index < _scene._texture_manifest.size(), "Invalid texture manifest index");
-    _scene._texture_manifest.at(texture_manifest_index).streamer_data = std::move(streamer_data);
-    _scene._dirty_texture_indices.push_back(texture_manifest_index);
-}
-
-auto Scene::Locked::add_material(MaterialManifestEntry material) -> u32
-{
-    DBG_ASSERT_TRUE_M(_scene._material_manifest.size() < MAX_MATERIALS, "Exceeded MAX_MATERIALS");
-
-    u32 const index = s_cast<u32>(_scene._material_manifest.size());
-
-    std::array<std::optional<MaterialManifestEntry::TextureInfo> const *, 4> const infos = 
-        { &material.diffuse_info, &material.opacity_mask_info, &material.normal_info, &material.roughness_metalness_info};
-
-    for (auto const * info : infos)
-    {
-        if (!info->has_value()) { continue; }
-        u32 const tex_index = info->value().tex_manifest_index;
-        DBG_ASSERT_TRUE_M(tex_index < _scene._texture_manifest.size(), "Texture info references an invalid manifest index");
-        _scene._texture_manifest.at(tex_index).material_manifest_indices.push_back({.material_manifest_index = index});
-    }
-
-    _scene._material_manifest.push_back(std::move(material));
-    _scene._dirty_material_indices.push_back(index);
-    return index;
-}
-
-auto Scene::Locked::add_mesh(MeshLodGroupManifestEntry mesh) -> u32
-{
-    // Added metadata-only; still dirtied for the GPU manifest sync (uploads a zeroed slot until resident).
-    DBG_ASSERT_TRUE_M(_scene._mesh_lod_group_manifest.size() < MAX_MESH_LOD_GROUPS, "Exceeded MAX_MESH_LOD_GROUPS");
-
-    u32 const index = s_cast<u32>(_scene._mesh_lod_group_manifest.size());
-    _scene._mesh_lod_group_manifest.push_back(std::move(mesh));
-    _scene._dirty_mesh_lod_group_indices.push_back(index);
-    return index;
-}
-
-auto Scene::Locked::set_mesh_streamer_data(u32 mesh_manifest_index, TidoMeshStreamerData streamer_data) -> void
-{
-    DBG_ASSERT_TRUE_M(mesh_manifest_index < _scene._mesh_lod_group_manifest.size(), "Invalid mesh manifest index");
-    _scene._mesh_lod_group_manifest.at(mesh_manifest_index).streamer_data = std::move(streamer_data);
-    _scene._dirty_mesh_lod_group_streaming_indices.push_back(mesh_manifest_index);
-}
-
-auto Scene::Locked::add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32
-{
-    MeshGroupManifestEntry mesh_group = {};
-    mesh_group.name = std::string{name};
-    u32 const group_index = s_cast<u32>(_scene._mesh_group_manifest.size());
-
-    // Mesh group points to meshes through a contiguous range of indices.
-    mesh_group.mesh_lod_group_manifest_indices_array_offset = s_cast<u32>(_scene._mesh_lod_group_manifest_indices.size());
-    mesh_group.mesh_lod_group_count = s_cast<u32>(mesh_manifest_indices.size());
-    for (u32 const mesh_manifest_index : mesh_manifest_indices)
-    {
-        DBG_ASSERT_TRUE_M(mesh_manifest_index < _scene._mesh_lod_group_manifest.size(), "Mesh group references an invalid mesh manifest index");
-        _scene._mesh_lod_group_manifest_indices.push_back(mesh_manifest_index);
-        MeshLodGroupManifestEntry & mesh_lod_group = _scene._mesh_lod_group_manifest.at(mesh_manifest_index);
-        mesh_lod_group.mesh_group_manifest_index = group_index;
-        // A mesh can finish streaming before this group exists to claim it (add_mesh_group runs after
-        // add_mesh); count it as already loaded rather than waiting for a residency event that already happened.
-        if (mesh_lod_group.loaded())
-        {
-            mesh_group.loaded_mesh_lod_groups += 1;
-        }
-    }
-    bool const is_completely_loaded = mesh_group.loaded_mesh_lod_groups == mesh_group.mesh_lod_group_count;
-    if (is_completely_loaded)
-    {
-        _scene._newly_completed_mesh_groups.push_back(group_index);
-    }
-    _scene._mesh_group_manifest.push_back(std::move(mesh_group));
-    _scene._dirty_mesh_group_indices.push_back(group_index);
-    return group_index;
-}
-
-auto Scene::Locked::add_point_light(PointLight light) -> u32
-{
-    DBG_ASSERT_TRUE_M(_scene._point_lights.size() < MAX_POINT_LIGHTS, "Maximum point light limit is currently hardcoded");
-
-    u32 const index = s_cast<u32>(_scene._point_lights.size());
-    light.point_light_ptr = _scene._device.buffer_device_address(_scene._gpu_point_lights.id()).value() + index * sizeof(GPUPointLight);
-    _scene._point_lights.push_back(light);
-    return index;
-}
-
-auto Scene::Locked::add_spot_light(SpotLight light) -> u32
-{
-    DBG_ASSERT_TRUE_M(_scene._spot_lights.size() < MAX_SPOT_LIGHTS, "Maximum spot light limit is currently hardcoded");
-
-    u32 const index = s_cast<u32>(_scene._spot_lights.size());
-    light.spot_light_ptr = _scene._device.buffer_device_address(_scene._gpu_spot_lights.id()).value() + index * sizeof(GPUSpotLight);
-    _scene._spot_lights.push_back(light);
-    return index;
-}
-
-auto Scene::Locked::add_entity(RenderEntity entity) -> RenderEntityId
-{
-    RenderEntityId const id = _scene._render_entities.create_slot(std::move(entity));
-    _scene._dirty_render_entities.push_back(id);
-    return id;
-}
-
-auto Scene::Locked::add_root_entity(RenderEntityId root_entity_id) -> void
-{
-    _scene._root_render_entities.push_back(root_entity_id);
-}
-
-auto Scene::Locked::update_entity(RenderEntityId id, RenderEntity entity) -> void
-{
-    RenderEntity * slot = _scene._render_entities.slot(id);
-    DBG_ASSERT_TRUE_M(slot != nullptr, "update_entity: invalid entity id");
-    *slot = std::move(entity);
-    _scene._dirty_render_entities.push_back(id);
-}
-
-auto Scene::LockedConst::entity(RenderEntityId id) const -> std::optional<RenderEntity>
-{
-    RenderEntity const * slot = _scene._render_entities.slot(id);
-    if (slot == nullptr) { return std::nullopt; }
-    return *slot;
-}
-
-auto Scene::LockedConst::entity_by_index(u32 entity_index) const -> std::optional<RenderEntity>
-{
-    RenderEntity const * slot = _scene._render_entities.slot_by_index(entity_index);
-    if (slot == nullptr) { return std::nullopt; }
-    return *slot;
-}
-
-auto Scene::LockedConst::entity_by_name(std::string_view name) const -> std::optional<RenderEntityId>
-{
-    for (u32 entity_index = 0; entity_index < s_cast<u32>(_scene._render_entities.capacity()); ++entity_index)
-    {
-        RenderEntity const * slot = _scene._render_entities.slot_by_index(entity_index);
-        if (slot != nullptr && slot->name == name)
-        {
-            return _scene._render_entities.id_from_index(entity_index);
-        }
-    }
-    return std::nullopt;
-}
-
-auto Scene::LockedConst::root_entity_count() const -> u32
-{
-    return s_cast<u32>(_scene._root_render_entities.size());
-}
-
-auto Scene::LockedConst::mesh_group(u32 index) const -> MeshGroupManifestEntry
-{
-    return _scene._mesh_group_manifest.at(index);
-}
-
-auto Scene::LockedConst::mesh_lod_group(u32 index) const -> MeshLodGroupManifestEntry
-{
-    return _scene._mesh_lod_group_manifest.at(index);
-}
-
-auto Scene::LockedConst::material(u32 index) const -> MaterialManifestEntry
-{
-    return _scene._material_manifest.at(index);
-}
-
-auto Scene::LockedConst::material_count() const -> u32
-{
-    return s_cast<u32>(_scene._material_manifest.size());
-}
-
-auto Scene::LockedConst::texture(u32 index) const -> TextureManifestEntry
-{
-    return _scene._texture_manifest.at(index);
-}
-
-auto Scene::LockedConst::point_lights() const -> std::vector<PointLight>
-{
-    return _scene._point_lights;
-}
-
-auto Scene::LockedConst::spot_lights() const -> std::vector<SpotLight>
-{
-    return _scene._spot_lights;
-}
-
-auto Scene::Locked::add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32
-{
-    CloudVolume cpu_cloud_volume = {};
-    cpu_cloud_volume.cloud_volume_data_path = cloud_volume_data_path;
-    cpu_cloud_volume.detail_noise_path = detail_noise_path;
-
-    // Preallocate manifest entries for all possible textures.
-    // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
-    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading).
-    // In the future this should be rewritten but for now this will work fine.
-    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
-    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
-
-    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
-    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
-
-    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(_scene._texture_manifest.size());
-    _scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
-
-    u32 const cloud_volume_manifest_index = s_cast<u32>(_scene._cloud_volumes.size());
-    _scene._cloud_volumes.push_back(cpu_cloud_volume);
-
-    _scene._cloud_volumes_requesting_load.push_back(cloud_volume_manifest_index);
-    _scene.start_async_loads_of_dirty_cloud_volumes(asset_processor, thread_pool);
-
-    return cloud_volume_manifest_index;
-}
-
 void Scene::start_async_loads_of_dirty_cloud_volumes(AssetProcessor * asset_processor, ThreadPool * thread_pool)
 {
     struct LoadCloudVolumeTask : Task
@@ -463,9 +235,6 @@ _cloud_volumes_requesting_load.clear();
 
 void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas)
 {
-    // Reads the mesh manifest + entities; importer worker threads may be appending concurrently.
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-
     auto & mesh_instances = this->current_frame_mesh_instances;
 
     std::vector<daxa_BlasInstanceData> blas_instances = {};
@@ -544,9 +313,6 @@ void Scene::build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, dax
 
 auto Scene::process_entities(RenderGlobalData & render_data) -> CPUSceneInstances
 {
-    // Reads entities + manifests throughout; importer worker threads may be appending concurrently.
-    std::lock_guard<std::mutex> lock{*_manifest_mutex};
-
     CPUSceneInstances ret = {};
 
     auto * const gpu_point_lights_write_ptr = _device.buffer_host_address_as<GPUPointLight>(_gpu_point_lights.id()).value();
@@ -806,9 +572,8 @@ void Scene::clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<Ass
 {
     // WARNING: Currently unused (no call site anywhere). Before wiring this up (e.g. an "unload
     // scene" button), it must refuse to run - or wait - while a scene import (SceneRuntime's pending
-    // import) is in flight: the importer's add_* calls and any in-flight stream task would publish
-    // into manifest indices this wipes.
-    std::lock_guard<std::mutex> manifest_lock{*_manifest_mutex};
+    // import) is in flight: SceneRuntime applying an import batch and any in-flight stream task would
+    // publish into manifest indices this wipes.
 
     // for (auto &task : scene_load_tasks)
     // {

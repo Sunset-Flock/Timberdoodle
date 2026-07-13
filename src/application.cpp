@@ -74,13 +74,41 @@ Application::Application()
     _renderer->render_context->render_data.sky_settings = load_sky_settings(DEFAULT_SKY_SETTINGS_PATH);
     app_state.cinematic_camera.update_keyframes(std::move(load_camera_animation(DEFAULT_CAMERA_ANIMATION_PATH)));
 
-    auto const cloud_volume_index = _scene_runtime->scene().lock().add_cloud_volume(DEFAULT_CLOUD_DATA_VDB_PATH.string(), DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string(), _asset_manager.get(), _threadpool.get());
-    _scene_runtime->scene().lock().add_entity({
+    Scene & default_scene = _scene_runtime->scene();
+
+    std::string const cloud_volume_data_path = DEFAULT_CLOUD_DATA_VDB_PATH.string();
+    std::string const cloud_detail_noise_path = DEFAULT_CLOUD_DETAIL_NOISE_VDB_PATH.string();
+
+    CloudVolume cpu_cloud_volume = {};
+    cpu_cloud_volume.cloud_volume_data_path = cloud_volume_data_path;
+    cpu_cloud_volume.detail_noise_path = cloud_detail_noise_path;
+
+    // Preallocate manifest entries for all possible textures.
+    // This potentially wastes some manifest entries (in case the cloud volume does not use separate sdf texture for example)
+    // but I am limited by the way the texture manifest currently works (extremely dependent on gltf loading).
+    // In the future this should be rewritten but for now this will work fine.
+    cpu_cloud_volume.data_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
+    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud data", cloud_volume_data_path).c_str()});
+
+    cpu_cloud_volume.sdf_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
+    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud sdf", cloud_volume_data_path).c_str()});
+
+    cpu_cloud_volume.detail_noise_texture_manifest_index = s_cast<u32>(default_scene._texture_manifest.size());
+    default_scene._texture_manifest.push_back(TextureManifestEntry{.name = fmt::format("{} cloud erosion noise", cloud_volume_data_path).c_str()});
+
+    u32 const cloud_volume_index = s_cast<u32>(default_scene._cloud_volumes.size());
+    default_scene._cloud_volumes.push_back(cpu_cloud_volume);
+
+    default_scene._cloud_volumes_requesting_load.push_back(cloud_volume_index);
+    default_scene.start_async_loads_of_dirty_cloud_volumes(_asset_manager.get(), _threadpool.get());
+
+    RenderEntityId const default_cloud_volume_entity_id = default_scene._render_entities.create_slot({
         .transform = glm::mat4x3(glm::translate(glm::scale(glm::identity<glm::mat4x4>(), f32vec3(512.0f, 512.0f, 64.0f) * 20.0f), f32vec3(-0.5f, -0.5f, 0.3f))),
         .cloud_volume_index = cloud_volume_index,
         .type = EntityType::CLOUD_VOLUME,
         .name = "Default cloud volume",
     });
+    default_scene._dirty_render_entities.push_back(default_cloud_volume_entity_id);
 
     struct CompPipelinesTask : Task
     {

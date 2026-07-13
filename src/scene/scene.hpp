@@ -2,7 +2,6 @@
 
 #include <optional>
 #include <variant>
-#include <mutex>
 #include <span>
 #include <string_view>
 
@@ -286,10 +285,6 @@ struct Scene
     Scene(daxa::Device device, GPUContext * gpu_context);
     ~Scene();
 
-    // SceneRuntime drives this container's whole import/stream lifecycle and is the only thing that
-    // mutates its manifests from the main thread; it reaches the (private) manifests + dirty lists directly.
-    friend struct SceneRuntime;
-
     enum struct LoadManifestErrorCode
     {
         FILE_NOT_FOUND,
@@ -310,67 +305,6 @@ struct Scene
                 return "UNKNOWN";
         }
     }
-    struct LoadManifestInfo
-    {
-        std::filesystem::path root_path;
-        std::filesystem::path asset_name;
-        std::unique_ptr<ThreadPool> & thread_pool;
-        std::unique_ptr<AssetProcessor> & asset_processor;
-    };
-
-    /**
-     * NOTES:
-     * The LockedConst and Locked structs are the only way to access the scene's manifests and entities from outside scene.cpp.
-     * They exist for thread safety, so that scene can be safely read and modified from multiple threads.
-     * The LockConst API is a subset of the Locked API, and is used for read-only access to the scene's manifests and entities.
-     * */
-    struct LockedConst
-    {
-        auto entity(RenderEntityId id) const -> std::optional<RenderEntity>;
-        auto entity_by_index(u32 entity_index) const -> std::optional<RenderEntity>;
-        auto entity_by_name(std::string_view name) const -> std::optional<RenderEntityId>;
-        auto root_entity_count() const -> u32;
-        auto mesh_group(u32 index) const -> MeshGroupManifestEntry;
-        auto mesh_lod_group(u32 index) const -> MeshLodGroupManifestEntry;
-        auto material(u32 index) const -> MaterialManifestEntry;
-        auto material_count() const -> u32;
-        auto texture(u32 index) const -> TextureManifestEntry;
-        auto point_lights() const -> std::vector<PointLight>;
-        auto spot_lights() const -> std::vector<SpotLight>;
-
-    protected:
-        friend struct Scene;
-        LockedConst(Scene const & scene, std::unique_lock<std::mutex> lock) : _scene(scene), _lock(std::move(lock)) {}
-        Scene const & _scene;
-        std::unique_lock<std::mutex> _lock;
-    };
-
-    struct Locked : LockedConst
-    {
-        auto add_texture(TextureManifestEntry texture) -> u32;
-        // Fills in a texture entry's cooked artifact once its Import-asset task completes; marks it dirty for streaming.
-        auto set_texture_streamer_data(u32 texture_manifest_index, TidoTextureStreamerData streamer_data) -> void;
-        auto add_material(MaterialManifestEntry material) -> u32;
-        auto add_mesh(MeshLodGroupManifestEntry mesh) -> u32;
-        // Fills in a mesh entry's cooked artifact once its Import-asset task completes; marks it dirty for streaming.
-        auto set_mesh_streamer_data(u32 mesh_manifest_index, TidoMeshStreamerData streamer_data) -> void;
-        auto add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32;
-        auto add_point_light(PointLight light) -> u32;
-        auto add_spot_light(SpotLight light) -> u32;
-        auto add_entity(RenderEntity entity) -> RenderEntityId;
-        auto update_entity(RenderEntityId id, RenderEntity entity) -> void;
-        auto add_root_entity(RenderEntityId root_entity_id) -> void;
-        auto add_cloud_volume(std::string const & cloud_volume_data_path, std::string const & detail_noise_path, AssetProcessor * asset_processor, ThreadPool * thread_pool) -> u32;
-
-    private:
-        friend struct Scene;
-        Locked(Scene & scene, std::unique_lock<std::mutex> lock) : LockedConst(scene, std::move(lock)), _scene(scene) {}
-        // The base's _scene is const; the mutators write through this one (same object).
-        Scene & _scene;
-    };
-    [[nodiscard]] auto lock() -> Locked { return Locked{*this, std::unique_lock<std::mutex>{*_manifest_mutex}}; }
-    [[nodiscard]] auto lock() const -> LockedConst { return LockedConst{*this, std::unique_lock<std::mutex>{*_manifest_mutex}}; }
-
     void build_tlas_from_mesh_instances(daxa::CommandRecorder & recorder, daxa::TlasId tlas);
 
     /// --- Transient Processes ---
@@ -389,7 +323,6 @@ struct Scene
 
     void clear(std::unique_ptr<ThreadPool> & thread_pool, std::unique_ptr<AssetProcessor> & asset_processor);
 
-private:
     RenderEntitySlotMap _render_entities = {};
     std::vector<RenderEntityId> _dirty_render_entities = {};
 
@@ -408,11 +341,10 @@ private:
     std::vector<CloudVolume> _cloud_volumes = {};
 
     // Manifest indices that changed (were added, or had their runtime data updated) since the last GPU
-    // manifest sync. Every manifest that is mirrored on the GPU owns one; the Locked add_* methods and
-    // SceneRuntime::update both only ever touch these while holding _manifest_mutex, so plain vectors are
-    // safe - SceneRuntime::update drains each one to re-upload exactly those entries (instead of assuming a
-    // contiguous tail of new entries). Manifests that are not shared with the GPU (e.g. the texture
-    // manifest) do not need one.
+    // manifest sync. Every manifest that is mirrored on the GPU owns one; SceneRuntime is the only thing
+    // that touches these, always from the main thread, so plain vectors are safe - SceneRuntime::update
+    // drains each one to re-upload exactly those entries (instead of assuming a contiguous tail of new
+    // entries). Manifests that are not shared with the GPU (e.g. the texture manifest) do not need one.
     std::vector<u32> _dirty_material_indices = {};
     std::vector<u32> _dirty_mesh_lod_group_indices = {};
     std::vector<u32> _dirty_mesh_group_indices = {};
@@ -424,9 +356,6 @@ private:
     std::vector<u32> _dirty_mesh_lod_group_streaming_indices = {};
 
     std::vector<u32> _cloud_volumes_requesting_load = {};
-
-    // unique_ptr so Scene stays movable (std::mutex is not movable).
-    std::unique_ptr<std::mutex> _manifest_mutex = std::make_unique<std::mutex>();
 
     // Dispatches an async load task for every cloud volume in _cloud_volumes_requesting_load, then
     // clears the request list.

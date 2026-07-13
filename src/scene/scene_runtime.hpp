@@ -68,12 +68,9 @@ private:
     // update queues newly resident LODs here; create_mesh_acceleration_structures drains it.
     std::vector<u32> _mesh_as_build_queue = {};
 
-    // Applies whatever results the importer queued (under one manifest lock), then pushes the asset
-    // tasks the applied batches produced back to the importer; called every poll().
-    void drain_import_results();
     // Appends `batch`'s entries (metadata-only) and emits one ImportAsset task per texture/mesh entry,
     // each carrying the entry's freshly assigned global manifest index.
-    void apply_scene_metadata_batch(Scene::Locked & locked, ImporterTaskResult::SceneMetadataBatch batch, std::vector<ImporterTask> & asset_tasks);
+    void apply_scene_metadata_batch(Scene & scene, ImporterTaskResult::SceneMetadataBatch batch, std::vector<ImporterTask> & asset_tasks);
     // Fills in the cooked artifact `cooked_asset` targets (manifest_index is already global) and marks it dirty for streaming.
-    void apply_cooked_asset(Scene::Locked & locked, ImporterTaskResult::CookedAsset cooked_asset);
+    void apply_cooked_asset(Scene & scene, ImporterTaskResult::CookedAsset cooked_asset);
 };

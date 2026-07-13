@@ -1243,15 +1243,9 @@ auto Renderer::prepare_frame(
         return false;
     }
 
-    std::vector<PointLight> point_lights = {};
-    std::vector<SpotLight> spot_lights = {};
-    u32 material_count = {};
-    {
-        auto locked = scene->lock();
-        point_lights = locked.point_lights();
-        spot_lights = locked.spot_lights();
-        material_count = locked.material_count();
-    }
+    std::vector<PointLight> const & point_lights = scene->_point_lights;
+    std::vector<SpotLight> const & spot_lights = scene->_spot_lights;
+    u32 const material_count = s_cast<u32>(scene->_material_manifest.size());
 
     render_context->render_data.vsm_settings.point_light_count = s_cast<u32>(point_lights.size());
     render_context->render_data.vsm_settings.spot_light_count = s_cast<u32>(spot_lights.size());
