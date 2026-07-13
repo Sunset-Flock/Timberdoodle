@@ -48,11 +48,11 @@ struct MeshStreamTask : Task
 
 /// --- Streamer ---
 /// Makes cooked artifacts resident on the GPU. Both textures and meshes are streamed in from their
-/// cooked .tido data file on disk (the streamer no longer receives the cooked bytes in memory). This
-/// grows into the full .tido streaming back-end later.
+/// cooked .tido_bin data file on disk (the streamer no longer receives the cooked bytes in memory). This
+/// grows into the full .tido_bin streaming back-end later.
 
 // Creates a resident daxa image described by the streamer data and uploads its texel data, read back
-// from the .tido file on disk. Reads every subresource (full residency for now).
+// from the .tido_bin file on disk. Reads every subresource (full residency for now).
 auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & artifact) -> daxa::ImageId;
 
 struct MakeResidentMeshInfo
@@ -62,8 +62,8 @@ struct MakeResidentMeshInfo
     u32 material_manifest_index = {};
     std::string name = {};
 };
-// Uploads each LOD into a single per-LOD GPU buffer, read back from the artifact's .tido file on disk.
-// The .tido LOD blob is already packed in GPUMesh BDA order, so the blob is copied in verbatim and the
+// Uploads each LOD into a single per-LOD GPU buffer, read back from the artifact's .tido_bin file on disk.
+// The .tido_bin LOD blob is already packed in GPUMesh BDA order, so the blob is copied in verbatim and the
 // per-array BDA sub-pointers are wired from the descriptor's element counts. Mirrors
-// make_resident_image: cooked .tido on disk -> GPU mesh out.
+// make_resident_image: cooked .tido_bin on disk -> GPU mesh out.
 auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info) -> MeshLodGroupUploadInfo;

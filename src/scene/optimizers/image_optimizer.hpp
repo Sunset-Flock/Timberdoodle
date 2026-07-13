@@ -47,7 +47,7 @@ struct OptimizeImageInfo
 };
 
 // --- Optimizer output: GPU-ready compressed CPU memory + the info needed to write/upload the image ---
-// The image analog of ProcessedMesh: the cooked, in-memory result, before it is written to a .tido.
+// The image analog of ProcessedMesh: the cooked, in-memory result, before it is written to a .tido_bin.
 struct ProcessedImage
 {
     std::vector<std::byte> src_data = {};

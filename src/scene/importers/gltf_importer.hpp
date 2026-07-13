@@ -8,7 +8,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../tido_format/tido_cache.hpp"
+#include "gltf_cache.hpp"
 #include "importer_task.hpp"
 
 struct Importer;
@@ -45,8 +45,8 @@ struct GltfImporter
     struct SourceContext
     {
         std::filesystem::path source_path = {};
-        std::filesystem::path cache_dir = {};       // per-import output folder for the .tido data files
-        std::filesystem::path cache_file_path = {}; // the .tido_cache this context persists to
+        std::filesystem::path cache_dir = {};       // per-import output folder for the .tido_bin data files
+        std::filesystem::path cache_file_path = {}; // the .gltf_cache this context persists to
 
         // One per ImportAsset task handed to this source; each task's resolution (fast path, cook, or
         // failure) decrements exactly once. Zero + clean cache lets upkeep evict the context.
@@ -61,12 +61,12 @@ struct GltfImporter
         void store_texture(TidoTextureCookResult artifact);
         void store_mesh(TidoMeshCookResult artifact);
         // Copies the cache out and clears the dirty flag; nullopt when nothing changed since last snapshot.
-        auto snapshot_if_dirty() -> std::optional<TidoCache>;
+        auto snapshot_if_dirty() -> std::optional<GltfCache>;
 
       private:
         friend struct GltfImporter;
         std::mutex _cache_mutex = {};
-        TidoCache _cache = {};     // guarded by _cache_mutex
+        GltfCache _cache = {};     // guarded by _cache_mutex
         bool _cache_dirty = false; // guarded by _cache_mutex
     };
 
@@ -75,7 +75,7 @@ struct GltfImporter
     // Importer-thread only: the live per-source contexts, keyed by the source path's string form.
     std::unordered_map<std::string, std::shared_ptr<SourceContext>> _source_contexts = {};
 
-    // Loads the source's .tido_cache on first use; entries of a kind whose cook version no longer
+    // Loads the source's .gltf_cache on first use; entries of a kind whose cook version no longer
     // matches are dropped at load so they can never fast-path (the recook overwrites them).
     auto find_or_create_source_context(std::filesystem::path const & source_path) -> std::shared_ptr<SourceContext>;
     void run_cache_upkeep();

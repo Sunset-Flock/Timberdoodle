@@ -5,6 +5,7 @@
 #include <fmt/format.h>
 
 #include "importers/importer.hpp"
+#include "tido_format/tido_util.hpp"
 
 SceneRuntime::SceneRuntime(
     daxa::Device device,
@@ -26,6 +27,19 @@ void SceneRuntime::request_import(std::filesystem::path const & path)
 {
     if (!path.has_filename() || !path.has_parent_path())
     {
+        return;
+    }
+
+    // The Tido Assets sandbox: nothing outside it is ever imported (see tido_relative_to_assets_root).
+    if (!tido_relative_to_assets_root(path).has_value())
+    {
+        DEBUG_MSG(fmt::format("[WARN][SceneRuntime::request_import] '{}' is outside the Tido Assets root '{}' - rejected",
+            path.string(), TIDO_ASSETS_ROOT.string()));
+        _importer->push_result(ImporterTaskResult{.data = ImporterTaskResult::Error{
+            .kind = ImporterTaskResult::Error::TaskKind::IMPORT_SCENE,
+            .source = path,
+            .message = "source path is outside the Tido Assets root",
+        }});
         return;
     }
 

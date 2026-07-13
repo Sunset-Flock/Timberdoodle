@@ -2,6 +2,7 @@
 
 #include <array>
 #include <string>
+#include <string_view>
 
 #include "timberdoodle.hpp"
 using namespace tido::types;
@@ -74,4 +75,4 @@ struct Window
     i32 cursor_pos_change_y = {};
 };
 
-std::string open_file_dialog(std::string_view const filter);
+std::string open_file_dialog(std::string_view const filter, std::string_view const initial_dir = {});

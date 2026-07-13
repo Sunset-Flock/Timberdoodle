@@ -1,9 +1,9 @@
 #include "tido_texture.hpp"
 
-#include <fstream>
 #include <algorithm>
 
 #include "tido_util.hpp"
+#include "tido_file_io.hpp"
 #include "../optimizers/image_optimizer.hpp" // full ProcessedImage (forward-declared in the header)
 
 namespace
@@ -108,9 +108,9 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
     // Stem disambiguator is the texture's source-identity key (NOT a content hash): distinct textures get
     // distinct paths, and a re-cook of the same source overwrites the same file. Identical to write_mesh_tido.
     std::string const stem = tido_stem(name, cache_key);
-    std::filesystem::path const tido_path = cache_dir / (stem + ".tido");
+    std::filesystem::path const tido_path = cache_dir / (stem + ".tido_bin");
 
-    // Build the .tido payload mip-major, coarse-first; all (single) layers of a mip are contiguous.
+    // Build the .tido_bin payload mip-major, coarse-first; all (single) layers of a mip are contiguous.
     // The subresource table is in this same physical order, so the entry for a (mip, layer) lives at
     // ((mip_count - 1 - mip) * array_layers + layer) - the mip flip maps the coarsest mip to block 0.
     std::vector<TidoSubresourceEntry> subresources(s_cast<usize>(array_layers) * mip_count);
@@ -133,10 +133,7 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
         }
     }
 
-    std::ofstream ofs{tido_path, std::ios::binary | std::ios::trunc};
-    if (!ofs) { return std::nullopt; }
-    ofs.write(r_cast<char const *>(payload.data()), s_cast<std::streamsize>(payload.size()));
-    if (!ofs.good()) { return std::nullopt; }
+    if (!tido_write_file_exclusive(tido_path, payload.data(), payload.size())) { return std::nullopt; }
 
     TidoTextureCookResult result = {};
     result.cache_key = cache_key;

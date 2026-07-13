@@ -1,4 +1,4 @@
-#include "tido_cache.hpp"
+#include "gltf_cache.hpp"
 
 #include <charconv>
 #include <string>
@@ -7,9 +7,9 @@
 #include <simdjson.h>
 #include <fmt/format.h>
 
-// The .tido_cache is a stream of JSON records: a "header" record then one per cooked artifact. Each record
+// The .gltf_cache is a stream of JSON records: a "header" record then one per cooked artifact. Each record
 // type has a simdjson custom (de)serializer (tag_invoke, in namespace simdjson per the docs), so writing is
-// `simdjson::to_json(record)` and reading is `document.get<TidoCacheRecord>()` - the field<->member mapping
+// `simdjson::to_json(record)` and reading is `document.get<GltfCacheRecord>()` - the field<->member mapping
 // for each type lives in exactly one place. 64-bit fields are stored as strings (JSON numbers are doubles,
 // exact only below 2^53; hashes and 100ns-tick mtimes exceed that): hashes hex, magnitudes decimal.
 // Records are written and read strictly in field order, so no backward iteration is needed.
@@ -42,7 +42,7 @@ auto parse_dec(std::string_view text) -> std::optional<T>
 // The header record: the cook key's fields inlined (per-kind cook versions + source hash). No artifact
 // counts are stored - the reader rebuilds the maps from the records themselves, and counts would only go
 // stale as records are appended incrementally.
-struct TidoCacheHeader
+struct GltfCacheHeader
 {
     u32 texture_cook_version = {};
     u32 mesh_cook_version = {};
@@ -50,7 +50,7 @@ struct TidoCacheHeader
 };
 
 // One parsed record, tagged by which "kind" it was so the reader can route it into the right map.
-struct TidoCacheRecord
+struct GltfCacheRecord
 {
     enum struct Kind
     {
@@ -59,7 +59,7 @@ struct TidoCacheRecord
         MESH,
     };
     Kind kind = {};
-    TidoCacheKey header_key = {};
+    GltfCacheKey header_key = {};
     TidoTextureCookResult texture = {};
     TidoMeshCookResult mesh = {};
 };
@@ -122,7 +122,7 @@ auto read_floats(simdjson::ondemand::object & obj, char const * key, f32 * out, 
 // The three per-record readers. Each assumes the "kind" field has already been consumed and reads the
 // remaining fields from `obj` in the same order the writer emitted them (no backward iteration).
 
-auto read_header(simdjson::ondemand::object & obj, TidoCacheKey & key) -> simdjson::error_code
+auto read_header(simdjson::ondemand::object & obj, GltfCacheKey & key) -> simdjson::error_code
 {
     SIMDJSON_TRY(read_u32(obj, "texture_cook_version", key.texture_cook_version));
     SIMDJSON_TRY(read_u32(obj, "mesh_cook_version", key.mesh_cook_version));
@@ -211,20 +211,20 @@ auto read_mesh(simdjson::ondemand::object & obj, TidoMeshCookResult & out) -> si
 // whichever implementation-specific string_builder simdjson::to_json instantiates.
 namespace simdjson
 {
-error_code tag_invoke(deserialize_tag, auto & value, TidoCacheRecord & out)
+error_code tag_invoke(deserialize_tag, auto & value, GltfCacheRecord & out)
 {
     ondemand::object obj;
     SIMDJSON_TRY(value.get_object().get(obj));
     std::string_view kind;
     SIMDJSON_TRY(obj["kind"].get_string().get(kind));
-    if (kind == "header")  { out.kind = TidoCacheRecord::Kind::HEADER;  return read_header(obj, out.header_key); }
-    if (kind == "texture") { out.kind = TidoCacheRecord::Kind::TEXTURE; return read_texture(obj, out.texture); }
-    if (kind == "mesh")    { out.kind = TidoCacheRecord::Kind::MESH;    return read_mesh(obj, out.mesh); }
+    if (kind == "header")  { out.kind = GltfCacheRecord::Kind::HEADER;  return read_header(obj, out.header_key); }
+    if (kind == "texture") { out.kind = GltfCacheRecord::Kind::TEXTURE; return read_texture(obj, out.texture); }
+    if (kind == "mesh")    { out.kind = GltfCacheRecord::Kind::MESH;    return read_mesh(obj, out.mesh); }
     return INCORRECT_TYPE;
 }
 
 template <typename builder_type>
-void tag_invoke(serialize_tag, builder_type & builder, TidoCacheHeader const & header)
+void tag_invoke(serialize_tag, builder_type & builder, GltfCacheHeader const & header)
 {
     builder.start_object();
     builder.append_key_value("kind", std::string_view("header"));
@@ -365,22 +365,22 @@ auto serialize_record(Record const & record) -> std::string
 }
 } // namespace
 
-auto serialize_tido_cache_header(TidoCacheKey const & key) -> std::string
+auto serialize_gltf_cache_header(GltfCacheKey const & key) -> std::string
 {
-    return serialize_record(TidoCacheHeader{key.texture_cook_version, key.mesh_cook_version, key.source_hash});
+    return serialize_record(GltfCacheHeader{key.texture_cook_version, key.mesh_cook_version, key.source_hash});
 }
 
-auto serialize_tido_cache_texture(TidoTextureCookResult const & texture) -> std::string
+auto serialize_gltf_cache_texture(TidoTextureCookResult const & texture) -> std::string
 {
     return serialize_record(texture);
 }
 
-auto serialize_tido_cache_mesh(TidoMeshCookResult const & mesh) -> std::string
+auto serialize_gltf_cache_mesh(TidoMeshCookResult const & mesh) -> std::string
 {
     return serialize_record(mesh);
 }
 
-auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<TidoCache>
+auto read_gltf_cache(std::filesystem::path const & cache_path) -> std::optional<GltfCache>
 {
     simdjson::padded_string json;
     if (simdjson::padded_string::load(cache_path.string()).get(json)) { return std::nullopt; } // absent
@@ -390,15 +390,15 @@ auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<
     simdjson::ondemand::document_stream stream;
     if (parser.iterate_many(json).get(stream)) { return std::nullopt; }
 
-    TidoCache cache = {};
+    GltfCache cache = {};
     bool header_seen = false;
     for (auto document : stream)
     {
-        TidoCacheRecord record;
+        GltfCacheRecord record;
         // We only ever append valid records, so any parse error means the file is corrupt: report and bail.
-        if (auto const error = document.get<TidoCacheRecord>().get(record))
+        if (auto const error = document.get<GltfCacheRecord>().get(record))
         {
-            DEBUG_MSG(fmt::format("[read_tido_cache] corrupt .tido_cache '{}': {}",
+            DEBUG_MSG(fmt::format("[read_gltf_cache] corrupt .gltf_cache '{}': {}",
                 cache_path.string(), simdjson::error_message(error)));
             return std::nullopt;
         }
@@ -406,22 +406,22 @@ auto read_tido_cache(std::filesystem::path const & cache_path) -> std::optional<
         // means a corrupt file: assert rather than silently pick a winner.
         switch (record.kind)
         {
-            case TidoCacheRecord::Kind::HEADER:
+            case GltfCacheRecord::Kind::HEADER:
                 cache.key = record.header_key;
                 header_seen = true;
                 break;
-            case TidoCacheRecord::Kind::TEXTURE:
+            case GltfCacheRecord::Kind::TEXTURE:
             {
                 [[maybe_unused]] u64 const cache_key = record.texture.cache_key;
                 [[maybe_unused]] bool const inserted = cache.textures.emplace(cache_key, std::move(record.texture)).second;
-                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate texture key {:#018x} in .tido_cache '{}'", cache_key, cache_path.string()));
+                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate texture key {:#018x} in .gltf_cache '{}'", cache_key, cache_path.string()));
                 break;
             }
-            case TidoCacheRecord::Kind::MESH:
+            case GltfCacheRecord::Kind::MESH:
             {
                 [[maybe_unused]] u64 const cache_key = record.mesh.cache_key;
                 [[maybe_unused]] bool const inserted = cache.meshes.emplace(cache_key, std::move(record.mesh)).second;
-                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate mesh key {:#018x} in .tido_cache '{}'", cache_key, cache_path.string()));
+                DBG_ASSERT_TRUE_M(inserted, fmt::format("duplicate mesh key {:#018x} in .gltf_cache '{}'", cache_key, cache_path.string()));
                 break;
             }
         }

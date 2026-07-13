@@ -27,7 +27,7 @@ struct TidoTextureDescriptor
 
 struct TidoSubresourceEntry
 {
-    u64 offset = {};    // byte offset from the start of the .tido data file
+    u64 offset = {};    // byte offset from the start of the .tido_bin data file
     u32 byte_size = {}; // byte size of this subresource
 };
 
@@ -39,7 +39,7 @@ inline auto tido_format_is_bc5_rg(u32 format) -> bool
     return f == daxa::Format::BC5_UNORM_BLOCK || f == daxa::Format::BC5_SNORM_BLOCK;
 }
 
-// The cooked metadata produced alongside the .tido data file. Persisted into the .tido_cache.
+// The cooked metadata produced alongside the .tido_bin data file. Persisted into the .gltf_cache.
 struct TidoTextureStreamerData
 {
     std::filesystem::path bin_source = {};
@@ -48,7 +48,7 @@ struct TidoTextureStreamerData
 };
 struct TidoTextureCookResult
 {
-    // Texture hash identifyinng the resulting .tido file.
+    // Texture hash identifyinng the resulting .tido_bin file.
     u64 cache_key = {};
     i64 source_modified = {};
     u64 content_hash = {};

@@ -1,9 +1,9 @@
 #include "tido_mesh.hpp"
 
-#include <fstream>
 #include <vector>
 
 #include "tido_util.hpp"
+#include "tido_file_io.hpp"
 #include "../optimizers/geometry_optimizer.hpp" // full ProcessedMesh (forward-declared in the header)
 
 // glm::vec3 / vec2 are bit-identical to daxa_f32vec3 / vec2, so appending the cooked vertex arrays
@@ -18,7 +18,7 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
     result.cache_key = cache_key;
     result.streamer_data.descriptor.lod_count = processed.lod_count;
 
-    // Build the .tido payload: one contiguous blob per LOD, the LOD's arrays packed back-to-back in the
+    // Build the .tido_bin payload: one contiguous blob per LOD, the LOD's arrays packed back-to-back in the
     // SAME order make_resident_mesh packs the GPU mesh buffer (so the streamer can memcpy a blob straight
     // into a BDA buffer and wire the sub-pointers from the stored counts).
     std::vector<std::byte> payload = {};
@@ -55,16 +55,13 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
     }
 
     // Stem disambiguator is the mesh's unique source-identity key (gltf mesh/primitive index), NOT a
-    // content hash: two distinct primitives with byte-identical geometry must NOT share a .tido path,
-    // or the parallel cook tasks race on a single file (trunc-open while another reads). The key is also
-    // deterministic from the source, so a re-cook overwrites the same file rather than orphaning it.
+    // content hash: two distinct primitives with byte-identical geometry must NOT share a .tido_bin path,
+    // or the parallel cook tasks race on a single file. The key is also deterministic from the source, so
+    // a re-cook overwrites the same file rather than orphaning it.
     std::string const stem = tido_stem(name, cache_key);
-    std::filesystem::path const tido_path = cache_dir / (stem + ".tido");
+    std::filesystem::path const tido_path = cache_dir / (stem + ".tido_bin");
 
-    std::ofstream ofs{tido_path, std::ios::binary | std::ios::trunc};
-    if (!ofs) { return std::nullopt; }
-    ofs.write(r_cast<char const *>(payload.data()), s_cast<std::streamsize>(payload.size()));
-    if (!ofs.good()) { return std::nullopt; }
+    if (!tido_write_file_exclusive(tido_path, payload.data(), payload.size())) { return std::nullopt; }
 
     result.streamer_data.bin_source = tido_path;
     return result;

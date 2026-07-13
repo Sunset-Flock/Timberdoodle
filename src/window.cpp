@@ -3,10 +3,13 @@
 
 #if defined(_WIN32)
 #include <dwmapi.h>
+#include <shobjidl.h>
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif // DWMWA_USE_IMMERSIVE_DARK_MODE
 #endif // defined(_WIN32)
+
+#include <vector>
 
 #define GLFW_EXPOSE_NATIVE_WIN32
 #include <GLFW/glfw3native.h>
@@ -256,37 +259,222 @@ u32 Window::get_height() const
     return h;
 }
 
-std::string open_file_dialog(std::string_view const filter)
+namespace
 {
-    OPENFILENAME ofn;        // common dialog box structure
-    TCHAR szFile[260] = {0}; // if using TCHAR macros
-    
-    // Save current working directory
-    char originalDir[MAX_PATH];
-    GetCurrentDirectoryA(MAX_PATH, originalDir);
+    auto utf8_to_wide_string(std::string_view const utf8_string) -> std::wstring
+    {
+        if (utf8_string.empty())
+        {
+            return {};
+        }
+        i32 const wide_char_count = MultiByteToWideChar(CP_UTF8, 0, utf8_string.data(), static_cast<i32>(utf8_string.size()), nullptr, 0);
+        std::wstring wide_string(static_cast<usize>(wide_char_count), L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, utf8_string.data(), static_cast<i32>(utf8_string.size()), wide_string.data(), wide_char_count);
+        return wide_string;
+    }
 
-    // Initialize OPENFILENAME
-    ZeroMemory(&ofn, sizeof(ofn));
-    ofn.lStructSize = sizeof(ofn);
-    ofn.hwndOwner = nullptr;
-    ofn.lpstrFile = szFile;
-    ofn.nMaxFile = sizeof(szFile);
-    ofn.lpstrFilter = filter.data();
-    ofn.nFilterIndex = 1;
-    ofn.lpstrFileTitle = NULL;
-    ofn.nMaxFileTitle = 0;
-    ofn.lpstrInitialDir = NULL;
-    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST;
+    auto wide_string_to_utf8(PCWSTR const wide_string) -> std::string
+    {
+        if (wide_string == nullptr)
+        {
+            return {};
+        }
+        i32 const utf8_byte_count_with_null = WideCharToMultiByte(CP_UTF8, 0, wide_string, -1, nullptr, 0, nullptr, nullptr);
+        if (utf8_byte_count_with_null <= 0)
+        {
+            return {};
+        }
+        std::string utf8_string(static_cast<usize>(utf8_byte_count_with_null - 1), '\0');
+        WideCharToMultiByte(CP_UTF8, 0, wide_string, -1, utf8_string.data(), utf8_byte_count_with_null, nullptr, nullptr);
+        return utf8_string;
+    }
 
+    auto strip_trailing_path_separator(std::wstring path) -> std::wstring
+    {
+        while (!path.empty() && (path.back() == L'\\' || path.back() == L'/'))
+        {
+            path.pop_back();
+        }
+        return path;
+    }
+
+    // Blocks IFileDialog navigation to any folder outside of a fixed root, so browsing for an asset
+    // cannot wander into unrelated parts of the filesystem. Ref-counted manually since it is handed to
+    // COM via IFileDialog::Advise instead of being created through CoCreateInstance.
+    struct RootRestrictedFileDialogEvents final : IFileDialogEvents
+    {
+        std::wstring root_path;
+        ULONG ref_count = 1;
+
+        explicit RootRestrictedFileDialogEvents(std::wstring root_path) : root_path{strip_trailing_path_separator(std::move(root_path))} {}
+
+        HRESULT __stdcall QueryInterface(REFIID riid, void ** object_out) override
+        {
+            if (riid == IID_IUnknown || riid == IID_IFileDialogEvents)
+            {
+                *object_out = static_cast<IFileDialogEvents *>(this);
+                AddRef();
+                return S_OK;
+            }
+            *object_out = nullptr;
+            return E_NOINTERFACE;
+        }
+
+        ULONG __stdcall AddRef() override
+        {
+            return ++ref_count;
+        }
+
+        ULONG __stdcall Release() override
+        {
+            ULONG const new_ref_count = --ref_count;
+            if (new_ref_count == 0)
+            {
+                delete this;
+            }
+            return new_ref_count;
+        }
+
+        HRESULT __stdcall OnFolderChanging(IFileDialog *, IShellItem * candidate_folder) override
+        {
+            PWSTR candidate_path_raw = nullptr;
+            if (FAILED(candidate_folder->GetDisplayName(SIGDN_FILESYSPATH, &candidate_path_raw)))
+            {
+                // Non-filesystem locations (e.g. "This PC", network locations) have no comparable path; reject them.
+                return E_ACCESSDENIED;
+            }
+            std::wstring const candidate_path{candidate_path_raw};
+            CoTaskMemFree(candidate_path_raw);
+
+            bool is_within_root = candidate_path.size() >= root_path.size() &&
+                                   CompareStringOrdinal(
+                                       candidate_path.c_str(), static_cast<i32>(root_path.size()),
+                                       root_path.c_str(), static_cast<i32>(root_path.size()),
+                                       TRUE) == CSTR_EQUAL;
+            if (is_within_root && candidate_path.size() > root_path.size())
+            {
+                wchar_t const boundary_char = candidate_path[root_path.size()];
+                is_within_root = boundary_char == L'\\' || boundary_char == L'/';
+            }
+            return is_within_root ? S_OK : E_ACCESSDENIED;
+        }
+
+        HRESULT __stdcall OnFileOk(IFileDialog *) override { return S_OK; }
+        HRESULT __stdcall OnFolderChange(IFileDialog *) override { return S_OK; }
+        HRESULT __stdcall OnSelectionChange(IFileDialog *) override { return S_OK; }
+        HRESULT __stdcall OnShareViolation(IFileDialog *, IShellItem *, FDE_SHAREVIOLATION_RESPONSE *) override { return S_OK; }
+        HRESULT __stdcall OnTypeChange(IFileDialog *) override { return S_OK; }
+        HRESULT __stdcall OnOverwrite(IFileDialog *, IShellItem *, FDE_OVERWRITE_RESPONSE *) override { return S_OK; }
+    };
+}
+
+// `filter` follows the legacy GetOpenFileName format: a run of null-separated "Description", "*.ext" pairs
+// terminated by an extra trailing null (e.g. "GLTF\0*.gltf\0"). std::string_view truncates at the first
+// embedded null, so the pairs are walked directly off filter.data() as a raw C string instead.
+std::string open_file_dialog(std::string_view const filter, std::string_view const initial_dir)
+{
     std::string result;
 
-    if (GetOpenFileName(&ofn) == TRUE)
+    HRESULT const co_initialize_result = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+    if (FAILED(co_initialize_result) && co_initialize_result != RPC_E_CHANGED_MODE)
     {
-        result = std::string(ofn.lpstrFile);
+        return result;
     }
-    
-    // Restore original working directory
-    SetCurrentDirectoryA(originalDir);
+    bool const should_uninitialize_com = SUCCEEDED(co_initialize_result);
+
+    IFileOpenDialog * file_open_dialog = nullptr;
+    HRESULT const create_instance_result = CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&file_open_dialog));
+    if (SUCCEEDED(create_instance_result))
+    {
+        // Wide string storage must outlive the COMDLG_FILTERSPEC array, which only holds pointers into it.
+        std::vector<std::wstring> filter_descriptions = {};
+        std::vector<std::wstring> filter_specs = {};
+        char const * filter_cursor = filter.data();
+        if (filter_cursor != nullptr)
+        {
+            while (*filter_cursor != '\0')
+            {
+                std::string_view const description{filter_cursor};
+                filter_cursor += description.size() + 1;
+                std::string_view const spec{filter_cursor};
+                filter_cursor += spec.size() + 1;
+                filter_descriptions.push_back(utf8_to_wide_string(description));
+                filter_specs.push_back(utf8_to_wide_string(spec));
+            }
+        }
+        if (!filter_descriptions.empty())
+        {
+            std::vector<COMDLG_FILTERSPEC> filter_spec_array = {};
+            filter_spec_array.reserve(filter_descriptions.size());
+            for (usize filter_index = 0; filter_index < filter_descriptions.size(); ++filter_index)
+            {
+                filter_spec_array.push_back(COMDLG_FILTERSPEC{filter_descriptions[filter_index].c_str(), filter_specs[filter_index].c_str()});
+            }
+            file_open_dialog->SetFileTypes(static_cast<UINT>(filter_spec_array.size()), filter_spec_array.data());
+        }
+
+        // Advise() AddRefs the events object, so it stays alive as long as the dialog holds a reference to it.
+        RootRestrictedFileDialogEvents * root_restriction_events = nullptr;
+        DWORD root_restriction_cookie = 0;
+        if (!initial_dir.empty())
+        {
+            std::wstring const initial_dir_wide = utf8_to_wide_string(initial_dir);
+            IShellItem * initial_dir_item = nullptr;
+            if (SUCCEEDED(SHCreateItemFromParsingName(initial_dir_wide.c_str(), nullptr, IID_PPV_ARGS(&initial_dir_item))))
+            {
+                file_open_dialog->SetFolder(initial_dir_item);
+
+                // Restrict browsing to initial_dir and below (e.g. the assets root), so the dialog cannot
+                // navigate to unrelated parts of the filesystem when picking an asset to load.
+                PWSTR initial_dir_path_raw = nullptr;
+                if (SUCCEEDED(initial_dir_item->GetDisplayName(SIGDN_FILESYSPATH, &initial_dir_path_raw)))
+                {
+                    root_restriction_events = new RootRestrictedFileDialogEvents(std::wstring{initial_dir_path_raw});
+                    CoTaskMemFree(initial_dir_path_raw);
+                    if (FAILED(file_open_dialog->Advise(root_restriction_events, &root_restriction_cookie)))
+                    {
+                        root_restriction_events->Release();
+                        root_restriction_events = nullptr;
+                    }
+                }
+                initial_dir_item->Release();
+            }
+        }
+
+        // FOS_FORCEFILESYSTEM restricts results to real filesystem paths, matching GetOpenFileName's behavior.
+        // Unlike GetOpenFileName, IFileOpenDialog never changes the process's current working directory.
+        DWORD dialog_options = 0;
+        file_open_dialog->GetOptions(&dialog_options);
+        file_open_dialog->SetOptions(dialog_options | FOS_FILEMUSTEXIST | FOS_PATHMUSTEXIST | FOS_FORCEFILESYSTEM);
+
+        if (SUCCEEDED(file_open_dialog->Show(nullptr)))
+        {
+            IShellItem * result_item = nullptr;
+            if (SUCCEEDED(file_open_dialog->GetResult(&result_item)))
+            {
+                PWSTR result_path = nullptr;
+                if (SUCCEEDED(result_item->GetDisplayName(SIGDN_FILESYSPATH, &result_path)))
+                {
+                    result = wide_string_to_utf8(result_path);
+                    CoTaskMemFree(result_path);
+                }
+                result_item->Release();
+            }
+        }
+
+        if (root_restriction_events != nullptr)
+        {
+            file_open_dialog->Unadvise(root_restriction_cookie);
+            root_restriction_events->Release();
+        }
+
+        file_open_dialog->Release();
+    }
+
+    if (should_uninitialize_com)
+    {
+        CoUninitialize();
+    }
 
     return result;
 }

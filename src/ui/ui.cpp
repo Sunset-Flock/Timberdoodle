@@ -5,6 +5,7 @@
 #include <algorithm>
 #include "widgets/helpers.hpp"
 #include "../daxa_helper.hpp"
+#include "../scene/tido_format/tido_util.hpp"
 #include "../shader_shared/gpu_work_expansion.inl"
 #include "../shader_lib/volumetric.hlsl"
 
@@ -101,7 +102,6 @@ UIEngine::UIEngine(Window & window, AssetProcessor & asset_processor, GPUContext
       window{&window}
 {
     auto * imgui_context = ImGui::CreateContext();
-    //auto * implot_context = ImPlot::CreateContext();
     ImGui_ImplGlfw_InitForVulkan(window.glfw_handle, true);
     ImGuiIO & io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_DockingEnable;
@@ -177,7 +177,7 @@ void UIEngine::main_update(RenderContext & render_context, Scene const & scene, 
         {
             if (ImGui::MenuItem("Open"))
             {
-                app_state.desired_scene_path = open_file_dialog("GLTF\0*.gltf\0");
+                app_state.desired_scene_path = open_file_dialog("GLTF\0*.gltf\0", std::filesystem::absolute(TIDO_ASSETS_ROOT).string());
             }
             ImGui::MenuItem("Load and convert VDB", NULL, &convert_vdb_window);
             ImGui::EndMenu();

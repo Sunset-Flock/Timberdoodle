@@ -66,7 +66,7 @@ struct TextureManifestEntry
     std::vector<MaterialManifestIndex> material_manifest_indices = {};  // Would prefer some other allocation scheme here.
     std::string name = {};
 
-    // What the streamer needs to (re)make this texture resident from its .tido data file. Kept so the
+    // What the streamer needs to (re)make this texture resident from its .tido_bin data file. Kept so the
     // texture can be re-streamed later without the source file. Empty (bin_source unset) for non-gltf
     // textures (e.g. cloud volumes) until they are cooked.
     TidoTextureStreamerData streamer_data = {};
@@ -124,7 +124,7 @@ struct MeshLodGroupManifestEntry
     std::optional<u32> material_index = {};
     std::string name = {}; // TODO(pahrens): fill out.
 
-    // What the streamer needs to (re)make this mesh resident from its .tido data file. Kept so the mesh
+    // What the streamer needs to (re)make this mesh resident from its .tido_bin data file. Kept so the mesh
     // can be re-streamed later without the source file.
     TidoMeshStreamerData streamer_data = {};
     std::optional<Runtime> runtime_data = {};

@@ -1,12 +1,13 @@
 #include "streamer.hpp"
 
 #include <cstring>
-#include <fstream>
 #include <vector>
+
+#include "tido_format/tido_file_io.hpp"
 
 void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
+    // Read the cooked .tido_bin off disk and upload it to the GPU (streamer). Runs on a worker thread.
     result = make_resident_image(device, artifact);
     finished.store(true, std::memory_order_release);
 }
@@ -15,15 +16,14 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
 {
     TidoTextureDescriptor const & desc = artifact.info;
 
-    // Read the whole .tido data file. The subresource offsets in the artifact are absolute from byte 0
-    // of this file, so it maps directly onto the staging buffer with no rebasing.
-    std::ifstream ifs{artifact.bin_source, std::ios::binary | std::ios::ate};
-    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_image: failed to open .tido '{}'", artifact.bin_source.string()).c_str());
-    std::streamsize const file_size = ifs.tellg();
-    ifs.seekg(0, std::ios::beg);
-    std::vector<std::byte> file_data(s_cast<usize>(file_size));
-    ifs.read(r_cast<char *>(file_data.data()), file_size);
-    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_image: failed to read .tido '{}'", artifact.bin_source.string()).c_str());
+    // Read the whole .tido_bin data file through a single-attempt shared-read open (a cook worker holding
+    // it exclusively for a write is an expected miss, not retried here - see tido_file_io.hpp). The
+    // subresource offsets in the artifact are absolute from byte 0 of this file, so it maps directly onto
+    // the staging buffer with no rebasing.
+    std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_image: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = file_data_opt.value();
+    std::streamsize const file_size = s_cast<std::streamsize>(file_data.size());
 
     // 3D vs 2D/array/cube is deduced from the extents/layer count, not stored: a depth > 1 means a 3D
     // texture; an array_layers that is a multiple of 6 is a cubemap (gets the cube-compatible flag).
@@ -58,7 +58,7 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
     cr.destroy_buffer_deferred(staging_buffer);
     std::memcpy(device.buffer_host_address(staging_buffer).value(), file_data.data(), s_cast<usize>(file_size));
 
-    // One copy per subresource. The buffer_offset is the subresource's offset within the .tido (==
+    // One copy per subresource. The buffer_offset is the subresource's offset within the .tido_bin (==
     // within the staging buffer). image_extent is in texels even for block-compressed formats.
     for (u32 mip = 0; mip < desc.mip_count; ++mip)
     {
@@ -70,7 +70,7 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
             // Table is in storage order (coarse-first); see TidoSubresourceEntry indexing.
             u32 const subresource_index = (desc.mip_count - 1u - mip) * desc.array_layers + layer;
             TidoSubresourceEntry const & entry = artifact.subresources.at(subresource_index);
-            DBG_ASSERT_TRUE_M(entry.offset + entry.byte_size <= file_data.size(), "make_resident_image: subresource out of .tido bounds");
+            DBG_ASSERT_TRUE_M(entry.offset + entry.byte_size <= file_data.size(), "make_resident_image: subresource out of .tido_bin bounds");
             cr.copy_buffer_to_image({
                 .src_buffer = staging_buffer,
                 .buffer_offset = entry.offset,
@@ -104,7 +104,7 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
 
 void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
 {
-    // Read the cooked .tido off disk and upload it to the GPU (streamer).
+    // Read the cooked .tido_bin off disk and upload it to the GPU (streamer).
     result = make_resident_mesh(device, MakeResidentMeshInfo{
         .artifact = artifact,
         .mesh_lod_manifest_index = mesh_lod_manifest_index,
@@ -121,17 +121,14 @@ auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info
     ret.lod_count = artifact.descriptor.lod_count;
     ret.mesh_lod_manifest_index = info.mesh_lod_manifest_index;
 
-    // Read the whole .tido data file. Each LOD's blob offset/size in the descriptor is absolute from
-    // byte 0 of this file, so a LOD blob maps directly onto the staging upload with no rebasing.
-    std::ifstream ifs{artifact.bin_source, std::ios::binary | std::ios::ate};
-    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_mesh: failed to open .tido '{}'", artifact.bin_source.string()).c_str());
-    std::streamsize const file_size = ifs.tellg();
-    ifs.seekg(0, std::ios::beg);
-    std::vector<std::byte> file_data(s_cast<usize>(file_size));
-    ifs.read(r_cast<char *>(file_data.data()), file_size);
-    DBG_ASSERT_TRUE_M(ifs.good(), fmt::format("make_resident_mesh: failed to read .tido '{}'", artifact.bin_source.string()).c_str());
+    // Read the whole .tido_bin data file through a single-attempt shared-read open (see tido_file_io.hpp).
+    // Each LOD's blob offset/size in the descriptor is absolute from byte 0 of this file, so a LOD blob
+    // maps directly onto the staging upload with no rebasing.
+    std::optional<std::vector<std::byte>> file_data_opt = tido_read_file_shared(artifact.bin_source);
+    DBG_ASSERT_TRUE_M(file_data_opt.has_value(), fmt::format("make_resident_mesh: failed to open .tido_bin '{}'", artifact.bin_source.string()).c_str());
+    std::vector<std::byte> const & file_data = file_data_opt.value();
 
-    // Upload each LOD into its own GPU mesh buffer. The .tido blob is already laid out in GPUMesh BDA
+    // Upload each LOD into its own GPU mesh buffer. The .tido_bin blob is already laid out in GPUMesh BDA
     // order, so the whole blob is copied in verbatim and the per-array sub-pointers are wired from the
     // descriptor's element counts (same order write_mesh_tido packed them).
     for (u32 lod = 0; lod < artifact.descriptor.lod_count; ++lod)
@@ -153,7 +150,7 @@ auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info
         auto mesh_gpu_mem_ptr = device.buffer_host_address(std::bit_cast<daxa::BufferId>(mesh.mesh_buffer)).value();
 
         // The blob is contiguous and already in BDA order; copy it in one shot.
-        DBG_ASSERT_TRUE_M(desc.blob_offset + desc.blob_byte_size <= file_data.size(), "make_resident_mesh: LOD blob out of .tido bounds");
+        DBG_ASSERT_TRUE_M(desc.blob_offset + desc.blob_byte_size <= file_data.size(), "make_resident_mesh: LOD blob out of .tido_bin bounds");
         std::memcpy(mesh_gpu_mem_ptr, file_data.data() + desc.blob_offset, s_cast<usize>(desc.blob_byte_size));
 
         // Carve out the per-array BDA sub-pointers by walking the blob in pack order. meshlet_bounds /

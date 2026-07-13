@@ -34,3 +34,16 @@ auto tido_stem(std::string const & name, u64 identity_key) -> std::string
 {
     return fmt::format("{}_{:016x}", tido_sanitize_stem(name), identity_key);
 }
+
+auto tido_relative_to_assets_root(std::filesystem::path const & path) -> std::optional<std::filesystem::path>
+{
+    std::error_code ec = {};
+    std::filesystem::path const canonical_root = std::filesystem::weakly_canonical(TIDO_ASSETS_ROOT, ec);
+    if (ec) { return std::nullopt; }
+    std::filesystem::path const canonical_path = std::filesystem::weakly_canonical(path, ec);
+    if (ec) { return std::nullopt; }
+
+    std::filesystem::path const relative = std::filesystem::relative(canonical_path, canonical_root, ec);
+    if (ec || relative.empty() || relative.begin()->string() == "..") { return std::nullopt; }
+    return relative;
+}

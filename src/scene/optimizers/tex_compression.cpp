@@ -161,7 +161,7 @@ auto compress_image(CreateCompressedImageInfo const & info) -> std::shared_ptr<T
 {
     DBG_ASSERT_TRUE_M(info.compression != Compression::UNDEFINED, "Undefined block compression format!");
     // Non-4-aligned extents are allowed: the block loop pads partial edge blocks by clamping (so sub-4x4
-    // mip levels compress too). The .tido subresource sizes use the same ceil(dim/4) block count.
+    // mip levels compress too). The .tido_bin subresource sizes use the same ceil(dim/4) block count.
 
     u32 texel_size_in_bytes = 0;
     switch(info.compression)
