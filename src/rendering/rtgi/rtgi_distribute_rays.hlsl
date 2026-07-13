@@ -146,7 +146,7 @@ func entry_distribute_rays(uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID
             // So a heavily-disoccluded tile still drains converged tiles across the screen (its extras pull
             // from the shared budget), but WITHIN any tile the base rays are never over-drained to feed the
             // extras — base and extra are separately budgeted, both at the uniform global fraction.
-            const uint frame = rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0u;
+            const uint frame = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0u;
             const float min_budget = clamp(rtgi_settings.min_ray_budget, 0.0f, 1.0f);
 
             const uint total_halfres = push.size.x * push.size.y;

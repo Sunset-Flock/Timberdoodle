@@ -47,7 +47,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     const uint prime_shift0 = 257;   // just over typical period of frame time roughly (32 - 255 accum frames)
     const uint prime_shift1 = 9629;  // just over typical period of frame width x (480 - 8192)
     const uint prime_shift2 = 10069; // just over typical period of frame height y (480 - 8192)
-    const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.frame_index * prime_shift0 : 0u;
+    const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index * prime_shift0 : 0u;
     const uint thread_seed =
         iter_shift * push.iteration +
         frame_seed +
@@ -89,7 +89,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     // so that temporal accumulation and successive blur iterations average over many
     // orientations instead of the same one, without adding any per-pixel cost.
     const float golden_angle = 2.39996323f; // radians, spreads successive indices maximally
-    const uint frame_rot_index = rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0u;
+    const uint frame_rot_index = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0u;
     const float rot_angle = ((float)frame_rot_index + (float)push.iteration * 0.61803399f) * golden_angle;
     float rot_sin, rot_cos;
     sincos(rot_angle, rot_sin, rot_cos);
@@ -107,7 +107,7 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
     float4 blurred_accum = push.attach.rtgi_diffuse_before.get()[dtid.xy] * weight_accum;
     float2 blurred_accum2 = push.attach.rtgi_diffuse2_before.get()[dtid.xy].rg * weight_accum;
 
-    const uint poisson_offset = rtgi_settings.animate_noise ? (push.attach.globals.frame_index & 7u) : 0u;
+    const uint poisson_offset = rtgi_settings.animate_noise ? (uint(push.attach.globals.trunk_flt_frame_index) & 7u) : 0u;
     for (uint s = 0; s < samples - 1; ++s)
     {
         //const float2 disc_noise = rand_concentric_sample_disc_center_focus();
@@ -148,16 +148,16 @@ func entry_adaptive_blur(uint2 dtid : SV_DispatchThreadID)
         const float sample_ray_count_weight = ray_count_sample_weighting ? max(1.0f, float(push.attach.ray_count_image.get()[sample_index.xy])) : 1.0f;
 
         const float weight = out_of_bounds ? 0.0f : (geometric_weight * normal_weight * firefly_power * perceptual_difference_weight * sample_ray_count_weight);
-        
+
         #if 0
         if (all(dtid.xy == half_res_render_target_size/2))
         {
             // push.attach.debug_image.get()[sample_index] = lerp(float4(0,1,0,1), float4(1,1,1,1), weight);
-            
+
             write_debug_image(push.attach.debug_image.get(), -1, sample_index, lerp(float4(1,0,0,2), float4(0,1,0,2), perceptual_difference_weight), 2);
         }
         #endif
-        
+
         // Sky pixels contain garbage, prevent writing anything that involved them in calculations.
         const bool is_sky = sample.ndc.z == 0.0f;
         if (!is_sky)

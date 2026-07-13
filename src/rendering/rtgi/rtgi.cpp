@@ -16,10 +16,10 @@ auto rtgi_default_settings() -> RtgiSettings
         .pre_blur_ao_guiding           = 1,
         .pre_blur_perceptual_difference_guiding               = 1,
         .pre_blur_ray_count_sample_weighting                  = 1,
-        .pre_blur_perceptual_radiance_guide_tolerance        = 0.3f,
-        .pre_blur_base_width                  = 64.0f,
-        .pre_blur_sample_count                = 10,
-        .pre_blur_iterations                  = 2,
+        .pre_blur_perceptual_radiance_guide_tolerance        = 0.8f,
+        .pre_blur_base_width                  = 6.0f,
+        .pre_blur_sample_count                = 8,
+        .pre_blur_iterations                  = 1,
         .temporal_accumulation_enabled        = 1,
         .temporal_fast_history_enabled        = 1,
         .temporal_fast_history_frames         = 4,
@@ -50,6 +50,7 @@ auto rtgi_default_settings() -> RtgiSettings
         .min_ray_budget                       = 0.25f,
         .use_repacked_ray_dispatch            = 1,
         .use_ray_redistribution               = 1,
+        .trace_use_stbn                       = 0,
     };
 }
 #include "rtgi_pre_filter.inl"

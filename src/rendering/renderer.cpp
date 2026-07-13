@@ -1288,6 +1288,10 @@ auto Renderer::prepare_frame(
         render_context->render_data.view_camera_prev_frame = render_context->render_data.view_camera;
         render_context->render_data.view_camera = render_context->render_data.settings.draw_from_observer ? observer_camera_info : real_camera_info;
         render_context->render_data.frame_index = frame_index;
+        // Low 12 bits only, so the float stays small/exact (0..4095). A raw frame_index grows large enough
+        // that its f32 mantissa no longer reaches the fractional bits, clamping off the fractional parts of
+        // downstream random calculations. See trunk_flt_frame_index in globals.inl.
+        render_context->render_data.trunk_flt_frame_index = static_cast<f32>(frame_index & 0xFFFu);
         render_context->render_data.frames_in_flight = MAX_GPU_FRAMES_IN_FLIGHT;
         render_context->render_data.delta_time = delta_time;
         render_context->render_data.total_elapsed_us = total_elapsed_us;

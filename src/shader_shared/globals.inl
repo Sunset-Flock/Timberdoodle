@@ -61,6 +61,10 @@ struct RenderGlobalData
     CameraInfo view_camera_prev_frame;
     daxa_u64 total_elapsed_us;
     daxa_u32 frame_index;
+    // frame_index truncated to its low 12 bits, then converted to float. Truncation keeps the value
+    // exactly representable in f32 (0..4095), so noise animation that routes the frame index through a
+    // float never stalls from f32 precision loss at high frame counts. RTGI uses this in place of frame_index.
+    daxa_f32 trunk_flt_frame_index;
     daxa_u32 frames_in_flight;
     daxa_f32 delta_time;
     // Auto exposure of the current frame (one frame delayed). NOT uploaded from the CPU render_data —

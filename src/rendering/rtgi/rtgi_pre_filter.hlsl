@@ -9,6 +9,13 @@
 
 [[vk::push_constant]] RtgiPreFilterPush rtgi_pre_filter_prepare_push;
 
+// Firefly ceiling application: 0 = hard over-exposure clamp (factor = 1/max(over,1), a corner at the
+// ceiling), 1 = softplus soft-knee (see firefly_softplus_clamp_factor). The soft knee removes the
+// corner so a ray hovering at the ceiling stops toggling between "passed" and "clamped" frame to frame.
+#define RTGI_FIREFLY_SOFTPLUS_CLAMP 1
+// Knee sharpness for the softplus path. Larger -> tighter knee, closer to the hard clamp.
+#define RTGI_FIREFLY_SOFTPLUS_SHARPNESS 8.0f
+
 // Outer gather reaches EXTENT cells at STRIDE spacing → EXTENT*STRIDE cells = EXTENT*STRIDE*2 pixels per side.
 static const int QUAD_HALO_CELLS   = RTGI_QUAD_FILTER_EXTENT * RTGI_QUAD_FILTER_STRIDE;
 static const int TOTAL_FILTER_REACH = QUAD_HALO_CELLS * 2;
@@ -40,10 +47,29 @@ groupshared float  gs_quad_raycount[GS_RADIANCE_DIM_X][GS_RADIANCE_DIM_Y];     /
 groupshared float4 gs_quad_pos_depth[PRELOAD_SIZE_X][PRELOAD_SIZE_Y];  // .xyz = ws pos, .w = depth; full 12×12 tile
 groupshared uint   gs_quad_normals_oct[PRELOAD_SIZE_X][PRELOAD_SIZE_Y]; // packed octahedral normals; full tile, indexed by tile coord
 
+// Numerically-stable softplus: ln(1 + e^z) without overflowing for large positive z.
+func rtgi_softplus(float z) -> float
+{
+    return max(z, 0.0f) + log(1.0f + exp(-abs(z)));
+}
+
+// Hue-preserving firefly clamp factor for an over-exposure ratio `over` (= ray perceived brightness /
+// ceiling perceived brightness). Multiply the ray's rgb by the returned factor to clamp it. This is the
+// softplus soft-knee replacement for the hard `1 / max(over, 1)`: ~1 while the ray is under the ceiling,
+// ~1/over far above it (so the ray lands on the ceiling), but smooth through over == 1 instead of a hard
+// corner. Closed form: (1 + over^sharpness)^(-1/sharpness); larger sharpness -> tighter knee. Factor is
+// always in (0, 1], so it only ever attenuates.
+func firefly_softplus_clamp_factor(float over, float sharpness) -> float
+{
+    const float r = log(max(over, 1e-8f));                          // log over-exposure; > 0 == over ceiling
+    const float soft_min0 = -rtgi_softplus(-sharpness * r) / sharpness; // soft min(r, 0)
+    return exp(soft_min0 - r);
+}
+
 
 [shader("compute")]
 [numthreads(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y,1)]
-func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThreadID, uint2 gid : SV_GroupID)
+func entry_prepare(uint2 dtid_raw : SV_DispatchThreadID, uint2 gtid_raw : SV_GroupThreadID, uint2 gid : SV_GroupID)
 {
     let push = rtgi_pre_filter_prepare_push;
     RWTexture2D<float4> dbg = push.attach.debug_image.get();
@@ -51,16 +77,9 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // Load and precalculate constants
     CameraInfo *camera = &push.attach.globals->view_camera;
     const float2 inv_half_res_render_target_size = rcp(float2(push.size));
-    const uint2 clamped_index = min( dtid.xy, push.size - 1u );      // Can not early out because we perform group shared memory barriers later!
-
-    // Center pixel sits at gtid + TOTAL_FILTER_REACH in the preload tile (maps src texel → tile index)
-    const int2 grad_idx = int2(gtid) + TOTAL_FILTER_REACH;
-
-    // Load Pixel Data
-    const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
-
-    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, depth);
-    const float pixel_width_ws_rcp = rcp(pixel_width_ws);
+    // Per-pixel identity (clamped_index / grad_idx / depth / world position) is computed AFTER the preload
+    // from the RESWIZZLED thread id (see below). The cooperative preload only needs gtid_raw, and using
+    // the raw linear layout keeps its loads coalesced.
 
     // === GS position preload: all 64 threads reconstruct WS positions for the full 16x16 area ===
     {
@@ -70,14 +89,16 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             [unroll]
             for (uint iter_y = 0; iter_y < round_up_div(PRELOAD_SIZE_Y, RTGI_PRE_BLUR_PREPARE_Y); ++iter_y)
             {
-                const int2 in_idx = int2(iter_x * RTGI_PRE_BLUR_PREPARE_X + gtid.x, iter_y * RTGI_PRE_BLUR_PREPARE_Y + gtid.y);
+                const int2 in_idx = int2(iter_x * RTGI_PRE_BLUR_PREPARE_X + gtid_raw.x, iter_y * RTGI_PRE_BLUR_PREPARE_Y + gtid_raw.y);
                 if (all(in_idx < int2(PRELOAD_SIZE_X, PRELOAD_SIZE_Y)))
                 {
                     const int2 src = clamp(int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) - TOTAL_FILTER_REACH + in_idx, int2(0, 0), int2(push.size) - 1);
-                    // No-ray pixels are folded into the sky sentinel (see main preload below) so the quad
-                    // reduction / star blur skip them too.
-                    const float src_ray_count = float(push.attach.ray_count_image.get()[src]);
-                    const float pd = (src_ray_count == 0.0f) ? 0.0f : push.attach.view_cam_half_res_depth.get()[src];
+                    // Store REAL geometry (depth/position) for every surface pixel, regardless of ray
+                    // count. depth == 0 now means genuine sky ONLY — no-ray surface pixels keep their real
+                    // depth so the inner-quad geometry test below is purely geometric. Consumers that must
+                    // still exclude no-ray pixels (the radiance-blur reduction) re-apply a ray-count mask
+                    // locally so their outputs stay bit-identical.
+                    const float pd = push.attach.view_cam_half_res_depth.get()[src];
                     const float2 src_uv_gs = (float2(src) + 0.5f) * inv_half_res_render_target_size;
                     const float4 pp = mul(camera->inv_view_proj, float4(src_uv_gs * 2.0f - 1.0f, pd, 1.0f));
                     gs_quad_pos_depth[in_idx.x][in_idx.y] = float4(pd != 0.0f ? pp.xyz / pp.w : float3(0, 0, 0), pd);
@@ -87,6 +108,24 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
         }
     }
     GroupMemoryBarrierWithGroupSync(); // gs_quad_pos_depth + gs_quad_normals_oct fully written
+
+    // === Reswizzle thread -> pixel identity so hardware wave quads map to screen 2x2 blocks ===
+    // Threads are laid out linearly x-then-y (group width 8), so a hardware quad (4 consecutive lanes)
+    // spans a 1x4 screen strip. Remap each lane's pixel so its quad becomes a 2x2 screen block: quad lane
+    // bit0 -> screen x offset, bit1 -> screen y offset. This is a bijection over the 8x8 tile, so the
+    // cooperative preload / reduction still cover every cell, and QuadReadAcrossX/Y/Diagonal at the
+    // writeout now move along screen x / y / diagonal. Relies on the driver's x-then-y lane layout —
+    // holds on NVIDIA (8x4 wave) and AMD (8x8 wave); a quad never straddles a wave (it stays within a row).
+    const uint2 gtid = uint2(
+        (gtid_raw.x & 4u) | ((gtid_raw.y & 1u) << 1u) | (gtid_raw.x & 1u),
+        (gtid_raw.y & 6u) | ((gtid_raw.x & 2u) >> 1u));
+    const uint2 dtid = uint2(gid) * uint2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) + gtid;
+
+    const uint2 clamped_index = min(dtid.xy, push.size - 1u);      // Can not early out — group barriers below.
+    const int2  grad_idx      = int2(gtid) + TOTAL_FILTER_REACH;   // center pixel in the preload tile
+    const float depth = push.attach.view_cam_half_res_depth.get()[clamped_index];
+    const float pixel_width_ws = calc_pixel_width_ws(inv_half_res_render_target_size, camera.near_plane, depth);
+    const float pixel_width_ws_rcp = rcp(pixel_width_ws);
     const float3 world_position    = gs_quad_pos_depth[grad_idx.x][grad_idx.y].xyz;
     const float3 pixel_face_normal = uncompress_normal_octahedral_32(LOAD_NORMAL_OCT(grad_idx));
 
@@ -118,12 +157,15 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                 const int2 src_idx = clamp(src_base + int2(pi & 1, pi >> 1), int2(0, 0), int2(push.size) - 1);
                 const int2 gs_pi = int2(bx * 2 + (pi & 1), by * 2 + (pi >> 1));
                 const float4 gs_pd = gs_quad_pos_depth[gs_pi.x][gs_pi.y];
-                const float pd = gs_pd.w;
+                ray_counts[pi]    = float(push.attach.ray_count_image.get()[src_idx]);
+                // gs_quad_pos_depth now holds real depth for no-ray pixels too. Re-fold them to the sky
+                // sentinel HERE (locally) so the representative pick and radiance average skip no-ray
+                // pixels exactly as before — keeps gs_blur_color / gs_quad_* reductions bit-identical.
+                const float pd = ray_counts[pi] > 0.0f ? gs_pd.w : 0.0f;
                 depths[pi] = pd;
                 ws_pos[pi] = gs_pd.xyz;
                 normals_oct[pi] = LOAD_NORMAL_OCT(gs_pi);
                 normals_ws[pi]  = uncompress_normal_octahedral_32(normals_oct[pi]);
-                ray_counts[pi]    = float(push.attach.ray_count_image.get()[src_idx]);
                 // .rgb = geometric mean of the pixel's rays in log space; .a = mean ray shortness [0,1].
                 // Perceptual radiance is inferred from the log rgb (no dedicated radiance channel).
                 const float4 perceptual_geo = push.attach.perceptual_rgb_shortness.get()[src_idx];
@@ -234,8 +276,16 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     // The quad representative may disagree with edge pixels inside the quad — testing the
     // 4 raw pixels eliminates false inf sentinels at depth discontinuities.
     // Apply linear_to_perceptual here (raw pixels, unlike gs_blur_color which pre-logs).
-    float center_weight_acc = 0.0f;
+    // center_surface_weight_acc is a PURE geometry membership test: it sums every center-quad tap that
+    // lies on a real surface matching this pixel, whether or not that tap has rays. It drives
+    // pixel_matches_quad. The radiance / fitness accumulators stay gated on ray count so their values are
+    // unchanged from when no-ray pixels were folded to the sky sentinel.
+    float center_surface_weight_acc = 0.0f;
     float center_quad_ray_sum_acc = 0.0f; // geometry-weighted sum of the quad pixels' ray counts
+    // First center-quad tap (0..3, == quad lane index) that is a valid imposter for THIS pixel: on the same
+    // surface (tap_gw > 0) AND has >= 1 ray. A no-ray pixel adopts this lane's diffuse + firefly factor via
+    // quad ops at the writeout. Per-lane (uses this pixel's own surface test). -1 = none found.
+    int imposter_quad_index = -1;
     {
         const int2  center_quad_base = int2(gid) * int2(RTGI_PRE_BLUR_PREPARE_X, RTGI_PRE_BLUR_PREPARE_Y) + pixel_quad_id * 2;
         [unroll]
@@ -245,23 +295,33 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
             const int2   tap_gs    = int2(pixel_quad_id.x * 2 + (pi & 1), pixel_quad_id.y * 2 + (pi >> 1)) + TOTAL_FILTER_REACH;
             const float4 tap_pd    = gs_quad_pos_depth[tap_gs.x][tap_gs.y];
             const float  tap_depth = tap_pd.w;
-            if (tap_depth == 0.0f) continue;
+            if (tap_depth == 0.0f) continue; // genuine sky only (no-ray surface pixels keep real depth now)
             const float3 tap_pos_ws = tap_pd.xyz;
             const float3 tap_nrm_ws  = uncompress_normal_octahedral_32(LOAD_NORMAL_OCT(tap_gs));
             const float  tap_gw      = calc_similar_surface_weight(pixel_width_ws_rcp, world_position, pixel_face_normal, tap_pos_ws, tap_nrm_ws, 4.0f);
-            // .rgb = geometric mean of the tap pixel's rays in log space; .a = mean ray shortness [0,1].
-            const float4 tap_perceptual_geo = push.attach.perceptual_rgb_shortness.get()[tap_idx];
-            const float3 tap_perceptual_rgb = tap_perceptual_geo.rgb;
-            const float  tap_close   = tap_perceptual_geo.a;
+            // Geometry membership: any same-surface tap counts, no-ray included.
+            center_surface_weight_acc += tap_gw;
 
-            perceptual_rgb_acc   += tap_perceptual_rgb  * tap_gw;
-            geo_weight_acc    += tap_gw;
-            ray_shortness_acc += tap_close    * tap_gw;
-            // NOTE: center-quad pixels are deliberately NOT added to the firefly reference
-            // (ff_*). The ceiling must be a mean of the *surrounding* neighborhood only — a
-            // pixel must never contribute to the ceiling used to clamp itself.
-            center_weight_acc += tap_gw;
-            center_quad_ray_sum_acc += float(push.attach.ray_count_image.get()[tap_idx]) * tap_gw;
+            // Radiance / fitness contribution: ONLY from taps that actually have rays, exactly as before
+            // (no-ray taps used to be folded to depth 0 and skipped entirely).
+            const float tap_ray_count = float(push.attach.ray_count_image.get()[tap_idx]);
+            if (tap_ray_count > 0.0f)
+            {
+                // First same-surface, ray-having tap becomes this pixel's imposter (tap_gw > 0 == same surface).
+                if (imposter_quad_index < 0 && tap_gw > 0.0f) imposter_quad_index = pi;
+                // .rgb = geometric mean of the tap pixel's rays in log space; .a = mean ray shortness [0,1].
+                const float4 tap_perceptual_geo = push.attach.perceptual_rgb_shortness.get()[tap_idx];
+                const float3 tap_perceptual_rgb = tap_perceptual_geo.rgb;
+                const float  tap_close   = tap_perceptual_geo.a;
+
+                perceptual_rgb_acc   += tap_perceptual_rgb  * tap_gw;
+                geo_weight_acc    += tap_gw;
+                ray_shortness_acc += tap_close    * tap_gw;
+                // NOTE: center-quad pixels are deliberately NOT added to the firefly reference
+                // (ff_*). The ceiling must be a mean of the *surrounding* neighborhood only — a
+                // pixel must never contribute to the ceiling used to clamp itself.
+                center_quad_ray_sum_acc += tap_ray_count * tap_gw;
+            }
         }
     }
 
@@ -273,7 +333,7 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float3 firefly_perceptual_rgb_mean     = ff_weight     > 0.0f ? nongeo_perceptual_rgb : fallback_perceptual_rgb;
 
     const float  ray_shortness_mean = geo_weight_acc > 0.0f ? ray_shortness_acc / geo_weight_acc : 0.0f;
-    const bool   pixel_matches_quad = center_weight_acc > 0.0f;
+    const bool   pixel_matches_quad = center_surface_weight_acc > 0.0f;
     const float  total_quad_taps = float(QUAD_FILTER_DIM * QUAD_FILTER_DIM - 1 + 4);  // surrounding quads + 4 center pixels
     const float  neighborhood_raycount_geo = ring_raycount_geo_acc + center_quad_ray_sum_acc;
     const float  neighborhood_sample_fitness = min(neighborhood_raycount_geo, total_quad_taps) / total_quad_taps;
@@ -346,7 +406,12 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
                         const float3 ex = (ray_rgb * RTGI_CHANNEL_PERCEIVED_BRIGHTNESS) / ceil_rgb;
                         over = max(ex.r, max(ex.g, ex.b));
                     }
-                    clamped = ray_rgb / max(over, 1.0f);
+#if RTGI_FIREFLY_SOFTPLUS_CLAMP
+                    const float clamp_factor = firefly_softplus_clamp_factor(over, RTGI_FIREFLY_SOFTPLUS_SHARPNESS);
+#else
+                    const float clamp_factor = 1.0f / max(over, 1.0f);
+#endif
+                    clamped = ray_rgb * clamp_factor;
                 }
                 const float3 dir = uncompress_normal_octahedral_32(res.packed_dir);
                 float4 sh_y; float2 cocg;
@@ -372,6 +437,44 @@ func entry_prepare(uint2 dtid : SV_DispatchThreadID, uint2 gtid : SV_GroupThread
     const float radiance_mean_perceptual = geo_weight_acc > 0.0f
         ? perceptual_radiance_from_rgb(mean_perceptual_rgb)
         : linear_to_perceptual(0.0f, push.attach.globals.inv_exposure);
+
+    // === 2x2 screen-block imposter fill ===
+    // A pixel that matches the quad surface but shot no ray of its own COPIES the diffuse + firefly factor
+    // of imposter_quad_index — the first same-surface, ray-having lane of its 2x2 screen block (picked in
+    // the center-quad loop).
+    //
+    // Purpose: guarantee that every surface pixel the pre-blur samples has at least one ray cast, purely for
+    // the pre-blur's sample efficiency. We deliberately do NOT blur here in the pre-filter — that would
+    // change how the pre-filter collects energy — so this is the minimal fix that keeps the pre-blur well-fed
+    // without doing any filtering ourselves. Without it, the fraction of no-ray taps a pre-blur kernel hits
+    // swings wildly between disoccluded and converged regions when casting < 1 ray-per-pixel, changing the
+    // blur's effectiveness far too much between those areas.
+    //
+    // It MUST be a direct REPLACEMENT, never a blend. A no-ray pixel already carries a valid same-surface
+    // estimate, so copying a neighbor leaves the local mean unchanged and the pre-blur stays energy-conserving
+    // — behaving exactly as it would at >= 1 rpp. Blending would instead sum neighbor contributions into these
+    // fill pixels, inflating the local mean, and the pre-blur would pick that surplus up as extra energy that
+    // brightens the region as the ray rate drops. Copying keeps total energy invariant to how many (or how
+    // few) rays we cast.
+    //
+    // Quad mechanics: the reswizzle made each hardware wave quad exactly this center quad, so quad lane
+    // index == center-quad tap index. Gather the 4 lanes with QuadReadAcross (uniform control flow); cand[k]
+    // is at quad position pi_self ^ k, so the imposter lane is cand[pi_self ^ imposter].
+    {
+        const float4 cand_sh[4]   = { filtered_diffuse, QuadReadAcrossX(filtered_diffuse), QuadReadAcrossY(filtered_diffuse), QuadReadAcrossDiagonal(filtered_diffuse) };
+        const float2 cand_cocg[4] = { filtered_diffuse2, QuadReadAcrossX(filtered_diffuse2), QuadReadAcrossY(filtered_diffuse2), QuadReadAcrossDiagonal(filtered_diffuse2) };
+        const float  cand_ff[4]   = { firefly_energy_factor, QuadReadAcrossX(firefly_energy_factor), QuadReadAcrossY(firefly_energy_factor), QuadReadAcrossDiagonal(firefly_energy_factor) };
+
+        const uint lane_ray_count = push.attach.ray_count_image.get()[clamped_index];
+        if (imposter_quad_index >= 0 && lane_ray_count == 0u)
+        {
+            const uint pi_self = (gtid.x & 1u) | ((gtid.y & 1u) << 1u); // this lane's position in its quad
+            const uint k       = pi_self ^ uint(imposter_quad_index);
+            filtered_diffuse      = cand_sh[k];
+            filtered_diffuse2     = cand_cocg[k];
+            firefly_energy_factor = cand_ff[k];
+        }
+    }
 
     push.attach.pre_filtered_diffuse_image.get()[dtid] = filtered_diffuse;
     push.attach.pre_filtered_diffuse2_image.get()[dtid] = filtered_diffuse2;

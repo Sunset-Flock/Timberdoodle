@@ -392,7 +392,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
                         DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
                     };
-                    ImGui::Combo("lights debug visualization", &lights_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
+                    tido::ui::filter_combo("lights debug visualization", &lights_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (lights_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[lights_debug_visualization];
@@ -458,9 +458,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "RTGI_HISTORY_LENGTH",            // DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH
                     "RTGI_TEMPORAL_REACTIVITY",       // DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY
                 };
-                tido::ui::searchable_combo("debug visualization", debug_visualization_index,
-                    debug_visualization_search, sizeof(debug_visualization_search),
-                    std::span<const char * const>{modes.data(), modes.size()});
+                tido::ui::filter_combo("debug visualization", &debug_visualization_index, modes.data(), s_cast<i32>(modes.size()));
                 ImGui::InputFloat("debug visualization scale", &render_data.settings.debug_visualization_scale);
                 ImGui::SliderFloat("debug visualization blend", &render_data.settings.debug_visualization_blend, 0.0f, 1.0f);
                 ImGui::SetItemTooltip("0 = debug overlay blended max with normal image, 1 = full debug overlay");
@@ -598,7 +596,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         DEBUG_DRAW_MODE_SMOOTH_TANGENT,
                         DEBUG_DRAW_MODE_UV,
                     };
-                    ImGui::Combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
+                    tido::ui::filter_combo("visbuffer debug visualization", &visbuffer_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (visbuffer_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[visbuffer_debug_visualization];
@@ -639,7 +637,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         DEBUG_DRAW_MODE_PGI_IRRADIANCE,
                         DEBUG_DRAW_MODE_PGI_RADIANCE
                     };
-                    ImGui::Combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
+                    tido::ui::filter_combo("pgi debug visualization", &pgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (pgi_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[pgi_debug_visualization];
@@ -683,7 +681,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     "NORMAL",               // PGI_DEBUG_PROBE_DRAW_MODE_NORMAL
                     "HYSTERESIS",           // PGI_DEBUG_PROBE_DRAW_MODE_HYSTERESIS
                 };
-                ImGui::Combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), s_cast<i32>(debug_daw_modes.size()));
+                tido::ui::filter_combo("Debug Probe Draw", &render_data.pgi_settings.debug_probe_draw_mode, debug_daw_modes.data(), s_cast<i32>(debug_daw_modes.size()));
                 ImGui::InputInt("Debug Force Cascade", &render_data.pgi_settings.debug_force_cascade);
                 ImGui::InputInt3("Debug Probe Index", &render_data.pgi_settings.debug_probe_index.x);
             }
@@ -735,7 +733,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     DEBUG_DRAW_MODE_RTGI_HISTORY_LENGTH,
                     DEBUG_DRAW_MODE_RTGI_TEMPORAL_REACTIVITY,
                 };
-                ImGui::Combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
+                tido::ui::filter_combo("rtgi debug visualization", &rtgi_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                 if (rtgi_debug_visualization != 0)
                 {
                     debug_visualization_index_override = mode_mappings[rtgi_debug_visualization];
@@ -765,6 +763,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                     ImGui::SliderFloat("Ray Budget (rays/pixel)", &render_data.rtgi_settings.ray_percentage, 0.0f, 4.0f);
                     ImGui::SliderFloat("Min Ray Budget (guaranteed frac)", &render_data.rtgi_settings.min_ray_budget, 0.0f, 1.0f);
                     ImGui::Checkbox("Ray Redistribution", reinterpret_cast<bool *>(&render_data.rtgi_settings.use_ray_redistribution));
+                    ImGui::Checkbox("Trace Use STBN", reinterpret_cast<bool *>(&render_data.rtgi_settings.trace_use_stbn));
                     ImGui::SliderFloat("Ambient Occlusion Guide Max Pixel Range", &render_data.rtgi_settings.max_visibility_pixel_range, 1.0f, 128.0f);
                     ImGui::TreePop();
                 }
@@ -886,7 +885,7 @@ void UIEngine::ui_renderer_settings(RenderContext & render_context, ApplicationS
                         DEBUG_DRAW_MODE_SHADE_OPAQUE_CLOCKS,
                         DEBUG_DRAW_MODE_LIGHT_MASK_VOLUME,
                     };
-                    ImGui::Combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
+                    tido::ui::filter_combo("vsm debug visualization", &vsm_debug_visualization, modes.data(), s_cast<i32>(modes.size()));
                     if (vsm_debug_visualization != 0)
                     {
                         debug_visualization_index_override = mode_mappings[vsm_debug_visualization];

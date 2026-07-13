@@ -18,7 +18,6 @@
 #define GOLDEN_RATIO 1.6181
 #define PI 3.1415926535897932384626433832795
 
-#define STBN_ENABLED 0
 #define STBN_WDITH 128
 #define STBN_SIZE uint3(STBN_WDITH,STBN_WDITH,32)
 #define STBN_GRID_SIZE uint3(STBN_WDITH,STBN_WDITH,32)
@@ -44,7 +43,7 @@ float3 rand_stbnCosDir(Texture2DArray<float4> stbn2d_image, uint2 pixel, int fra
 float2 rand_concentric_sample_disc_stbn(uint2 pixel_frame)
 {
     let push = rtgi_trace_diffuse_push;
-    float2 rr = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), pixel_frame.xy, push.attach.globals.frame_index);
+    float2 rr = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), pixel_frame.xy, push.attach.globals.trunk_flt_frame_index);
     rr = abs(rr);
     float r = rr.x;
     float theta = rr.y * 2 * PI;
@@ -99,14 +98,14 @@ void shade_ray_gen(uint2 dtid)
     const uint prime_shift0 = 257;   // just over typical period of frame time roughly (32 - 255 accum frames)
     const uint prime_shift1 = 9629;  // just over typical period of frame width x (480 - 8192)
     const uint prime_shift2 = 10069; // just over typical period of frame height y (480 - 8192)
-    const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.frame_index * prime_shift0 : 0u;
+    const uint frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index * prime_shift0 : 0u;
     const uint thread_seed =
         frame_seed +
         dtid.x * prime_shift1 +
         dtid.y * prime_shift2;
 
     rand_seed(thread_seed);
-    float2 rr_stbn = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), dtid.xy, push.attach.globals.frame_index);
+    float2 rr_stbn = rand_stbn2d(Texture2DArray<float4>::get(push.attach.globals.stbn2d), dtid.xy, push.attach.globals.trunk_flt_frame_index);
     float2 rr = float2(rand(), rand());
 
     const float2 half_res_inv_render_target_size = push.attach.globals.settings.render_target_size_inv * 2.0f;
@@ -158,11 +157,11 @@ void shade_ray_gen(uint2 dtid)
         for (uint i = 0u; i < write_count; ++i)
         {
             float3 importance_rand_hemi_sample;
-            if (STBN_ENABLED)
+            if (rtgi_settings.trace_use_stbn != 0)
             {
-                const uint stbn_frame_seed = rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0u;
+                const uint stbn_frame_seed = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0u;
                 rand_seed(stbn_frame_seed + i * prime_shift1);
-                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.frame_index : 0) + rand());
+                importance_rand_hemi_sample = rand_stbnCosDir(Texture2DArray<float4>::get(push.attach.globals.stbnCosDir), pixel_index, (rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index : 0) + rand());
             }
             else
             {
@@ -247,7 +246,7 @@ void ray_gen_from_list_body()
     const uint prime_shift1 = 9629u;
     const uint prime_shift2 = 10069u;
     const uint prime_shift3 = 6151u;
-    const uint frame_seed   = rtgi_settings.animate_noise ? push.attach.globals.frame_index * prime_shift0 : 0u;
+    const uint frame_seed   = rtgi_settings.animate_noise ? push.attach.globals.trunk_flt_frame_index * prime_shift0 : 0u;
     // Fold the reprojected history length into the seed. frame_index alone can alias across frames, so a
     // pixel that shot N rays one frame could re-draw near-identical directions the next. The history count
     // advances by the pixel's rays-shot each frame (fastest exactly when many rays/frame make repeats most

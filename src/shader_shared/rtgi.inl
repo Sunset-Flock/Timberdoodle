@@ -76,6 +76,10 @@ struct RtgiSettings
     // 1 = each tile's ray budget is proportional to its demand (disoccluded tiles get more rays).
     // 0 = every tile gets the same fixed budget regardless of demand (uniform ray rate per tile).
     daxa_i32 use_ray_redistribution;
+
+    // 1 = draw ray directions from spatiotemporal blue-noise (stbnCosDir) during tracing, 0 = plain
+    // per-thread hash cosine sampling. STBN gives lower-variance, better-distributed samples per frame.
+    daxa_i32 trace_use_stbn;
 };
 
 struct RtgiRayCounters
