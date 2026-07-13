@@ -42,6 +42,7 @@ add_executable(${PROJECT_NAME}
     "src/scene/scene.cpp"
     "src/scene/scene_runtime.cpp"
     "src/scene/asset_processor.cpp"
+    "src/scene/importers/importer.cpp"
     "src/scene/importers/gltf_importer.cpp"
     "src/scene/importers/openvdb_importer.cpp"
     "src/scene/streamer.cpp"

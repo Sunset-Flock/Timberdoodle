@@ -483,24 +483,21 @@ auto compress_mip_chain(DecodedPixels const & pixels, ProcessedImage const & mip
     return ret;
 }
 
-// Cook decoded pixels into GPU-ready BC memory: box-filter a mip chain once, then BC-compress it into the
-// color output, format chosen per texture usage. A DIFFUSE source that genuinely had alpha (pixels.had_alpha
-// - see decode_png) additionally gets a dedicated opacity output (BC4 of the alpha channel alone), and the
-// color output's own alpha is forced fully opaque since the split opacity artifact is now its source of truth.
-auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type, std::string name) -> ProcessedImageResult
+// Cook decoded pixels into GPU-ready BC memory: box-filter a mip chain, then BC-compress it into one
+// output, format chosen per texture usage. An OPACITY request compresses the alpha channel alone (BC4);
+// a DIFFUSE source that genuinely had alpha (pixels.had_alpha - see decode_png) gets its color alpha
+// forced fully opaque, since the alpha's source of truth is its own separately cooked OPACITY artifact.
+auto pixels_to_processed(DecodedPixels const & pixels, TextureMaterialType type, std::string name) -> ProcessedImage
 {
-    bool const split_opacity = type == TextureMaterialType::DIFFUSE && pixels.had_alpha;
-    CompressionTarget const color_target = compression_target_for(type, pixels.srgb);
+    CompressionTarget const target = compression_target_for(type, pixels.srgb);
     ProcessedImage const mip_chain = generate_mip_chain(pixels);
 
-    ProcessedImageResult ret = {};
-    ret.color = compress_mip_chain(pixels, mip_chain, color_target, /*src_channel_offset=*/0u, /*force_opaque_alpha=*/split_opacity, name);
-    if (split_opacity)
+    if (type == TextureMaterialType::OPACITY)
     {
-        CompressionTarget const opacity_target = compression_target_for(TextureMaterialType::OPACITY, false);
-        ret.opacity = compress_mip_chain(pixels, mip_chain, opacity_target, /*src_channel_offset=*/3u, /*force_opaque_alpha=*/false, name + "_opacity");
+        return compress_mip_chain(pixels, mip_chain, target, /*src_channel_offset=*/3u, /*force_opaque_alpha=*/false, std::move(name));
     }
-    return ret;
+    bool const force_opaque_alpha = type == TextureMaterialType::DIFFUSE && pixels.had_alpha;
+    return compress_mip_chain(pixels, mip_chain, target, /*src_channel_offset=*/0u, force_opaque_alpha, std::move(name));
 }
 
 // KTX2 -> basis transcode to BCn.
@@ -586,7 +583,7 @@ auto ktx_transcode(std::span<std::byte const> ktx2_bytes, TextureMaterialType ty
 }
 
 // Peek a KTX2 container's component count (from its DFD, no image-data load) to detect whether the source
-// genuinely carries alpha, before deciding whether to split off a dedicated opacity artifact - mirrors the
+// genuinely carries alpha, gating whether an OPACITY artifact can be cooked from it - mirrors the
 // PNG path's had_alpha (decode_png). Returns nullopt if the container can't even be opened; the real
 // transcode right after this call will hit and report the same failure.
 auto ktx_source_has_alpha(std::span<std::byte const> ktx2_bytes) -> std::optional<bool>
@@ -607,7 +604,7 @@ auto ktx_source_has_alpha(std::span<std::byte const> ktx2_bytes) -> std::optiona
 }
 } // namespace
 
-auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImageResult>
+auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimizeError, ProcessedImage>
 {
     // Decode/transcode into GPU-ready cooked CPU memory and return it. The PNG decode path box-filters a
     // mip chain and BC-compresses each level; KTX2 already carries BCn + its mips.
@@ -615,31 +612,14 @@ auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimize
     {
         case ImageFileFormat::KTX2:
         {
-            // A DIFFUSE source that genuinely carries basis alpha gets a second, dedicated transcode of just
-            // its alpha channel (OPACITY -> KTX_TTF_BC4_R with KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS,
-            // see ktx_transcode) - a ktxTexture2 can only be transcoded once, so this re-opens the container
-            // from the same source bytes rather than reusing the color transcode's object.
-            bool const split_opacity = info.type == TextureMaterialType::DIFFUSE && ktx_source_has_alpha(info.data).value_or(false);
-
-            auto color_ret = ktx_transcode(info.data, info.type, info.name);
-            if (std::holds_alternative<ImageOptimizeError>(color_ret))
+            // An OPACITY request transcodes just the source's alpha channel (OPACITY -> KTX_TTF_BC4_R with
+            // KTX_TF_TRANSCODE_ALPHA_DATA_TO_OPAQUE_FORMATS, see ktx_transcode) - a source without alpha
+            // cannot produce one.
+            if (info.type == TextureMaterialType::OPACITY && !ktx_source_has_alpha(info.data).value_or(false))
             {
-                return std::get<ImageOptimizeError>(color_ret);
+                return ImageOptimizeError::SOURCE_HAS_NO_ALPHA;
             }
-
-            ProcessedImageResult ret = {};
-            ret.color = std::move(std::get<ProcessedImage>(color_ret));
-            if (split_opacity)
-            {
-                auto opacity_ret = ktx_transcode(info.data, TextureMaterialType::OPACITY, info.name + "_opacity");
-                if (std::holds_alternative<ProcessedImage>(opacity_ret))
-                {
-                    ret.opacity = std::move(std::get<ProcessedImage>(opacity_ret));
-                }
-                // A failed opacity transcode does not fail the whole cook - the color output stays usable and
-                // the material simply renders without a dedicated opacity texture (diffuse.a fallback).
-            }
-            return ret;
+            return ktx_transcode(info.data, info.type, info.name);
         }
         case ImageFileFormat::PNG:
         {
@@ -648,6 +628,10 @@ auto process_image(OptimizeImageInfo const & info) -> std::variant<ImageOptimize
             if (!decoded.has_value())
             {
                 return ImageOptimizeError::FAILED_TO_DECODE_PNG;
+            }
+            if (info.type == TextureMaterialType::OPACITY && !decoded.value().had_alpha)
+            {
+                return ImageOptimizeError::SOURCE_HAS_NO_ALPHA;
             }
             return pixels_to_processed(decoded.value(), info.type, info.name);
         }

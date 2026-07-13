@@ -58,39 +58,23 @@ struct TidoMeshDescriptor
     u32 lod_count = {};
 };
 
+struct TidoMeshStreamerData
+{
+    std::filesystem::path bin_source = {};                                 // the .tido data file to stream from
+    TidoMeshDescriptor descriptor = {};
+    std::array<TidoMeshLodDescriptor, MAX_MESHES_PER_LOD_GROUP> lods = {}; // first descriptor.lod_count valid
+};
+
 // The cooked metadata produced alongside the .tido data file. Persisted into the .tido_cache.
 struct TidoMeshCookResult
 {
-    // Stable per-artifact lookup key (hash of the mesh's source identity). Used as the key of the
-    // .tido_cache index so an importer can find this entry by recomputing the key from the source.
+    // Mesh hash identifying the resulting .tido file.
     u64 cache_key = {};
-    // Per-artifact staleness metadata (persisted in the .tido_cache): the max last-write-time over the
-    // source file(s) at cook time, and the FNV-1a content hash of the raw (unoptimized) source geometry.
-    // On re-import a matching mtime reuses the .tido without reading the source; on a mtime miss a matching
-    // content hash still reuses it (only the stored mtime is refreshed) - only a content change recooks.
     i64 source_modified = {};
     u64 content_hash = {};
-    TidoMeshDescriptor descriptor = {};
-    std::array<TidoMeshLodDescriptor, MAX_MESHES_PER_LOD_GROUP> lods = {}; // first descriptor.lod_count valid
-    std::filesystem::path tido_path = {};                                 // the written .tido data file
-};
 
-struct TidoMeshStreamerData
-{
-    std::filesystem::path bin_source = {};                                // the .tido data file to stream from
-    TidoMeshDescriptor descriptor = {};
-    std::array<TidoMeshLodDescriptor, MAX_MESHES_PER_LOD_GROUP> lods = {}; // first descriptor.lod_count valid
+    TidoMeshStreamerData streamer_data = {};
 };
-
-// Projects a cooked mesh down to the streaming subset carried on the manifest entry.
-inline auto make_mesh_streamer_data(TidoMeshCookResult const & cook) -> TidoMeshStreamerData
-{
-    return TidoMeshStreamerData{
-        .bin_source = cook.tido_path,
-        .descriptor = cook.descriptor,
-        .lods = cook.lods,
-    };
-}
 
 // Writes <cache_dir>/<name>.tido (raw packed per-LOD geometry blobs) from an already-cooked mesh and
 // returns its descriptor + per-LOD blob table. `cache_key` is the mesh's stable source-identity hash

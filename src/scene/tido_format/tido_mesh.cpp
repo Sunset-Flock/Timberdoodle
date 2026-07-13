@@ -16,7 +16,7 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
 
     TidoMeshCookResult result = {};
     result.cache_key = cache_key;
-    result.descriptor.lod_count = processed.lod_count;
+    result.streamer_data.descriptor.lod_count = processed.lod_count;
 
     // Build the .tido payload: one contiguous blob per LOD, the LOD's arrays packed back-to-back in the
     // SAME order make_resident_mesh packs the GPU mesh buffer (so the streamer can memcpy a blob straight
@@ -38,7 +38,7 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
         if (lod_has_uv) { tido_append_array(payload, cooked.vertex_uvs); }
         tido_append_array(payload, cooked.vertex_normals);
 
-        result.lods[lod] = {
+        result.streamer_data.lods[lod] = {
             .blob_offset = blob_offset,
             .blob_byte_size = payload.size() - blob_offset,
             .aabb = cooked.aabb,
@@ -66,6 +66,6 @@ auto write_mesh_tido(ProcessedMesh const & processed, std::filesystem::path cons
     ofs.write(r_cast<char const *>(payload.data()), s_cast<std::streamsize>(payload.size()));
     if (!ofs.good()) { return std::nullopt; }
 
-    result.tido_path = tido_path;
+    result.streamer_data.bin_source = tido_path;
     return result;
 }

@@ -133,12 +133,12 @@ auto read_header(simdjson::ondemand::object & obj, TidoCacheKey & key) -> simdjs
 auto read_texture(simdjson::ondemand::object & obj, TidoTextureCookResult & out) -> simdjson::error_code
 {
     SIMDJSON_TRY(read_hex(obj, "key", out.cache_key));
-    SIMDJSON_TRY(read_u32(obj, "format", out.descriptor.format));
-    SIMDJSON_TRY(read_u32(obj, "width", out.descriptor.width));
-    SIMDJSON_TRY(read_u32(obj, "height", out.descriptor.height));
-    SIMDJSON_TRY(read_u32(obj, "depth", out.descriptor.depth));
-    SIMDJSON_TRY(read_u32(obj, "array_layers", out.descriptor.array_layers));
-    SIMDJSON_TRY(read_u32(obj, "mip_count", out.descriptor.mip_count));
+    SIMDJSON_TRY(read_u32(obj, "format", out.streamer_data.info.format));
+    SIMDJSON_TRY(read_u32(obj, "width", out.streamer_data.info.width));
+    SIMDJSON_TRY(read_u32(obj, "height", out.streamer_data.info.height));
+    SIMDJSON_TRY(read_u32(obj, "depth", out.streamer_data.info.depth));
+    SIMDJSON_TRY(read_u32(obj, "array_layers", out.streamer_data.info.array_layers));
+    SIMDJSON_TRY(read_u32(obj, "mip_count", out.streamer_data.info.mip_count));
 
     simdjson::ondemand::array subresources;
     SIMDJSON_TRY(obj["subresources"].get_array().get(subresources));
@@ -149,10 +149,10 @@ auto read_texture(simdjson::ondemand::object & obj, TidoTextureCookResult & out)
         TidoSubresourceEntry entry = {};
         SIMDJSON_TRY(read_dec(sub, "offset", entry.offset));
         SIMDJSON_TRY(read_u32(sub, "byte_size", entry.byte_size));
-        out.subresources.push_back(entry);
+        out.streamer_data.subresources.push_back(entry);
     }
 
-    SIMDJSON_TRY(read_path(obj, "path", out.tido_path));
+    SIMDJSON_TRY(read_path(obj, "path", out.streamer_data.bin_source));
     SIMDJSON_TRY(read_dec(obj, "source_modified", out.source_modified));
     SIMDJSON_TRY(read_hex(obj, "content_hash", out.content_hash));
     return simdjson::SUCCESS;
@@ -167,10 +167,10 @@ auto read_mesh(simdjson::ondemand::object & obj, TidoMeshCookResult & out) -> si
     u32 lod_count = 0;
     for (auto element : lods)
     {
-        if (lod_count >= out.lods.size()) { return simdjson::INCORRECT_TYPE; } // more LODs than slots
+        if (lod_count >= out.streamer_data.lods.size()) { return simdjson::INCORRECT_TYPE; } // more LODs than slots
         simdjson::ondemand::object lod;
         SIMDJSON_TRY(element.get_object().get(lod));
-        TidoMeshLodDescriptor & desc = out.lods[lod_count];
+        TidoMeshLodDescriptor & desc = out.streamer_data.lods[lod_count];
         SIMDJSON_TRY(read_dec(lod, "blob_offset", desc.blob_offset));
         SIMDJSON_TRY(read_dec(lod, "blob_byte_size", desc.blob_byte_size));
 
@@ -197,9 +197,9 @@ auto read_mesh(simdjson::ondemand::object & obj, TidoMeshCookResult & out) -> si
         SIMDJSON_TRY(read_u32(lod, "has_uv", desc.has_uv));
         ++lod_count;
     }
-    out.descriptor.lod_count = lod_count;
+    out.streamer_data.descriptor.lod_count = lod_count;
 
-    SIMDJSON_TRY(read_path(obj, "path", out.tido_path));
+    SIMDJSON_TRY(read_path(obj, "path", out.streamer_data.bin_source));
     SIMDJSON_TRY(read_dec(obj, "source_modified", out.source_modified));
     SIMDJSON_TRY(read_hex(obj, "content_hash", out.content_hash));
     return simdjson::SUCCESS;
@@ -240,7 +240,7 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoCacheHeader const & h
 template <typename builder_type>
 void tag_invoke(serialize_tag, builder_type & builder, TidoTextureCookResult const & texture)
 {
-    TidoTextureDescriptor const & descriptor = texture.descriptor;
+    TidoTextureDescriptor const & descriptor = texture.streamer_data.info;
     builder.start_object();
     builder.append_key_value("kind", std::string_view("texture"));
     builder.append_comma();
@@ -261,10 +261,10 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoTextureCookResult con
     builder.escape_and_append_with_quotes("subresources");
     builder.append_colon();
     builder.start_array();
-    for (usize i = 0; i < texture.subresources.size(); ++i)
+    for (usize i = 0; i < texture.streamer_data.subresources.size(); ++i)
     {
         if (i != 0) { builder.append_comma(); }
-        TidoSubresourceEntry const & subresource = texture.subresources[i];
+        TidoSubresourceEntry const & subresource = texture.streamer_data.subresources[i];
         builder.start_object();
         builder.append_key_value("offset", dec_u64(subresource.offset));
         builder.append_comma();
@@ -273,7 +273,7 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoTextureCookResult con
     }
     builder.end_array();
     builder.append_comma();
-    builder.append_key_value("path", texture.tido_path.generic_string());
+    builder.append_key_value("path", texture.streamer_data.bin_source.generic_string());
     builder.append_comma();
     builder.append_key_value("source_modified", dec_i64(texture.source_modified));
     builder.append_comma();
@@ -292,10 +292,10 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoMeshCookResult const 
     builder.escape_and_append_with_quotes("lods");
     builder.append_colon();
     builder.start_array();
-    for (u32 lod = 0; lod < mesh.descriptor.lod_count; ++lod)
+    for (u32 lod = 0; lod < mesh.streamer_data.descriptor.lod_count; ++lod)
     {
         if (lod != 0) { builder.append_comma(); }
-        TidoMeshLodDescriptor const & desc = mesh.lods[lod];
+        TidoMeshLodDescriptor const & desc = mesh.streamer_data.lods[lod];
         builder.start_object();
         builder.append_key_value("blob_offset", dec_u64(desc.blob_offset));
         builder.append_comma();
@@ -342,7 +342,7 @@ void tag_invoke(serialize_tag, builder_type & builder, TidoMeshCookResult const 
     }
     builder.end_array();
     builder.append_comma();
-    builder.append_key_value("path", mesh.tido_path.generic_string());
+    builder.append_key_value("path", mesh.streamer_data.bin_source.generic_string());
     builder.append_comma();
     builder.append_key_value("source_modified", dec_i64(mesh.source_modified));
     builder.append_comma();

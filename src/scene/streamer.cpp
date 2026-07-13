@@ -4,6 +4,13 @@
 #include <fstream>
 #include <vector>
 
+void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+{
+    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
+    result = make_resident_image(device, artifact);
+    finished.store(true, std::memory_order_release);
+}
+
 auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & artifact) -> daxa::ImageId
 {
     TidoTextureDescriptor const & desc = artifact.info;
@@ -93,6 +100,18 @@ auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & 
     device.collect_garbage();
 
     return image;
+}
+
+void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
+{
+    // Read the cooked .tido off disk and upload it to the GPU (streamer).
+    result = make_resident_mesh(device, MakeResidentMeshInfo{
+        .artifact = artifact,
+        .mesh_lod_manifest_index = mesh_lod_manifest_index,
+        .material_manifest_index = material_manifest_index,
+        .name = name,
+    });
+    finished.store(true, std::memory_order_release);
 }
 
 auto make_resident_mesh(daxa::Device & device, MakeResidentMeshInfo const & info) -> MeshLodGroupUploadInfo

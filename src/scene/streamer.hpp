@@ -6,10 +6,45 @@
 #include <daxa/daxa.hpp>
 
 #include "../timberdoodle.hpp"
+
+#include "../multithreading/thread_pool.hpp"
+
 #include "../shader_shared/geometry.inl"
 #include "tido_format/tido_texture.hpp"
 #include "tido_format/tido_mesh.hpp"
 using namespace tido::types;
+
+struct TextureStreamTask : Task
+{
+    daxa::Device device = {};
+    // Copied (not referenced) so it stays valid if _texture_manifest reallocates mid-stream.
+    TidoTextureStreamerData artifact = {};
+    u32 texture_manifest_index = {};
+    daxa::ImageId result = {};
+    std::atomic<bool> finished = false;
+
+    void callback(u32 chunk_index, u32 thread_index) override;
+};
+
+struct MeshLodGroupUploadInfo
+{
+    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
+    u32 lod_count = {};
+    u32 mesh_lod_manifest_index = {};
+};
+struct MeshStreamTask : Task
+{
+    daxa::Device device = {};
+    // Copied (not referenced) so it stays valid if _mesh_lod_group_manifest reallocates mid-stream.
+    TidoMeshStreamerData artifact = {};
+    u32 mesh_lod_manifest_index = {};
+    u32 material_manifest_index = {};
+    std::string name = {};
+    MeshLodGroupUploadInfo result = {};
+    std::atomic<bool> finished = false;
+
+    void callback(u32 chunk_index, u32 thread_index) override;
+};
 
 /// --- Streamer ---
 /// Makes cooked artifacts resident on the GPU. Both textures and meshes are streamed in from their
@@ -19,16 +54,6 @@ using namespace tido::types;
 // Creates a resident daxa image described by the streamer data and uploads its texel data, read back
 // from the .tido file on disk. Reads every subresource (full residency for now).
 auto make_resident_image(daxa::Device & device, TidoTextureStreamerData const & artifact) -> daxa::ImageId;
-
-// The GPU-resident result of a cooked mesh: the per-LOD GPUMesh array (each packed into its own BDA
-// buffer) plus the manifest slot it belongs to. Consumed by SceneRuntime::update, which
-// copies it into the GPU mesh manifest and tracks mesh-group completeness.
-struct MeshLodGroupUploadInfo
-{
-    std::array<GPUMesh, MAX_MESHES_PER_LOD_GROUP> lods = {};
-    u32 lod_count = {};
-    u32 mesh_lod_manifest_index = {};
-};
 
 struct MakeResidentMeshInfo
 {

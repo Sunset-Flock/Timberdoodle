@@ -1,5 +1,6 @@
 #pragma once
 
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <variant>
@@ -13,9 +14,9 @@ using namespace tido::types;
 
 /// --- Importer task results ---
 /// What an importer hands back to SceneRuntime instead of touching the Scene directly. An Import-scene
-/// task (parse) emits a SceneMetadataBatch; an Import-asset task (cook) emits a CookedAsset.
-/// SceneRuntime drains a thread-safe queue of these each frame and applies them to the Scene's
-/// manifests on the main thread - the only place the Scene is ever written.
+/// task (parse) emits a SceneMetadataBatch; an Import-asset task (cook) emits a CookedAsset; a failed
+/// task emits an Error. SceneRuntime drains a thread-safe queue of these each frame and applies them to
+/// the Scene's manifests on the main thread - the only place the Scene is ever written.
 struct ImporterTaskResult
 {
     struct SceneMetadataBatch
@@ -101,5 +102,20 @@ struct ImporterTaskResult
         u32 manifest_index = {};
     };
 
-    std::variant<SceneMetadataBatch, CookedAsset> data = {};
+    // Generic failure scaffolding: which task kind failed for which source, with a log-friendly reason.
+    // A proper error taxonomy (specific codes + recovery) is a later pass; SceneRuntime only logs these
+    // and clears its pending-import state for a failed ImportScene.
+    struct Error
+    {
+        enum struct TaskKind
+        {
+            IMPORT_SCENE,
+            IMPORT_ASSET,
+        };
+        TaskKind kind = {};
+        std::filesystem::path source = {};
+        std::string message = {};
+    };
+
+    std::variant<SceneMetadataBatch, CookedAsset, Error> data = {};
 };

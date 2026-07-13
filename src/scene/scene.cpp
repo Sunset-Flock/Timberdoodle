@@ -184,13 +184,6 @@ auto Scene::Locked::set_texture_streamer_data(u32 texture_manifest_index, TidoTe
     _scene._dirty_texture_indices.push_back(texture_manifest_index);
 }
 
-void TextureStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
-{
-    // Read the cooked .tido off disk and upload it to the GPU (streamer). Runs on a worker thread.
-    result = make_resident_image(device, artifact);
-    finished.store(true, std::memory_order_release);
-}
-
 auto Scene::Locked::add_material(MaterialManifestEntry material) -> u32
 {
     DBG_ASSERT_TRUE_M(_scene._material_manifest.size() < MAX_MATERIALS, "Exceeded MAX_MATERIALS");
@@ -233,8 +226,6 @@ auto Scene::Locked::set_mesh_streamer_data(u32 mesh_manifest_index, TidoMeshStre
 
 auto Scene::Locked::add_mesh_group(std::span<u32 const> mesh_manifest_indices, std::string_view name) -> u32
 {
-    DBG_ASSERT_TRUE_M(mesh_manifest_indices.size() <= MAX_MESHES_PER_LOD_GROUP, "Exceeded MAX_MESHES_PER_LOD_GROUP");
-
     MeshGroupManifestEntry mesh_group = {};
     mesh_group.name = std::string{name};
     u32 const group_index = s_cast<u32>(_scene._mesh_group_manifest.size());
@@ -263,18 +254,6 @@ auto Scene::Locked::add_mesh_group(std::span<u32 const> mesh_manifest_indices, s
     _scene._mesh_group_manifest.push_back(std::move(mesh_group));
     _scene._dirty_mesh_group_indices.push_back(group_index);
     return group_index;
-}
-
-void MeshStreamTask::callback([[maybe_unused]] u32 chunk_index, [[maybe_unused]] u32 thread_index)
-{
-    // Read the cooked .tido off disk and upload it to the GPU (streamer).
-    result = make_resident_mesh(device, MakeResidentMeshInfo{
-        .artifact = artifact,
-        .mesh_lod_manifest_index = mesh_lod_manifest_index,
-        .material_manifest_index = material_manifest_index,
-        .name = name,
-    });
-    finished.store(true, std::memory_order_release);
 }
 
 auto Scene::Locked::add_point_light(PointLight light) -> u32

@@ -1,7 +1,6 @@
 #include "application.hpp"
 #include "json_utils/camera_animation.hpp"
 #include "json_utils/sky_settings.hpp"
-#include "scene/importers/gltf_importer.hpp"
 #include <fmt/core.h>
 #include <fmt/format.h>
 
@@ -54,7 +53,8 @@ Application::Application()
     _window = std::make_unique<Window>(1024, 1024, "Timberdoodle");
     _gpu_context = std::make_unique<GPUContext>(*_window);
     _asset_manager = std::make_unique<AssetProcessor>(_gpu_context->device);
-    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _asset_manager);
+    _importer = std::make_unique<Importer>(_threadpool.get());
+    _scene_runtime = std::make_unique<SceneRuntime>(_gpu_context->device, _gpu_context.get(), _threadpool, _asset_manager, _importer.get());
     _ui_engine = std::make_unique<UIEngine>(*_window, *_asset_manager, _gpu_context.get());
 
     _renderer = std::make_unique<Renderer>(_window.get(), _gpu_context.get(), _scene_runtime->scene_ptr(), _asset_manager.get(), &_ui_engine->imgui_renderer, _ui_engine.get());
@@ -181,7 +181,13 @@ auto Application::run() -> i32
 
 void Application::update()
 {
-    _scene_runtime->poll(app_state.desired_scene_path);
+    if (!app_state.desired_scene_path.empty())
+    {
+        _scene_runtime->request_import(app_state.desired_scene_path);
+        app_state.desired_scene_path.clear();
+    }
+
+    _scene_runtime->poll();
 
     // ===== Process Render Entities, Generate Mesh Instances =====
 
@@ -284,6 +290,10 @@ void Application::update()
 
 Application::~Application()
 {
+    // Stop the importer orchestration thread first: still-queued tasks are dropped and nothing new is
+    // dispatched into the pool; the pool reset below then joins the in-flight parse/cook/cache-write
+    // tasks (which push into the still-alive Importer).
+    _importer->stop();
     _threadpool.reset();
     auto asset_data_upload_info = _asset_manager->collect_loaded_resources();
     // Thread pool is gone here: update won't spawn new texture streams, just flushes GPU updates.

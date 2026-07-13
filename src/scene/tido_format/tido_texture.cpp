@@ -140,7 +140,7 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
 
     TidoTextureCookResult result = {};
     result.cache_key = cache_key;
-    result.descriptor = {
+    result.streamer_data.info = {
         .format = s_cast<u32>(image_info.format),
         .width = width,
         .height = height,
@@ -148,7 +148,7 @@ auto write_texture_tido(ProcessedImage const & processed, std::filesystem::path 
         .array_layers = array_layers,
         .mip_count = mip_count,
     };
-    result.subresources = std::move(subresources);
-    result.tido_path = tido_path;
+    result.streamer_data.subresources = std::move(subresources);
+    result.streamer_data.bin_source = tido_path;
     return result;
 }

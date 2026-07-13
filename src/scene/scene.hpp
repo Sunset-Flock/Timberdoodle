@@ -12,7 +12,6 @@
 #include "../shader_shared/geometry_pipeline.inl"
 #include "../shader_shared/scene.inl"
 #include "../slot_map.hpp"
-#include "../multithreading/thread_pool.hpp"
 #include "asset_processor.hpp"
 #include "tido_format/tido_texture.hpp"
 #include "streamer.hpp"
@@ -175,40 +174,6 @@ struct CloudVolume
     u32 detail_noise_texture_manifest_index = {};
 };
 
-// An async texture residency job. SceneRuntime::update spawns one per newly dirtied texture: on a worker
-// thread it reads the cooked .tido off disk and uploads it to the GPU (the streamer). SceneRuntime::update
-// polls `finished` each frame; once set it publishes `result` as the texture's runtime image and
-// re-marks the materials referencing that texture dirty so their GPUMaterial gets the resolved id.
-struct TextureStreamTask : Task
-{
-    daxa::Device device = {};
-    // Copied (not referenced) so it stays valid if _texture_manifest reallocates mid-stream.
-    TidoTextureStreamerData artifact = {};
-    u32 texture_manifest_index = {};
-    daxa::ImageId result = {};
-    std::atomic<bool> finished = false;
-
-    void callback(u32 chunk_index, u32 thread_index) override;
-};
-
-// An async mesh residency job. SceneRuntime::update spawns one per newly requested mesh: on a worker thread it
-// reads the cooked .tido off disk and uploads each LOD into its per-LOD GPU buffer (the streamer).
-// SceneRuntime::update polls `finished` each frame; once set it publishes `result` as the mesh's runtime and
-// marks the mesh-lod-group manifest dirty so the GPU sync uploads it + does the BLAS / mesh-group
-// completeness bookkeeping. Mirrors TextureStreamTask.
-struct MeshStreamTask : Task
-{
-    daxa::Device device = {};
-    // Copied (not referenced) so it stays valid if _mesh_lod_group_manifest reallocates mid-stream.
-    TidoMeshStreamerData artifact = {};
-    u32 mesh_lod_manifest_index = {};
-    u32 material_manifest_index = {};
-    std::string name = {};
-    MeshLodGroupUploadInfo result = {};
-    std::atomic<bool> finished = false;
-
-    void callback(u32 chunk_index, u32 thread_index) override;
-};
 
 struct RenderEntity;
 using RenderEntityId = tido::SlotMap<RenderEntity>::Id;
